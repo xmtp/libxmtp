@@ -6,6 +6,7 @@ use futures::StreamExt;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use tracing::instrument;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
@@ -26,6 +27,25 @@ impl DisappearingMessagesCleanerError {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Client(s) => s.db_needs_connection(),
         }
+    }
+}
+
+impl<ApiClient, V> Client<ApiClient, V>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+{
+    #[instrument(level = "trace", skip_all)]
+    pub fn start_disappearing_messages_cleaner_worker(&self) {
+        let client = self.clone();
+        tracing::trace!(
+            inbox_id = client.inbox_id(),
+            installation_id = hex::encode(client.installation_public_key()),
+            "starting expired messages cleaner worker"
+        );
+
+        let worker = DisappearingMessagesCleanerWorker::new(client);
+        worker.spawn_worker();
     }
 }
 
@@ -65,19 +85,6 @@ where
                 }
             }
         });
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    pub fn start_disappearing_messages_cleaner_worker(&self) {
-        let client = self.clone();
-        tracing::trace!(
-            inbox_id = client.inbox_id(),
-            installation_id = hex::encode(client.installation_public_key()),
-            "starting expired messages cleaner worker"
-        );
-
-        let worker = DisappearingMessagesCleanerWorker::new(client);
-        worker.spawn_worker();
     }
 }
 

@@ -341,8 +341,8 @@ where
         self.context.mls_provider()
     }
 
-    pub fn history_sync_url(&self) -> Option<&String> {
-        self.history_sync_url.as_ref()
+    pub fn device_sync_server_url(&self) -> Option<&String> {
+        self.device_sync_server_url.as_ref()
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
@@ -441,7 +441,7 @@ where
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
-        if self.history_sync_url.is_some() && !changed_records.is_empty() {
+        if self.device_sync_server_url.is_some() && !changed_records.is_empty() {
             let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)

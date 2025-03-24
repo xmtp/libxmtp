@@ -44,9 +44,11 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_consent_sync() {
-        let history_sync_url = format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
+        let device_sync_server_url =
+            format!("http://{}:{}", HISTORY_SERVER_HOST, HISTORY_SERVER_PORT);
         let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
+        let amal_a =
+            ClientBuilder::new_test_client_with_history(&wallet, &device_sync_server_url).await;
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
         let amal_a_worker = amal_a.sync_worker_handle().unwrap();
@@ -66,7 +68,8 @@ pub(crate) mod tests {
         assert_eq!(syncable_consent_records.len(), 1);
 
         // Create a second installation for amal with sync.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, &history_sync_url).await;
+        let amal_b =
+            ClientBuilder::new_test_client_with_history(&wallet, &device_sync_server_url).await;
 
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();

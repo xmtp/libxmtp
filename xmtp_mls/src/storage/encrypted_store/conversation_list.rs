@@ -73,6 +73,7 @@ impl DbConnection {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
+            ..
         } = args.as_ref();
         let mut query = conversation_list
             .select(conversation_list::all_columns())
@@ -84,7 +85,7 @@ impl DbConnection {
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id FROM (
-                        SELECT id, 
+                        SELECT id,
                             ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
                         FROM groups
                     ) AS ranked_groups

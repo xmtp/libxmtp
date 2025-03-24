@@ -54,7 +54,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
         .unwrap();
 
     if history_sync {
-        client = client.history_sync_url(HISTORY_SYNC_URL);
+        client = client.device_sync_server_url(HISTORY_SYNC_URL);
     }
     let client = client.build().await.unwrap();
 

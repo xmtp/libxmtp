@@ -58,6 +58,7 @@ pub struct ClientBuilder<ApiClient, V> {
     device_sync_worker_mode: SyncWorkerMode,
 }
 
+#[derive(Clone)]
 pub enum SyncWorkerMode {
     Disabled,
     Enabled,

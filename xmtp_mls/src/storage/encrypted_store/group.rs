@@ -245,11 +245,15 @@ impl DbConnection {
         if let Some(activity_after_ns) = activity_after_ns {
             // "Activity after" means groups that were either created,
             // or have sent a message after the specified time.
-            query = query.filter(
-                groups_dsl::last_message_ns
-                    .gt(activity_after_ns)
-                    .or(groups_dsl::created_at_ns.gt(created_after_ns)),
-            )
+            if let Some(created_after_ns) = created_after_ns {
+                query = query.filter(
+                    groups_dsl::last_message_ns
+                        .gt(activity_after_ns)
+                        .or(groups_dsl::created_at_ns.gt(created_after_ns)),
+                );
+            } else {
+                query = query.filter(groups_dsl::last_message_ns.gt(activity_after_ns));
+            }
         } else if let Some(created_after_ns) = created_after_ns {
             query = query.filter(groups_dsl::created_at_ns.gt(created_after_ns));
         }

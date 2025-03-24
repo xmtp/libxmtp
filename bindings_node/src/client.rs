@@ -124,7 +124,7 @@ pub async fn create_client(
   inbox_id: String,
   account_identifier: Identifier,
   encryption_key: Option<Uint8Array>,
-  history_sync_url: Option<String>,
+  device_sync_server_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
@@ -161,7 +161,7 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match history_sync_url {
+  let xmtp_client = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()

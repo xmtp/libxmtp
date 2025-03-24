@@ -118,7 +118,7 @@ pub async fn create_client(
     account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
-    history_sync_url: Option<String>,
+    device_sync_server_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -157,7 +157,7 @@ pub async fn create_client(
         .with_remote_verifier()?
         .store(store);
 
-    if let Some(url) = &history_sync_url {
+    if let Some(url) = &device_sync_server_url {
         builder = builder.device_sync_url(url);
     }
 
@@ -2931,19 +2931,22 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_device_sync_server_url(wallet, None).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_device_sync_server_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
     }
 
-    async fn new_test_client_with_wallet_and_history_sync_url(
+    async fn new_test_client_with_wallet_and_device_sync_server_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
-        history_sync_url: Option<String>,
+        device_sync_server_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -2960,7 +2963,7 @@ mod tests {
             ident,
             nonce,
             None,
-            history_sync_url,
+            device_sync_server_url,
         )
         .await
         .unwrap();
@@ -2974,7 +2977,7 @@ mod tests {
 
     async fn new_test_client_no_panic(
         wallet: xmtp_cryptography::utils::LocalWallet,
-        history_sync_url: Option<String>,
+        device_sync_server_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -2991,7 +2994,7 @@ mod tests {
             ident,
             nonce,
             None,
-            history_sync_url,
+            device_sync_server_url,
         )
         .await?;
 
@@ -3150,8 +3153,11 @@ mod tests {
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_device_sync_server_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
     }
 
     impl FfiConversation {

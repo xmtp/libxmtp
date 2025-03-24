@@ -2,10 +2,9 @@ use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::{
     client::ClientError,
-    configuration::NS_IN_HOUR,
     storage::{
-        group::{ConversationType, GroupQueryArgs},
-        group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        group::GroupQueryArgs,
+        group_message::{MsgQueryArgs, StoredGroupMessage},
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         DbConnection, NotFound, StorageError,
     },
@@ -13,31 +12,23 @@ use crate::{
     Client, Store,
 };
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm,
-};
 use backup::BackupImporter;
 #[cfg(not(target_arch = "wasm32"))]
 use backup::{backup_exporter::BackupExporter, BackupError};
 use futures::{future::join_all, Stream, StreamExt};
-use futures_util::StreamExt;
+// use futures_util::StreamExt;
 use handle::{SyncWorkerMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
-use rand::{Rng, RngCore};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::io::{ReaderStream, StreamReader};
-use tracing::{instrument, warn};
+use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
-use xmtp_common::{
-    time::{now_ns, Duration},
-    ExponentialBackoff,
-};
+use xmtp_common::{time::Duration, ExponentialBackoff};
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -166,6 +157,7 @@ where
         let provider = self.mls_provider()?;
         let groups = self.find_groups(GroupQueryArgs::default())?;
 
+        // Add the new installation to groups in batches
         for chunk in groups.chunks(20) {
             let mut add_futs = vec![];
             for group in chunk {
@@ -297,10 +289,10 @@ where
                 "Initializing device sync... url: {:?}",
                 client.device_sync.server_url
             );
-            if client.get_sync_group(provider.conn_ref()).is_err() {
-                // The only thing that sync init really does right now is ensures that there's a sync group.
-                client.ensure_sync_group(&provider).await?;
-            }
+
+            // The only thing that sync init really does right now is ensures that there's a sync group.
+            client.ensure_sync_group(&provider).await?;
+
             tracing::info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
@@ -370,7 +362,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group = match self.get_sync_group(provider.conn_ref()) {
+        let sync_group = match self.get_sync_group(provider) {
             Ok(group) => group,
             Err(_) => self.create_sync_group(provider).await?,
         };
@@ -412,10 +404,13 @@ where
 
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
-        let acknowledgement = messages
-            .into_iter()
-            .find(|m| m.decrypted_message_bytes.is_empty());
-        let Some(acknowledgement) = acknowledgement else {
+        let acknowledgement = messages.iter_with_content().find(|(_msg, content)| {
+            matches!(
+                content,
+                DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence)
+            )
+        });
+        let Some((acknowledgement, _content)) = acknowledgement else {
             // Send an acknowledgement if there is none.
             self.send_device_sync_message(
                 provider,
@@ -508,7 +503,7 @@ where
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
+        let sync_group = self.get_sync_group(provider)?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -554,7 +549,7 @@ where
             return Ok(());
         };
 
-        let Some(history_sync_url) = &self.device_sync.server_url else {
+        let Some(device_sync_server_url) = &self.device_sync.server_url else {
             tracing::info!(
                 "{LOG_PREFIX}Unable to process sync request due to not having a sync server url present."
             );
@@ -579,7 +574,7 @@ where
         // 4. Pipe that stream as the body to the request to the history server
         let body = reqwest::Body::wrap_stream(stream);
         // 5. Make the request
-        let url = format!("{history_sync_url}/upload");
+        let url = format!("{device_sync_server_url}/upload");
         tracing::info!("{LOG_PREFIX}Uploading sync payload to history server...");
         let response = reqwest::Client::new().post(url).body(body).send().await?;
         tracing::info!("{LOG_PREFIX}Done uploading sync payload to history server.");
@@ -598,7 +593,7 @@ where
         let reply = DeviceSyncReplyProto {
             key,
             request_id: request.request_id,
-            url: format!("{history_sync_url}/files/{}", response.text().await?),
+            url: format!("{device_sync_server_url}/files/{}", response.text().await?),
             metadata: Some(metadata),
             ..Default::default()
         };
