@@ -1,5 +1,5 @@
 use crate::builder::SyncWorkerMode;
-use crate::groups::device_sync::handle::{SyncWorkerMetric, WorkerHandle};
+use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
@@ -158,7 +158,7 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncWorkerMetric>>>>>,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
     pub(crate) mode: SyncWorkerMode,
 }
 

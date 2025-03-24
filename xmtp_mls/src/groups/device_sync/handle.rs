@@ -18,9 +18,11 @@ where
 }
 
 #[derive(PartialEq, Eq, Hash)]
-pub enum SyncWorkerMetric {
+pub enum SyncMetric {
     SyncGroupWelcomesProcessed,
     SyncRequestsReceived,
+    SyncResponsesSent,
+    SyncRepliesProcessed,
 }
 
 impl<Metric> WorkerHandle<Metric>
