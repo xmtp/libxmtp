@@ -7792,11 +7792,6 @@ mod tests {
         let client_bo = new_test_client_with_wallet(wallet_bo).await;
         let client_alix = new_test_client_with_wallet(wallet_alix).await;
 
-        let bo_provider = client_bo.inner_client.mls_provider().unwrap();
-        let bo_conn = bo_provider.conn_ref();
-        let alix_provider = client_alix.inner_client.mls_provider().unwrap();
-        let alix_conn = alix_provider.conn_ref();
-
         // Find or create DM conversations
         let convo_bo = client_bo
             .conversations()
@@ -7820,8 +7815,8 @@ mod tests {
             .await
             .unwrap();
 
-        let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
-        let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
-        assert_eq!(group_bo.id, group_alix.id, "Conversations should match");
+        let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
+        let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
+        assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
     }
 }
