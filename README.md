@@ -31,6 +31,7 @@ Start Docker Desktop.
   ```
   dev/test
   ```
+
 - To run WebAssembly tests headless:
   ```
   dev/test-wasm
@@ -104,3 +105,7 @@ buffers
 - **Run one specific benchmark** ./dev/bench add_1_member_to_group
 - **Generate flamegraph from one benchmark** ./dev/flamegraph
   add_1_member_to_group
+
+## Contributing
+
+See our [contribution guide](./CONTRIBUTING.md) to learn more about contributing to this project.

@@ -13,8 +13,6 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
-    #[builder(setter(into))]
-    originator_node_ids: Vec<u32>,
 }
 
 impl QueryEnvelope {
@@ -38,7 +36,7 @@ impl Endpoint for QueryEnvelope {
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
-                originator_node_ids: self.originator_node_ids.clone(),
+                originator_node_ids: vec![],
                 last_seen: None,
             }),
             limit: 0,

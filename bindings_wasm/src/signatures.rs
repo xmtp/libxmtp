@@ -46,6 +46,7 @@ pub enum SignatureRequestType {
   CreateInbox,
   RevokeWallet,
   RevokeInstallations,
+  ChangeRecoveryIdentifier,
 }
 
 #[wasm_bindgen]
@@ -151,6 +152,26 @@ impl Client {
     self
       .signature_requests
       .insert(SignatureRequestType::RevokeInstallations, signature_request);
+
+    Ok(signature_text)
+  }
+
+  #[wasm_bindgen(js_name = changeRecoveryIdentifierSignatureText)]
+  pub async fn change_recovery_identifier_signature_text(
+    &mut self,
+    new_recovery_identifier: Identifier,
+  ) -> Result<String, JsError> {
+    let signature_request = self
+      .inner_client()
+      .change_recovery_identifier(new_recovery_identifier.try_into()?)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let signature_text = signature_request.signature_text();
+
+    self.signature_requests.insert(
+      SignatureRequestType::ChangeRecoveryIdentifier,
+      signature_request,
+    );
 
     Ok(signature_text)
   }

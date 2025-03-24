@@ -1,8 +1,9 @@
 use crate::types::TopicKind;
 use crate::xmtp::mls::api::v1::KeyPackageUpload;
 use crate::xmtp::xmtpv4::envelopes::{
-    ClientEnvelope, OriginatorEnvelope, UnsignedOriginatorEnvelope,
+    ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
+use crate::ConversionError;
 use openmls::key_packages::KeyPackageIn;
 use openmls::prelude::tls_codec::Deserialize;
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, ProtocolVersion};
@@ -10,6 +11,28 @@ use openmls_rust_crypto::RustCrypto;
 use prost::Message;
 
 pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
+
+pub trait Extract {
+    fn client_envelope(&self) -> Result<ClientEnvelope, ConversionError>;
+    fn unsigned_originator_envelope(&self) -> Result<UnsignedOriginatorEnvelope, ConversionError>;
+}
+
+impl Extract for OriginatorEnvelope {
+    fn client_envelope(&self) -> Result<ClientEnvelope, ConversionError> {
+        let unsigned = self.unsigned_originator_envelope()?;
+        let payer_envelope: PayerEnvelope =
+            prost::Message::decode(unsigned.payer_envelope_bytes.as_slice())?;
+        // TODO: Verify payer envelope
+        Ok(ClientEnvelope::decode(
+            &mut payer_envelope.unsigned_client_envelope.as_slice(),
+        )?)
+    }
+
+    fn unsigned_originator_envelope(&self) -> Result<UnsignedOriginatorEnvelope, ConversionError> {
+        let mut unsigned_bytes = self.unsigned_originator_envelope.as_slice();
+        Ok(UnsignedOriginatorEnvelope::decode(&mut unsigned_bytes)?)
+    }
+}
 
 pub fn build_key_package_topic(installation_id: &[u8]) -> Vec<u8> {
     let mut topic = Vec::with_capacity(1 + installation_id.len());
@@ -51,20 +74,6 @@ pub fn extract_unsigned_originator_envelope(
 ) -> Result<UnsignedOriginatorEnvelope, crate::ProtoError> {
     let mut unsigned_bytes = req.unsigned_originator_envelope.as_slice();
     Ok(UnsignedOriginatorEnvelope::decode(&mut unsigned_bytes)?)
-}
-
-pub fn extract_client_envelope(
-    _req: &OriginatorEnvelope,
-) -> Result<ClientEnvelope, crate::ProtoError> {
-    // temporary block until this function is updated to handle payer_envelope_bytes
-    Err(crate::ProtoError::NotFound("payer envelope".into()))
-
-    // let unsigned_originator = extract_unsigned_originator_envelope(req)?;
-    // let payer_envelope = unsigned_originator
-    // .payer_envelope
-    // .ok_or(crate::ProtoError::NotFound("payer envelope".into()))?;
-    // let mut payer_bytes = payer_envelope.unsigned_client_envelope.as_slice();
-    // Ok(ClientEnvelope::decode(&mut payer_bytes)?)
 }
 
 pub fn get_group_message_topic(message: Vec<u8>) -> Result<Vec<u8>, crate::ProtoError> {

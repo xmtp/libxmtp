@@ -15,7 +15,7 @@ use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::v4_utils::{
     build_group_message_topic, build_identity_topic_from_hex_encoded, build_key_package_topic,
-    build_welcome_message_topic, extract_client_envelope, extract_unsigned_originator_envelope,
+    build_welcome_message_topic, Extract,
 };
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
     IdentityUpdateLog, Response,
@@ -196,49 +196,17 @@ where
         &self,
         request: mls_v1::QueryGroupMessagesRequest,
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
-        let query_envelopes = EnvelopesQuery {
-            topics: vec![build_group_message_topic(request.group_id.as_slice())],
-            originator_node_ids: Vec::new(), // todo: set later
-            last_seen: None,                 // todo: set later
-        };
-
-        let response_envelopes: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(build_group_message_topic(request.group_id.as_slice()))
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let messages = response_envelopes
+        let messages = response
             .envelopes
             .into_iter()
-            .filter_map(|envelope| {
-                let unsigned_originator_envelope =
-                    extract_unsigned_originator_envelope(&envelope).ok()?;
-                let client_envelope = extract_client_envelope(&envelope).ok()?;
-                let payload = client_envelope.payload?;
-
-                if let Payload::GroupMessage(group_message) = payload {
-                    if let Some(mls_v1::group_message_input::Version::V1(v1_group_message)) =
-                        group_message.version
-                    {
-                        return Some(mls_v1::GroupMessage {
-                            version: Some(mls_v1::group_message::Version::V1(
-                                mls_v1::group_message::V1 {
-                                    id: unsigned_originator_envelope.originator_sequence_id,
-                                    created_ns: unsigned_originator_envelope.originator_ns as u64,
-                                    group_id: request.group_id.clone(),
-                                    data: v1_group_message.data,
-                                    sender_hmac: v1_group_message.sender_hmac,
-                                    should_push: v1_group_message.should_push,
-                                },
-                            )),
-                        });
-                    }
-                }
-
-                None
-            })
-            .collect::<Vec<_>>();
+            .map(mls_v1::GroupMessage::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(mls_v1::QueryGroupMessagesResponse {
             messages,
@@ -250,50 +218,19 @@ where
         &self,
         request: mls_v1::QueryWelcomeMessagesRequest,
     ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
-        let query = EnvelopesQuery {
-            topics: vec![build_welcome_message_topic(
+        let response = QueryEnvelope::builder()
+            .topic(build_welcome_message_topic(
                 request.installation_key.as_slice(),
-            )],
-            originator_node_ids: vec![], // todo: set later
-            last_seen: None,             // todo: set later
-        };
-
-        let response_envelopes = QueryEnvelopes::builder()
-            .envelopes(query)
+            ))
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let messages = response_envelopes
+        let messages = response
             .envelopes
             .into_iter()
-            .filter_map(|envelope| {
-                let unsigned_originator_envelope =
-                    extract_unsigned_originator_envelope(&envelope).ok()?;
-                let client_envelope = extract_client_envelope(&envelope).ok()?;
-                let payload = client_envelope.payload?;
-
-                if let Payload::WelcomeMessage(welcome_message) = payload {
-                    if let Some(mls_v1::welcome_message_input::Version::V1(v1_welcome_message)) =
-                        welcome_message.version
-                    {
-                        return Some(mls_v1::WelcomeMessage {
-                            version: Some(mls_v1::welcome_message::Version::V1(
-                                mls_v1::welcome_message::V1 {
-                                    id: unsigned_originator_envelope.originator_sequence_id,
-                                    created_ns: unsigned_originator_envelope.originator_ns as u64,
-                                    installation_key: request.installation_key.clone(),
-                                    data: v1_welcome_message.data,
-                                    hpke_public_key: v1_welcome_message.hpke_public_key,
-                                },
-                            )),
-                        });
-                    }
-                }
-
-                None
-            })
-            .collect::<Vec<_>>();
+            .map(mls_v1::WelcomeMessage::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(mls_v1::QueryWelcomeMessagesResponse {
             messages,
@@ -348,8 +285,8 @@ where
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
-                originator_node_ids: vec![], //todo: set later
-                last_seen: None,             //todo: set later
+                originator_node_ids: vec![],
+                last_seen: None, //todo: set later
             })
             .build()?
             .query(&self.message_client)

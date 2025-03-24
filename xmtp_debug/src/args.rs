@@ -199,25 +199,14 @@ pub struct BackendOpts {
         value_enum,
         short,
         long,
-        group = "constant-backend",
-        conflicts_with = "custom-backend",
+        conflicts_with_all = &["url", "payer_url"],
         default_value_t = BackendKind::Local
     )]
     pub backend: BackendKind,
     /// URL Pointing to a backend. Conflicts with `backend`
-    #[arg(
-        short,
-        long,
-        group = "custom-backend",
-        conflicts_with = "constant-backend"
-    )]
+    #[arg(short, long)]
     pub url: Option<url::Url>,
-    #[arg(
-        short,
-        long,
-        group = "custom-backend",
-        conflicts_with = "constant-backend"
-    )]
+    #[arg(short, long)]
     pub payer_url: Option<url::Url>,
     /// Enable the decentralization backend
     #[arg(short, long)]
@@ -264,14 +253,18 @@ impl BackendOpts {
         let is_secure = network.scheme() == "https";
 
         if self.d14n {
-            let payer = self.payer_url()?;
-            trace!(url = %network, payer = %payer, is_secure, "create grpc");
+            let payer_host = self.payer_url()?;
+            trace!(url = %network, payer = %payer_host, is_secure, "create grpc");
 
-            let mut client = GrpcClient::builder();
-            client.set_host("http://localhost:5050".into());
-            client.set_tls(false);
-            let client = client.build().await?;
-            Ok(Arc::new(D14nClient::new(client.clone(), client)))
+            let mut payer = GrpcClient::builder();
+            payer.set_host(payer_host.to_string());
+            payer.set_tls(is_secure);
+            let payer = payer.build().await?;
+            let mut message = GrpcClient::builder();
+            message.set_host(network.to_string());
+            message.set_tls(is_secure);
+            let message = message.build().await?;
+            Ok(Arc::new(D14nClient::new(message, payer)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
             Ok(Arc::new(
@@ -345,5 +338,71 @@ impl From<BackendKind> for url::Url {
             Production => (*crate::constants::XMTP_PRODUCTION).clone(),
             Local => (*crate::constants::XMTP_LOCAL).clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse_backend_args(args: &[&str]) -> Result<BackendOpts, clap::Error> {
+        AppOpts::try_parse_from(std::iter::once("test").chain(args.iter().copied()))
+            .map(|app| app.backend)
+    }
+
+    #[test]
+    fn backend_only_is_valid() {
+        let opts = parse_backend_args(&["--backend", "local"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn url_and_payer_url_is_valid() {
+        let opts = parse_backend_args(&[
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
+        ]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn backend_and_url_is_invalid() {
+        let opts = parse_backend_args(&["--backend", "local", "--url", "http://localhost:5050"]);
+        assert!(opts.is_err());
+    }
+
+    #[test]
+    fn backend_and_payer_url_is_invalid() {
+        let opts =
+            parse_backend_args(&["--backend", "local", "--payer-url", "http://localhost:5050"]);
+        assert!(opts.is_err());
+    }
+
+    #[test]
+    fn url_only_is_valid_but_maybe_warning() {
+        let opts = parse_backend_args(&["--url", "http://localhost:5050"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn payer_url_only_is_valid_but_maybe_warning() {
+        let opts = parse_backend_args(&["--payer-url", "http://localhost:5050"]);
+        assert!(opts.is_ok());
+    }
+
+    #[test]
+    fn backend_and_both_urls_is_invalid() {
+        let opts = parse_backend_args(&[
+            "--backend",
+            "local",
+            "--url",
+            "http://localhost:5050",
+            "--payer-url",
+            "http://localhost:5050",
+        ]);
+        assert!(opts.is_err());
     }
 }

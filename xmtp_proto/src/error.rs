@@ -234,7 +234,7 @@ pub enum ConversionError {
         /// description of the item expected, i.e 'a negative integer'
         expected: &'static str,
         /// description of the value received i.e 'a positive integer'
-        got: &'static str,
+        got: String,
     },
     #[error("decoding proto {0}")]
     Decode(#[from] prost::DecodeError),
@@ -249,6 +249,14 @@ pub enum ConversionError {
         // What is the value
         value: Option<String>,
     },
+    #[error("version not supported")]
+    InvalidVersion,
+    // TODO: Probably should not be apart of conversion,
+    // conversions using openml sshould be put further up the stack
+    #[error(transparent)]
+    OpenMls(#[from] openmls::prelude::Error),
+    #[error(transparent)]
+    Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
 }
 
 /// Error resulting from proto conversions/mutations

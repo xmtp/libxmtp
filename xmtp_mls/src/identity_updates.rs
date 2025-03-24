@@ -358,6 +358,26 @@ where
         Ok(builder.build())
     }
 
+    /// Generate a `ChangeRecoveryAddress` signature request using a new identifer
+    pub async fn change_recovery_identifier(
+        &self,
+        new_recovery_identifier: Identifier,
+    ) -> Result<SignatureRequest, ClientError> {
+        let inbox_id = self.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                    .await
+            })
+        )?;
+        let mut builder = SignatureRequestBuilder::new(inbox_id);
+        let member_identifier: MemberIdentifier =
+            current_state.recovery_identifier().clone().into();
+        builder = builder.change_recovery_address(member_identifier, new_recovery_identifier);
+        Ok(builder.build())
+    }
+
     /**
      * Apply a signature request to the client's inbox by publishing the identity update to the network.
      *
@@ -587,12 +607,14 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
         associations::{
-            builder::SignatureRequest,
-            test_utils::{add_wallet_signature, WalletTestExt},
-            AssociationState,
+            builder::{SignatureRequest, SignatureRequestError},
+            test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
+            unverified::UnverifiedSignature,
+            AssociationState, MemberIdentifier,
         },
         scw_verifier::SmartContractSignatureVerifier,
     };
@@ -998,5 +1020,144 @@ pub(crate) mod tests {
         // Make sure there is only one installation on the inbox
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         assert_eq!(association_state.installation_ids().len(), 1);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    pub async fn change_recovery_address() {
+        let original_wallet: LocalWallet = generate_local_wallet();
+        let new_recovery_wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&original_wallet).await;
+
+        // Verify initial state has the original wallet as recovery identifier
+        let association_state_before = get_association_state(&client, client.inbox_id()).await;
+        assert_eq!(
+            association_state_before.recovery_identifier(),
+            &original_wallet.identifier()
+        );
+
+        // Verify that the associated wallet at this stage includes the recovery address
+        assert!(association_state_before.members().len() == 2);
+        // Verify that one of the members is the recovery address
+        let binding = association_state_before.members();
+        let recovery_member = binding
+            .iter()
+            .find(|m| m.identifier == original_wallet.identifier());
+        assert!(recovery_member.is_some());
+        let recovery_member_timestamp = recovery_member.unwrap().client_timestamp_ns;
+        // Right now we are not saving client side timestamps for recovery address, so this will be None
+        assert!(recovery_member_timestamp.is_none());
+        // Verify the other member is an installation key
+        let installation_member = binding
+            .iter()
+            .find(|m| matches!(m.identifier, MemberIdentifier::Installation(_)));
+        assert!(installation_member.is_some());
+        assert!(
+            installation_member
+                .unwrap()
+                .identifier
+                .installation_key()
+                .unwrap()
+                == client.installation_public_key().to_vec()
+        );
+        let installation_member_timestamp = installation_member.unwrap().client_timestamp_ns;
+        assert!(installation_member_timestamp.is_some());
+
+        // Create a signature request to change the recovery address
+        let mut change_recovery_request = client
+            .change_recovery_identifier(new_recovery_wallet.identifier())
+            .await
+            .unwrap();
+
+        // Add the original wallet's signature (since it's the current recovery address)
+        add_wallet_signature(&mut change_recovery_request, &original_wallet).await;
+
+        // Apply the signature request
+        client
+            .apply_signature_request(change_recovery_request)
+            .await
+            .unwrap();
+
+        // Verify the recovery address has been updated
+        let association_state_after = get_association_state(&client, client.inbox_id()).await;
+        assert_eq!(
+            association_state_after.recovery_identifier(),
+            &new_recovery_wallet.identifier()
+        );
+
+        // Verify that the associated wallet still includes the original wallet
+        assert!(association_state_after.members().len() == 2);
+        // Verify that one of the members is the recovery address
+        let binding = association_state_after.members();
+        let recovery_member = binding
+            .iter()
+            .find(|m| m.identifier == original_wallet.identifier());
+        assert!(recovery_member.is_some());
+        let recovery_member_timestamp = recovery_member.unwrap().client_timestamp_ns;
+        // Right now we are not saving client side timestamps for recovery address, so this will be None
+        assert!(recovery_member_timestamp.is_none());
+        // Verify the other member is an installation key
+        let installation_member = binding
+            .iter()
+            .find(|m| matches!(m.identifier, MemberIdentifier::Installation(_)));
+        assert!(installation_member.is_some());
+        assert!(
+            installation_member
+                .unwrap()
+                .identifier
+                .installation_key()
+                .unwrap()
+                == client.installation_public_key().to_vec()
+        );
+        let installation_member_timestamp = installation_member.unwrap().client_timestamp_ns;
+        assert!(installation_member_timestamp.is_some());
+
+        // Verify that the original wallet can no longer perform recovery operations
+        // by attempting to revoke an installation with the original wallet
+        let installation_id = client.installation_public_key().to_vec();
+        let mut revoke_installation_request = client
+            .revoke_installations(vec![installation_id])
+            .await
+            .unwrap();
+
+        // Try to sign with the original wallet (will error since signer is not in the request)
+        // add_wallet_signature(&mut revoke_installation_request, &original_wallet).await;
+        let signature_text = revoke_installation_request.signature_text();
+        let sig = original_wallet
+            .sign_message(signature_text)
+            .await
+            .unwrap()
+            .to_vec();
+        let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig);
+        let scw_verifier = MockSmartContractSignatureVerifier::new(false);
+
+        let attempt_to_revoke_with_original_wallet = revoke_installation_request
+            .add_signature(unverified_sig, &scw_verifier)
+            .await;
+
+        assert!(matches!(
+            attempt_to_revoke_with_original_wallet,
+            Err(SignatureRequestError::UnknownSigner)
+        ));
+
+        // Now try with the new recovery wallet (which should succeed)
+        let installation_id = client.installation_public_key().to_vec();
+        let mut revoke_installation_request = client
+            .revoke_installations(vec![installation_id])
+            .await
+            .unwrap();
+
+        // Sign with the new recovery wallet
+        add_wallet_signature(&mut revoke_installation_request, &new_recovery_wallet).await;
+
+        // This should succeed because the new wallet is now the recovery address
+        client
+            .apply_signature_request(revoke_installation_request)
+            .await
+            .unwrap();
+
+        // Verify the installation was revoked
+        let association_state_final = get_association_state(&client, client.inbox_id()).await;
+        assert_eq!(association_state_final.installation_ids().len(), 0);
     }
 }
