@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.1.1
+
+- fix: don't delete KeyPackages if processing the welcome messages fails
+
 ## 1.0.0
 
 - Improved DM stitching

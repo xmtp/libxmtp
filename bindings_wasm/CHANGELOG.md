@@ -1,5 +1,9 @@
 # @xmtp/wasm-bindings
 
+## 1.1.1
+
+- fix: don't delete KeyPackages if processing the welcome messages fails
+
 ## 1.1.0
 
 - Added `inbox_state_from_inbox_ids` method to `Client`
