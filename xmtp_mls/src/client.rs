@@ -908,7 +908,7 @@ where
             .await;
 
         // If processed groups equal to the number of envelopes we received, then delete old kps and rotate the keys
-        if num_envelopes == groups.len() {
+        if num_envelopes > 0 && num_envelopes == groups.len() {
             self.rotate_and_upload_key_package(provider).await?;
         }
 
