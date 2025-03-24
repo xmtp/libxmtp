@@ -2,7 +2,7 @@
 
 ## 1.1.1
 
-- fix: don't delete KeyPackages if processing the welcome messages fails
+- Refactored welcome message processing to prevent key package deletion on failure
 
 ## 1.1.0
 
