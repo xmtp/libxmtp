@@ -48,14 +48,14 @@ pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
-    Storage(#[from] xmtp_db::StorageError)
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
-            InstallationDiffError::Storage(e) => retryable!(e)
+            InstallationDiffError::Storage(e) => retryable!(e),
         }
     }
 }
@@ -729,6 +729,7 @@ pub(crate) mod tests {
             get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 0);
+            // TODO: Verify state is actually in db instead of just checking logs
             assert_logged!("Wrote association", 1);
 
             let association_state = get_association_state(&client, inbox_id).await;

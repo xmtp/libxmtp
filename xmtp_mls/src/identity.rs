@@ -214,8 +214,6 @@ pub enum IdentityError {
     #[error("error creating new identity: {0}")]
     NewIdentity(String),
     #[error(transparent)]
-    DieselResult(#[from] diesel::result::Error),
-    #[error(transparent)]
     Association(#[from] AssociationError),
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
@@ -231,7 +229,6 @@ impl RetryableError for IdentityError {
             Self::ApiClient(err) => retryable!(err),
             Self::StorageError(err) => retryable!(err),
             Self::OpenMlsStorageError(err) => retryable!(err),
-            Self::DieselResult(err) => retryable!(err),
             _ => false,
         }
     }

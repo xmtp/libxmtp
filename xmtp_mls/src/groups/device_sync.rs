@@ -30,7 +30,6 @@ use xmtp_common::{
     ExponentialBackoff,
 };
 use xmtp_cryptography::utils as crypto_utils;
-use xmtp_db::Store;
 use xmtp_db::{
     consent_record::StoredConsentRecord,
     group::{ConversationType, GroupQueryArgs, StoredGroup},
@@ -38,6 +37,7 @@ use xmtp_db::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     DbConnection, NotFound, StorageError,
 };
+use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
@@ -724,17 +724,7 @@ where
                     conn.insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {
-                    if let Err(err) = group_message.store(conn) {
-                        match err {
-                            // this is fine because we are inserting messages that already exist
-                            StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
-                                _,
-                            )) => {}
-                            // otherwise propagate the error
-                            _ => Err(err)?,
-                        }
-                    }
+                    group_message.store_or_ignore(conn)?;
                 }
                 Syncable::ConsentRecord(consent_record) => {
                     if let Some(existing_consent_record) =

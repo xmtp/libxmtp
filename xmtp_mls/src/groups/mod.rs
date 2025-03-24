@@ -161,8 +161,6 @@ pub enum GroupError {
     ReceiveErrors(Vec<GroupMessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
-    #[error("diesel error {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
@@ -233,7 +231,6 @@ impl RetryableError for GroupError {
         match self {
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
-            Self::Diesel(diesel) => diesel.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Hpke(hpke) => hpke.is_retryable(),
@@ -608,6 +605,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .dm_id(Some(
+                DmMembers {
+                    member_one_inbox_id: dm_target_inbox_id,
+                    member_two_inbox_id: client.inbox_id().to_string(),
+                }
+                .to_string(),
+            ))
             .build()?;
 
         stored_group.store(provider.conn_ref())?;
@@ -796,11 +800,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::builder()
-            .id(group_id)
-            .created_at_ns(now_ns())
-            .membership_state(GroupMembershipState::Allowed)
-            .build()?;
+        let stored_group =
+            StoredGroup::new_sync_group(group_id, now_ns(), GroupMembershipState::Allowed);
 
         stored_group.store(provider.conn_ref())?;
 
@@ -1657,14 +1658,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
-            .id(group_id)
+            .id(group_id.clone())
             .created_at_ns(now_ns())
             .membership_state(GroupMembershipState::Allowed)
             .added_by_inbox_id(context.inbox_id().to_string())
-            .dm_id(Some(DmMembers {
-                member_one_inbox_id: client.inbox_id().to_string(),
-                member_two_inbox_id: dm_target_inbox_id,
-            }))
+            .dm_id(Some(
+                DmMembers {
+                    member_one_inbox_id: client.inbox_id().to_string(),
+                    member_two_inbox_id: dm_target_inbox_id,
+                }
+                .to_string(),
+            ))
             .build()?;
 
         stored_group.store(provider.conn_ref())?;

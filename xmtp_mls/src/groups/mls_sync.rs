@@ -90,8 +90,6 @@ use xmtp_proto::xmtp::mls::{
 pub enum GroupMessageProcessingError {
     #[error("[{0}] already processed")]
     AlreadyProcessed(u64),
-    #[error("diesel error: {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
     InvalidSender {
         message_time_ns: u64,
@@ -144,7 +142,6 @@ pub enum GroupMessageProcessingError {
 impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Diesel(err) => err.is_retryable(),
             Self::Storage(err) => err.is_retryable(),
             Self::Identity(err) => err.is_retryable(),
             Self::OpenMlsProcessMessage(err) => err.is_retryable(),

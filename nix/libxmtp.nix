@@ -12,6 +12,7 @@
 , flamegraph
 , cargo-flamegraph
 , cargo-expand
+, cargo-udeps
 , inferno
 , openssl
 , sqlcipher
@@ -86,6 +87,7 @@ mkShell {
       gnuplot
       flamegraph
       cargo-flamegraph
+      cargo-udeps
       cargo-expand
       inferno
       lnav

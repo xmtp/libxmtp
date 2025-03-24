@@ -5,7 +5,7 @@ use diesel::{connection::AnsiTransactionManager, prelude::*};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use super::{db_connection::DbConnectionPrivate, StorageError, StorageOption, XmtpDb};
+use super::{StorageError, StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 
 #[derive(Clone)]
 pub struct WasmDb {

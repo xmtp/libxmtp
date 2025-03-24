@@ -100,7 +100,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
-    use xmtp_db::group_message::StoredGroupMessage;
+    use xmtp_db::group_message::GroupMessageKind;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;

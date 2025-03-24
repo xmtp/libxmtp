@@ -108,7 +108,10 @@ macro_rules! traced_test {
             buf.clear();
 
             let subscriber = fmt::Subscriber::builder()
-                .with_env_filter(format!("{}=debug", env!("CARGO_PKG_NAME")))
+                .with_env_filter(format!(
+                    "xmtp_db=debug,xmtp_api=debug,xmtp_id=debug,{}=debug",
+                    env!("CARGO_PKG_NAME")
+                ))
                 .with_writer(buf.clone())
                 .with_level(true)
                 .with_ansi(false)

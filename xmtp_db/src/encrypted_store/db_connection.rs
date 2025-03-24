@@ -71,9 +71,27 @@ where
         })
     }
 
+    /// Reads and writes should occur in xmtp_db
+    /// requirements for tests are relaxed
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn raw_query_read<T, E, F>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut C) -> Result<T, E>,
+    {
+        Self::raw_query_read_inner(self, fun)
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    pub(crate) fn raw_query_read<T, E, F>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut C) -> Result<T, E>,
+    {
+        Self::raw_query_read_inner(self, fun)
+    }
+
     /// Do a scoped query with a mutable [`diesel::Connection`]
     /// reference
-    pub(crate) fn raw_query_read<T, E, F>(&self, fun: F) -> Result<T, E>
+    pub(crate) fn raw_query_read_inner<T, E, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {
@@ -88,9 +106,27 @@ where
         fun(&mut lock)
     }
 
+    /// Reads and writes should occur in xmtp_db
+    /// tests are relaxed
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn raw_query_write<T, E, F>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut C) -> Result<T, E>,
+    {
+        Self::raw_query_write_inner(self, fun)
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    pub(crate) fn raw_query_write<T, E, F>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut C) -> Result<T, E>,
+    {
+        Self::raw_query_write_inner(self, fun)
+    }
+
     /// Do a scoped query with a mutable [`diesel::Connection`]
     /// reference
-    pub(crate) fn raw_query_write<T, E, F>(&self, fun: F) -> Result<T, E>
+    pub(crate) fn raw_query_write_inner<T, E, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C) -> Result<T, E>,
     {

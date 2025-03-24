@@ -1,7 +1,7 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::{
     Sqlite,
-    consent_record::{ConsentState, StoredConsentRecord},
+    consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
 };
@@ -303,6 +303,35 @@ impl DbConnection {
         Ok(groups)
     }
 
+    pub fn find_groups_by_id_paged<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+        offset: i64,
+    ) -> Result<Vec<StoredGroup>, StorageError> {
+        let GroupQueryArgs {
+            created_after_ns,
+            created_before_ns,
+            limit,
+            ..
+        } = args.as_ref();
+
+        let mut query = groups::table
+            .filter(groups::conversation_type.ne(ConversationType::Sync))
+            .order_by(groups::id)
+            .into_boxed();
+
+        if let Some(start_ns) = created_after_ns {
+            query = query.filter(groups::created_at_ns.gt(start_ns));
+        }
+        if let Some(end_ns) = created_before_ns {
+            query = query.filter(groups::created_at_ns.le(end_ns));
+        }
+
+        query = query.limit(limit.unwrap_or(100)).offset(offset);
+
+        Ok(self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?)
+    }
+
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
@@ -316,10 +345,6 @@ impl DbConnection {
         })?;
 
         Ok(())
-    }
-
-    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
@@ -714,13 +739,10 @@ pub(crate) mod tests {
                 .unwrap();
 
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
-            assert_eq!(
-                updated_group,
-                StoredGroup {
-                    membership_state: GroupMembershipState::Rejected,
-                    ..test_group
-                }
-            );
+            assert_eq!(updated_group, StoredGroup {
+                membership_state: GroupMembershipState::Rejected,
+                ..test_group
+            });
         })
         .await
     }

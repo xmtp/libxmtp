@@ -15,8 +15,6 @@ use xmtp_common::RetryableError;
 pub enum ProcessIntentError {
     #[error("[{0}] already processed")]
     AlreadyProcessed(u64),
-    #[error("diesel error: {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
 }
@@ -25,7 +23,6 @@ impl RetryableError for ProcessIntentError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::AlreadyProcessed(_) => false,
-            Self::Diesel(err) => err.is_retryable(),
             Self::Storage(err) => err.is_retryable(),
         }
     }

@@ -328,7 +328,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError> + std::error::Error;
+        E: From<StorageError> + std::error::Error;
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -352,7 +352,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError> + std::error::Error,
+        E: From<StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
@@ -363,7 +363,8 @@ where
             Ok(value) => {
                 conn.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })?;
+                })
+                .map_err(StorageError::from)?;
                 tracing::debug!("Transaction being committed");
                 Ok(value)
             }
@@ -374,7 +375,7 @@ where
                 }) {
                     Ok(()) => Err(err),
                     Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
+                    Err(rollback) => Err(StorageError::from(rollback).into()),
                 }
             }
         }

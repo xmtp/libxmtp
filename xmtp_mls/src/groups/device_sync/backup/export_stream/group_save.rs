@@ -1,9 +1,5 @@
 use super::*;
-use diesel::prelude::*;
-use xmtp_db::{
-    group::{ConversationType, StoredGroup},
-    schema::groups,
-};
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_proto::xmtp::device_sync::backup_element::Element;
 
 impl BackupRecordProvider for GroupSave {
@@ -12,24 +8,20 @@ impl BackupRecordProvider for GroupSave {
     where
         Self: Sized,
     {
-        let mut query = groups::table
-            .filter(groups::conversation_type.ne(ConversationType::Sync))
-            .order_by(groups::id)
-            .into_boxed();
+        let mut args = GroupQueryArgs::default();
 
         if let Some(start_ns) = streamer.start_ns {
-            query = query.filter(groups::created_at_ns.gt(start_ns));
+            args = args.created_after_ns(start_ns);
         }
         if let Some(end_ns) = streamer.end_ns {
-            query = query.filter(groups::created_at_ns.le(end_ns));
+            args = args.created_before_ns(end_ns);
         }
-
-        query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);
+        args = args.limit(Self::BATCH_SIZE);
 
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query_read(|conn| query.load::<StoredGroup>(conn))
+            .find_groups_by_id_paged(args, streamer.offset)
             .expect("Failed to load group records");
 
         batch

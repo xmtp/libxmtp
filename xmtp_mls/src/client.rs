@@ -70,8 +70,6 @@ pub enum ClientError {
     PublishError(String),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("dieselError: {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error("API error: {0}")]
     Api(#[from] xmtp_api::Error),
     #[error("identity error: {0}")]
@@ -124,7 +122,6 @@ impl xmtp_common::RetryableError for ClientError {
     fn is_retryable(&self) -> bool {
         match self {
             ClientError::Group(group_error) => retryable!(group_error),
-            ClientError::Diesel(diesel_error) => retryable!(diesel_error),
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
             ClientError::Generic(err) => err.contains("database is locked"),
@@ -1132,7 +1129,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let members = group.members().await.unwrap();
-        // // The three installations should count as two members
+        // The three installations should count as two members
         assert_eq!(members.len(), 2);
     }
 
