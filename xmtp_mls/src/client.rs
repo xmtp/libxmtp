@@ -1,3 +1,4 @@
+use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncWorkerMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
@@ -156,9 +157,9 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 
 #[derive(Clone)]
 pub struct DeviceSync {
-    pub(crate) history_sync_url: Option<String>,
+    pub(crate) server_url: Option<String>,
     pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncWorkerMetric>>>>>,
-    pub(crate) disable_worker: bool,
+    pub(crate) mode: SyncWorkerMode,
 }
 
 // most of these things are `Arc`'s
@@ -263,8 +264,8 @@ where
         identity: Identity,
         store: EncryptedMessageStore,
         scw_verifier: V,
-        history_sync_url: Option<String>,
-        disable_sync_worker: bool,
+        device_sync_server_url: Option<String>,
+        device_sync_worker_mode: SyncWorkerMode,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -285,9 +286,9 @@ where
             scw_verifier: scw_verifier.into(),
             version_info: Arc::new(VersionInfo::default()),
             device_sync: DeviceSync {
-                history_sync_url,
-                disable_worker: disable_sync_worker,
                 worker_handle: Arc::new(parking_lot::Mutex::default()),
+                server_url: device_sync_server_url,
+                mode: device_sync_worker_mode,
             },
         }
     }

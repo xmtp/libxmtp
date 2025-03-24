@@ -101,7 +101,7 @@ pub(crate) mod tests {
 
         xmtp_common::wait_for_some(|| async {
             amal_b
-                .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
+                .find_latest_sync_reply(&amal_b_provider, DeviceSyncKind::Consent)
                 .await
                 .unwrap()
         })

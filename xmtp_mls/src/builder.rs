@@ -54,8 +54,13 @@ pub struct ClientBuilder<ApiClient, V> {
     identity_strategy: IdentityStrategy,
     scw_verifier: Option<V>,
 
-    device_sync_url: Option<String>,
-    disable_sync_worker: bool,
+    device_sync_server_url: Option<String>,
+    device_sync_worker_mode: SyncWorkerMode,
+}
+
+pub enum SyncWorkerMode {
+    Disabled,
+    Enabled,
 }
 
 impl Client<(), ()> {
@@ -74,8 +79,8 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store: None,
             identity_strategy: strategy,
             scw_verifier: None,
-            device_sync_url: None,
-            disable_sync_worker: false,
+            device_sync_server_url: None,
+            device_sync_worker_mode: SyncWorkerMode::Enabled,
         }
     }
 }
@@ -90,9 +95,10 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity,
             mut store,
             identity_strategy,
-            device_sync_url: history_sync_url,
             mut scw_verifier,
-            disable_sync_worker,
+
+            device_sync_server_url,
+            device_sync_worker_mode,
         } = self;
 
         let api = api_client
@@ -134,10 +140,17 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         )
         .await?;
 
-        let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
+        let client = Client::new(
+            api,
+            identity,
+            store,
+            scw_verifier,
+            device_sync_server_url.clone(),
+            device_sync_worker_mode,
+        );
 
         // start workers
-        if !disable_sync_worker {
+        if matches!(device_sync_worker_mode, SyncWorkerMode::Enabled) {
             client.start_sync_worker();
         }
         client.start_disappearing_messages_cleaner_worker();
@@ -161,14 +174,14 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
 
     pub fn device_sync_url(self, url: &str) -> Self {
         Self {
-            device_sync_url: Some(url.into()),
+            device_sync_server_url: Some(url.into()),
             ..self
         }
     }
 
     pub fn disable_sync_worker(self) -> Self {
         Self {
-            disable_sync_worker: true,
+            device_sync_worker_mode: SyncWorkerMode::Disabled,
             ..self
         }
     }

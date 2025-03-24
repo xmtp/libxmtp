@@ -279,37 +279,6 @@ where
         Ok(())
     }
 
-    async fn on_reply(
-        &mut self,
-        message_id: Vec<u8>,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
-        let Self {
-            ref client,
-            ref retry,
-            ..
-        } = self;
-
-        let msg = retry_async!(
-            retry,
-            (async {
-                conn.get_group_message(&message_id)?
-                    .ok_or(DeviceSyncError::from(NotFound::MessageById(
-                        message_id.clone(),
-                    )))
-            })
-        )?;
-
-        let msg_content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-        let DeviceSyncContent::Reply(reply) = msg_content else {
-            unreachable!();
-        };
-
-        client.process_sync_reply(provider, reply).await?;
-        Ok(())
-    }
-
     //// Ideally called when the client is registered.
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
@@ -326,7 +295,7 @@ where
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
-                client.device_sync.history_sync_url
+                client.device_sync.server_url
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
                 // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -585,7 +554,7 @@ where
             return Ok(());
         };
 
-        let Some(history_sync_url) = &self.device_sync.history_sync_url else {
+        let Some(history_sync_url) = &self.device_sync.server_url else {
             tracing::info!(
                 "{LOG_PREFIX}Unable to process sync request due to not having a sync server url present."
             );
@@ -642,7 +611,7 @@ where
     }
 
     #[cfg(test)]
-    async fn get_latest_sync_reply(
+    async fn find_latest_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
@@ -672,6 +641,26 @@ where
         Ok(None)
     }
 
+    fn did_this_installation_ask_for_this_reply(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        reply: &DeviceSyncReplyProto,
+    ) -> Result<bool, DeviceSyncError> {
+        let sync_group = self.get_sync_group(&provider)?;
+        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
+
+        for (msg, content) in messages.iter_with_content() {
+            if let DeviceSyncContent::Request(DeviceSyncRequestProto { request_id, .. }) = content {
+                if *request_id == reply.request_id
+                    && msg.sender_installation_id == self.installation_id()
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
     pub async fn process_sync_reply(
         &self,
         reply: DeviceSyncReplyProto,
@@ -679,21 +668,13 @@ where
         tracing::info!("{LOG_PREFIX}Inspecting sync response.");
         let provider = Arc::new(self.mls_provider()?);
 
-        // First let's check if this installation asked for this sync payload.
-        let sync_group = self.get_sync_group(&provider)?;
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
-
-        // Find the request corresponding to this reply.
-        let Some((msg, DeviceSyncContent::Request(_))) = messages.iter_with_content().find(|(_msg, content)| matches!(content, DeviceSyncContent::Request(DeviceSyncRequestProto { request_id, .. }) if *request_id == reply.request_id)) else {
-            tracing::info!("{LOG_PREFIX}Unable to find a sync request for the provided sync response.");
-            return Ok(());
-        };
-
-        if msg.sender_installation_id != self.installation_id() {
-            // We didn't ask for this sync reply.
+        // Check if this reply was asked for by this installation.
+        if !self.did_this_installation_ask_for_this_reply(&provider, &reply)? {
+            // This installation didn't ask for it. Ignore the reply.
             return Ok(());
         }
 
+        // Get a download stream of the payload.
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -703,15 +684,19 @@ where
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
-
         let stream = response
             .bytes_stream()
             .map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
-        let tokio_reader = StreamReader::new(stream);
-        let futures_reader = tokio_reader.compat();
-        let reader = Box::pin(futures_reader);
-        let mut importer = BackupImporter::load(reader, &reply.key).await?;
 
+        // Convert that stream into a reader
+        let tokio_reader = StreamReader::new(stream);
+        // Convert that tokio reader into a futures reader.
+        // We use futures reader for WASM compat.
+        let futures_reader = tokio_reader.compat();
+        // Create an importer around that futures_reader.
+        let mut importer = BackupImporter::load(Box::pin(futures_reader), &reply.key).await?;
+
+        // Run the import.
         importer.run(&provider).await?;
 
         Ok(())
