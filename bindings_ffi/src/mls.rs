@@ -7734,6 +7734,11 @@ mod tests {
             convo_bo_2.id(),
             "Conversations should match"
         );
+        assert_eq!(
+            convo_alix.id(),
+            convo_bo.id(),
+            "Conversations should get updated to match"
+        );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
         let alix_dms = client_alix
