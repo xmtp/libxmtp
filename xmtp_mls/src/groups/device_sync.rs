@@ -552,6 +552,10 @@ where
             ..Default::default()
         };
 
+        // Check acknowledgement one more time before responding to try to avoid double-responses
+        // from two or more old installations.
+        self.acknowledge_sync_request(&provider).await?;
+
         // Send the message out over the network
         let content = DeviceSyncContent::Reply(reply);
         self.send_device_sync_message(&provider, content).await?;
@@ -670,6 +674,7 @@ where
     }
 }
 
+// These are the messages that get sent out to the sync group
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),

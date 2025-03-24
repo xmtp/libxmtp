@@ -901,38 +901,41 @@ pub(crate) mod tests {
                 .other_inbox_id("placeholder_inbox_id_1");
 
             let all_results = conn
-                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))
+                .find_groups(GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Group),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = conn
-                .find_groups(
-                    GroupQueryArgs::default()
-                        .allowed_states(vec![GroupMembershipState::Pending])
-                        .conversation_type(ConversationType::Group),
-                )
+                .find_groups(GroupQueryArgs {
+                    allowed_states: Some(vec![GroupMembershipState::Pending]),
+                    conversation_type: Some(ConversationType::Group),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
             assert_eq!(pending_results.len(), 1);
 
             // Offset and limit
             let results_with_limit = conn
-                .find_groups(
-                    GroupQueryArgs::default()
-                        .limit(1)
-                        .conversation_type(ConversationType::Group),
-                )
+                .find_groups(GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Group),
+                    limit: Some(1),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = conn
-                .find_groups(
-                    GroupQueryArgs::default()
-                        .created_after_ns(test_group_1.created_at_ns)
-                        .conversation_type(ConversationType::Group)
-                        .limit(1),
-                )
+                .find_groups(GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Group),
+                    limit: Some(1),
+                    created_after_ns: Some(test_group_1.created_at_ns),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
@@ -957,7 +960,10 @@ pub(crate) mod tests {
 
             // test only dms are returned
             let dm_results = conn
-                .find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Dm))
+                .find_groups(GroupQueryArgs {
+                    conversation_type: Some(ConversationType::Dm),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(dm_results.len(), 1);
             assert_eq!(dm_results[0].id, test_group_3.id);
