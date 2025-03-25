@@ -13,49 +13,48 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-# Extract version from Cargo metadata using a more direct approach
-echo "Extracting workspace version from Cargo metadata..."
-CARGO_METADATA=$(cargo metadata --format-version=1 --no-deps)
-CARGO_VERSION=$(echo "$CARGO_METADATA" | jq -r '.workspace_metadata.package.version // empty')
+# Extract version from Cargo metadata
+echo "Extracting crate versions from Cargo metadata..."
+CARGO_METADATA=$(cargo metadata --format-version=1)
 
-# If workspace_metadata.package.version is not available, try to get it from the root package
-if [ -z "$CARGO_VERSION" ]; then
-    # Get the root package ID
-    ROOT_PACKAGE=$(echo "$CARGO_METADATA" | jq -r '.resolve.root // empty')
+# Extract bindings_node version
+if [ -d "bindings_node" ]; then
+    BINDINGS_NODE_VERSION=$(echo "$CARGO_METADATA" | jq -r '.packages[] | select(.name == "bindings_node") | .version')
     
-    if [ -n "$ROOT_PACKAGE" ]; then
-        # Extract version from the root package
-        CARGO_VERSION=$(echo "$CARGO_METADATA" | jq -r --arg pkg "$ROOT_PACKAGE" '.packages[] | select(.id == $pkg) | .version')
+    if [ -z "$BINDINGS_NODE_VERSION" ]; then
+        echo "Error: Failed to extract version for bindings_node crate."
+        exit 1
+    fi
+    
+    echo "Found bindings_node version: $BINDINGS_NODE_VERSION"
+    
+    # Update bindings_node/package.json
+    if [ -f "bindings_node/package.json" ]; then
+        echo "Updating bindings_node/package.json version to $BINDINGS_NODE_VERSION"
+        jq ".version = \"$BINDINGS_NODE_VERSION\"" bindings_node/package.json > bindings_node/package.json.tmp
+        mv bindings_node/package.json.tmp bindings_node/package.json
+        echo "✅ Updated bindings_node/package.json"
     fi
 fi
 
-# If still empty, try to extract from workspace.package.version in Cargo.toml directly
-if [ -z "$CARGO_VERSION" ]; then
-    echo "Falling back to parsing Cargo.toml directly..."
-    CARGO_VERSION=$(grep -A 2 '\[workspace.package\]' Cargo.toml | grep 'version' | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]*)"/\1/')
+# Extract bindings_wasm version
+if [ -d "bindings_wasm" ]; then
+    BINDINGS_WASM_VERSION=$(echo "$CARGO_METADATA" | jq -r '.packages[] | select(.name == "bindings_wasm") | .version')
+    
+    if [ -z "$BINDINGS_WASM_VERSION" ]; then
+        echo "Error: Failed to extract version for bindings_wasm crate."
+        exit 1
+    fi
+    
+    echo "Found bindings_wasm version: $BINDINGS_WASM_VERSION"
+    
+    # Update bindings_wasm/package.json
+    if [ -f "bindings_wasm/package.json" ]; then
+        echo "Updating bindings_wasm/package.json version to $BINDINGS_WASM_VERSION"
+        jq ".version = \"$BINDINGS_WASM_VERSION\"" bindings_wasm/package.json > bindings_wasm/package.json.tmp
+        mv bindings_wasm/package.json.tmp bindings_wasm/package.json
+        echo "✅ Updated bindings_wasm/package.json"
+    fi
 fi
 
-if [ -z "$CARGO_VERSION" ]; then
-    echo "Error: Failed to extract version from Cargo metadata."
-    exit 1
-fi
-
-echo "Found Cargo workspace version: $CARGO_VERSION"
-
-# Update bindings_node/package.json
-if [ -f "bindings_node/package.json" ]; then
-    echo "Updating bindings_node/package.json version to $CARGO_VERSION"
-    jq ".version = \"$CARGO_VERSION\"" bindings_node/package.json > bindings_node/package.json.tmp
-    mv bindings_node/package.json.tmp bindings_node/package.json
-    echo "✅ Updated bindings_node/package.json"
-fi
-
-# Update bindings_wasm/package.json
-if [ -f "bindings_wasm/package.json" ]; then
-    echo "Updating bindings_wasm/package.json version to $CARGO_VERSION"
-    jq ".version = \"$CARGO_VERSION\"" bindings_wasm/package.json > bindings_wasm/package.json.tmp
-    mv bindings_wasm/package.json.tmp bindings_wasm/package.json
-    echo "✅ Updated bindings_wasm/package.json"
-fi
-
-echo "✨ Version sync complete: $CARGO_VERSION"
+echo "✨ Version sync complete!"
