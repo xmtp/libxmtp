@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.1.1
+
+- Refactored welcome message processing to prevent key package deletion on failure
+
 ## 1.0.0
 
 - Improved DM stitching
