@@ -6,7 +6,7 @@ use crate::{
         group::GroupQueryArgs,
         group_message::{MsgQueryArgs, StoredGroupMessage},
         xmtp_openmls_provider::XmtpOpenMlsProvider,
-        DbConnection, NotFound, StorageError,
+        NotFound, StorageError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError},
     Client, Store,
@@ -14,12 +14,11 @@ use crate::{
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use backup::BackupImporter;
 #[cfg(not(target_arch = "wasm32"))]
-use backup::{backup_exporter::BackupExporter, BackupError};
+use backup::{exporter::BackupExporter, BackupError};
 use futures::{future::join_all, Stream, StreamExt};
 // use futures_util::StreamExt;
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
@@ -29,14 +28,12 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
-use xmtp_cryptography::utils as crypto_utils;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
-use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
     plaintext_envelope::v2::MessageType,
     plaintext_envelope::{V1, V2},
-    DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
+    PlaintextEnvelope,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,

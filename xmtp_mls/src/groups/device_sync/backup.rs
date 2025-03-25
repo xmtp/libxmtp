@@ -2,14 +2,14 @@ use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
 
-pub use backup_importer::BackupImporter;
+pub use importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
-pub(crate) mod backup_exporter;
-mod backup_importer;
 mod export_stream;
+pub mod exporter;
+pub mod importer;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
@@ -66,10 +66,10 @@ mod tests {
         },
         utils::test::wait_for_min_intents,
     };
-    use backup_exporter::BackupExporter;
-    use backup_importer::BackupImporter;
     use diesel::RunQueryDsl;
+    use exporter::BackupExporter;
     use futures::io::Cursor;
+    use importer::BackupImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 

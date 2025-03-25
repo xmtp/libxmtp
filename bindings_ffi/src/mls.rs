@@ -24,6 +24,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
@@ -31,7 +32,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
         device_sync::{
-            backup::{BackupImporter, BackupMetadata, BackupOptions},
+            backup::{BackupImporter, BackupMetadata},
             preference_sync::UserPreferenceUpdate,
             ENC_KEY_SIZE,
         },
@@ -58,7 +59,7 @@ use xmtp_mls::{
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::ApiBuilder;
-use xmtp_proto::xmtp::device_sync::BackupElementSelection;
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
@@ -519,11 +520,9 @@ impl FfiXmtpClient {
     }
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+    pub async fn send_sync_request(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .send_sync_request(&provider, kind.into())
-            .await?;
+        self.inner_client.send_sync_request(&provider).await?;
 
         Ok(())
     }
@@ -648,9 +647,8 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        let opts: BackupOptions = opts.into();
-        opts.export_to_file(provider, path, &check_key(key)?)
-            .await?;
+        let options: BackupOptions = opts.into();
+        BackupExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
 
         Ok(())
     }

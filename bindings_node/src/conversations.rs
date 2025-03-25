@@ -535,10 +535,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -559,9 +559,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
