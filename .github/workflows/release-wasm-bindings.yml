@@ -92,10 +92,25 @@ jobs:
             echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
           fi
 
+      - name: Determine NPM tag
+        id: npm-tag
+        working-directory: bindings_wasm
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          # Set the tag based on whether it's a dev version
+          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+            echo "tag=prerelease" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_wasm
+          tag: ${{ steps.npm-tag.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
