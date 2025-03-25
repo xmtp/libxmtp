@@ -4,7 +4,7 @@ Thank you for considering contributing to this repo! Community contributions lik
 
 ## ❔ Questions
 
-Have a question about how to build with XMTP? Ask your question and learn with the community in the [XMTP Community Forums](https://community.xmtp.org/).
+Have a question about how to build with XMTP? Ask your questions and learn from the community in the [XMTP Community Forums](https://community.xmtp.org/).
 
 ## 🐞 Bugs
 
