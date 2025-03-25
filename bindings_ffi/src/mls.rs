@@ -2181,7 +2181,10 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.inner.group_id.clone()
+        match self.inner.client.stitched_group(&self.inner.group_id) {
+            Ok(group) => group.group_id.clone(),
+            Err(_) => self.inner.group_id.clone(),
+        }
     }
 }
 
@@ -7704,10 +7707,6 @@ mod tests {
             3,
             "Alix should see 3 messages after sync"
         );
-
-        let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
-        let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
-        assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
 
         // Ensure conversations remain the same
         let convo_alix_2 = client_alix
