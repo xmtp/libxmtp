@@ -61,6 +61,37 @@ jobs:
         run: |
           source ./../emsdk/emsdk_env.sh
           yarn build
+
+      - name: Generate version
+        working-directory: bindings_wasm
+        run: yarn generate:version
+
+      - name: Update version for dev releases
+        working-directory: bindings_wasm
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          # Check if this is a dev version
+          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+            # Read the git commit hash from version.json
+            if [ -f "dist/version.json" ]; then
+              GIT_HASH=$(node -p "require('./dist/version.json').version")
+              
+              # Create a new version string with the git hash
+              NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
+              
+              # Update package.json with the new version
+              npm version "$NEW_VERSION" --no-git-tag-version
+              
+              echo "Updated version to $NEW_VERSION for publishing"
+            else
+              echo "Warning: dist/version.json not found, using original version"
+            fi
+          else
+            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
+          fi
+
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
