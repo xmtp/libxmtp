@@ -75,6 +75,7 @@ impl StoredGroup {
         dm_members: Option<DmMembers<String>>,
         message_disappearing_settings: Option<MessageDisappearingSettings>,
         paused_for_version: Option<String>,
+        last_message_ns: Option<i64>,
     ) -> Self {
         Self {
             id,
@@ -86,7 +87,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: None,
+            last_message_ns,
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
             paused_for_version,
@@ -288,7 +289,7 @@ impl DbConnection {
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id FROM (
-                        SELECT id, 
+                        SELECT id,
                             ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
                         FROM groups
                     ) AS ranked_groups
