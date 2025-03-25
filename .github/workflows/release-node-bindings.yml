@@ -4,7 +4,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check versions are in sync
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_node"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
+
   build-linux:
+    needs: check-versions
     runs-on: warp-ubuntu-2204-x64-16x
     strategy:
       fail-fast: false
@@ -38,19 +58,6 @@ jobs:
           workspaces: |
             .
             bindings_node
-
-      - name: Check versions are in sync
-        run: |
-          chmod +x dev/sync-versions.sh
-          ./dev/sync-versions.sh
-          
-          # Check if there are any changes after syncing versions
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
-            echo "Changes detected:"
-            git status --porcelain
-            exit 1
-          fi
 
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
@@ -121,6 +128,7 @@ jobs:
           retention-days: 1
 
   build-macos:
+    needs: check-versions
     runs-on: warp-macos-latest-arm64-6x
     strategy:
       fail-fast: false
@@ -148,19 +156,6 @@ jobs:
           workspaces: |
             .
             bindings_node
-
-      - name: Check versions are in sync
-        run: |
-          chmod +x dev/sync-versions.sh
-          ./dev/sync-versions.sh
-          
-          # Check if there are any changes after syncing versions
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
-            echo "Changes detected:"
-            git status --porcelain
-            exit 1
-          fi
 
       - name: Setup node
         uses: actions/setup-node@v4
@@ -192,6 +187,7 @@ jobs:
           retention-days: 1
 
   build-windows:
+    needs: check-versions
     runs-on: warp-windows-latest-x64-16x
     strategy:
       fail-fast: false
@@ -221,20 +217,6 @@ jobs:
           workspaces: |
             .
             bindings_node
-
-      - name: Check versions are in sync
-        shell: bash
-        run: |
-          chmod +x dev/sync-versions.sh
-          ./dev/sync-versions.sh
-          
-          # Check if there are any changes after syncing versions
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
-            echo "Changes detected:"
-            git status --porcelain
-            exit 1
-          fi
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3
