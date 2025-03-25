@@ -139,11 +139,8 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
-        use crate::utils::HISTORY_SYNC_URL;
-
         let alix_wallet = generate_local_wallet();
-        let alix =
-            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
         let alix_conn = alix.store().conn().unwrap();
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
 

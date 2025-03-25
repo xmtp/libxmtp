@@ -41,14 +41,16 @@ where
         let atomic = lock.entry(metric).or_default();
         atomic.load(Ordering::SeqCst)
     }
+
     pub(super) fn increment_metric(&self, metric: Metric) {
         let mut lock = self.metrics.lock();
         let atomic = lock.entry(metric).or_default();
         atomic.fetch_add(1, Ordering::SeqCst);
         self.notify.notify_waiters();
     }
+
     /// Blocks until metric's specified count is met
-    pub async fn wait_for_count(&self, metric: Metric, count: usize) {
+    pub async fn block_for_metric(&self, metric: Metric, count: usize) {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
         while metric.load(Ordering::SeqCst) < count {
             self.notify.notified().await;

@@ -17,7 +17,6 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();

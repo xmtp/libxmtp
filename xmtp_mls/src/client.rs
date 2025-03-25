@@ -41,6 +41,7 @@ use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_id::AsIdRef;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -165,6 +166,10 @@ pub struct DeviceSync {
 impl DeviceSync {
     pub(crate) fn enabled(&self) -> bool {
         matches!(self.mode, SyncWorkerMode::Enabled)
+    }
+
+    pub(crate) fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.worker_handle.lock().as_ref().cloned()
     }
 }
 
@@ -604,26 +609,29 @@ where
     /// Find or create a Direct Message by inbox_id with the default settings
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
-        inbox_id: InboxId,
+        inbox_id: impl AsIdRef,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider()?;
         let group = provider.conn_ref().find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: &inbox_id,
+            member_two_inbox_id: inbox_id,
         })?;
         if let Some(group) = group {
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
-        self.create_dm_by_inbox_id(inbox_id, opts).await
+        self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
 
     pub(crate) async fn create_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        Ok(MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider).await?)
+        let group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+        group.sync_with_conn(provider).await?;
+        Ok(group)
     }
 
     /// Look up a group by its ID

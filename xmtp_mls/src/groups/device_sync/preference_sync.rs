@@ -90,13 +90,14 @@ impl UserPreferenceUpdate {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_cryptography::utils::generate_local_wallet;
+
     use super::*;
     use crate::{
         builder::ClientBuilder,
         groups::scoped_client::ScopedGroupClient,
         storage::consent_record::{ConsentState, ConsentType},
     };
-    use crypto_utils::generate_local_wallet;
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -124,33 +125,37 @@ mod tests {
     #[xmtp_common::test]
     async fn test_hmac_sync() {
         let wallet = generate_local_wallet();
-        let amal_a =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
         let amal_a_provider = amal_a.mls_provider().unwrap();
         let amal_a_conn = amal_a_provider.conn_ref();
-        let amal_a_worker = amal_a.sync_worker_handle().unwrap();
+        let amal_a_worker = amal_a.device_sync.worker_handle().unwrap();
 
-        let amal_b =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
         let amal_b_provider = amal_b.mls_provider().unwrap();
         let amal_b_conn = amal_b_provider.conn_ref();
-        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
+        let amal_b_worker = amal_b.device_sync.worker_handle().unwrap();
 
         // wait for the new sync group
-        amal_a_worker.wait_for_processed_count(1).await.unwrap();
-        amal_b_worker.wait_for_processed_count(1).await.unwrap();
+        amal_a_worker
+            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .await;
+        amal_b_worker
+            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .await;
 
         amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
 
-        let sync_group_a = amal_a.get_sync_group(amal_a_conn).unwrap();
-        let sync_group_b = amal_b.get_sync_group(amal_b_conn).unwrap();
+        let sync_group_a = amal_a.get_sync_group(&amal_a_provider).unwrap();
+        let sync_group_b = amal_b.get_sync_group(&amal_b_provider).unwrap();
         assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
 
         sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
         sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
 
         // Wait for a to process the new hmac key
-        amal_a_worker.wait_for_processed_count(2).await.unwrap();
+        amal_a_worker
+            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .await;
 
         let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
         let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();

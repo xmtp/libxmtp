@@ -720,6 +720,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 }
             });
 
+            tracing::error!("CONV TYPE: {conversation_type:?}");
+
             let to_store = match conversation_type {
                 ConversationType::Group => StoredGroup::new_from_welcome(
                     group_id.clone(),
@@ -750,6 +752,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.
                     let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+                    tracing::error!("YES");
 
                     StoredGroup::new_from_welcome(
                         group_id.clone(),
@@ -777,22 +780,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         })
     }
 
-    pub(crate) async fn create_and_insert_sync_group(
+    pub(crate) fn create_and_insert_sync_group(
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
         tracing::info!("Creating sync group.");
 
         let context = client.context();
-        let creator_inbox_id = context.inbox_id();
 
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;
+            build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
-            creator_inbox_id,
+            context.inbox_id(),
             GroupMetadataOptions::default(),
         )?;
-        let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
         let group_config = build_group_config(
@@ -817,8 +819,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         stored_group.store(provider.conn_ref())?;
         let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
-
-        group.add_missing_installations(provider).await?;
 
         Ok(group)
     }
