@@ -559,10 +559,10 @@ impl Conversations {
   ) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
@@ -580,9 +580,10 @@ impl Conversations {
   pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
