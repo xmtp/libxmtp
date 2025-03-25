@@ -112,5 +112,6 @@ jobs:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_wasm
           tag: ${{ steps.npm-tag.outputs.tag }}
+          dry-run: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
