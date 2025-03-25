@@ -39,6 +39,19 @@ jobs:
             .
             bindings_node
 
+      - name: Check versions are in sync
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
+
       - name: Configure aarch64 toolchain
         if: startsWith(matrix.target, 'aarch64')
         run: |
@@ -281,6 +294,32 @@ jobs:
       - name: Generate version
         working-directory: bindings_node
         run: yarn generate:version
+
+      - name: Update version for dev releases
+        working-directory: bindings_node
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          # Check if this is a dev version
+          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+            # Read the git commit hash from version.json
+            if [ -f "dist/version.json" ]; then
+              GIT_HASH=$(node -p "require('./dist/version.json').version")
+              
+              # Create a new version string with the git hash
+              NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
+              
+              # Update package.json with the new version
+              npm version "$NEW_VERSION" --no-git-tag-version
+              
+              echo "Updated version to $NEW_VERSION for publishing"
+            else
+              echo "Warning: dist/version.json not found, using original version"
+            fi
+          else
+            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
+          fi
 
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3

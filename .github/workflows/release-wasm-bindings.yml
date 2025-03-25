@@ -20,6 +20,18 @@ jobs:
           workspaces: |
             .
             bindings_wasm
+      - name: Check versions are in sync
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
       - name: Install wasm-bindgen
         uses: taiki-e/install-action@v2
         with:
