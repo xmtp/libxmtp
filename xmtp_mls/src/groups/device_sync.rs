@@ -47,6 +47,9 @@ pub mod backup;
 pub mod handle;
 pub mod preference_sync;
 
+#[cfg(test)]
+mod tests;
+
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
@@ -686,14 +689,6 @@ pub enum DeviceSyncContent {
 pub enum AcknowledgeKind {
     SyncGroupPresence,
     Request { request_id: String },
-}
-
-pub struct MessageHistoryUrls;
-
-impl MessageHistoryUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
 }
 
 pub trait ZipContent<A, B> {

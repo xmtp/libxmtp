@@ -87,7 +87,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            None,
+            Some(crate::constants::DeviceSyncUrls::LOCAL_ADDRESS),
         )
         .await
     }
@@ -102,25 +102,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            None,
-        )
-        .await
-    }
-
-    pub async fn new_test_client_with_history(
-        owner: &impl InboxOwner,
-        device_sync_server_url: &str,
-    ) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .await
-            .unwrap();
-
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            Some(device_sync_server_url),
+            Some(crate::constants::DeviceSyncUrls::DEV_ADDRESS),
         )
         .await
     }
