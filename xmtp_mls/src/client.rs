@@ -162,6 +162,12 @@ pub struct DeviceSync {
     pub(crate) mode: SyncWorkerMode,
 }
 
+impl DeviceSync {
+    pub(crate) fn enabled(&self) -> bool {
+        matches!(self.mode, SyncWorkerMode::Enabled)
+    }
+}
+
 // most of these things are `Arc`'s
 impl<ApiClient, V> Clone for Client<ApiClient, V> {
     fn clone(&self) -> Self {
@@ -342,7 +348,7 @@ where
     }
 
     pub fn device_sync_server_url(&self) -> Option<&String> {
-        self.device_sync_server_url.as_ref()
+        self.device_sync.server_url.as_ref()
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
@@ -441,7 +447,7 @@ where
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
-        if self.device_sync_server_url.is_some() && !changed_records.is_empty() {
+        if self.device_sync.enabled() && !changed_records.is_empty() {
             let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
