@@ -32,7 +32,7 @@ impl BackupRecordProvider for GroupMessageSave {
             query = query.filter(group_messages::sent_at_ns.le(end_ns));
         }
 
-        query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);
+        query = query.limit(Self::BATCH_SIZE).offset(streamer.cursor);
 
         let batch = streamer
             .provider

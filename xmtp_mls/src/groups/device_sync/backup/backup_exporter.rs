@@ -1,5 +1,8 @@
-use super::{export_stream::BatchExportStream, BackupOptions, BACKUP_VERSION};
-use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
+use super::{export_stream::BatchExportStream, BackupOptions, OptionsToSave, BACKUP_VERSION};
+use crate::{
+    groups::device_sync::{DeviceSyncError, NONCE_SIZE},
+    XmtpOpenMlsProvider,
+};
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{pin_mut, task::Context, StreamExt};
@@ -36,8 +39,22 @@ pub(super) enum Stage {
 }
 
 impl BackupExporter {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn export_to_file(
+        options: BackupOptions,
+        provider: XmtpOpenMlsProvider,
+        path: impl AsRef<std::path::Path>,
+        key: &[u8],
+    ) -> Result<(), DeviceSyncError> {
+        let provider = Arc::new(provider);
+        let mut exporter = Self::new(options, &provider, key);
+        exporter.write_to_file(path).await?;
+
+        Ok(())
+    }
+
     pub(crate) fn new(
-        opts: BackupOptions,
+        options: BackupOptions,
         provider: &Arc<XmtpOpenMlsProvider>,
         key: &[u8],
     ) -> Self {
@@ -48,8 +65,8 @@ impl BackupExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            stream: BatchExportStream::new(&opts, provider),
-            metadata: opts.into(),
+            stream: BatchExportStream::new(&options, provider),
+            metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,
 

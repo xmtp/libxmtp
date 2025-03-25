@@ -1,7 +1,3 @@
-use super::DeviceSyncError;
-use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use backup_exporter::BackupExporter;
-use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
@@ -14,8 +10,6 @@ const BACKUP_VERSION: u16 = 0;
 pub(crate) mod backup_exporter;
 mod backup_importer;
 mod export_stream;
-
-pub(crate) use backup_exporter::*;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
@@ -44,29 +38,17 @@ impl BackupMetadata {
     }
 }
 
-impl From<BackupOptions> for BackupMetadataSave {
-    fn from(value: BackupOptions) -> Self {
+pub(crate) trait OptionsToSave {
+    fn from_options(options: BackupOptions) -> BackupMetadataSave;
+}
+impl OptionsToSave for BackupMetadataSave {
+    fn from_options(options: BackupOptions) -> BackupMetadataSave {
         Self {
-            end_ns: value.end_ns,
-            start_ns: value.start_ns,
-            elements: value.elements.iter().map(|&e| e as i32).collect(),
+            end_ns: options.end_ns,
+            start_ns: options.start_ns,
+            elements: options.elements.iter().map(|&e| e as i32).collect(),
             exported_at_ns: now_ns(),
         }
-    }
-}
-
-impl BackupOptions {
-    pub async fn export_to_file(
-        self,
-        provider: XmtpOpenMlsProvider,
-        path: impl AsRef<Path>,
-        key: &[u8],
-    ) -> Result<(), DeviceSyncError> {
-        let provider = Arc::new(provider);
-        let mut exporter = BackupExporter::new(self, &provider, key);
-        exporter.write_to_file(path).await?;
-
-        Ok(())
     }
 }
 
@@ -116,8 +98,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Consent,
+                BackupElementSelection::Messages as i32,
+                BackupElementSelection::Consent as i32,
             ],
         };
 

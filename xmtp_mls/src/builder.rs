@@ -147,7 +147,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store,
             scw_verifier,
             device_sync_server_url.clone(),
-            device_sync_worker_mode,
+            device_sync_worker_mode.clone(),
         );
 
         // start workers

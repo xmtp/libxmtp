@@ -89,9 +89,8 @@ pub(crate) trait BackupRecordProvider: Send {
         Self: Sized;
 }
 
-/// A generic struct to make it easier to stream backup records from the database
 pub(crate) struct BackupRecordStreamer<R> {
-    offset: i64,
+    cursor: i64,
     provider: Arc<XmtpOpenMlsProvider>,
     start_ns: Option<i64>,
     end_ns: Option<i64>,
@@ -107,7 +106,7 @@ where
         opts: &BackupOptions,
     ) -> BackupInputStream {
         let stream = Self {
-            offset: 0,
+            cursor: 0,
             provider: provider.clone(),
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
@@ -134,7 +133,7 @@ where
             return Poll::Ready(None);
         }
 
-        this.offset += R::BATCH_SIZE;
+        this.cursor += R::BATCH_SIZE;
         Poll::Ready(Some(batch))
     }
 }

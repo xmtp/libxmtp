@@ -19,7 +19,7 @@ impl BackupRecordProvider for ConsentSave {
         let query = consent_records::table
             .order_by((consent_records::entity_type, consent_records::entity))
             .limit(Self::BATCH_SIZE)
-            .offset(streamer.offset);
+            .offset(streamer.cursor);
 
         let batch = streamer
             .provider

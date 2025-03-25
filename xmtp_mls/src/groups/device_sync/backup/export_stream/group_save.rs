@@ -1,13 +1,21 @@
 use super::*;
-use crate::storage::{
-    group::{ConversationType, GroupMembershipState, StoredGroup},
-    schema::groups,
+use crate::{
+    groups::{group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata},
+    storage::{
+        group::{ConversationType, GroupMembershipState, StoredGroup},
+        schema::groups,
+    },
 };
 use diesel::prelude::*;
+use openmls::group::{GroupId, MlsGroup as OpenMlsGroup};
+use openmls_traits::OpenMlsProvider;
 use xmtp_id::associations::DeserializationError;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
-    group_backup::{ConversationTypeSave, GroupMembershipStateSave, GroupSave},
+    group_backup::{
+        ConversationTypeSave, GroupMembershipStateSave, GroupSave, ImmutableMetadataSave,
+        MutableMetadataSave,
+    },
 };
 
 impl BackupRecordProvider for GroupSave {
@@ -28,7 +36,7 @@ impl BackupRecordProvider for GroupSave {
             query = query.filter(groups::created_at_ns.le(end_ns));
         }
 
-        query = query.limit(Self::BATCH_SIZE).offset(streamer.offset);
+        query = query.limit(Self::BATCH_SIZE).offset(streamer.cursor);
 
         let batch = streamer
             .provider
@@ -36,10 +44,24 @@ impl BackupRecordProvider for GroupSave {
             .raw_query_read(|conn| query.load::<StoredGroup>(conn))
             .expect("Failed to load group records");
 
+        let storage = streamer.provider.storage();
         batch
             .into_iter()
-            .map(|record| BackupElement {
-                element: Some(Element::Group(record.into())),
+            .filter_map(|record| {
+                let mls_group =
+                    OpenMlsGroup::load(storage, &GroupId::from_slice(&record.id)).ok()??;
+                let immutable = mls_group.extensions().immutable_metadata()?;
+
+                let immutable_metadata = GroupMetadata::try_from(immutable.metadata()).ok()?;
+                let mutable_metadata = GroupMutableMetadata::try_from(&mls_group).ok()?;
+
+                Some(BackupElement {
+                    element: Some(Element::Group(GroupSave::new(
+                        record,
+                        immutable_metadata,
+                        mutable_metadata,
+                    ))),
+                })
             })
             .collect()
     }
@@ -99,24 +121,43 @@ impl TryFrom<ConversationTypeSave> for ConversationType {
     }
 }
 
-impl From<StoredGroup> for GroupSave {
-    fn from(value: StoredGroup) -> Self {
-        let membership_state: GroupMembershipStateSave = value.membership_state.into();
-        let conversation_type: ConversationTypeSave = value.conversation_type.into();
+trait GroupSaveExt {
+    fn new(
+        group: StoredGroup,
+        immutable_metadata: GroupMetadata,
+        mutable_metadata: GroupMutableMetadata,
+    ) -> Self;
+}
+impl GroupSaveExt for GroupSave {
+    fn new(
+        group: StoredGroup,
+        immutable_metadata: GroupMetadata,
+        mutable_metadata: GroupMutableMetadata,
+    ) -> Self {
+        let membership_state: GroupMembershipStateSave = group.membership_state.into();
+        let conversation_type: ConversationTypeSave = group.conversation_type.into();
 
         Self {
-            id: value.id,
-            created_at_ns: value.created_at_ns,
+            id: group.id,
+            created_at_ns: group.created_at_ns,
             membership_state: membership_state as i32,
-            installations_last_checked: value.installations_last_checked,
-            added_by_inbox_id: value.added_by_inbox_id,
-            welcome_id: value.welcome_id,
-            rotated_at_ns: value.rotated_at_ns,
+            installations_last_checked: group.installations_last_checked,
+            added_by_inbox_id: group.added_by_inbox_id,
+            welcome_id: group.welcome_id,
+            rotated_at_ns: group.rotated_at_ns,
             conversation_type: conversation_type as i32,
-            dm_id: value.dm_id,
-            last_message_ns: value.last_message_ns,
-            message_disappear_from_ns: value.message_disappear_from_ns,
-            message_disappear_in_ns: value.message_disappear_in_ns,
+            dm_id: group.dm_id,
+            last_message_ns: group.last_message_ns,
+            message_disappear_from_ns: group.message_disappear_from_ns,
+            message_disappear_in_ns: group.message_disappear_in_ns,
+            metdata: Some(ImmutableMetadataSave {
+                creator_inbox_id: immutable_metadata.creator_inbox_id,
+            }),
+            mutable_metadata: Some(MutableMetadataSave {
+                super_admin_list: mutable_metadata.super_admin_list,
+                attributes: mutable_metadata.attributes,
+                admin_list: mutable_metadata.admin_list,
+            }),
         }
     }
 }

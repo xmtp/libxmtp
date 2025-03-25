@@ -252,6 +252,10 @@ where
                             }
                         }
                     }
+
+                    // Device Sync V1 events
+                    SyncEvent::Reply { .. } => {}
+                    SyncEvent::Request { .. } => {}
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
                     tracing::info!("Outgoing preference update {preference_updates:?}");
