@@ -199,14 +199,26 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let wrapper = ApiClientWrapper::new(Arc::new(api_client), api_retry);
         ClientBuilder {
             api_client: Some(wrapper),
-            ..self
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
+            scw_verifier: self.scw_verifier,
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         }
     }
 
     pub fn with_scw_verifier<V2>(self, verifier: V2) -> ClientBuilder<ApiClient, V2> {
         ClientBuilder {
+            api_client: self.api_client,
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
             scw_verifier: Some(verifier),
-            ..self
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         }
     }
 
@@ -227,8 +239,14 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let remote_verifier = RemoteSignatureVerifier::new(api);
 
         Ok(ClientBuilder {
+            api_client: self.api_client,
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
             scw_verifier: Some(remote_verifier),
-            ..self
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         })
     }
 }
