@@ -1105,7 +1105,6 @@ pub(crate) mod tests {
             consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
             schema::identity_updates,
         },
-        utils::test::HISTORY_SYNC_URL,
         XmtpApi,
     };
 
@@ -1747,9 +1746,8 @@ pub(crate) mod tests {
     async fn should_stream_consent() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();
-        let alix =
-            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
-        let bo = ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let group = alix
             .create_group_with_inbox_ids(

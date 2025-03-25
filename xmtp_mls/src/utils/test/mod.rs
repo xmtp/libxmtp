@@ -1,15 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
-use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{
         test_utils::MockSmartContractSignatureVerifier,
@@ -22,19 +15,12 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 use crate::{
     builder::ClientBuilder,
-    groups::device_sync::handle::WorkerHandle,
     identity::IdentityStrategy,
     storage::{DbConnection, EncryptedMessageStore, StorageOption},
     Client, InboxOwner, XmtpApi,
 };
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
-
-// TODO: Dev-Versions of URL
-const HISTORY_SERVER_HOST: &str = "localhost";
-const HISTORY_SERVER_PORT: u16 = 5558;
-pub const HISTORY_SYNC_URL: &str =
-    const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
