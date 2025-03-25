@@ -86,7 +86,7 @@ impl TryFrom<GroupSave> for StoredGroup {
             last_message_ns: value.last_message_ns,
             message_disappear_from_ns: value.message_disappear_from_ns,
             message_disappear_in_ns: value.message_disappear_in_ns,
-            paused_for_version: None, // TODO: Add this to the backup
+            paused_for_version: value.paused_for_version,
         })
     }
 }
@@ -150,6 +150,7 @@ impl GroupSaveExt for GroupSave {
             last_message_ns: group.last_message_ns,
             message_disappear_from_ns: group.message_disappear_from_ns,
             message_disappear_in_ns: group.message_disappear_in_ns,
+            paused_for_version: group.paused_for_version,
             metdata: Some(ImmutableMetadataSave {
                 creator_inbox_id: immutable_metadata.creator_inbox_id,
             }),

@@ -197,6 +197,9 @@ impl serde::Serialize for GroupSave {
         if self.message_disappear_in_ns.is_some() {
             len += 1;
         }
+        if self.paused_for_version.is_some() {
+            len += 1;
+        }
         if self.metdata.is_some() {
             len += 1;
         }
@@ -260,6 +263,9 @@ impl serde::Serialize for GroupSave {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("messageDisappearInNs", ToString::to_string(&v).as_str())?;
         }
+        if let Some(v) = self.paused_for_version.as_ref() {
+            struct_ser.serialize_field("pausedForVersion", v)?;
+        }
         if let Some(v) = self.metdata.as_ref() {
             struct_ser.serialize_field("metdata", v)?;
         }
@@ -299,6 +305,8 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             "messageDisappearFromNs",
             "message_disappear_in_ns",
             "messageDisappearInNs",
+            "paused_for_version",
+            "pausedForVersion",
             "metdata",
             "mutable_metadata",
             "mutableMetadata",
@@ -318,6 +326,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             LastMessageNs,
             MessageDisappearFromNs,
             MessageDisappearInNs,
+            PausedForVersion,
             Metdata,
             MutableMetadata,
         }
@@ -353,6 +362,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             "lastMessageNs" | "last_message_ns" => Ok(GeneratedField::LastMessageNs),
                             "messageDisappearFromNs" | "message_disappear_from_ns" => Ok(GeneratedField::MessageDisappearFromNs),
                             "messageDisappearInNs" | "message_disappear_in_ns" => Ok(GeneratedField::MessageDisappearInNs),
+                            "pausedForVersion" | "paused_for_version" => Ok(GeneratedField::PausedForVersion),
                             "metdata" => Ok(GeneratedField::Metdata),
                             "mutableMetadata" | "mutable_metadata" => Ok(GeneratedField::MutableMetadata),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -386,6 +396,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                 let mut last_message_ns__ = None;
                 let mut message_disappear_from_ns__ = None;
                 let mut message_disappear_in_ns__ = None;
+                let mut paused_for_version__ = None;
                 let mut metdata__ = None;
                 let mut mutable_metadata__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -478,6 +489,12 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::PausedForVersion => {
+                            if paused_for_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pausedForVersion"));
+                            }
+                            paused_for_version__ = map_.next_value()?;
+                        }
                         GeneratedField::Metdata => {
                             if metdata__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("metdata"));
@@ -505,6 +522,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                     last_message_ns: last_message_ns__,
                     message_disappear_from_ns: message_disappear_from_ns__,
                     message_disappear_in_ns: message_disappear_in_ns__,
+                    paused_for_version: paused_for_version__,
                     metdata: metdata__,
                     mutable_metadata: mutable_metadata__,
                 })
