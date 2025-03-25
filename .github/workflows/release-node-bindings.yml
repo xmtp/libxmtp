@@ -149,6 +149,19 @@ jobs:
             .
             bindings_node
 
+      - name: Check versions are in sync
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
+
       - name: Setup node
         uses: actions/setup-node@v4
         with:
@@ -208,6 +221,20 @@ jobs:
           workspaces: |
             .
             bindings_node
+
+      - name: Check versions are in sync
+        shell: bash
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_wasm"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
 
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v3
