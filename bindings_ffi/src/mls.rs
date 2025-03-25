@@ -721,7 +721,14 @@ impl From<FfiBackupOptions> for BackupOptions {
         Self {
             start_ns: value.start_ns,
             end_ns: value.start_ns,
-            elements: value.elements.into_iter().map(Into::into).collect(),
+            elements: value
+                .elements
+                .into_iter()
+                .map(|el| {
+                    let element: BackupElementSelection = el.into();
+                    element.into()
+                })
+                .collect(),
         }
     }
 }
@@ -1274,9 +1281,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(
-                GroupQueryArgs::from(opts).conversation_type(ConversationType::Group),
-            )?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Group),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1297,7 +1305,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Dm),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1457,8 +1468,8 @@ impl FfiConversations {
 impl FfiConversations {
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        let sync_group = inner.get_sync_group(&conn)?;
+        let provider = inner.mls_provider()?;
+        let sync_group = inner.get_sync_group(&provider)?;
         Ok(sync_group.into())
     }
 }
@@ -6540,9 +6551,10 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
-        let alix_a_conn = alix_a.inner_client.store().conn().unwrap();
+        let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
         // wait for alix_a's sync worker to create a sync group
-        let _ = wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_conn) }).await;
+        let _ =
+            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
 
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
