@@ -733,7 +733,7 @@ where
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            sender_inbox_id,
+                            sender_inbox_id: sender_inbox_id.clone(),
                             delivery_status: DeliveryStatus::Published,
                             content_type: queryable_content_fields.content_type,
                             version_major: queryable_content_fields.version_major,

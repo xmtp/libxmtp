@@ -195,8 +195,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Consent,
+                BackupElementSelection::Messages.into(),
+                BackupElementSelection::Consent.into(),
             ],
         };
 
