@@ -1,5 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
+mod tester;
+
+use crate::{
+    builder::ClientBuilder,
+    identity::IdentityStrategy,
+    storage::{DbConnection, EncryptedMessageStore, StorageOption},
+    Client, InboxOwner, XmtpApi,
+};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
@@ -13,12 +21,7 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-use crate::{
-    builder::ClientBuilder,
-    identity::IdentityStrategy,
-    storage::{DbConnection, EncryptedMessageStore, StorageOption},
-    Client, InboxOwner, XmtpApi,
-};
+pub use tester::*;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
