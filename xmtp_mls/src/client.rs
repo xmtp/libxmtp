@@ -1094,8 +1094,10 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
+    use crate::groups::device_sync::handle::SyncMetric;
     use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
+    use crate::utils::Tester;
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1748,6 +1750,65 @@ pub(crate) mod tests {
         let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].group_id, dm1.group_id);
+    }
+
+    #[xmtp_common::test]
+    async fn try_to_fork() -> anyhow::Result<()> {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+        let caro = Tester::new().await;
+        let dan = Tester::new().await;
+
+        let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group
+            .add_members_by_inbox_id(&[caro.inbox_id()])
+            .await?;
+        alix_group
+            .add_members_by_inbox_id(&[dan.inbox_id()])
+            .await?;
+
+        bo.sync_welcomes(&bo.provider).await?;
+        caro.sync_welcomes(&caro.provider).await?;
+        dan.sync_welcomes(&dan.provider).await?;
+
+        let alix_group = alix.group(&alix_group.group_id)?;
+        let bo_group = bo.group(&alix_group.group_id)?;
+        let caro_group = caro.group(&alix_group.group_id)?;
+        let dan_group = dan.group(&alix_group.group_id)?;
+
+        let mut futs = vec![];
+        for group in [&alix_group, &bo_group, &caro_group, &dan_group] {
+            for _ in 0..10 {
+                futs.push(group.send_message(b"hello"));
+            }
+        }
+
+        // Create a second dan
+        let dan2 = Tester::new_from_wallet(dan.wallet.clone()).await;
+        dan2.worker.wait_for_init().await;
+
+        // Have first dan get the sync group, and add dan2 to all the groups
+        dan.sync_welcomes(&dan.provider).await?;
+        // Dan will send a sync payload after he's added dan2 to all the groups
+        dan.worker.wait(SyncMetric::PayloadsSent, 1).await;
+
+        // Have dan2 pull down the welcomes from dan1
+        dan2.sync_welcomes(&dan2.provider).await?;
+        // load the group
+        let dan2_group = dan2.group(&dan_group.group_id)?;
+        // send a msg
+        dan2_group.send_message(b"Hey, I'm new").await?;
+
+        // Can alix see the msg?
+        alix_group.sync().await?;
+        let mut alix_msgs = alix_group.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(
+            alix_msgs.pop().unwrap().decrypted_message_bytes,
+            b"Hey, I'm new"
+        );
+
+        Ok(())
     }
 
     #[xmtp_common::test]

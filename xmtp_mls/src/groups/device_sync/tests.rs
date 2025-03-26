@@ -1,4 +1,4 @@
-use super::*;
+use super::{handle::WorkHandleCollection, *};
 use crate::{groups::DMMetadataOptions, utils::Tester};
 use anyhow::Result;
 
@@ -34,7 +34,7 @@ async fn basic_sync() -> Result<()> {
 }
 
 #[xmtp_common::test]
-async fn two_old_installations() -> Result<()> {
+async fn only_one_payload_sent() -> Result<()> {
     let alix1 = Tester::new().await;
     let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
     let bo = Tester::new().await;
@@ -46,6 +46,11 @@ async fn two_old_installations() -> Result<()> {
 
     // Have alix2 fetch the DM
     alix2.sync_welcomes(&alix2.provider).await?;
+
+    // Wait for alix to send a payload to alix2
+    alix1.sync_welcomes(&alix1.provider).await?;
+    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await;
+    alix1.worker.clear_metric(SyncMetric::PayloadsSent);
 
     let alix3 = Tester::new_from_wallet(alix1.wallet.clone()).await;
     alix3.worker.wait_for_init().await;
@@ -62,10 +67,14 @@ async fn two_old_installations() -> Result<()> {
     assert_eq!(alix1_sg.group_id, alix2_sg.group_id);
     assert_eq!(alix1_sg.group_id, alix3_sg.group_id);
 
-    alix1
-        .worker
-        .wait_or(vec![&alix2.worker], SyncMetric::PayloadsSent, 1)
-        .await;
+    // Wait for one of the workers to send a payload
+    let wait1 = alix1.worker.wait(SyncMetric::PayloadsSent, 1);
+    let wait2 = alix2.worker.wait(SyncMetric::PayloadsSent, 1);
+
+    let timeout1 = tokio::time::timeout(Duration::from_secs(1), wait1).await;
+    let timeout2 = tokio::time::timeout(Duration::from_secs(1), wait2).await;
+
+    assert_ne!(timeout1.is_ok(), timeout2.is_ok());
 
     Ok(())
 }

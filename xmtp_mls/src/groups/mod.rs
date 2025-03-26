@@ -104,7 +104,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::Identifier;
-use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -1045,7 +1045,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id<S: AsRef<str>>(
+    pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
@@ -1055,13 +1055,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id_with_provider<S: AsRef<str>>(
+    pub async fn add_members_by_inbox_id_with_provider<S: AsIdRef>(
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
             .await?;

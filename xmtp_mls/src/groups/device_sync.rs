@@ -20,7 +20,7 @@ use futures::{future::join_all, Stream, StreamExt};
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -249,8 +249,7 @@ where
                             }
                             DeviceSyncContent::Payload(payload) => {
                                 self.client.process_sync_payload(payload).await?;
-                                self.handle
-                                    .increment_metric(SyncMetric::PayloadsProcessed);
+                                self.handle.increment_metric(SyncMetric::PayloadsProcessed);
                             }
                             DeviceSyncContent::Acknowledge(_) => {
                                 // intentionally left blank
@@ -499,6 +498,7 @@ where
     pub(crate) async fn send_sync_payload(
         &self,
         request: Option<DeviceSyncRequestProto>,
+        // acknowledge: fn(&XmtpOpenMlsProvider) -> dyn Future<Output = Result<(), DeviceSyncError>>,
     ) -> Result<(), DeviceSyncError> {
         tracing::info!("{LOG_PREFIX}Responding to sync request.");
         let provider = Arc::new(self.mls_provider()?);
