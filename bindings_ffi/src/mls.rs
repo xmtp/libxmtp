@@ -7788,6 +7788,7 @@ mod tests {
         let alix = new_test_client_with_history().await;
         let bo = new_test_client_with_history().await;
         let caro = new_test_client_with_history().await;
+        let dan = new_test_client_with_history().await;
 
         // Create group
         let alix_group = alix
@@ -7798,6 +7799,7 @@ mod tests {
             )
             .await
             .unwrap();
+        let alix_group_id = alix_group.id();
 
         // Let Bo sync to discover the group
         bo.conversations()
@@ -7810,6 +7812,7 @@ mod tests {
             .unwrap();
         assert_eq!(bo_groups.len(), 1);
         let bo_group = bo_groups[0].clone();
+        assert_eq!(bo_group.conversation.id(), alix_group_id);
 
         // Send 200 messages from Alix
         for i in 0..200 {
@@ -7844,6 +7847,8 @@ mod tests {
                 .unwrap();
             assert_eq!(caro_groups.len(), 1);
             let caro_group = caro_groups[0].clone();
+            let caro_group_id = caro_group.conversation.id();
+            assert_eq!(caro_group_id, alix_group_id);
             caro_group
                 .conversation
                 .send("hi from caro".as_bytes().to_vec())
@@ -7925,6 +7930,82 @@ mod tests {
 
         assert_eq!(alix_messages.len(), 212);
         assert_eq!(bo_messages.len(), 211);
-        assert_eq!(caro_messages.len(), 4);
+        assert_eq!(caro_messages.len(), 3);
+
+        assert_eq!(alix_messages[alix_messages.len() - 1].content, "followup from caro".as_bytes().to_vec());
+        assert_eq!(bo_messages[bo_messages.len() - 1].content, "followup from caro".as_bytes().to_vec());
+        assert_eq!(caro_messages[caro_messages.len() - 1].content, "followup from caro".as_bytes().to_vec());
+
+        alix_group
+            .send("followup AGAIN from alix".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Sync everyone again
+        alix_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
+        caro_group.conversation.sync().await.unwrap();
+
+        // Final checks
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let bo_messages = bo_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let caro_messages = caro_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(alix_messages[alix_messages.len() - 1].content, "followup AGAIN from alix".as_bytes().to_vec());
+        assert_eq!(bo_messages[bo_messages.len() - 1].content, "followup AGAIN from alix".as_bytes().to_vec());
+        assert_eq!(caro_messages[caro_messages.len() - 1].content, "followup AGAIN from alix".as_bytes().to_vec());
+
+
+        caro_group.conversation.add_members(vec![dan.account_identifier.clone()]).await.unwrap();
+        dan.conversations().sync_all_conversations(None).await.unwrap();
+        let dan_groups = dan.conversations().list(FfiListConversationsOptions::default()).unwrap();
+        assert_eq!(dan_groups.len(), 1);
+        let dan_group = dan_groups[0].clone();
+        assert_eq!(dan_group.conversation.id(), alix_group_id);
+        
+        dan_group.conversation.send("hi from dan".as_bytes().to_vec()).await.unwrap();
+
+        alix_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
+        caro_group.conversation.sync().await.unwrap();
+        // dan_group.conversation.sync().await.unwrap();
+
+        let caro_messages = caro_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(caro_messages[caro_messages.len() - 1].content, "hi from dan".as_bytes().to_vec());
+
+        let dan_messages = dan_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(dan_messages[dan_messages.len() - 1].content, "hi from dan".as_bytes().to_vec());
+
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(alix_messages[alix_messages.len() - 1].content, "hi from dan".as_bytes().to_vec());
+
+        let bo_messages = bo_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(bo_messages[bo_messages.len() - 1].content, "hi from dan".as_bytes().to_vec());
     }
 }
