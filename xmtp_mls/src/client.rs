@@ -1099,6 +1099,7 @@ pub(crate) mod tests {
     use crate::subscriptions::StreamMessages;
     use crate::utils::Tester;
     use diesel::RunQueryDsl;
+    use futures::future::{join_all, try_join_all};
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -1777,12 +1778,14 @@ pub(crate) mod tests {
         let caro_group = caro.group(&alix_group.group_id)?;
         let dan_group = dan.group(&alix_group.group_id)?;
 
+        // Send 10 msgs from everyone
         let mut futs = vec![];
         for group in [&alix_group, &bo_group, &caro_group, &dan_group] {
             for _ in 0..10 {
                 futs.push(group.send_message(b"hello"));
             }
         }
+        try_join_all(futs).await?;
 
         // Create a second dan
         let dan2 = Tester::new_from_wallet(dan.wallet.clone()).await;
