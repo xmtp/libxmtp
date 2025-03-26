@@ -493,7 +493,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(DeviceSyncContent::Reply(ref reply)) => {
+                    Ok(DeviceSyncContent::Payload(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {

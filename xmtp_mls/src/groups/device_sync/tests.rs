@@ -23,19 +23,22 @@ async fn basic_sync() {
     let alix2 = ClientBuilder::new_test_client(&alix_wallet).await;
     let alix2_provider = alix2.mls_provider().unwrap();
     let alix2_worker = alix2.device_sync.worker_handle().unwrap();
-
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let sync_group = alix2.get_sync_group(&alix2_provider).unwrap();
-    sync_group.update_installations().await;
+    alix2_worker.block_for_metric(SyncMetric::Init, 1).await;
 
     alix.sync_welcomes(&alix_provider).await.unwrap();
-
     alix_worker
-        .block_for_metric(SyncMetric::SyncGroupWelcomesProcessed, 1)
+        .block_for_metric(SyncMetric::SyncPayloadsSent, 1)
         .await;
 
-    // alix2_worker
-    // .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
-    // .await;
+    let alix2_sync_groupo = alix2.get_sync_group(&alix2_provider).unwrap();
+    alix2_sync_groupo.sync().await.unwrap();
+    alix2_worker
+        .block_for_metric(SyncMetric::SyncPayloadsProcessed, 1)
+        .await;
+
+    // Ensure the DM is present on the second device.
+    let alix2_dm = alix2.group(&dm.group_id).unwrap();
+    let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default()).unwrap();
+    assert_eq!(alix2_dm_msgs.len(), 1);
+    assert_eq!(alix2_dm_msgs[0].decrypted_message_bytes, b"Hello there.");
 }

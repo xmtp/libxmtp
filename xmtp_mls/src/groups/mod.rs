@@ -752,7 +752,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.
                     let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
-                    tracing::error!("YES");
 
                     StoredGroup::new_from_welcome(
                         group_id.clone(),
@@ -2526,7 +2525,7 @@ pub(crate) mod tests {
             now
         );
 
-        let dm_group = alix.group(dm_group.id).unwrap();
+        let dm_group = alix.group(&dm_group.id).unwrap();
         let alix_msgs = dm_group
             .find_messages(&MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
@@ -4047,7 +4046,7 @@ pub(crate) mod tests {
         let bola_group_id = bola_group.group_id.clone();
 
         // Bola fetches group from the database
-        let bola_fetched_group = bola.group(bola_group_id).unwrap();
+        let bola_fetched_group = bola.group(&bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_inbox_id of the inviter
         let added_by_inbox = bola_fetched_group.added_by_inbox_id().unwrap();

@@ -137,10 +137,10 @@ mod tests {
 
         // wait for the new sync group
         amal_a_worker
-            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .block_for_metric(SyncMetric::SyncPayloadsProcessed, 1)
             .await;
         amal_b_worker
-            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .block_for_metric(SyncMetric::SyncPayloadsProcessed, 1)
             .await;
 
         amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
@@ -154,7 +154,7 @@ mod tests {
 
         // Wait for a to process the new hmac key
         amal_a_worker
-            .block_for_metric(SyncMetric::SyncRepliesProcessed, 1)
+            .block_for_metric(SyncMetric::SyncPayloadsProcessed, 1)
             .await;
 
         let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();

@@ -108,6 +108,8 @@ pub enum DeviceSyncError {
     MissingOptions,
     #[error("Missing sync server url")]
     MissingSyncServerUrl,
+    #[error("Missing sync group")]
+    MissingSyncGroup,
 }
 
 const LOG_PREFIX: &str = "Device Sync: ";
@@ -198,6 +200,7 @@ where
             xmtp_common::yield_().await
         }
         self.sync_init().await?;
+        self.handle.increment_metric(SyncMetric::Init);
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
@@ -221,6 +224,8 @@ where
                         self.client.add_new_installation_to_groups().await?;
                         self.handle
                             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
+                        self.client.send_sync_payload(None).await?;
+                        self.handle.increment_metric(SyncMetric::SyncPayloadsSent);
                     }
                     SyncEvent::NewSyncGroupMsg(msg_id) => {
                         let provider = self.client.mls_provider()?;
@@ -239,13 +244,13 @@ where
 
                         match content {
                             DeviceSyncContent::Request(request) => {
-                                self.client.process_sync_request(request).await?;
-                                self.handle.increment_metric(SyncMetric::SyncResponsesSent);
+                                self.client.send_sync_payload(Some(request)).await?;
+                                self.handle.increment_metric(SyncMetric::SyncPayloadsSent);
                             }
-                            DeviceSyncContent::Reply(reply) => {
-                                self.client.process_sync_reply(reply).await?;
+                            DeviceSyncContent::Payload(payload) => {
+                                self.client.process_sync_payload(payload).await?;
                                 self.handle
-                                    .increment_metric(SyncMetric::SyncRepliesProcessed);
+                                    .increment_metric(SyncMetric::SyncPayloadsProcessed);
                             }
                             DeviceSyncContent::Acknowledge(_) => {
                                 // intentionally left blank
@@ -491,9 +496,9 @@ where
         Ok(())
     }
 
-    pub(crate) async fn process_sync_request(
+    pub(crate) async fn send_sync_payload(
         &self,
-        request: DeviceSyncRequestProto,
+        request: Option<DeviceSyncRequestProto>,
     ) -> Result<(), DeviceSyncError> {
         tracing::info!("{LOG_PREFIX}Responding to sync request.");
         let provider = Arc::new(self.mls_provider()?);
@@ -511,8 +516,16 @@ where
             );
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
-        let Some(options) = request.options else {
-            return Err(DeviceSyncError::MissingOptions);
+
+        let mut request_id = "".to_string();
+        let options = if let Some(request) = request {
+            let Some(options) = request.options else {
+                return Err(DeviceSyncError::MissingOptions);
+            };
+            request_id = request.request_id;
+            options
+        } else {
+            default_backup_options()
         };
 
         // Generate a random encryption key
@@ -548,7 +561,7 @@ where
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
             key,
-            request_id: request.request_id,
+            request_id,
             url: format!("{device_sync_server_url}/files/{}", response.text().await?),
             metadata: Some(metadata),
 
@@ -561,7 +574,7 @@ where
         self.acknowledge_sync_request(&provider).await?;
 
         // Send the message out over the network
-        let content = DeviceSyncContent::Reply(reply);
+        let content = DeviceSyncContent::Payload(reply);
         self.send_device_sync_message(&provider, content).await?;
 
         Ok(())
@@ -573,6 +586,15 @@ where
         reply: &DeviceSyncReplyProto,
     ) -> Result<bool, DeviceSyncError> {
         let sync_group = self.get_sync_group(&provider)?;
+        let stored_group = provider.conn_ref().find_group(&sync_group.group_id)?;
+        let Some(stored_group) = stored_group else {
+            return Err(DeviceSyncError::MissingSyncGroup);
+        };
+
+        if reply.request_id == stored_group.added_by_inbox_id {
+            return Ok(true);
+        }
+
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
@@ -587,7 +609,7 @@ where
         Ok(false)
     }
 
-    pub async fn process_sync_reply(
+    pub async fn process_sync_payload(
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
@@ -678,11 +700,21 @@ where
     }
 }
 
+fn default_backup_options() -> BackupOptions {
+    BackupOptions {
+        elements: vec![
+            BackupElementSelection::Messages as i32,
+            BackupElementSelection::Consent as i32,
+        ],
+        ..Default::default()
+    }
+}
+
 // These are the messages that get sent out to the sync group
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
-    Reply(DeviceSyncReplyProto),
+    Payload(DeviceSyncReplyProto),
     Acknowledge(AcknowledgeKind),
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

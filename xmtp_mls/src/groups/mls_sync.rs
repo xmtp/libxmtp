@@ -800,7 +800,7 @@ where
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
                                 let content: DeviceSyncContent =
-                                    DeviceSyncContent::Reply(history_reply);
+                                    DeviceSyncContent::Payload(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,

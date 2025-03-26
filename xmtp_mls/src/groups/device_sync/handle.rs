@@ -19,10 +19,11 @@ where
 
 #[derive(PartialEq, Eq, Hash)]
 pub enum SyncMetric {
+    Init,
     SyncGroupWelcomesProcessed,
     SyncRequestsReceived,
-    SyncResponsesSent,
-    SyncRepliesProcessed,
+    SyncPayloadsSent,
+    SyncPayloadsProcessed,
 }
 
 impl<Metric> WorkerHandle<Metric>

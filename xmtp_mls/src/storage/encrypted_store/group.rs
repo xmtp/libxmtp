@@ -120,8 +120,6 @@ impl StoredGroup {
         }
     }
 
-    /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
-    /// TODO: Set added_by_inbox to your own inbox_id
     pub fn new_sync_group(
         id: ID,
         created_at_ns: i64,
@@ -133,7 +131,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             conversation_type: ConversationType::Sync,
-            added_by_inbox_id: "".into(),
+            added_by_inbox_id: "".to_string(),
             welcome_id: None,
             rotated_at_ns: 0,
             dm_id: None,

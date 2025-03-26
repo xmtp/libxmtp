@@ -630,7 +630,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-        group.sync_with_conn(provider).await?;
+        group.update_installations().await?;
         Ok(group)
     }
 
@@ -654,9 +654,9 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
+    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &self.store().conn()?;
-        self.group_with_conn(conn, &group_id)
+        self.group_with_conn(conn, group_id)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -1368,10 +1368,10 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 0);
-        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
@@ -1389,7 +1389,7 @@ pub(crate) mod tests {
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
     }
@@ -1428,7 +1428,7 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups, 2);
 
         // Verify Bob initially has no messages
-        let bo_group1 = bo.group(alix_bo_group1.group_id.clone()).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
         assert_eq!(
             bo_group1
                 .find_messages(&MsgQueryArgs::default())
@@ -1436,7 +1436,7 @@ pub(crate) mod tests {
                 .len(),
             0
         );
-        let bo_group2 = bo.group(alix_bo_group2.group_id.clone()).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
