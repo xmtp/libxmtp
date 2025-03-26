@@ -2743,7 +2743,7 @@ mod tests {
         },
         time::Duration,
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use tokio::{join, sync::Notify, time::error::Elapsed};
     use xmtp_common::time::now_ns;
     use xmtp_common::tmp_path;
     use xmtp_common::{wait_for_eq, wait_for_ok};
@@ -7781,5 +7781,150 @@ mod tests {
 
         assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
         assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_send_200_messages_to_group_with_caro_joining_during_sync() {
+        let alix = new_test_client_with_history().await;
+        let bo = new_test_client_with_history().await;
+        let caro = new_test_client_with_history().await;
+
+        // Create group
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Let Bo sync to discover the group
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bo_groups = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(bo_groups.len(), 1);
+        let bo_group = bo_groups[0].clone();
+
+        // Send 200 messages from Alix
+        for i in 0..200 {
+            let msg = format!("bulk message {}", i);
+            alix_group.send(msg.as_bytes().to_vec()).await.unwrap();
+        }
+
+        // Add caro while bo is syncing
+        let binding = bo.conversations();
+        let sync_fut = binding.sync_all_conversations(None);
+        let send_fut1 = alix_group.send("hi1".as_bytes().to_vec());
+        let send_fut2 = alix_group.send("hi2".as_bytes().to_vec());
+        let send_fut3 = bo_group.conversation.send("hi3".as_bytes().to_vec());
+        let send_fut4 = alix_group.send("hi4".as_bytes().to_vec());
+        let send_fut5 = alix_group.send("hi5".as_bytes().to_vec());
+        let send_fut6 = alix_group.send("hi6".as_bytes().to_vec());
+
+        // Caro syncs and sends while Bo is syncing
+        let caro_sync_and_send = async {
+            bo_group
+                .conversation
+                .add_members(vec![caro.account_identifier.clone()])
+                .await
+                .unwrap();
+            caro.conversations()
+                .sync_all_conversations(None)
+                .await
+                .unwrap();
+            let caro_groups = caro
+                .conversations()
+                .list(FfiListConversationsOptions::default())
+                .unwrap();
+            assert_eq!(caro_groups.len(), 1);
+            let caro_group = caro_groups[0].clone();
+            caro_group
+                .conversation
+                .send("hi from caro".as_bytes().to_vec())
+                .await
+                .unwrap();
+        };
+
+        let (
+            sync_result,
+            send_result1,
+            send_result2,
+            send_result3,
+            send_result4,
+            send_result5,
+            send_result6,
+            _caro_result,
+        ) = join!(
+            sync_fut,
+            send_fut1,
+            send_fut2,
+            send_fut3,
+            send_fut4,
+            send_fut5,
+            send_fut6,
+            caro_sync_and_send
+        );
+
+        // Await all results
+        sync_result.unwrap();
+        send_result1.unwrap();
+        send_result2.unwrap();
+        send_result3.unwrap();
+        send_result4.unwrap();
+        send_result5.unwrap();
+        send_result6.unwrap();
+
+        // Everyone sends follow-up messages
+        alix_group
+            .send("followup from alix".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_group
+            .conversation
+            .send("followup from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        let caro_group = caro
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap()[0]
+            .clone();
+        caro_group
+            .conversation
+            .send("followup from caro".as_bytes().to_vec())
+            .await
+            .unwrap();
+
+        // Sync everyone again
+        alix_group.sync().await.unwrap();
+        bo_group.conversation.sync().await.unwrap();
+        caro_group.conversation.sync().await.unwrap();
+
+        // Final checks
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let bo_messages = bo_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        let caro_messages = caro_group
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(alix_messages.len(), 212);
+        assert_eq!(bo_messages.len(), 211);
+        assert_eq!(caro_messages.len(), 4);
     }
 }
