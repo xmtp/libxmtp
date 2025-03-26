@@ -60,6 +60,8 @@ where
         }
     }
 
+    /// Blocks until a metrics specified count is met in at least one handle.
+    /// Useful when testing several clients, and you need at least one of them to do a job.
     pub async fn wait_or(&self, mut others: Vec<&Self>, metric: Metric, count: usize) {
         others.push(self);
         let metrics: Vec<Arc<AtomicUsize>> = others
