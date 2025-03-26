@@ -4,7 +4,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check versions are in sync
+        run: |
+          chmod +x dev/sync-versions.sh
+          ./dev/sync-versions.sh
+          
+          # Check if there are any changes after syncing versions
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::Version mismatch detected! Please run 'dev/sync-versions.sh' locally, commit the changes before releasing bindings_node"
+            echo "Changes detected:"
+            git status --porcelain
+            exit 1
+          fi
+
   build-linux:
+    needs: check-versions
     runs-on: warp-ubuntu-2204-x64-16x
     strategy:
       fail-fast: false
@@ -108,6 +128,7 @@ jobs:
           retention-days: 1
 
   build-macos:
+    needs: check-versions
     runs-on: warp-macos-latest-arm64-6x
     strategy:
       fail-fast: false
@@ -166,6 +187,7 @@ jobs:
           retention-days: 1
 
   build-windows:
+    needs: check-versions
     runs-on: warp-windows-latest-x64-16x
     strategy:
       fail-fast: false
@@ -249,6 +271,7 @@ jobs:
   publish:
     permissions:
       id-token: write
+      contents: write
     runs-on: ubuntu-latest
     needs: [build-linux, build-macos, build-windows]
     steps:
@@ -282,10 +305,66 @@ jobs:
         working-directory: bindings_node
         run: yarn generate:version
 
+      - name: Update version for dev releases
+        working-directory: bindings_node
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          # Check if this is a dev version
+          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+            # Read the git commit hash from version.json
+            if [ -f "dist/version.json" ]; then
+              GIT_HASH=$(node -p "require('./dist/version.json').version")
+              
+              # Create a new version string with the git hash
+              NEW_VERSION="${PACKAGE_VERSION}.${GIT_HASH}"
+              
+              # Update package.json with the new version
+              npm version "$NEW_VERSION" --no-git-tag-version
+              
+              echo "Updated version to $NEW_VERSION for publishing"
+            else
+              echo "Warning: dist/version.json not found, using original version"
+            fi
+          else
+            echo "Not a dev version, keeping original version: $PACKAGE_VERSION"
+          fi
+
+      - name: Determine NPM tag
+        id: npm-tag
+        working-directory: bindings_node
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          # Set the tag based on whether it's a dev version
+          if [[ "$PACKAGE_VERSION" == *"dev"* ]]; then
+            echo "tag=prerelease" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Git Tag for Dev Releases
+        if: contains(steps.npm-tag.outputs.tag, 'prerelease')
+        run: |
+          # Read the current version from package.json
+          PACKAGE_VERSION=$(node -p "require('./bindings_node/package.json').version")
+          
+          # Create and push the tag
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git tag -a "node-bindings-${PACKAGE_VERSION}" -m "Node bindings version ${PACKAGE_VERSION}"
+          git push origin "node-bindings-${PACKAGE_VERSION}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish to NPM
         uses: JS-DevTools/npm-publish@v3
         with:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_node
+          tag: ${{ steps.npm-tag.outputs.tag }}
+          dry-run: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
