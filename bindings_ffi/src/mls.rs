@@ -7807,4 +7807,35 @@ mod tests {
         assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
         assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_can_add_installation_with_a_bad_key_package() {
+        let alix_client = new_dev_test_client().await;
+        let bo_client = new_dev_test_client().await;
+        let group = alix_client
+            .conversations()
+            .create_group_with_inbox_ids(
+                vec![
+                    "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string(),
+                ],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        group
+            .add_members(vec![bo_client.account_identifier.clone()])
+            .await
+            .unwrap();
+        bo_client
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bo_groups = bo_client
+            .conversations()
+            .list_groups(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(bo_groups.len(), 1);
+    }
 }
