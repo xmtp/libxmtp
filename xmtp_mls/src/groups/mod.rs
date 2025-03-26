@@ -730,6 +730,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     dm_members,
                     disappearing_settings,
                     paused_for_version,
+                    None
                 ),
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
@@ -743,6 +744,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         dm_members,
                         disappearing_settings,
                         None,
+                        Some(welcome.created_ns as i64)
                     )
                 }
                 ConversationType::Sync => StoredGroup::new_from_welcome(
@@ -755,6 +757,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     dm_members,
                     disappearing_settings,
                     None,
+                    None
                 ),
             };
 
