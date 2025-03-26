@@ -365,6 +365,6 @@ jobs:
           token: ${{ secrets.NPM_TOKEN }}
           package: bindings_node
           tag: ${{ steps.npm-tag.outputs.tag }}
-          dry-run: true
+          dry-run: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
