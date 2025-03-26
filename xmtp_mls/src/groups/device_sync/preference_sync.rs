@@ -136,12 +136,8 @@ mod tests {
         let amal_b_worker = amal_b.device_sync.worker_handle().unwrap();
 
         // wait for the new sync group
-        amal_a_worker
-            .block(SyncMetric::PayloadsProcessed, 1)
-            .await;
-        amal_b_worker
-            .block(SyncMetric::PayloadsProcessed, 1)
-            .await;
+        amal_a_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
+        amal_b_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
 
         amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
 
@@ -153,9 +149,7 @@ mod tests {
         sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
 
         // Wait for a to process the new hmac key
-        amal_a_worker
-            .block(SyncMetric::PayloadsProcessed, 1)
-            .await;
+        amal_a_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
 
         let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
         let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();

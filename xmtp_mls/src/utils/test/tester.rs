@@ -10,6 +10,8 @@ use crate::{
 
 use super::FullXmtpClient;
 
+/// A test client wrapper that auto-exposes all of the usual component access boilerplate.
+/// Makes testing easier and less repetetive.
 pub(crate) struct Tester {
     pub wallet: LocalWallet,
     pub client: FullXmtpClient,

@@ -1,3 +1,4 @@
+use futures::stream::{select_all, FuturesUnordered};
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -8,6 +9,7 @@ use std::{
     },
 };
 use tokio::sync::Notify;
+use tokio_stream::StreamExt;
 
 pub struct WorkerHandle<Metric>
 where
@@ -17,7 +19,7 @@ where
     notify: Notify,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum SyncMetric {
     Init,
     SyncGroupWelcomesProcessed,
@@ -28,7 +30,7 @@ pub enum SyncMetric {
 
 impl<Metric> WorkerHandle<Metric>
 where
-    Metric: PartialEq + Eq + Hash,
+    Metric: PartialEq + Eq + Hash + Clone + Copy,
 {
     pub(super) fn new() -> Self {
         Self {
@@ -51,10 +53,30 @@ where
     }
 
     /// Blocks until metric's specified count is met
-    pub async fn block(&self, metric: Metric, count: usize) {
+    pub async fn wait(&self, metric: Metric, count: usize) {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
         while metric.load(Ordering::SeqCst) < count {
             self.notify.notified().await;
         }
+    }
+
+    pub async fn wait_or(&self, mut others: Vec<&Self>, metric: Metric, count: usize) {
+        others.push(self);
+        let metrics: Vec<Arc<AtomicUsize>> = others
+            .iter()
+            .map(|h| h.metrics.lock().entry(metric).or_default().clone())
+            .collect();
+
+        while !metrics.iter().any(|m| m.load(Ordering::SeqCst) >= count) {
+            let mut notify: FuturesUnordered<_> =
+                others.iter().map(|h| h.notify.notified()).collect();
+            notify.next().await;
+        }
+    }
+}
+
+impl WorkerHandle<SyncMetric> {
+    pub async fn wait_for_init(&self) {
+        self.wait(SyncMetric::Init, 1).await
     }
 }
