@@ -1811,6 +1811,11 @@ pub(crate) mod tests {
             b"Hey, I'm new"
         );
 
+        tracing::warn!("Checking can talk with alix...");
+        alix_group.test_can_talk_with(&dan2_group).await?;
+        tracing::warn!("Checking can talk with bo...");
+        bo_group.test_can_talk_with(&dan2_group).await?;
+
         Ok(())
     }
 
