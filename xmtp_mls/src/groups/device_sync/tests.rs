@@ -14,19 +14,14 @@ async fn basic_sync() {
     bo.sync_welcomes(&bo.provider).await.unwrap();
 
     let alix2 = Tester::new_from_wallet(alix.wallet.clone()).await;
-    alix2.worker.block_for_metric(SyncMetric::Init, 1).await;
+    alix2.worker.block(SyncMetric::Init, 1).await;
 
     alix.sync_welcomes(&alix.provider).await.unwrap();
-    alix.worker
-        .block_for_metric(SyncMetric::SyncPayloadsSent, 1)
-        .await;
+    alix.worker.block(SyncMetric::PayloadsSent, 1).await;
 
     let alix2_sync_group = alix2.get_sync_group(&alix2.provider).unwrap();
     alix2_sync_group.sync().await.unwrap();
-    alix2
-        .worker
-        .block_for_metric(SyncMetric::SyncPayloadsProcessed, 1)
-        .await;
+    alix2.worker.block(SyncMetric::PayloadsProcessed, 1).await;
 
     // Ensure the DM is present on the second device.
     let alix2_dm = alix2.group(&dm.group_id).unwrap();

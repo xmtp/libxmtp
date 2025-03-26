@@ -21,9 +21,9 @@ where
 pub enum SyncMetric {
     Init,
     SyncGroupWelcomesProcessed,
-    SyncRequestsReceived,
-    SyncPayloadsSent,
-    SyncPayloadsProcessed,
+    RequestsReceived,
+    PayloadsSent,
+    PayloadsProcessed,
 }
 
 impl<Metric> WorkerHandle<Metric>
@@ -51,7 +51,7 @@ where
     }
 
     /// Blocks until metric's specified count is met
-    pub async fn block_for_metric(&self, metric: Metric, count: usize) {
+    pub async fn block(&self, metric: Metric, count: usize) {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
         while metric.load(Ordering::SeqCst) < count {
             self.notify.notified().await;

@@ -225,7 +225,7 @@ where
                         self.handle
                             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
                         self.client.send_sync_payload(None).await?;
-                        self.handle.increment_metric(SyncMetric::SyncPayloadsSent);
+                        self.handle.increment_metric(SyncMetric::PayloadsSent);
                     }
                     SyncEvent::NewSyncGroupMsg(msg_id) => {
                         let provider = self.client.mls_provider()?;
@@ -245,12 +245,12 @@ where
                         match content {
                             DeviceSyncContent::Request(request) => {
                                 self.client.send_sync_payload(Some(request)).await?;
-                                self.handle.increment_metric(SyncMetric::SyncPayloadsSent);
+                                self.handle.increment_metric(SyncMetric::PayloadsSent);
                             }
                             DeviceSyncContent::Payload(payload) => {
                                 self.client.process_sync_payload(payload).await?;
                                 self.handle
-                                    .increment_metric(SyncMetric::SyncPayloadsProcessed);
+                                    .increment_metric(SyncMetric::PayloadsProcessed);
                             }
                             DeviceSyncContent::Acknowledge(_) => {
                                 // intentionally left blank
