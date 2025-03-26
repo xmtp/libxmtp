@@ -13,6 +13,9 @@ pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
 
+#[cfg(test)]
+pub mod test_utils;
+
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::scoped_client::ScopedGroupClient;

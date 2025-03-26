@@ -1,0 +1,41 @@
+use ethers::signers::LocalWallet;
+use std::ops::Deref;
+use xmtp_cryptography::utils::generate_local_wallet;
+
+use crate::{builder::ClientBuilder, storage::xmtp_openmls_provider::XmtpOpenMlsProvider};
+
+use super::FullXmtpClient;
+
+/// A test client wrapper that auto-exposes all of the usual component access boilerplate.
+/// Makes testing easier and less repetetive.
+pub(crate) struct Tester {
+    pub wallet: LocalWallet,
+    pub client: FullXmtpClient,
+    pub provider: XmtpOpenMlsProvider,
+    // pub worker: Arc<WorkerHandle<SyncMetric>>,
+}
+
+impl Tester {
+    pub(crate) async fn new() -> Self {
+        let wallet = generate_local_wallet();
+        Self::new_from_wallet(wallet).await
+    }
+    pub(crate) async fn new_from_wallet(wallet: LocalWallet) -> Self {
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        let provider = client.mls_provider().unwrap();
+
+        Self {
+            wallet,
+            client,
+            provider,
+        }
+    }
+}
+
+impl Deref for Tester {
+    type Target = FullXmtpClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}

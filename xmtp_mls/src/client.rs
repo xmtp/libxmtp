@@ -1080,10 +1080,14 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use std::time::Duration;
+
     use super::Client;
     use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
+    use crate::utils::tester::Tester;
     use diesel::RunQueryDsl;
+    use futures::future::try_join_all;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -1799,5 +1803,65 @@ pub(crate) mod tests {
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
+    }
+
+    #[xmtp_common::test]
+    async fn try_to_fork() -> anyhow::Result<()> {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+        let caro = Tester::new().await;
+        let dan = Tester::new().await;
+
+        let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group
+            .add_members_by_inbox_id(&[caro.inbox_id()])
+            .await?;
+        alix_group
+            .add_members_by_inbox_id(&[dan.inbox_id()])
+            .await?;
+
+        bo.sync_welcomes(&bo.provider).await?;
+        caro.sync_welcomes(&caro.provider).await?;
+        dan.sync_welcomes(&dan.provider).await?;
+
+        let alix_group = alix.group(alix_group.group_id.clone())?;
+        let bo_group = bo.group(alix_group.group_id.clone())?;
+        let caro_group = caro.group(alix_group.group_id.clone())?;
+        let dan_group = dan.group(alix_group.group_id.clone())?;
+
+        // Send 10 msgs from everyone
+        let mut futs = vec![];
+        for group in [&alix_group, &bo_group, &caro_group, &dan_group] {
+            for _ in 0..10 {
+                futs.push(group.send_message(b"hello"));
+            }
+        }
+        try_join_all(futs).await?;
+
+        // Create a second dan
+        let dan2 = Tester::new_from_wallet(dan.wallet.clone()).await;
+        dan_group.update_installations().await?;
+        dan2.sync_welcomes(&dan2.provider).await?;
+
+        // load the group
+        let dan2_group = dan2.group(dan_group.group_id)?;
+        // send a msg
+        dan2_group.send_message(b"Hey, I'm new").await?;
+
+        // Can alix see the msg?
+        alix_group.sync().await?;
+        let mut alix_msgs = alix_group.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(
+            alix_msgs.pop().unwrap().decrypted_message_bytes,
+            b"Hey, I'm new"
+        );
+
+        tracing::warn!("Checking can talk with alix...");
+        alix_group.test_can_talk_with(&dan2_group).await?;
+        tracing::warn!("Checking can talk with bo...");
+        bo_group.test_can_talk_with(&dan2_group).await?;
+
+        Ok(())
     }
 }

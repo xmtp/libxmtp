@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
+pub mod tester;
+
 use std::{
     future::Future,
     sync::{
