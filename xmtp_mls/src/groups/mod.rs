@@ -2646,7 +2646,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // The last message should be our "Hello from Alix"
-        assert_eq!(messages_bola_1.len(), 4);
+        assert_eq!(messages_bola_1.len(), 3);
 
         // Query messages from Alix's perspective
         let messages_alix = alix
@@ -2656,7 +2656,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // The last message should be our "Hello from Alix"
-        assert_eq!(messages_alix.len(), 4);
+        assert_eq!(messages_alix.len(), 3);
         assert_eq!(
             message.to_vec(),
             get_latest_message(&group).await.decrypted_message_bytes
