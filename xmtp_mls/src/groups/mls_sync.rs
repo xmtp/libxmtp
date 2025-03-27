@@ -1963,12 +1963,11 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    let failed = [
+    new_group_membership.failed_installations = [
         old_group_membership.failed_installations,
         changes_with_kps.failed_installations,
     ]
     .concat();
-    new_group_membership.failed_installations = failed;
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit
