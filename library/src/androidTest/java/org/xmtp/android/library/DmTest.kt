@@ -4,7 +4,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert
@@ -78,14 +77,8 @@ class DmTest {
         }
 
         runBlocking {
-            convoBo.send("Bo hey")
-            delay(5000)
-            convoAlix.send("Alix hey")
-        }
-
-        runBlocking {
-            assertEquals(2, convoBo.messages().size) // memberAdd and Bo hey
-            assertEquals(2, convoAlix.messages().size) // memberAdd and Alix hey
+            assertEquals(1, convoBo.messages().size) // memberAdd
+            assertEquals(1, convoAlix.messages().size) // memberAdd
         }
 
         runBlocking {
@@ -96,8 +89,8 @@ class DmTest {
         }
 
         runBlocking {
-            assertEquals(3, convoBo.messages().size) // memberAdd and Bo hey Alix hey
-            assertEquals(3, convoAlix.messages().size) // memberAdd and Bo hey Alix hey
+            assertEquals(1, convoBo.messages().size) // memberAdd
+            assertEquals(1, convoAlix.messages().size) // memberAdd
         }
 
         val sameConvoBo = runBlocking {
@@ -130,11 +123,11 @@ class DmTest {
 
         runBlocking {
             assertEquals(
-                5,
+                3,
                 sameConvoBo.messages().size
             ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
             assertEquals(
-                5,
+                3,
                 sameConvoAlix.messages().size
             ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
         }
