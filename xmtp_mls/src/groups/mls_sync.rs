@@ -1852,7 +1852,8 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     if !installation_diff.added_installations.is_empty() {
         let key_packages = get_keypackages_for_installation_ids(
             client,
-            installation_diff.added_installations.clone(),
+            installation_diff.added_installations,
+            &mut failed_installations,
         )
         .await?;
         for (installation_id, result) in key_packages {
@@ -1875,12 +1876,12 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations,
     ))
 }
-
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
     use crate::utils::{
@@ -1903,6 +1904,7 @@ async fn get_keypackages_for_installation_ids(
     if is_test_mode_upload_malformed_keypackage() {
         let malformed_installations = get_test_mode_malformed_installations();
         key_packages.retain(|id, _| !malformed_installations.contains(id));
+        failed_installations.extend(malformed_installations);
     }
 
     Ok(key_packages)
@@ -1912,6 +1914,7 @@ async fn get_keypackages_for_installation_ids(
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
+    failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
     let my_installation_id = client.context().installation_public_key().to_vec();
