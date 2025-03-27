@@ -1,12 +1,19 @@
 use super::*;
 use anyhow::Result;
 
+// Please ensure that all public functions defined in this module
+// start with `test_`
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub async fn test_talk_in_dm_with(&self, other: &Self) -> Result<()> {
+    /// Creates a DM with the other client, sends a message, and ensures delivery,
+    /// returning the created dm and sent message contents
+    pub(crate) async fn test_talk_in_dm_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<Self>, String)> {
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), DMMetadataOptions::default())
             .await?;
@@ -20,8 +27,8 @@ where
         // the group_id should be the same.
         assert_eq!(dm.group_id, other_dm.group_id);
 
-        dm.test_can_talk_with(&other_dm).await?;
+        let msg = dm.test_can_talk_with(&other_dm).await?;
 
-        Ok(())
+        Ok((dm, msg))
     }
 }

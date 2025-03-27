@@ -1,5 +1,5 @@
 use super::*;
-use crate::{client::test_utils::*, groups::DMMetadataOptions, utils::Tester};
+use crate::{groups::DMMetadataOptions, utils::Tester};
 use anyhow::Result;
 
 #[xmtp_common::test]
@@ -7,11 +7,10 @@ async fn basic_sync() -> Result<()> {
     let alix1 = Tester::new().await;
     let bo = Tester::new().await;
 
-    let dm = alix1
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), DMMetadataOptions::default())
-        .await?;
-    dm.send_message(b"Hello there.").await?;
+    // Talk with bo
+    let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
 
+    // Create a second client for alix
     let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
     alix2.worker.wait_for_init().await;
 
@@ -28,7 +27,7 @@ async fn basic_sync() -> Result<()> {
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(alix2_dm_msgs.len(), 1);
-    assert_eq!(alix2_dm_msgs[0].decrypted_message_bytes, b"Hello there.");
+    assert_eq!(alix2_dm_msgs[0].decrypted_message_bytes, dm_msg.as_bytes());
 
     Ok(())
 }
