@@ -2190,7 +2190,10 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        self.inner.group_id.clone()
+        match self.inner.client.stitched_group(&self.inner.group_id) {
+            Ok(group) => group.group_id.clone(),
+            Err(_) => self.inner.group_id.clone(),
+        }
     }
 }
 
@@ -7721,10 +7724,6 @@ mod tests {
             "Alix should see 3 messages after sync"
         );
 
-        let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
-        let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
-        assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
-
         // Ensure conversations remain the same
         let convo_alix_2 = client_alix
             .conversations()
@@ -7749,6 +7748,11 @@ mod tests {
             convo_alix.id(),
             convo_bo_2.id(),
             "Conversations should match"
+        );
+        assert_eq!(
+            convo_alix.id(),
+            convo_bo.id(),
+            "Conversations should get updated to match"
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
@@ -7797,5 +7801,42 @@ mod tests {
 
         assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
         assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+    }
+
+    #[tokio::test]
+    async fn test_can_successfully_thread_dms_with_no_messages() {
+        // Create two test users
+        let wallet_bo = generate_local_wallet();
+        let wallet_alix = generate_local_wallet();
+
+        let client_bo = new_test_client_with_wallet(wallet_bo).await;
+        let client_alix = new_test_client_with_wallet(wallet_alix).await;
+
+        // Find or create DM conversations
+        let convo_bo = client_bo
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_alix.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+        let convo_alix = client_alix
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_bo.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        client_bo
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_alix
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
+        let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
+        assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
     }
 }

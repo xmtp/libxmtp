@@ -67,14 +67,18 @@ jobs:
       - name: Get short SHA
         id: slug
         run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+      - name: Get crate version
+        id: version
+        run: |
+          echo "::set-output name=value::$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')"
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: kotlin-bindings-${{ steps.slug.outputs.sha7 }}
-          release_name: Kotlin-Bindings-${{ steps.slug.outputs.sha7 }}
+          tag_name: kotlin-bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
+          release_name: Kotlin-Bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
       - name: Upload release asset

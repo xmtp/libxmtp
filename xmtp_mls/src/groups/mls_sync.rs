@@ -1685,13 +1685,19 @@ where
                 ));
             }
 
+            let failed_installations = [
+                old_group_membership.failed_installations,
+                changes_with_kps.failed_installations,
+            ]
+            .concat();
+
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
-                changes_with_kps.failed_installations,
+                failed_installations,
             ))
         })
         .await
@@ -1978,7 +1984,11 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    new_group_membership.failed_installations = changes_with_kps.failed_installations;
+    new_group_membership.failed_installations = [
+        old_group_membership.failed_installations,
+        changes_with_kps.failed_installations,
+    ]
+    .concat();
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit

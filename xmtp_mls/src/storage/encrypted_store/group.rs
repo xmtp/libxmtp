@@ -72,6 +72,7 @@ impl StoredGroup {
         dm_members: Option<DmMembers<String>>,
         message_disappearing_settings: Option<MessageDisappearingSettings>,
         paused_for_version: Option<String>,
+        last_message_ns: Option<i64>,
     ) -> Self {
         Self {
             id,
@@ -83,7 +84,7 @@ impl StoredGroup {
             welcome_id: Some(welcome_id),
             rotated_at_ns: 0,
             dm_id: dm_members.map(String::from),
-            last_message_ns: None,
+            last_message_ns,
             message_disappear_from_ns: message_disappearing_settings.as_ref().map(|s| s.from_ns),
             message_disappear_in_ns: message_disappearing_settings.map(|s| s.in_ns),
             paused_for_version,
@@ -750,6 +751,7 @@ pub(crate) mod tests {
             "placeholder_address".to_string(),
             welcome_id.unwrap_or(xmtp_common::rand_i64()),
             ConversationType::Group,
+            None,
             None,
             None,
             None,

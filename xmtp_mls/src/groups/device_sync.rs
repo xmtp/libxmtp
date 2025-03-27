@@ -649,8 +649,8 @@ where
             return Ok(());
         }
 
-        // If a paylaod was sent to this installation,
-        // that means they also probably sent this installation a bunch of welcomes.
+        // If a payload was sent to this installation,
+        // that means they also sent this installation a bunch of welcomes.
         self.sync_welcomes(&provider).await?;
 
         // Get a download stream of the payload.
