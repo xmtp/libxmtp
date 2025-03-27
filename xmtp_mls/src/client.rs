@@ -53,6 +53,9 @@ use xmtp_id::{
 use xmtp_proto::api_client::{ApiStats, IdentityStats};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
+#[cfg(test)]
+pub(crate) mod test_utils;
+
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -260,13 +263,7 @@ where
     pub fn identity_api_stats(&self) -> IdentityStats {
         self.api_client.api_client.identity_stats()
     }
-}
 
-impl<ApiClient, V> Client<ApiClient, V>
-where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
-{
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.

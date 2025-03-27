@@ -1,5 +1,5 @@
-use super::{handle::WorkHandleCollection, *};
-use crate::{groups::DMMetadataOptions, utils::Tester};
+use super::*;
+use crate::{client::test_utils::*, groups::DMMetadataOptions, utils::Tester};
 use anyhow::Result;
 
 #[xmtp_common::test]
@@ -52,9 +52,6 @@ async fn only_one_payload_sent() -> Result<()> {
     alix1.worker.wait(SyncMetric::PayloadsSent, 1).await;
     alix1.worker.clear_metric(SyncMetric::PayloadsSent);
 
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix2.sync_welcomes(&alix2.provider).await?;
-
     let alix3 = Tester::new_from_wallet(alix1.wallet.clone()).await;
     alix3.worker.wait_for_init().await;
 
@@ -79,6 +76,16 @@ async fn only_one_payload_sent() -> Result<()> {
 
     // We want one of them to timeout (only one payload sent)
     assert_ne!(timeout1.is_ok(), timeout2.is_ok());
+
+    Ok(())
+}
+
+#[xmtp_common::test]
+async fn a_sync_request_works() -> Result<()> {
+    let alix1 = Tester::new().await;
+    let bo = Tester::new().await;
+
+    alix1.test_talk_in_dm_with(&bo).await?;
 
     Ok(())
 }
