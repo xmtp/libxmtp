@@ -1,4 +1,4 @@
-use futures::stream::{select_all, FuturesUnordered};
+use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -7,8 +7,9 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    time::Duration,
 };
-use tokio::sync::Notify;
+use tokio::{sync::Notify, time::error::Elapsed};
 use tokio_stream::StreamExt;
 
 pub struct WorkerHandle<Metric>
@@ -57,11 +58,17 @@ where
     }
 
     /// Blocks until metric's specified count is met
-    pub async fn wait(&self, metric: Metric, count: usize) {
+    pub async fn wait(&self, metric: Metric, count: usize) -> Result<(), Elapsed> {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
-        while metric.load(Ordering::SeqCst) < count {
-            self.notify.notified().await;
-        }
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while metric.load(Ordering::SeqCst) < count {
+                self.notify.notified().await;
+            }
+        })
+        .await?;
+
+        Ok(())
     }
 
     pub fn clear_metric(&self, metric: Metric) {
@@ -100,7 +107,7 @@ where
 }
 
 impl WorkerHandle<SyncMetric> {
-    pub async fn wait_for_init(&self) {
+    pub async fn wait_for_init(&self) -> Result<(), Elapsed> {
         self.wait(SyncMetric::Init, 1).await
     }
 }

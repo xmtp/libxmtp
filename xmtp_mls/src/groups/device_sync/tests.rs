@@ -12,16 +12,16 @@ async fn basic_sync() -> Result<()> {
 
     // Create a second client for alix
     let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
-    alix2.worker.wait_for_init().await;
+    alix2.worker.wait_for_init().await?;
 
     // Have alix1 receive new sync group, and auto-send a sync payload
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await;
+    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
 
     // Have alix2 receive payload and process it
     let alix2_sync_group = alix2.get_sync_group(&alix2.provider)?;
     alix2_sync_group.sync().await?;
-    alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await;
+    alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await?;
 
     // Ensure the DM is present on the second device.
     let alix2_dm = alix2.group(&dm.group_id)?;
@@ -48,11 +48,11 @@ async fn only_one_payload_sent() -> Result<()> {
 
     // Wait for alix to send a payload to alix2
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await;
+    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
     alix1.worker.clear_metric(SyncMetric::PayloadsSent);
 
     let alix3 = Tester::new_from_wallet(alix1.wallet.clone()).await;
-    alix3.worker.wait_for_init().await;
+    alix3.worker.wait_for_init().await?;
 
     // Have alix1 and 2 fetch the new sync group
     alix1.sync_welcomes(&alix1.provider).await?;
@@ -85,6 +85,17 @@ async fn a_sync_request_works() -> Result<()> {
     let bo = Tester::new().await;
 
     alix1.test_talk_in_dm_with(&bo).await?;
+
+    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    alix2.worker.wait_for_init().await?;
+
+    // Pull down the new sync group, triggering a payload to be sent
+    alix1.sync_welcomes(&alix1.provider).await?;
+    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
+
+    alix2.send_sync_request(&alix2.provider).await?;
+    alix1.get_sync_group(&alix1.provider)?.sync().await?;
+    alix1.worker.wait(SyncMetric::PayloadsSent, 2).await?;
 
     Ok(())
 }

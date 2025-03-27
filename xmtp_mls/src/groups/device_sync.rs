@@ -20,12 +20,12 @@ use futures::{future::join_all, Stream, StreamExt};
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::io::{ReaderStream, StreamReader};
-use tracing::{info_span, instrument, span};
+use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
@@ -248,6 +248,7 @@ where
                             continue;
                         };
 
+                        tracing::error!("SYNC MSG! {content:?}");
                         match content {
                             DeviceSyncContent::Request(request) => {
                                 self.client
@@ -521,7 +522,7 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
-        tracing::info!("Responding to sync request.");
+        tracing::info!("Sending sync payload.");
         let provider = Arc::new(self.mls_provider()?);
 
         match acknowledge().await {
@@ -532,9 +533,7 @@ where
         }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
-            tracing::info!(
-                "Unable to process sync request due to not having a sync server url present."
-            );
+            tracing::info!("Unable to send sync payload - no sync server url present.");
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
 
