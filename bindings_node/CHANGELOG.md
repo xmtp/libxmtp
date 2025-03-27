@@ -1,5 +1,10 @@
 # @xmtp/node-bindings
 
+## 1.1.2
+
+- Fixed incorrect key package associations
+- Resolved DM stitching issues for conversations without messages
+
 ## 1.1.1
 
 - Refactored welcome message processing to prevent key package deletion on failure

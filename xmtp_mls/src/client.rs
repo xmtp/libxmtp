@@ -863,9 +863,8 @@ where
         let crypto_provider = XmtpOpenMlsProvider::new_crypto();
 
         let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
-            installation_ids
+            key_package_results
                 .iter()
-                .zip(key_package_results.values())
                 .map(|(id, bytes)| {
                     (
                         id.clone(),

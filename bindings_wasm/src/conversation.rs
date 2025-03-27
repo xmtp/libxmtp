@@ -131,7 +131,10 @@ impl From<MlsGroup<RustXmtpClient>> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    hex::encode(self.group_id.clone())
+    match self.inner_client.stitched_group(&self.group_id) {
+      Ok(group) => hex::encode(group.group_id.clone()),
+      Err(_) => hex::encode(self.group_id.clone()),
+    }
   }
 
   #[wasm_bindgen]
