@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.1.2
+
+- Fixed invalid key package association
+
 ## 1.1.1
 
 - Refactored welcome message processing to prevent key package deletion on failure
