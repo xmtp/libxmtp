@@ -5,6 +5,7 @@ use anyhow::Result;
 
 impl<Client: ScopedGroupClient> MlsGroup<Client> {
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<()> {
+        self.sync().await?;
         let msg = xmtp_common::rand_string::<20>();
         self.send_message(msg.as_bytes()).await?;
 

@@ -1762,19 +1762,19 @@ pub(crate) mod tests {
 
         let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
-        alix_group
-            .add_members_by_inbox_id(&[caro.inbox_id()])
-            .await?;
+
+        bo.sync_welcomes(&bo.provider).await?;
+        let bo_group = bo.group(&alix_group.group_id)?;
+
+        bo_group.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
         alix_group
             .add_members_by_inbox_id(&[dan.inbox_id()])
             .await?;
 
-        bo.sync_welcomes(&bo.provider).await?;
         caro.sync_welcomes(&caro.provider).await?;
         dan.sync_welcomes(&dan.provider).await?;
 
         let alix_group = alix.group(&alix_group.group_id)?;
-        let bo_group = bo.group(&alix_group.group_id)?;
         let caro_group = caro.group(&alix_group.group_id)?;
         let dan_group = dan.group(&alix_group.group_id)?;
 
@@ -1815,6 +1815,7 @@ pub(crate) mod tests {
         alix_group.test_can_talk_with(&dan2_group).await?;
         tracing::warn!("Checking can talk with bo...");
         bo_group.test_can_talk_with(&dan2_group).await?;
+        caro_group.test_can_talk_with(&dan2_group).await?;
 
         Ok(())
     }
