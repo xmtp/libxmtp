@@ -1815,7 +1815,7 @@ pub(crate) mod tests {
         alix_group.test_can_talk_with(&dan2_group).await?;
         tracing::warn!("Checking can talk with bo...");
         bo_group.test_can_talk_with(&dan2_group).await?;
-        caro_group.test_can_talk_with(&dan2_group).await?;
+        caro_group.test_can_talk_with(&alix_group).await?;
 
         Ok(())
     }

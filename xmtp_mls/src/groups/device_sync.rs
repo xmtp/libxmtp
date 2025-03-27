@@ -25,7 +25,7 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio_util::io::{ReaderStream, StreamReader};
-use tracing::instrument;
+use tracing::{info_span, instrument, span};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
@@ -112,8 +112,6 @@ pub enum DeviceSyncError {
     MissingSyncGroup,
 }
 
-const LOG_PREFIX: &str = "Device Sync: ";
-
 impl DeviceSyncError {
     pub fn db_needs_connection(&self) -> bool {
         match self {
@@ -169,7 +167,7 @@ where
             let results = join_all(add_futs).await;
             for result in results {
                 if let Err(err) = result {
-                    tracing::warn!("{LOG_PREFIX}Unable to add new installation to group. {err:?}");
+                    tracing::warn!("Unable to add new installation to group. {err:?}");
                 }
             }
         }
@@ -224,15 +222,23 @@ where
                         self.client.add_new_installation_to_groups().await?;
                         self.handle
                             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
-                        self.client.send_sync_payload(None).await?;
-                        self.handle.increment_metric(SyncMetric::PayloadsSent);
+
+                        self.client
+                            .send_sync_payload(
+                                None,
+                                || async {
+                                    self.client.acknowledge_new_sync_group(&provider).await
+                                },
+                                &self.handle,
+                            )
+                            .await?;
                     }
                     SyncEvent::NewSyncGroupMsg(msg_id) => {
                         let provider = self.client.mls_provider()?;
                         let conn = provider.conn_ref();
 
                         let Some(msg) = conn.get_group_message(&msg_id)? else {
-                            tracing::error!("{LOG_PREFIX}Worker was notified of a new sync group message, but none was found.");
+                            tracing::error!("Worker was notified of a new sync group message, but none was found.");
                             continue;
                         };
                         let Ok(content) = serde_json::from_slice::<DeviceSyncContent>(
@@ -244,8 +250,15 @@ where
 
                         match content {
                             DeviceSyncContent::Request(request) => {
-                                self.client.send_sync_payload(Some(request)).await?;
-                                self.handle.increment_metric(SyncMetric::PayloadsSent);
+                                self.client
+                                    .send_sync_payload(
+                                        Some(request),
+                                        || async {
+                                            self.client.acknowledge_sync_request(&provider).await
+                                        },
+                                        &self.handle,
+                                    )
+                                    .await?;
                             }
                             DeviceSyncContent::Payload(payload) => {
                                 self.client.process_sync_payload(payload).await?;
@@ -275,7 +288,7 @@ where
                     )?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::info!("{LOG_PREFIX}Incoming preference update");
+                    tracing::info!("Incoming preference update");
                 }
                 _ => {}
             }
@@ -345,6 +358,9 @@ where
         xmtp_common::spawn(None, async move {
             let inbox_id = self.client.inbox_id().to_string();
             let installation_id = hex::encode(self.client.installation_public_key());
+            // let span = info_span!("\x1b[35mDevice sync: ");
+            // let _guard = span.enter();
+
             while let Err(err) = self.run().await {
                 tracing::info!("Running worker..");
                 if err.db_needs_connection() {
@@ -495,24 +511,29 @@ where
         Ok(())
     }
 
-    pub(crate) async fn send_sync_payload(
+    pub(crate) async fn send_sync_payload<F, Fut>(
         &self,
         request: Option<DeviceSyncRequestProto>,
-        // acknowledge: fn(&XmtpOpenMlsProvider) -> dyn Future<Output = Result<(), DeviceSyncError>>,
-    ) -> Result<(), DeviceSyncError> {
-        tracing::info!("{LOG_PREFIX}Responding to sync request.");
+        acknowledge: F,
+        handle: &WorkerHandle<SyncMetric>,
+    ) -> Result<(), DeviceSyncError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
+    {
+        tracing::info!("Responding to sync request.");
         let provider = Arc::new(self.mls_provider()?);
 
-        if let Err(err) = self.acknowledge_sync_request(&provider).await {
-            // Absorb the error and log it as an info, since it's not a real error.
-            // This just means that another installation is handling it.
-            tracing::info!("{LOG_PREFIX}{err}");
-            return Ok(());
-        };
+        match acknowledge().await {
+            Err(DeviceSyncError::AlreadyAcknowledged) => {
+                return Ok(());
+            }
+            result => result?,
+        }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
             tracing::info!(
-                "{LOG_PREFIX}Unable to process sync request due to not having a sync server url present."
+                "Unable to process sync request due to not having a sync server url present."
             );
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
@@ -544,15 +565,15 @@ where
         let body = reqwest::Body::wrap_stream(stream);
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
-        tracing::info!("{LOG_PREFIX}Uploading sync payload to history server...");
+        tracing::info!("Uploading sync payload to history server...");
         let response = reqwest::Client::new().post(url).body(body).send().await?;
-        tracing::info!("{LOG_PREFIX}Done uploading sync payload to history server.");
+        tracing::info!("Done uploading sync payload to history server.");
 
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
                 installation_id = hex::encode(self.installation_public_key()),
-                "{LOG_PREFIX}Failed to upload file. Status code: {:?}",
+                "Failed to upload file. Status code: {:?}",
                 err.status()
             );
             return Err(DeviceSyncError::Reqwest(err));
@@ -571,11 +592,18 @@ where
 
         // Check acknowledgement one more time before responding to try to avoid double-responses
         // from two or more old installations.
-        self.acknowledge_sync_request(&provider).await?;
+        match acknowledge().await {
+            Err(DeviceSyncError::AlreadyAcknowledged) => {
+                return Ok(());
+            }
+            result => result?,
+        }
 
         // Send the message out over the network
         let content = DeviceSyncContent::Payload(reply);
         self.send_device_sync_message(&provider, content).await?;
+
+        handle.increment_metric(SyncMetric::PayloadsSent);
 
         Ok(())
     }
@@ -613,7 +641,7 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("{LOG_PREFIX}Inspecting sync response.");
+        tracing::info!("Inspecting sync response.");
         let provider = Arc::new(self.mls_provider()?);
 
         // Check if this reply was asked for by this installation.
