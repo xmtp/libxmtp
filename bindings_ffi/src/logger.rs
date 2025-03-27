@@ -42,7 +42,7 @@ pub use ios::*;
 mod ios {
     use super::*;
     use tracing_oslog::OsLogger;
-    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
@@ -52,7 +52,27 @@ mod ios {
             .parse(FILTER_DIRECTIVE)
             .unwrap_or_else(|_| EnvFilter::new("info"));
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
+        
+        // Create a formatting layer that adds a prefix to messages
+        let formatting_layer = fmt::layer()
+            .event_format(fmt::format()
+                .with_target(false)
+                .with_thread_names(true) 
+                .with_level(true) 
+                .compact())
+            .fmt_fields(fmt::format::debug_fn(|writer, field, value| {
+                if field.name() == "message" {
+                    // Add your prefix here (e.g., "[XMTP]")
+                    write!(writer, "[LibXMTP] {:?}", value)
+                } else {
+                    write!(writer, "{:?}", value)
+                }
+            }));
+            
+        // Combine with OsLogger
+        OsLogger::new(subsystem, "default")
+            .with_filter(libxmtp_filter)
+            .and_then(formatting_layer)
     }
 }
 
