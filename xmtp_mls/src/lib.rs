@@ -4,7 +4,6 @@
 pub mod builder;
 pub mod client;
 pub mod configuration;
-mod constants;
 pub mod groups;
 mod hpke;
 pub mod identity;

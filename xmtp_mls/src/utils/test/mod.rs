@@ -21,8 +21,8 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-pub use tester::*;
-
+#[allow(unused_imports)]
+pub(crate) use tester::*;
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
@@ -76,7 +76,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(crate::constants::DeviceSyncUrls::LOCAL_ADDRESS),
+            Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
         )
         .await
     }
@@ -91,7 +91,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(crate::constants::DeviceSyncUrls::DEV_ADDRESS),
+            Some(crate::configuration::DeviceSyncUrls::DEV_ADDRESS),
         )
         .await
     }

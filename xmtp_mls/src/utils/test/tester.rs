@@ -12,6 +12,7 @@ use super::FullXmtpClient;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
+#[allow(dead_code)]
 pub(crate) struct Tester {
     pub wallet: LocalWallet,
     pub client: FullXmtpClient,
@@ -19,6 +20,7 @@ pub(crate) struct Tester {
     pub worker: Arc<WorkerHandle<SyncMetric>>,
 }
 
+#[allow(dead_code)]
 impl Tester {
     pub(crate) async fn new() -> Self {
         let wallet = generate_local_wallet();

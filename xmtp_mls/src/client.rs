@@ -1090,12 +1090,9 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
-    use crate::groups::device_sync::handle::SyncMetric;
     use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
-    use crate::utils::Tester;
     use diesel::RunQueryDsl;
-    use futures::future::{join_all, try_join_all};
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
