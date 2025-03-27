@@ -3,7 +3,7 @@ use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
         consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-        DbConnection,
+        DbConnection, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
@@ -117,18 +117,27 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            consent.store(conn)?;
+            ignore_unique_constraints(consent.store(conn))?;
         }
         Element::Group(group) => {
             let group: StoredGroup = group.try_into()?;
-            group.store(conn)?;
+            ignore_unique_constraints(group.store(conn))?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            message.store(conn)?;
+            ignore_unique_constraints(message.store(conn))?;
         }
         _ => {}
     }
 
     Ok(())
+}
+
+fn ignore_unique_constraints(result: Result<(), StorageError>) -> Result<(), StorageError> {
+    use diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
+    if let Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) = result
+    {
+        return Ok(());
+    }
+    result
 }

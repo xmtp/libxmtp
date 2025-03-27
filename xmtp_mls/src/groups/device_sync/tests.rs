@@ -80,10 +80,11 @@ async fn only_one_payload_sent() -> Result<()> {
 }
 
 #[xmtp_common::test]
-async fn a_sync_request_works() -> Result<()> {
+async fn double_sync_works_fine() -> Result<()> {
     let alix1 = Tester::new().await;
     let bo = Tester::new().await;
 
+    // Create a dm and chat with bo
     alix1.test_talk_in_dm_with(&bo).await?;
 
     let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
@@ -93,9 +94,15 @@ async fn a_sync_request_works() -> Result<()> {
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
 
+    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await?;
+
     alix2.send_sync_request(&alix2.provider).await?;
     alix1.get_sync_group(&alix1.provider)?.sync().await?;
     alix1.worker.wait(SyncMetric::PayloadsSent, 2).await?;
+
+    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.worker.wait(SyncMetric::PayloadsProcessed, 2).await?;
 
     Ok(())
 }
