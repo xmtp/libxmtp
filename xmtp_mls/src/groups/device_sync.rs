@@ -1,5 +1,4 @@
 use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
-#[cfg(any(test, feature = "test-utils"))]
 use crate::{
     client::ClientError,
     storage::{
