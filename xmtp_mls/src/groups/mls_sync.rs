@@ -1876,8 +1876,39 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     ))
 }
 
-#[allow(unused_variables, dead_code)]
+#[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
+async fn get_keypackages_for_installation_ids(
+    client: impl ScopedGroupClient,
+    added_installations: HashSet<Vec<u8>>,
+) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+{
+    use crate::utils::{
+        get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
+    };
+
+    let my_installation_id = client.context().installation_public_key().to_vec();
+    let mut key_packages = client
+        .get_key_packages_for_installation_ids(
+            added_installations
+                .iter()
+                .filter(|installation| my_installation_id.ne(*installation))
+                .cloned()
+                .collect(),
+        )
+        .await?;
+
+    tracing::info!("trying to validate keypackages");
+
+    if is_test_mode_upload_malformed_keypackage() {
+        let malformed_installations = get_test_mode_malformed_installations();
+        key_packages.retain(|id, _| !malformed_installations.contains(id));
+    }
+
+    Ok(key_packages)
+}
+#[allow(unused_variables, dead_code)]
+#[cfg(not(any(test, feature = "test-utils")))]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
