@@ -1664,13 +1664,19 @@ where
                 ));
             }
 
+            let failed_installations = [
+                old_group_membership.failed_installations,
+                changes_with_kps.failed_installations,
+            ]
+            .concat();
+
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
-                changes_with_kps.failed_installations,
+                failed_installations,
             ))
         })
         .await
@@ -1830,7 +1836,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
     let membership_diff = old_group_membership.diff(new_group_membership);
 
-    let installation_diff = client
+    let mut installation_diff = client
         .get_installation_diff(
             provider.conn_ref(),
             old_group_membership,
@@ -1846,8 +1852,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
     if !installation_diff.added_installations.is_empty() {
         let key_packages = get_keypackages_for_installation_ids(
             client,
-            installation_diff.added_installations,
-            &mut failed_installations,
+            installation_diff.added_installations.clone(),
         )
         .await?;
         for (installation_id, result) in key_packages {
@@ -1870,45 +1875,11 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations,
     ))
 }
-#[allow(dead_code)]
+#[allow(unused_variables, dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut Vec<Vec<u8>>,
-) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-{
-    use crate::utils::{
-        get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
-    };
-
-    let my_installation_id = client.context().installation_public_key().to_vec();
-    let mut key_packages = client
-        .get_key_packages_for_installation_ids(
-            added_installations
-                .iter()
-                .filter(|installation| my_installation_id.ne(*installation))
-                .cloned()
-                .collect(),
-        )
-        .await?;
-
-    tracing::info!("trying to validate keypackages");
-
-    if is_test_mode_upload_malformed_keypackage() {
-        let malformed_installations = get_test_mode_malformed_installations();
-        key_packages.retain(|id, _| !malformed_installations.contains(id));
-        failed_installations.extend(malformed_installations);
-    }
-
-    Ok(key_packages)
-}
-#[allow(unused_variables, dead_code)]
-#[cfg(not(any(test, feature = "test-utils")))]
-async fn get_keypackages_for_installation_ids(
-    client: impl ScopedGroupClient,
-    added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
     let my_installation_id = client.context().installation_public_key().to_vec();
@@ -1957,7 +1928,12 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    new_group_membership.failed_installations = changes_with_kps.failed_installations;
+    let failed = [
+        old_group_membership.failed_installations,
+        changes_with_kps.failed_installations,
+    ]
+    .concat();
+    new_group_membership.failed_installations = failed;
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit
