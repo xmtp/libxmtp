@@ -1875,6 +1875,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations,
     ))
 }
+
 #[allow(unused_variables, dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
 async fn get_keypackages_for_installation_ids(
