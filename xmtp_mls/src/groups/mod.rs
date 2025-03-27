@@ -1972,6 +1972,7 @@ async fn validate_initial_group_membership(
         .collect();
 
     let results = futures::future::try_join_all(futures).await?;
+
     for association_state in results {
         expected_installation_ids.extend(association_state.installation_ids());
     }
