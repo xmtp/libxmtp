@@ -14,6 +14,7 @@ where
         &self,
         other: &Self,
     ) -> Result<(MlsGroup<Self>, String)> {
+        self.sync_welcomes(&self.mls_provider()?).await?;
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), DMMetadataOptions::default())
             .await?;

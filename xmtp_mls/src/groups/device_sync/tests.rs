@@ -69,7 +69,6 @@ async fn only_one_payload_sent() -> Result<()> {
     // Wait for one of the workers to send a payload
     let wait1 = alix1.worker.wait(SyncMetric::PayloadsSent, 1);
     let wait2 = alix2.worker.wait(SyncMetric::PayloadsSent, 1);
-
     let timeout1 = tokio::time::timeout(Duration::from_secs(1), wait1).await;
     let timeout2 = tokio::time::timeout(Duration::from_secs(1), wait2).await;
 
@@ -103,6 +102,9 @@ async fn double_sync_works_fine() -> Result<()> {
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
     alix2.worker.wait(SyncMetric::PayloadsProcessed, 2).await?;
+
+    // Alix2 should be able to talk fine with bo
+    alix2.test_talk_in_dm_with(&bo).await?;
 
     Ok(())
 }

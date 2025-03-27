@@ -133,6 +133,7 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
     Ok(())
 }
 
+// If the record is already there, it's fine. Backup does not overwrite existing records.
 fn ignore_unique_constraints(result: Result<(), StorageError>) -> Result<(), StorageError> {
     use diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
     if let Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) = result

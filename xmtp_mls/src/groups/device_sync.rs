@@ -649,6 +649,10 @@ where
             return Ok(());
         }
 
+        // If a paylaod was sent to this installation,
+        // that means they also probably sent this installation a bunch of welcomes.
+        self.sync_welcomes(&provider).await?;
+
         // Get a download stream of the payload.
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
