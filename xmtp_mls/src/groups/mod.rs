@@ -2562,7 +2562,6 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
-    #[ignore] // ignoring for now due to flakiness
     async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -2645,7 +2644,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // The last message should be our "Hello from Alix"
-        assert_eq!(messages_bola_1.len(), 4);
+        assert_eq!(messages_bola_1.len(), 3);
 
         // Query messages from Alix's perspective
         let messages_alix = alix
@@ -2655,7 +2654,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // The last message should be our "Hello from Alix"
-        assert_eq!(messages_alix.len(), 4);
+        assert_eq!(messages_alix.len(), 3);
         assert_eq!(
             message.to_vec(),
             get_latest_message(&group).await.decrypted_message_bytes
@@ -2669,7 +2668,6 @@ pub(crate) mod tests {
     }
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
-    #[ignore]
     async fn test_create_group_with_member_all_malformed_installations() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -2732,7 +2730,6 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
-    #[ignore] // ignoring for now due to flakiness
     async fn test_dm_creation_with_user_two_installations_one_malformed() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
@@ -2840,7 +2837,6 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
-    #[ignore]
     async fn test_dm_creation_with_user_all_malformed_installations() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
