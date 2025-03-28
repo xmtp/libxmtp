@@ -2536,6 +2536,122 @@ pub(crate) mod tests {
                 .decrypted_message_bytes
         );
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_remove_inbox_with_bad_installation_from_group() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let caro_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bo_1.installation_id().to_vec()]),
+        );
+
+        let group = alix
+            .create_group_with_members(
+                &[bo_wallet.get_address(), caro_wallet.get_address()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        group.sync().await.unwrap();
+
+        let message_from_alix = b"Hello from Alix";
+        group.send_message(message_from_alix).await.unwrap();
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+
+        let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(bo_msgs.len(), 1);
+        assert_eq!(bo_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 1);
+        assert_eq!(caro_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        // Bo replies before removal
+        let bo_reply = b"Hey Alix!";
+        bo_group.send_message(bo_reply).await.unwrap();
+
+        group.sync().await.unwrap();
+        let group_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(group_msgs.len(), 3);
+        assert_eq!(group_msgs.last().unwrap().decrypted_message_bytes, bo_reply);
+
+        // Remove Bo
+        group
+            .remove_members(&[bo_wallet.get_address()])
+            .await
+            .unwrap();
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+
+        // Bo should no longer be active
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active(&bo_2.mls_provider().unwrap()).unwrap());
+
+        let post_removal_msg = b"Caro, just us now!";
+        group.send_message(post_removal_msg).await.unwrap();
+        let caro_post_removal_msg = b"Nice!";
+        caro_group
+            .send_message(caro_post_removal_msg)
+            .await
+            .unwrap();
+
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 5);
+        assert_eq!(
+            caro_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+        group.sync().await.unwrap();
+        let alix_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(alix_msgs.len(), 6);
+        assert_eq!(
+            alix_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            bo_msgs.len(),
+            3,
+            "Bo should not receive messages after being removed"
+        );
+
+        assert_eq!(caro_group.members().await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
     async fn test_create_group_with_member_all_malformed_installations() {
