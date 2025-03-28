@@ -80,6 +80,12 @@ pub mod tests {
                 <Payer as XmtpTestClient>::create_local_d14n(),
             )
         }
+        fn create_prod() -> Self::Builder {
+            D14nClientBuilder::new(
+                <C as XmtpTestClient>::create_prod(),
+                <Payer as XmtpTestClient>::create_prod(),
+            )
+        }
     }
 
     impl<C> XmtpTestClient for V3Client<C>
@@ -100,6 +106,9 @@ pub mod tests {
         }
         fn create_local_d14n() -> Self::Builder {
             V3ClientBuilder::new(<C as XmtpTestClient>::create_local_d14n())
+        }
+        fn create_prod() -> Self::Builder {
+            V3ClientBuilder::new(<C as XmtpTestClient>::create_prod())
         }
     }
 }

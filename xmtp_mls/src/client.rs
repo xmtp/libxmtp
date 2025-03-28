@@ -1082,8 +1082,12 @@ pub(crate) mod tests {
     use super::Client;
     use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
+    use crate::verified_key_package_v2::VerifiedKeyPackageV2;
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use openmls::prelude::KeyPackageIn;
+    use openmls_rust_crypto::RustCrypto;
+    use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -1798,5 +1802,35 @@ pub(crate) mod tests {
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    async fn test_mus() {
+        let client = ClientBuilder::new_test_client_prod(&generate_local_wallet()).await;
+        let conn = client.store().conn().unwrap();
+        let state = client.get_latest_association_state(&conn, "362da2812aeee63bec29446e24091741958b177adfd656a26b7306df5ba41285").await.unwrap();
+        let api_client = client.api_client;
+        let installation_ids = state.installation_ids();
+        let crypto_provider = RustCrypto::default();
+        println!("installation_ids: {:?}", installation_ids.len());
+
+        let kps = api_client.fetch_key_packages(installation_ids.clone()).await.unwrap();
+        for installation_id in installation_ids.clone() {
+            let key_package = kps.get(&installation_id).unwrap();
+            let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_exact(&key_package).unwrap();
+            let cred = kp_in.unverified_credential();
+            // Make sure the installation ID in the key package matches the one we asked for
+            assert_eq!(cred.signature_key.as_slice().to_vec(), installation_id);
+            // Make sure the key package is valid
+            match VerifiedKeyPackageV2::from_bytes(&crypto_provider, &key_package) {
+                Ok(_) => {
+                    println!("verified_key_package for installation: {:?}", installation_id);
+                }
+                Err(e) => {
+                    println!("error: {:?}. KP: {:?}", e, kp_in);
+                }
+            }
+        }
     }
 }

@@ -315,6 +315,7 @@ pub mod mock {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_prod() -> MockApiBuilder { MockApiBuilder }
 
         }
     }
@@ -347,6 +348,7 @@ pub mod mock {
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }
+            fn create_prod() -> MockApiBuilder { MockApiBuilder }
 
         }
     }

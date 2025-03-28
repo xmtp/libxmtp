@@ -233,5 +233,12 @@ mod test {
             client.set_tls(true);
             client
         }
+
+        fn create_prod() -> Self::Builder {
+            let mut client = GrpcClient::builder();
+            client.set_host("https://grpc.production.xmtp.network:443".into());
+            client.set_tls(true);
+            client
+        }
     }
 }
