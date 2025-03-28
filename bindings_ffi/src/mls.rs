@@ -7881,6 +7881,10 @@ mod tests {
         assert_eq!(bo_groups.len(), 1);
         assert_eq!(group.list_members().await.unwrap().len(), 3);
         group
+            .remove_members(vec![bo_client.account_identifier.clone()])
+            .await
+            .unwrap();
+        group
             .remove_members_by_inbox_id(vec![
                 "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string(),
             ])
@@ -7891,6 +7895,6 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(group.list_members().await.unwrap().len(), 2);
+        assert_eq!(group.list_members().await.unwrap().len(), 1);
     }
 }
