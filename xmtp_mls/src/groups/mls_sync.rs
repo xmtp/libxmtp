@@ -1644,6 +1644,9 @@ where
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
                 new_membership.add(inbox_id.clone(), *sequence_id);
             }
+            for inbox_id in inbox_ids_to_remove {
+                new_membership.remove(inbox_id);
+            }
 
             let changes_with_kps = calculate_membership_changes_with_keypackages(
                 &self.client,
@@ -1664,19 +1667,13 @@ where
                 ));
             }
 
-            let failed_installations = [
-                old_group_membership.failed_installations,
-                changes_with_kps.failed_installations,
-            ]
-            .concat();
-
             Ok(UpdateGroupMembershipIntentData::new(
                 changed_inbox_ids,
                 inbox_ids_to_remove
                     .iter()
                     .map(|s| s.to_string())
                     .collect::<Vec<String>>(),
-                failed_installations,
+                changes_with_kps.failed_installations,
             ))
         })
         .await
@@ -1836,7 +1833,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 ) -> Result<MembershipDiffWithKeyPackages, GroupError> {
     let membership_diff = old_group_membership.diff(new_group_membership);
 
-    let installation_diff = client
+    let mut installation_diff = client
         .get_installation_diff(
             provider.conn_ref(),
             old_group_membership,
@@ -1847,13 +1844,13 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     let mut new_installations = Vec::new();
     let mut new_key_packages = Vec::new();
-    let mut failed_installations = Vec::new();
+    let mut new_failed_installations = Vec::new();
 
     if !installation_diff.added_installations.is_empty() {
         let key_packages = get_keypackages_for_installation_ids(
             client,
             installation_diff.added_installations,
-            &mut failed_installations,
+            &mut new_failed_installations,
         )
         .await?;
         for (installation_id, result) in key_packages {
@@ -1864,9 +1861,31 @@ async fn calculate_membership_changes_with_keypackages<'a>(
                     ));
                     new_key_packages.push(verified_key_package.inner.clone());
                 }
-                Err(_) => failed_installations.push(installation_id.clone()),
+                Err(_) => new_failed_installations.push(installation_id.clone()),
             }
         }
+    }
+
+    let mut failed_installations: Vec<Vec<u8>> = {
+        let combined = old_group_membership
+            .failed_installations
+            .clone()
+            .into_iter()
+            .chain(new_failed_installations)
+            .collect::<HashSet<_>>();
+        combined.into_iter().collect()
+    };
+
+    let common: HashSet<_> = failed_installations
+        .iter()
+        .filter(|item| installation_diff.removed_installations.contains(*item))
+        .cloned()
+        .collect();
+
+    failed_installations.retain(|item| !common.contains(item));
+
+    for item in &common {
+        installation_diff.removed_installations.remove(item);
     }
 
     Ok(MembershipDiffWithKeyPackages::new(
@@ -1941,7 +1960,7 @@ async fn apply_update_group_membership_intent(
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
-    let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
+    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     let changes_with_kps = calculate_membership_changes_with_keypackages(
@@ -1963,11 +1982,7 @@ async fn apply_update_group_membership_intent(
 
     // Update the extensions to have the new GroupMembership
     let mut new_extensions = extensions.clone();
-    new_group_membership.failed_installations = [
-        old_group_membership.failed_installations,
-        changes_with_kps.failed_installations,
-    ]
-    .concat();
+
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     // Create the commit
