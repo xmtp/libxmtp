@@ -3020,10 +3020,7 @@ pub(crate) mod tests {
         let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
         let caro_group = caro_groups.first().unwrap();
         caro_group.sync().await.unwrap();
-        assert_eq!(
-            caro_group.is_active(&caro.mls_provider().unwrap()).unwrap(),
-            false
-        );
+        assert!(!caro_group.is_active(&caro.mls_provider().unwrap()).unwrap());
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
         bo_group.sync().await.unwrap();
@@ -3075,10 +3072,7 @@ pub(crate) mod tests {
 
         let bo_group = bo_groups.first().unwrap();
         bo_group.sync().await.unwrap();
-        assert_eq!(
-            bo_group.is_active(&bo_2.mls_provider().unwrap()).unwrap(),
-            false
-        );
+        assert!(!bo_group.is_active(&bo_2.mls_provider().unwrap()).unwrap());
 
         let caro_group = caro_groups.first().unwrap();
         caro_group.sync().await.unwrap();
