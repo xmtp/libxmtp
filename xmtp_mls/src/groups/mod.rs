@@ -5842,25 +5842,27 @@ pub(crate) mod tests {
             bola_3.installation_id().to_vec()
         );
 
-        // tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        let members = bola_2.inbox_state(true).await.unwrap().members();
+        let members_after_removal = bola_2.inbox_state(true).await.unwrap().members();
         // Print the three installation ids from inbox state
-        for member in &installation_identifiers {
-            if let Some(installation_id) = member.identifier.installation_key() {
-                println!("Installation ID: {:?}", installation_id);
-            }
-        }
+        
         // This is failing and saying we still have four
         // assert_eq!(num_installations, 3);
-        let installation_identifiers = members
+        let installation_identifiers_after_removal = members_after_removal
             .iter()
             .filter(|m| m.identifier.installation_key().is_some())
             .collect::<Vec<_>>();
 
+            for member in &installation_identifiers_after_removal {
+                if let Some(installation_id) = member.identifier.installation_key() {
+                    println!("Installation ID: {:?}", installation_id);
+                }
+            }
+
         // Check that one of the identifiers matches the installation id of bola_3 that we removed
         let removed_installation_id = bola_3.installation_id().to_vec();
-        let removed_identifier_exists = installation_identifiers
+        let removed_identifier_exists = installation_identifiers_after_removal
             .iter()
             .any(|m| m.identifier.installation_key().unwrap() == removed_installation_id);
         assert!(
