@@ -299,14 +299,14 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
 pub struct UpdateGroupMembershipResult {
     pub added_members: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub failed_installations: Vec<Vec<u8>>,
+    pub failed_installations: HashSet<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipResult {
     pub fn new(
         added_members: HashMap<String, u64>,
         removed_members: Vec<String>,
-        failed_installations: Vec<Vec<u8>>,
+        failed_installations: HashSet<Vec<u8>>,
     ) -> Self {
         Self {
             added_members,
@@ -330,14 +330,14 @@ impl From<UpdateGroupMembershipIntentData> for UpdateGroupMembershipResult {
 pub(crate) struct UpdateGroupMembershipIntentData {
     pub membership_updates: HashMap<String, u64>,
     pub removed_members: Vec<String>,
-    pub failed_installations: Vec<Vec<u8>>,
+    pub failed_installations: HashSet<Vec<u8>>,
 }
 
 impl UpdateGroupMembershipIntentData {
     pub fn new(
         membership_updates: HashMap<String, u64>,
         removed_members: Vec<String>,
-        failed_installations: Vec<Vec<u8>>,
+        failed_installations: HashSet<Vec<u8>>,
     ) -> Self {
         Self {
             membership_updates,
@@ -384,7 +384,7 @@ impl From<UpdateGroupMembershipIntentData> for Vec<u8> {
             version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
                 membership_updates: intent.membership_updates,
                 removed_members: intent.removed_members,
-                failed_installations: intent.failed_installations,
+                failed_installations: intent.failed_installations.into_iter().collect(),
             })),
         }
         .encode(&mut buf)
@@ -405,7 +405,7 @@ impl TryFrom<Vec<u8>> for UpdateGroupMembershipIntentData {
             Ok(Self::new(
                 v1.membership_updates,
                 v1.removed_members,
-                v1.failed_installations,
+                v1.failed_installations.into_iter().collect::<HashSet<_>>(),
             ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
@@ -424,7 +424,7 @@ impl TryFrom<&Vec<u8>> for UpdateGroupMembershipIntentData {
             Ok(Self::new(
                 v1.membership_updates,
                 v1.removed_members,
-                v1.failed_installations,
+                v1.failed_installations.into_iter().collect::<HashSet<_>>(),
             ))
         } else {
             Err(IntentError::Generic("missing payload".to_string()))
@@ -832,7 +832,7 @@ pub(crate) mod tests {
         let intent = UpdateGroupMembershipIntentData::new(
             membership_updates,
             vec!["bar".to_string()],
-            vec![vec![1, 2, 3]],
+            vec![vec![1, 2, 3]].into_iter().collect::<HashSet<_>>(),
         );
 
         let as_bytes: Vec<u8> = intent.clone().into();

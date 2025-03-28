@@ -1866,7 +1866,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         }
     }
 
-    let mut failed_installations: Vec<Vec<u8>> = old_group_membership
+    let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
         .failed_installations
         .clone()
         .into_iter()
