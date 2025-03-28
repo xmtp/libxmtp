@@ -56,7 +56,7 @@ pub enum LocalEvents {
 #[derive(Debug, Clone)]
 pub enum SyncEvent {
     NewSyncGroupFromWelcome,
-    NewSyncGroupMsg(Vec<u8>),
+    NewSyncGroupMsg,
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },

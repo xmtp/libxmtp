@@ -4,6 +4,7 @@ use crate::{
     storage::{
         group::GroupQueryArgs,
         group_message::{MsgQueryArgs, StoredGroupMessage},
+        user_preferences::StoredUserPreferences,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         NotFound, StorageError,
     },
@@ -232,42 +233,11 @@ where
                             )
                             .await?;
                     }
-                    SyncEvent::NewSyncGroupMsg(msg_id) => {
+                    SyncEvent::NewSyncGroupMsg => {
                         let provider = self.client.mls_provider()?;
-                        let conn = provider.conn_ref();
-
-                        let Some(msg) = conn.get_group_message(&msg_id)? else {
-                            tracing::error!("Worker was notified of a new sync group message, but none was found.");
-                            continue;
-                        };
-                        let Ok(content) = serde_json::from_slice::<DeviceSyncContent>(
-                            &msg.decrypted_message_bytes,
-                        ) else {
-                            // Ignore messages that don't deserialize
-                            continue;
-                        };
-
-                        tracing::error!("SYNC MSG! {content:?}");
-                        match content {
-                            DeviceSyncContent::Request(request) => {
-                                self.client
-                                    .send_sync_payload(
-                                        Some(request),
-                                        || async {
-                                            self.client.acknowledge_sync_request(&provider).await
-                                        },
-                                        &self.handle,
-                                    )
-                                    .await?;
-                            }
-                            DeviceSyncContent::Payload(payload) => {
-                                self.client.process_sync_payload(payload).await?;
-                                self.handle.increment_metric(SyncMetric::PayloadsProcessed);
-                            }
-                            DeviceSyncContent::Acknowledge(_) => {
-                                // intentionally left blank
-                            }
-                        }
+                        self.client
+                            .process_sync_group_messages(&provider, &self.handle)
+                            .await?;
                     }
 
                     // Device Sync V1 events
@@ -385,6 +355,47 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    async fn process_sync_group_messages(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        handle: &WorkerHandle<SyncMetric>,
+    ) -> Result<(), DeviceSyncError> {
+        let sync_group = self.get_sync_group(provider)?;
+        let mut cursor =
+            StoredUserPreferences::sync_cursor(provider.conn_ref(), &sync_group.group_id)?;
+
+        let messages = sync_group.find_messages(&MsgQueryArgs {
+            sent_after_ns: Some(cursor.last_message_ns),
+            ..Default::default()
+        })?;
+
+        for (msg, content) in messages.iter_with_content() {
+            match content {
+                DeviceSyncContent::Request(request) => {
+                    self.send_sync_payload(
+                        Some(request),
+                        || async { self.acknowledge_sync_request(&provider).await },
+                        &handle,
+                    )
+                    .await?;
+                }
+                DeviceSyncContent::Payload(payload) => {
+                    self.process_sync_payload(payload).await?;
+                    handle.increment_metric(SyncMetric::PayloadsProcessed);
+                }
+                DeviceSyncContent::Acknowledge(_) => {
+                    continue;
+                }
+            }
+
+            // Move the cursor
+            cursor.last_message_ns = msg.sent_at_ns;
+            StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
+        }
+
+        Ok(())
+    }
+
     /// Acknowledge the existence of a new sync group.
     /// Returns an error if sync group is already acknowledged by another installation.
     /// The first installation to acknowledge a sync group will the the installation to handle the sync.

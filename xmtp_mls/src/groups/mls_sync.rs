@@ -751,9 +751,10 @@ where
                                 ..
                             }) = provider.conn_ref().find_group(&self.group_id)?
                             {
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::NewSyncGroupMsg(message_id),
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
                             }
                         }
 

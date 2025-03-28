@@ -26,8 +26,8 @@ pub struct StoredUserPreferences {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SyncCursor {
-    group_id: Vec<u8>,
-    last_message_ns: u64,
+    pub group_id: Vec<u8>,
+    pub last_message_ns: i64,
 }
 
 impl SyncCursor {
@@ -105,7 +105,6 @@ impl StoredUserPreferences {
         Ok(hmac_key)
     }
 
-    /// Returns nothing if the cursor's group_id does not match the provided group_id
     pub fn sync_cursor(conn: &DbConnection, group_id: &[u8]) -> Result<SyncCursor, StorageError> {
         let default = || SyncCursor {
             group_id: group_id.to_vec(),
