@@ -2893,6 +2893,257 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_add_inbox_with_bad_installation_to_group() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use xmtp_id::associations::test_utils::WalletTestExt;
+
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo_wallet = generate_local_wallet();
+        let caro_wallet = generate_local_wallet();
+        let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bo_1.installation_id().to_vec()]),
+        );
+
+        let group = alix
+            .create_group_with_members(
+                &[caro_wallet.identifier()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let _ = group.add_members(&[bo_wallet.identifier()]).await;
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        let bo_2_groups = bo_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bo_2_groups.len(), 1);
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(caro_groups.len(), 1);
+        let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(alix_groups.len(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use xmtp_id::associations::test_utils::WalletTestExt;
+
+        let bo_wallet = generate_local_wallet();
+        let caro_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bo_1.installation_id().to_vec()]),
+        );
+
+        let group = alix
+            .create_group_with_members(
+                &[bo_wallet.identifier()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let _ = group.add_members(&[caro_wallet.identifier()]).await;
+
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(caro_groups.len(), 1);
+        let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(bo_groups.len(), 1);
+        let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
+        assert_eq!(alix_groups.len(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_remove_inbox_with_good_installation_from_group_with_bad_installation() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use xmtp_id::associations::test_utils::WalletTestExt;
+
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let caro_wallet = generate_local_wallet();
+        let alix_1 = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix_2 = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![alix_2.installation_id().to_vec()]),
+        );
+
+        let group = alix_1
+            .create_group_with_members(
+                &[bo_wallet.identifier(), caro_wallet.identifier()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(group.members().await.unwrap().len(), 3);
+        let _ = group.remove_members(&[caro_wallet.identifier()]).await;
+
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        bo.sync_welcomes(&bo.mls_provider().unwrap()).await.unwrap();
+        group.sync().await.unwrap();
+
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+        caro_group.sync().await.unwrap();
+        assert!(!caro_group.is_active(&caro.mls_provider().unwrap()).unwrap());
+        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+        bo_group.sync().await.unwrap();
+        assert_eq!(bo_group.members().await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_remove_inbox_with_bad_installation_from_group() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use xmtp_id::associations::test_utils::WalletTestExt;
+
+        let alix_wallet = generate_local_wallet();
+        let bo_wallet = generate_local_wallet();
+        let caro_wallet = generate_local_wallet();
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo_1 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let bo_2 = ClientBuilder::new_test_client(&bo_wallet).await;
+        let caro = ClientBuilder::new_test_client(&caro_wallet).await;
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bo_1.installation_id().to_vec()]),
+        );
+
+        let group = alix
+            .create_group_with_members(
+                &[bo_wallet.identifier(), caro_wallet.identifier()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        group.sync().await.unwrap();
+
+        let message_from_alix = b"Hello from Alix";
+        group.send_message(message_from_alix).await.unwrap();
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+
+        let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(bo_msgs.len(), 1);
+        assert_eq!(bo_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 1);
+        assert_eq!(caro_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        // Bo replies before removal
+        let bo_reply = b"Hey Alix!";
+        bo_group.send_message(bo_reply).await.unwrap();
+
+        group.sync().await.unwrap();
+        let group_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(group_msgs.len(), 3);
+        assert_eq!(group_msgs.last().unwrap().decrypted_message_bytes, bo_reply);
+
+        // Remove Bo
+        group
+            .remove_members(&[bo_wallet.identifier()])
+            .await
+            .unwrap();
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+
+        // Bo should no longer be active
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active(&bo_2.mls_provider().unwrap()).unwrap());
+
+        let post_removal_msg = b"Caro, just us now!";
+        group.send_message(post_removal_msg).await.unwrap();
+        let caro_post_removal_msg = b"Nice!";
+        caro_group
+            .send_message(caro_post_removal_msg)
+            .await
+            .unwrap();
+
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 5);
+        assert_eq!(
+            caro_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+        group.sync().await.unwrap();
+        let alix_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(alix_msgs.len(), 6);
+        assert_eq!(
+            alix_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            bo_msgs.len(),
+            3,
+            "Bo should not receive messages after being removed"
+        );
+
+        assert_eq!(caro_group.members().await.unwrap().len(), 2);
+        assert_eq!(group.members().await.unwrap().len(), 2);
+    }
+
     #[xmtp_common::test]
     async fn test_add_invalid_member() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -5433,5 +5684,93 @@ pub(crate) mod tests {
             .send_message("Message after update".as_bytes())
             .await;
         assert!(result.is_ok());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+
+        // 1) Prepare clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a wallet for the user with a bad key package
+        let bola_wallet = generate_local_wallet();
+        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
+        // Mark bola's installation as having a malformed key package
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bola.installation_id().to_vec()]),
+        );
+
+        // 2) Create a group with amal as the only member
+        let amal_group = amal
+            .create_group(
+                Some(PreconfiguredPolicies::AdminsOnly.to_policy_set()),
+                GroupMetadataOptions::default(),
+            )
+            .unwrap();
+        amal_group.sync().await.unwrap();
+
+        // 3) Add charlie to the group (normal member)
+        let result = amal_group
+            .add_members_by_inbox_id(&[charlie.inbox_id()])
+            .await;
+        assert!(result.is_ok());
+
+        // 4) Initially fail to add bola since they only have one bad key package
+        let result = amal_group.add_members_by_inbox_id(&[bola.inbox_id()]).await;
+        assert!(result.is_err());
+
+        // 5) Add a second installation for bola and try and re-add them
+        let bola_2 = ClientBuilder::new_test_client(&bola_wallet).await;
+        let result = amal_group.add_members_by_inbox_id(&[bola.inbox_id()]).await;
+        assert!(result.is_ok());
+
+        // 6) Test that bola can not perform an admin only action
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let binding = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
+        let bola_group = binding.first().unwrap();
+        bola_group.sync().await.unwrap();
+        let result = bola_group
+            .update_group_name("Bola's Group".to_string())
+            .await;
+        assert!(result.is_err());
+
+        // 7) Test adding bola as an admin
+        let result = amal_group
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
+            .await;
+        assert!(result.is_ok());
+
+        // 8) Verify bola can perform an admin only action
+        bola_group.sync().await.unwrap();
+        let result = bola_group
+            .update_group_name("Bola's Group".to_string())
+            .await;
+        assert!(result.is_ok());
+
+        // 9) Verify we can remove bola as an admin
+        let result = amal_group
+            .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id().to_string())
+            .await;
+        assert!(result.is_ok());
+
+        // 10) Verify bola is not an admin
+        let admins = amal_group
+            .admin_list(&amal_group.mls_provider().unwrap())
+            .unwrap();
+        assert!(!admins.contains(&bola.inbox_id().to_string()));
+
+        // 11) verify bola can't perform an admin only action
+        bola_group.sync().await.unwrap();
+        let result = bola_group
+            .update_group_name("Bola's Group Forever".to_string())
+            .await;
+        assert!(result.is_err());
     }
 }
