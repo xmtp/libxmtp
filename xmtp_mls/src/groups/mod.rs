@@ -5439,17 +5439,20 @@ pub(crate) mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
-        
+
         // 1) Prepare clients
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        
+
         // Create a wallet for the user with a bad key package
         let bola_wallet = generate_local_wallet();
-        let bola = ClientBuilder::new_test_client(&bola_wallet).await;        
+        let bola = ClientBuilder::new_test_client(&bola_wallet).await;
         // Mark bola's installation as having a malformed key package
-        set_test_mode_upload_malformed_keypackage(true, Some(vec![bola.installation_id().to_vec()]));
-        
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![bola.installation_id().to_vec()]),
+        );
+
         // 2) Create a group with amal as the only member
         let amal_group = amal
             .create_group(
@@ -5458,7 +5461,7 @@ pub(crate) mod tests {
             )
             .unwrap();
         amal_group.sync().await.unwrap();
-        
+
         // 3) Add charlie to the group (normal member)
         let result = amal_group
             .add_members_by_inbox_id(&[charlie.inbox_id()])
@@ -5475,37 +5478,54 @@ pub(crate) mod tests {
         assert!(result.is_ok());
 
         // 6) We can't remove bola yet bc of the remove bug
-        let result = amal_group.remove_members_by_inbox_id(&[bola.inbox_id()]).await;
+        let result = amal_group
+            .remove_members_by_inbox_id(&[bola.inbox_id()])
+            .await;
         assert!(result.is_err());
 
         // 7) Test that bola can not perform an admin only action
-        bola_2.sync_welcomes(&bola_2.mls_provider().unwrap()).await.unwrap();
+        bola_2
+            .sync_welcomes(&bola_2.mls_provider().unwrap())
+            .await
+            .unwrap();
         let binding = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
         let bola_group = binding.first().unwrap();
         bola_group.sync().await.unwrap();
-        let result = bola_group.update_group_name("Bola's Group".to_string()).await;
+        let result = bola_group
+            .update_group_name("Bola's Group".to_string())
+            .await;
         assert!(result.is_err());
 
         // 8) Test adding bola as an admin
-        let result = amal_group.update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string()).await;
+        let result = amal_group
+            .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
+            .await;
         assert!(result.is_ok());
 
         // 9) Verify bola can perform an admin only action
         bola_group.sync().await.unwrap();
-        let result = bola_group.update_group_name("Bola's Group".to_string()).await;
+        let result = bola_group
+            .update_group_name("Bola's Group".to_string())
+            .await;
         assert!(result.is_ok());
 
         // 10) Verify we can remove bola as an admin
-        let result = amal_group.update_admin_list(UpdateAdminListType::Remove, bola.inbox_id().to_string()).await;
+        let result = amal_group
+            .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id().to_string())
+            .await;
         assert!(result.is_ok());
 
         // 11) Verify bola is not an admin
-        let admins = amal_group.admin_list(&amal_group.mls_provider().unwrap()).unwrap();
+        let admins = amal_group
+            .admin_list(&amal_group.mls_provider().unwrap())
+            .unwrap();
         assert!(!admins.contains(&bola.inbox_id().to_string()));
-        
+
         // 12) verify bola can't perform an admin only action
         bola_group.sync().await.unwrap();
-        let result = bola_group.update_group_name("Bola's Group Forever".to_string()).await;
+        let result = bola_group
+            .update_group_name("Bola's Group Forever".to_string())
+            .await;
         assert!(result.is_err());
     }
 }

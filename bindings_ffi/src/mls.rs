@@ -7823,5 +7823,4 @@ mod tests {
         let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
         assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
     }
-    
 }
