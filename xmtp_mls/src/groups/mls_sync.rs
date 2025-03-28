@@ -1771,8 +1771,9 @@ where
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
-                let local_events = self.client.local_events();
-                StoredUserPreferences::store_new_hmac_key(&conn, local_events)?
+                let hmac_key = HmacKey::new();
+                hmac_key.save_and_sync_to_other_devices(&conn, self.client.local_events())?;
+                hmac_key.key.to_vec()
             }
         };
         ikm.extend(&self.group_id);

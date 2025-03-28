@@ -3,7 +3,7 @@ use openmls::prelude::{
     MlsMessageOut,
 };
 use prost::{bytes::Bytes, DecodeError, Message};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{

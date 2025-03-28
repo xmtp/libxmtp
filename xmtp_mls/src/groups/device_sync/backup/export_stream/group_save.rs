@@ -4,6 +4,7 @@ use crate::{
     storage::{
         group::{ConversationType, GroupMembershipState, StoredGroup},
         schema::groups,
+        StorageError,
     },
 };
 use diesel::prelude::*;
@@ -20,7 +21,9 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    fn backup_records(
+        streamer: &BackupRecordStreamer<Self>,
+    ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
     {
@@ -41,11 +44,10 @@ impl BackupRecordProvider for GroupSave {
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query_read(|conn| query.load::<StoredGroup>(conn))
-            .expect("Failed to load group records");
+            .raw_query_read(|conn| query.load::<StoredGroup>(conn))?;
 
         let storage = streamer.provider.storage();
-        batch
+        let records = batch
             .into_iter()
             .filter_map(|record| {
                 let mls_group =
@@ -63,7 +65,9 @@ impl BackupRecordProvider for GroupSave {
                     ))),
                 })
             })
-            .collect()
+            .collect();
+
+        Ok(records)
     }
 }
 

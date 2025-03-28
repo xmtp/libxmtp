@@ -2,6 +2,7 @@ use super::*;
 use crate::storage::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     schema::consent_records,
+    StorageError,
 };
 use diesel::prelude::*;
 use xmtp_id::associations::DeserializationError;
@@ -12,7 +13,9 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for ConsentSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    fn backup_records(
+        streamer: &BackupRecordStreamer<Self>,
+    ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
     {
@@ -24,15 +27,16 @@ impl BackupRecordProvider for ConsentSave {
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))
-            .expect("Failed to load consent records");
+            .raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?;
 
-        batch
+        let records = batch
             .into_iter()
             .map(|record| BackupElement {
                 element: Some(Element::Consent(record.into())),
             })
-            .collect()
+            .collect();
+
+        Ok(records)
     }
 }
 

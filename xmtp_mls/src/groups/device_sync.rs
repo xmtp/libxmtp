@@ -236,7 +236,21 @@ where
                     SyncEvent::NewSyncGroupMsg => {
                         let provider = self.client.mls_provider()?;
                         self.client
-                            .process_sync_group_messages(&provider, &self.handle)
+                            .process_new_sync_group_messages(&provider, &self.handle)
+                            .await?;
+                    }
+
+                    SyncEvent::PreferenceUpdateDispatchRequest(preference_updates) => {
+                        let provider = self.client.mls_provider()?;
+                        self.client
+                            .send_device_sync_message(
+                                &provider,
+                                DeviceSyncContent::PreferenceUpdates(preference_updates.clone()),
+                            )
+                            .await?;
+
+                        // TODO: V1 support, remove on next hammer.
+                        UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
                             .await?;
                     }
 
@@ -244,6 +258,7 @@ where
                     SyncEvent::Reply { .. } => {}
                     SyncEvent::Request { .. } => {}
                 },
+                // V1 events
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
                     tracing::info!("Outgoing preference update {preference_updates:?}");
                     retry_async!(
@@ -355,7 +370,7 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    async fn process_sync_group_messages(
+    async fn process_new_sync_group_messages(
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
@@ -370,6 +385,11 @@ where
         })?;
 
         for (msg, content) in messages.iter_with_content() {
+            if msg.sender_installation_id == self.installation_id() {
+                // Ignore our own messages
+                continue;
+            }
+
             match content {
                 DeviceSyncContent::Request(request) => {
                     self.send_sync_payload(
@@ -382,6 +402,11 @@ where
                 DeviceSyncContent::Payload(payload) => {
                     self.process_sync_payload(payload).await?;
                     handle.increment_metric(SyncMetric::PayloadsProcessed);
+                }
+                DeviceSyncContent::PreferenceUpdates(preference_updates) => {
+                    for update in preference_updates {
+                        todo!();
+                    }
                 }
                 DeviceSyncContent::Acknowledge(_) => {
                     continue;
@@ -753,10 +778,12 @@ fn default_backup_options() -> BackupOptions {
 
 // These are the messages that get sent out to the sync group
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[repr(i32)]
 pub enum DeviceSyncContent {
-    Request(DeviceSyncRequestProto),
-    Payload(DeviceSyncReplyProto),
-    Acknowledge(AcknowledgeKind),
+    Request(DeviceSyncRequestProto) = 0,
+    Payload(DeviceSyncReplyProto) = 1,
+    Acknowledge(AcknowledgeKind) = 2,
+    PreferenceUpdates(Vec<UserPreferenceUpdate>) = 3,
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {

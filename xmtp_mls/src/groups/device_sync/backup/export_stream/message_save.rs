@@ -3,6 +3,7 @@ use crate::storage::{
     group::ConversationType,
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     schema::{group_messages, groups},
+    StorageError,
 };
 use diesel::prelude::*;
 use xmtp_id::associations::DeserializationError;
@@ -13,7 +14,9 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    fn backup_records(
+        streamer: &BackupRecordStreamer<Self>,
+    ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
     {
@@ -37,15 +40,16 @@ impl BackupRecordProvider for GroupMessageSave {
         let batch = streamer
             .provider
             .conn_ref()
-            .raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
-            .expect("Failed to load group records");
+            .raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
 
-        batch
+        let records = batch
             .into_iter()
             .map(|record| BackupElement {
                 element: Some(Element::GroupMessage(record.into())),
             })
-            .collect()
+            .collect();
+
+        Ok(records)
     }
 }
 

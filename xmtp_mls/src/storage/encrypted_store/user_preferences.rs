@@ -5,8 +5,10 @@ use super::{
     DbConnection,
 };
 use crate::{
-    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
-    subscriptions::LocalEvents, Store,
+    groups::{device_sync::preference_sync::UserPreferenceUpdate, HmacKey},
+    storage::StorageError,
+    subscriptions::LocalEvents,
+    Store,
 };
 use diesel::{insert_into, prelude::*};
 use tokio::sync::broadcast::Sender;
@@ -85,24 +87,12 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_new_hmac_key(
-        conn: &DbConnection,
-        local_events: &Sender<LocalEvents>,
-    ) -> Result<Vec<u8>, StorageError> {
-        let hmac_key = xmtp_common::rand_vec::<32>();
-
+    pub fn store_hmac_key(conn: &DbConnection, key: &HmacKey) -> Result<(), StorageError> {
         let mut preferences = Self::load(conn)?;
-        preferences.hmac_key = Some(hmac_key.clone());
+        preferences.hmac_key = Some(key.key.to_vec());
         preferences.store(conn)?;
 
-        // Sync the new key to other devices
-        let _ = local_events.send(LocalEvents::OutgoingPreferenceUpdates(vec![
-            UserPreferenceUpdate::HmacKeyUpdate {
-                key: hmac_key.clone(),
-            },
-        ]));
-
-        Ok(hmac_key)
+        Ok(())
     }
 
     pub fn sync_cursor(conn: &DbConnection, group_id: &[u8]) -> Result<SyncCursor, StorageError> {
@@ -152,11 +142,11 @@ mod tests {
         assert!(pref.hmac_key.is_none());
 
         // set an hmac key
-        let hmac_key =
-            StoredUserPreferences::store_new_hmac_key(&conn, &client.local_events).unwrap();
+        let hmac_key = HmacKey::new();
+        StoredUserPreferences::store_hmac_key(&conn, &hmac_key).unwrap();
         let pref = StoredUserPreferences::load(&conn).unwrap();
         // Make sure it saved
-        assert_eq!(hmac_key, pref.hmac_key.unwrap());
+        assert_eq!(hmac_key.key.to_vec(), pref.hmac_key.unwrap());
 
         // check that there are two preferences stored
         let query = dsl::user_preferences.order(dsl::id.desc());

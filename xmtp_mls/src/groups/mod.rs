@@ -44,6 +44,7 @@ use crate::groups::group_mutable_metadata::{
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::consent_record::ConsentType;
+use crate::storage::user_preferences::StoredUserPreferences;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -51,6 +52,7 @@ use crate::storage::{
     NotFound, ProviderTransactions, StorageError,
 };
 use crate::subscriptions::SyncEvent;
+use crate::utils::time::hmac_epoch;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -100,6 +102,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
+use tokio::sync::broadcast::Sender;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_common::retry::RetryableError;
@@ -333,6 +336,33 @@ pub struct HmacKey {
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
     pub epoch: i64,
+}
+
+impl HmacKey {
+    pub fn new() -> Self {
+        Self {
+            key: xmtp_common::rand_array::<42>(),
+            epoch: hmac_epoch(),
+        }
+    }
+
+    pub fn save_and_sync_to_other_devices(
+        &self,
+        conn: &DbConnection,
+        local_events: &Sender<LocalEvents>,
+    ) -> Result<(), StorageError> {
+        StoredUserPreferences::store_hmac_key(&conn, self)?;
+        self.sync_to_other_devices(local_events);
+        Ok(())
+    }
+
+    pub fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
+        local_events.send(LocalEvents::SyncEvent(
+            SyncEvent::PreferenceUpdateDispatchRequest(vec![UserPreferenceUpdate::HmacKeyUpdate {
+                key: self.key.to_vec(),
+            }]),
+        ));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

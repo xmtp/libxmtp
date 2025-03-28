@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
+    groups::HmacKey,
     storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
+    utils::time::hmac_epoch,
     Client,
 };
 use serde::{Deserialize, Serialize};
@@ -9,7 +11,7 @@ use xmtp_proto::{
     xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[repr(i32)]
 pub enum UserPreferenceUpdate {
     ConsentUpdate(StoredConsentRecord) = 1,
@@ -37,8 +39,30 @@ impl UserPreferenceUpdate {
                 idempotency_key: now.to_string(),
             })),
         })?;
-
         sync_group.publish_intents(&provider).await?;
+
+        Ok(())
+    }
+
+    pub(super) fn store(self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
+        match self {
+            Self::ConsentUpdate(consent_record) => {
+                let _ = consent_record.store(provider.conn_ref());
+            }
+            Self::HmacKeyUpdate { key } => {
+                let Ok(key) = key.try_into() else {
+                    tracing::error!("Device Sync: Received HMAC key was wrong length.");
+                    return Ok(());
+                };
+                StoredUserPreferences::store_hmac_key(
+                    provider.conn_ref(),
+                    &HmacKey {
+                        key,
+                        epoch: hmac_epoch(),
+                    },
+                );
+            }
+        }
 
         Ok(())
     }

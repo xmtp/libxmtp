@@ -57,6 +57,7 @@ pub enum LocalEvents {
 pub enum SyncEvent {
     NewSyncGroupFromWelcome,
     NewSyncGroupMsg,
+    PreferenceUpdateDispatchRequest(Vec<UserPreferenceUpdate>),
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },

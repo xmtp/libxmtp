@@ -1,5 +1,6 @@
-use crate::storage::{
-    association_state::StoredAssociationState, user_preferences::StoredUserPreferences,
+use crate::{
+    groups::HmacKey,
+    storage::{association_state::StoredAssociationState, user_preferences::StoredUserPreferences},
 };
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
@@ -353,7 +354,8 @@ where
 
         // Cycle the HMAC key
         let conn = self.store().conn()?;
-        StoredUserPreferences::store_new_hmac_key(&conn, &self.local_events)?;
+        let hmac_key = HmacKey::new();
+        hmac_key.save_and_sync_to_other_devices(&conn, &self.local_events)?;
 
         Ok(builder.build())
     }

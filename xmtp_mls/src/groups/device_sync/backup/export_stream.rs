@@ -1,5 +1,5 @@
 use super::BackupOptions;
-use crate::XmtpOpenMlsProvider;
+use crate::{storage::StorageError, XmtpOpenMlsProvider};
 use futures::{Stream, StreamExt};
 use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
 use xmtp_proto::xmtp::device_sync::{
@@ -11,7 +11,8 @@ pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
 
-type BackupInputStream = Pin<Box<dyn Stream<Item = Vec<BackupElement>> + Send>>;
+type BackupInputStream =
+    Pin<Box<dyn Stream<Item = Result<Vec<BackupElement>, StorageError>> + Send>>;
 
 /// A stream that curates a collection of streams for backup.
 pub(super) struct BatchExportStream {
@@ -48,7 +49,7 @@ impl BatchExportStream {
 }
 
 impl Stream for BatchExportStream {
-    type Item = BackupElement;
+    type Item = Result<BackupElement, StorageError>;
     fn poll_next(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -56,7 +57,7 @@ impl Stream for BatchExportStream {
         let this = self.get_mut();
 
         if let Some(element) = this.buffer.pop() {
-            return Poll::Ready(Some(element));
+            return Poll::Ready(Some(Ok(element)));
         }
 
         loop {
@@ -67,9 +68,15 @@ impl Stream for BatchExportStream {
 
             match last.poll_next_unpin(cx) {
                 Poll::Ready(Some(buffer)) => {
-                    this.buffer = buffer;
+                    this.buffer = match buffer {
+                        Ok(buffer) => buffer,
+                        Err(err) => {
+                            return Poll::Ready(Some(Err(err)));
+                        }
+                    };
+
                     if let Some(element) = this.buffer.pop() {
-                        return Poll::Ready(Some(element));
+                        return Poll::Ready(Some(Ok(element)));
                     }
                 }
                 Poll::Ready(None) => {
@@ -84,7 +91,9 @@ impl Stream for BatchExportStream {
 
 pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
-    fn backup_records(streamer: &BackupRecordStreamer<Self>) -> Vec<BackupElement>
+    fn backup_records(
+        streamer: &BackupRecordStreamer<Self>,
+    ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized;
 }
@@ -121,7 +130,7 @@ impl<R> Stream for BackupRecordStreamer<R>
 where
     R: BackupRecordProvider + Unpin + Send,
 {
-    type Item = Vec<BackupElement>;
+    type Item = Result<Vec<BackupElement>, StorageError>;
     fn poll_next(
         self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
@@ -129,8 +138,10 @@ where
         let this = self.get_mut();
         let batch = R::backup_records(this);
 
-        if batch.is_empty() {
-            return Poll::Ready(None);
+        if let Ok(batch) = &batch {
+            if batch.is_empty() {
+                return Poll::Ready(None);
+            }
         }
 
         this.cursor += R::BATCH_SIZE;

@@ -140,7 +140,9 @@ impl AsyncRead for BackupExporter {
                     .encode_to_vec()
                 }
                 Stage::Elements => match this.stream.poll_next_unpin(cx) {
-                    Poll::Ready(Some(element)) => element.encode_to_vec(),
+                    Poll::Ready(Some(element)) => element
+                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
+                        .encode_to_vec(),
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(None) => {
                         if !this.encoder_finished {
