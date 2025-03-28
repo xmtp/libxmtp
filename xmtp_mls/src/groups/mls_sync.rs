@@ -1883,7 +1883,9 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     failed_installations.retain(|item| !common.contains(item));
 
-    installation_diff.removed_installations.retain(|item| !common.contains(item));
+    installation_diff
+        .removed_installations
+        .retain(|item| !common.contains(item));
 
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,
