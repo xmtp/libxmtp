@@ -3,6 +3,7 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
+use std::collections::HashSet;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
@@ -1514,14 +1515,14 @@ impl FfiConversationListItem {
 pub struct FfiUpdateGroupMembershipResult {
     added_members: HashMap<String, u64>,
     removed_members: Vec<String>,
-    failed_installations: Vec<Vec<u8>>,
+    failed_installations: HashSet<Vec<u8>>,
 }
 
 impl FfiUpdateGroupMembershipResult {
     fn new(
         added_members: HashMap<String, u64>,
         removed_members: Vec<String>,
-        failed_installations: Vec<Vec<u8>>,
+        failed_installations: HashSet<Vec<u8>>,
     ) -> Self {
         FfiUpdateGroupMembershipResult {
             added_members,
