@@ -1875,17 +1875,17 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         .into_iter()
         .collect();
 
-    let common: HashSet<_> = failed_installations
+    let failed_removed_overlap: HashSet<_> = failed_installations
         .iter()
         .filter(|item| installation_diff.removed_installations.contains(*item))
         .cloned()
         .collect();
 
-    failed_installations.retain(|item| !common.contains(item));
+    failed_installations.retain(|item| !failed_removed_overlap.contains(item));
 
     installation_diff
         .removed_installations
-        .retain(|item| !common.contains(item));
+        .retain(|item| !failed_removed_overlap.contains(item));
 
     Ok(MembershipDiffWithKeyPackages::new(
         new_installations,
