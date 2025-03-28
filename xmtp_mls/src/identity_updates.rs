@@ -1022,7 +1022,8 @@ pub(crate) mod tests {
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_installation_with_malformed_keypackage() {
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
@@ -1053,7 +1054,8 @@ pub(crate) mod tests {
         assert_eq!(association_state.installation_ids().len(), 1);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_good_installation_with_other_malformed_keypackage() {
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
