@@ -43,6 +43,10 @@ pub fn rand_array<const N: usize>() -> [u8; N] {
     buffer
 }
 
+pub fn rand_vec<const N: usize>() -> Vec<u8> {
+    rand_array::<N>().to_vec()
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     // Execute once before any tests are run

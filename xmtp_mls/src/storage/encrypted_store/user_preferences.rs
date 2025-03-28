@@ -1,17 +1,19 @@
-use crate::{
-    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
-    subscriptions::LocalEvents, Store,
-};
+use std::fmt::Display;
 
 use super::{
     schema::user_preferences::{self, dsl},
     DbConnection,
 };
-use diesel::prelude::*;
-use rand::{rngs::OsRng, RngCore};
+use crate::{
+    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
+    subscriptions::LocalEvents, Store,
+};
+use diesel::{insert_into, prelude::*};
 use tokio::sync::broadcast::Sender;
 
-#[derive(Identifiable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default)]
+#[derive(
+    Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default,
+)]
 #[diesel(table_name = user_preferences)]
 #[diesel(primary_key(id))]
 pub struct StoredUserPreferences {
@@ -19,19 +21,36 @@ pub struct StoredUserPreferences {
     pub id: i32,
     /// Randomly generated hmac key root
     pub hmac_key: Option<Vec<u8>>,
+    // Sync cursor: sync_group_id:last_message_ns
+    pub sync_cursor: Option<String>,
 }
 
-#[derive(Insertable)]
-#[diesel(table_name = user_preferences)]
-pub struct NewStoredUserPreferences<'a> {
-    hmac_key: Option<&'a Vec<u8>>,
+pub struct SyncCursor {
+    group_id: Vec<u8>,
+    last_message_ns: u64,
 }
 
-impl<'a> From<&'a StoredUserPreferences> for NewStoredUserPreferences<'a> {
-    fn from(value: &'a StoredUserPreferences) -> Self {
-        Self {
-            hmac_key: value.hmac_key.as_ref(),
-        }
+impl SyncCursor {
+    fn load(cursor: &str) -> Option<Self> {
+        let mut split = cursor.split(":");
+        let group_id = split.next()?;
+        let last_message_ns = split.next()?.parse().ok()?;
+
+        Some(Self {
+            group_id: hex::decode(group_id).ok()?,
+            last_message_ns,
+        })
+    }
+}
+
+impl Display for SyncCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}",
+            hex::encode(&self.group_id),
+            self.last_message_ns
+        )
     }
 }
 
@@ -49,21 +68,32 @@ impl Store<DbConnection> for StoredUserPreferences {
 
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
-        let query = dsl::user_preferences.order(dsl::id.desc()).limit(1);
-        let mut result = conn.raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))?;
-
-        Ok(result.pop().unwrap_or_default())
+        let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
+        Ok(pref.unwrap_or_default())
     }
 
-    pub fn new_hmac_key(
+    fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
+        conn.raw_query_write(|conn| {
+            insert_into(dsl::user_preferences)
+                .values(self)
+                .on_conflict(user_preferences::id)
+                .do_update()
+                .set(self)
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn store_new_hmac_key(
         conn: &DbConnection,
         local_events: &Sender<LocalEvents>,
     ) -> Result<Vec<u8>, StorageError> {
-        let mut preferences = Self::load(conn)?;
+        let hmac_key = xmtp_common::rand_vec::<32>();
 
-        let mut hmac_key = vec![0; 32];
-        OsRng.fill_bytes(&mut hmac_key);
+        let mut preferences = Self::load(conn)?;
         preferences.hmac_key = Some(hmac_key.clone());
+        preferences.store(conn)?;
 
         // Sync the new key to other devices
         let _ = local_events.send(LocalEvents::OutgoingPreferenceUpdates(vec![
@@ -72,14 +102,21 @@ impl StoredUserPreferences {
             },
         ]));
 
-        let to_insert: NewStoredUserPreferences = (&preferences).into();
-        conn.raw_query_write(|conn| {
-            diesel::insert_into(dsl::user_preferences)
-                .values(to_insert)
-                .execute(conn)
-        })?;
-
         Ok(hmac_key)
+    }
+
+    pub fn sync_cursor(conn: &DbConnection) -> Result<Option<SyncCursor>, StorageError> {
+        let Some(sync_cursor) = Self::load(conn)?.sync_cursor else {
+            return Ok(None);
+        };
+
+        Ok(SyncCursor::load(&sync_cursor))
+    }
+
+    pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
+        let mut pref = Self::load(conn)?;
+        pref.sync_cursor = Some(format!("{cursor}"));
+        Ok(pref.store(conn)?)
     }
 }
 
@@ -106,7 +143,8 @@ mod tests {
         assert!(pref.hmac_key.is_none());
 
         // set an hmac key
-        let hmac_key = StoredUserPreferences::new_hmac_key(&conn, &client.local_events).unwrap();
+        let hmac_key =
+            StoredUserPreferences::store_new_hmac_key(&conn, &client.local_events).unwrap();
         let pref = StoredUserPreferences::load(&conn).unwrap();
         // Make sure it saved
         assert_eq!(hmac_key, pref.hmac_key.unwrap());

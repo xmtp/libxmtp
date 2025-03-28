@@ -1771,7 +1771,7 @@ where
             Some(ikm) => ikm,
             None => {
                 let local_events = self.client.local_events();
-                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+                StoredUserPreferences::store_new_hmac_key(&conn, local_events)?
             }
         };
         ikm.extend(&self.group_id);

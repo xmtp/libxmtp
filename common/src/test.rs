@@ -161,10 +161,6 @@ pub fn rand_account_address() -> String {
     Alphanumeric.sample_string(&mut crypto_utils::rng(), 42)
 }
 
-pub fn rand_vec<const N: usize>() -> Vec<u8> {
-    crate::rand_array::<N>().to_vec()
-}
-
 pub fn rand_u64() -> u64 {
     crypto_utils::rng().gen()
 }

@@ -353,7 +353,7 @@ where
 
         // Cycle the HMAC key
         let conn = self.store().conn()?;
-        StoredUserPreferences::new_hmac_key(&conn, &self.local_events)?;
+        StoredUserPreferences::store_new_hmac_key(&conn, &self.local_events)?;
 
         Ok(builder.build())
     }

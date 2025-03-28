@@ -1,5 +1,5 @@
 pub mod device_sync;
-mod device_sync_legacy;
+// mod device_sync_legacy;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;

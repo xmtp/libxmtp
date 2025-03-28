@@ -1,7 +1,5 @@
 // @generated automatically by Diesel CLI.
 
-use super::schema::conversation_list;
-
 diesel::table! {
     association_state (inbox_id, sequence_id) {
         inbox_id -> Text,
@@ -131,6 +129,7 @@ diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
+        sync_cursor -> Nullable<Text>,
     }
 }
 
@@ -151,5 +150,4 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_value,
     refresh_state,
     user_preferences,
-    conversation_list
 );
