@@ -530,8 +530,8 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
     let mut builder = builder.api_client(grpc);
 
     builder = match (cli.testnet, &cli.env) {
-        (false, Env::Local) => builder.device_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
-        (false, Env::Dev) => builder.device_sync_url(MessageHistoryUrls::DEV_ADDRESS),
+        (false, Env::Local) => builder.device_sync_server_url(MessageHistoryUrls::LOCAL_ADDRESS),
+        (false, Env::Dev) => builder.device_sync_server_url(MessageHistoryUrls::DEV_ADDRESS),
         _ => builder,
     };
 

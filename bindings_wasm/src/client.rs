@@ -163,7 +163,7 @@ pub async fn create_client(
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
-      .device_sync_url(&url)
+      .device_sync_server_url(&url)
       .build()
       .await
       .map_err(|e| JsError::new(&e.to_string()))?,

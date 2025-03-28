@@ -173,7 +173,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         }
     }
 
-    pub fn device_sync_url(self, url: &str) -> Self {
+    pub fn device_sync_server_url(self, url: &str) -> Self {
         Self {
             device_sync_server_url: Some(url.into()),
             ..self

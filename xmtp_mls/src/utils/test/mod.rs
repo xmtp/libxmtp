@@ -202,7 +202,7 @@ where
         .with_scw_verifier(scw_verifier);
 
     if let Some(device_sync_server_url) = device_sync_server_url {
-        builder = builder.device_sync_url(device_sync_server_url);
+        builder = builder.device_sync_server_url(device_sync_server_url);
     }
 
     let client = builder.build().await.unwrap();

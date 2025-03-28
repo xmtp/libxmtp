@@ -166,7 +166,7 @@ pub async fn create_client(
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store)
-      .device_sync_url(&url)
+      .device_sync_server_url(&url)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
