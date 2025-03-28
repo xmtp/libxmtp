@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.1.3
+
+- Fixed removing inboxes with invalid key packages from groups
+
 ## 1.1.2
 
 - Fixed incorrect key package associations
