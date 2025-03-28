@@ -25,7 +25,6 @@ pub trait XmtpTestClient {
     fn create_local_d14n() -> Self::Builder;
     fn create_local_payer() -> Self::Builder;
     fn create_dev() -> Self::Builder;
-    fn create_prod() -> Self::Builder;
 }
 
 pub type BoxedXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;

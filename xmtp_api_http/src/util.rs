@@ -75,16 +75,6 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
         api.set_app_version("0.0.0".into()).unwrap();
         api
     }
-
-    fn create_prod() -> Self::Builder {
-        use xmtp_proto::api_client::ApiBuilder;
-        let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(crate::constants::ApiUrls::PRODUCTION_ADDRESS.into());
-        api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
-            .unwrap();
-        api.set_app_version("0.0.0".into()).unwrap();
-        api
-    }
 }
 
 #[cfg(test)]
