@@ -356,14 +356,13 @@ impl UpdateGroupMembershipIntentData {
             new_membership.remove(inbox_id)
         }
 
-        new_membership.failed_installations = {
-            let combined = new_membership
-                .failed_installations
-                .into_iter()
-                .chain(self.failed_installations.iter().cloned())
-                .collect::<HashSet<_>>();
-            combined.into_iter().collect()
-        };
+        new_membership.failed_installations = new_membership
+            .failed_installations
+            .into_iter()
+            .chain(self.failed_installations.iter().cloned())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
 
         tracing::info!("updated group membership: {:?}", new_membership.members);
         new_membership
