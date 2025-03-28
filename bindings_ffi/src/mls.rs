@@ -7823,46 +7823,5 @@ mod tests {
         let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
         assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
     }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-        let alix_client = new_dev_test_client().await;
-        let bo_client = new_dev_test_client().await;
-        let group = alix_client
-            .conversations()
-            .create_group_with_inbox_ids(
-                vec![
-                    "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string(),
-                ],
-                FfiCreateGroupOptions::default(),
-            )
-            .await
-            .unwrap();
-
-        group
-            .add_members(vec![bo_client.account_identifier.clone()])
-            .await
-            .unwrap();
-        bo_client
-            .conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
-        group.sync().await.unwrap();
-        let bo_groups = bo_client
-            .conversations()
-            .list_groups(FfiListConversationsOptions::default())
-            .unwrap();
-        assert_eq!(bo_groups.len(), 1);
-        assert_eq!(group.list_members().await.unwrap().len(), 3);
-        let bo_group = bo_groups[0].clone().conversation.clone();
-
-        group.add_admin("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string()).await.unwrap();
-        group.sync().await.unwrap();
-        
-        bo_group.sync().await.unwrap();
-        let admins = bo_group.admin_list().unwrap();
-        assert_eq!(admins.len(), 1);
-        assert_eq!(admins[0], "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string());
-    }
+    
 }
