@@ -1866,15 +1866,14 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         }
     }
 
-    let mut failed_installations: Vec<Vec<u8>> = {
-        let combined = old_group_membership
-            .failed_installations
-            .clone()
-            .into_iter()
-            .chain(new_failed_installations)
-            .collect::<HashSet<_>>();
-        combined.into_iter().collect()
-    };
+    let mut failed_installations: Vec<Vec<u8>> = old_group_membership
+        .failed_installations
+        .clone()
+        .into_iter()
+        .chain(new_failed_installations)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
 
     let common: HashSet<_> = failed_installations
         .iter()
@@ -1933,7 +1932,7 @@ async fn get_keypackages_for_installation_ids(
 async fn get_keypackages_for_installation_ids(
     client: impl ScopedGroupClient,
     added_installations: HashSet<Vec<u8>>,
-    failed_installations: &mut Vec<Vec<u8>>,
+    failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
     let my_installation_id = client.context().installation_public_key().to_vec();

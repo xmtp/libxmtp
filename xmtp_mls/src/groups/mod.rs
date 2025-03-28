@@ -906,7 +906,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// * message: UTF-8 or encoded message bytes
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
-    ///     timestamp attached to intent & stored message.
+    ///   timestamp attached to intent & stored message.
     fn prepare_message<F>(
         &self,
         message: &[u8],
@@ -3056,8 +3056,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(group.members().await.unwrap().len(), 3);
-        let _ = group.remove_members(&[bo_wallet.identifier()]).await;
+        group.sync().await.unwrap();
+
+        let message_from_alix = b"Hello from Alix";
+        group.send_message(message_from_alix).await.unwrap();
 
         bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
             .await
@@ -3068,16 +3070,77 @@ pub(crate) mod tests {
         group.sync().await.unwrap();
 
         let bo_groups = bo_2.find_groups(GroupQueryArgs::default()).unwrap();
-        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
-
         let bo_group = bo_groups.first().unwrap();
+        bo_group.sync().await.unwrap();
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(bo_msgs.len(), 1);
+        assert_eq!(bo_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
+        let caro_group = caro_groups.first().unwrap();
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 1);
+        assert_eq!(caro_msgs[0].decrypted_message_bytes, message_from_alix);
+
+        // Bo replies before removal
+        let bo_reply = b"Hey Alix!";
+        bo_group.send_message(bo_reply).await.unwrap();
+
+        group.sync().await.unwrap();
+        let group_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(group_msgs.len(), 3);
+        assert_eq!(group_msgs.last().unwrap().decrypted_message_bytes, bo_reply);
+
+        // Remove Bo
+        group
+            .remove_members(&[bo_wallet.identifier()])
+            .await
+            .unwrap();
+
+        bo_2.sync_welcomes(&bo_2.mls_provider().unwrap())
+            .await
+            .unwrap();
+        caro.sync_welcomes(&caro.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group.sync().await.unwrap();
+
+        // Bo should no longer be active
         bo_group.sync().await.unwrap();
         assert!(!bo_group.is_active(&bo_2.mls_provider().unwrap()).unwrap());
 
-        let caro_group = caro_groups.first().unwrap();
-        caro_group.sync().await.unwrap();
-        assert_eq!(caro_group.members().await.unwrap().len(), 2);
+        let post_removal_msg = b"Caro, just us now!";
+        group.send_message(post_removal_msg).await.unwrap();
+        let caro_post_removal_msg = b"Nice!";
+        caro_group
+            .send_message(caro_post_removal_msg)
+            .await
+            .unwrap();
 
+        caro_group.sync().await.unwrap();
+        let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(caro_msgs.len(), 5);
+        assert_eq!(
+            caro_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+        group.sync().await.unwrap();
+        let alix_msgs = group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(alix_msgs.len(), 6);
+        assert_eq!(
+            alix_msgs.last().unwrap().decrypted_message_bytes,
+            caro_post_removal_msg
+        );
+
+        let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
+        assert_eq!(
+            bo_msgs.len(),
+            3,
+            "Bo should not receive messages after being removed"
+        );
+
+        assert_eq!(caro_group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
     }
 
