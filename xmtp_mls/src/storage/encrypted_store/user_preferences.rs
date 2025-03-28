@@ -17,7 +17,6 @@ use tokio::sync::broadcast::Sender;
 #[diesel(table_name = user_preferences)]
 #[diesel(primary_key(id))]
 pub struct StoredUserPreferences {
-    /// Primary key - latest key is the "current" preference
     pub id: i32,
     /// Randomly generated hmac key root
     pub hmac_key: Option<Vec<u8>>,
@@ -25,6 +24,7 @@ pub struct StoredUserPreferences {
     pub sync_cursor: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct SyncCursor {
     group_id: Vec<u8>,
     last_message_ns: u64,
@@ -124,7 +124,7 @@ impl StoredUserPreferences {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, storage::tests::with_connection};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -155,5 +155,34 @@ mod tests {
             .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
             .unwrap();
         assert_eq!(result.len(), 1);
+    }
+
+    #[xmtp_common::test]
+    async fn sync_cursor_sets_and_loads() {
+        with_connection(|conn| {
+            // Loads fine when there's nothing in the db
+            let cursor = StoredUserPreferences::sync_cursor(conn).unwrap();
+            assert!(cursor.is_none());
+
+            let mut cursor = SyncCursor {
+                group_id: vec![1, 2, 3, 4],
+                last_message_ns: 1234,
+            };
+
+            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
+
+            // Check stores on an empty row fine
+            let db_cursor = StoredUserPreferences::sync_cursor(conn).unwrap().unwrap();
+            assert_eq!(cursor, db_cursor);
+
+            cursor.group_id = vec![1, 2, 3, 5];
+            cursor.last_message_ns = 1235;
+            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
+
+            // Check stores on an occupied row fine
+            let db_cursor = StoredUserPreferences::sync_cursor(conn).unwrap().unwrap();
+            assert_eq!(cursor, db_cursor);
+        })
+        .await;
     }
 }
