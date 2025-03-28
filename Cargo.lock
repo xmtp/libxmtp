@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "futures",
  "hex",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "console_error_panic_hook",
  "futures",
@@ -7413,7 +7413,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "ctor",
@@ -7431,7 +7431,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "derive_builder",
@@ -7448,7 +7448,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7470,7 +7470,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7491,7 +7491,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "chrono",
  "clap",
@@ -7523,7 +7523,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -7554,7 +7554,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "hex",
  "libsecp256k1",
@@ -7572,7 +7572,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "bincode",
  "curve25519-dalek",
@@ -7600,7 +7600,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7636,7 +7636,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -7709,7 +7709,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "dynosaur",
@@ -7733,7 +7733,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "async-trait",
  "coset",
