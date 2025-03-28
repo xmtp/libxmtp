@@ -5728,13 +5728,7 @@ pub(crate) mod tests {
         let result = amal_group.add_members_by_inbox_id(&[bola.inbox_id()]).await;
         assert!(result.is_ok());
 
-        // 6) We can't remove bola yet bc of the remove bug
-        let result = amal_group
-            .remove_members_by_inbox_id(&[bola.inbox_id()])
-            .await;
-        assert!(result.is_err());
-
-        // 7) Test that bola can not perform an admin only action
+        // 6) Test that bola can not perform an admin only action
         bola_2
             .sync_welcomes(&bola_2.mls_provider().unwrap())
             .await
@@ -5747,32 +5741,32 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_err());
 
-        // 8) Test adding bola as an admin
+        // 7) Test adding bola as an admin
         let result = amal_group
             .update_admin_list(UpdateAdminListType::Add, bola.inbox_id().to_string())
             .await;
         assert!(result.is_ok());
 
-        // 9) Verify bola can perform an admin only action
+        // 8) Verify bola can perform an admin only action
         bola_group.sync().await.unwrap();
         let result = bola_group
             .update_group_name("Bola's Group".to_string())
             .await;
         assert!(result.is_ok());
 
-        // 10) Verify we can remove bola as an admin
+        // 9) Verify we can remove bola as an admin
         let result = amal_group
             .update_admin_list(UpdateAdminListType::Remove, bola.inbox_id().to_string())
             .await;
         assert!(result.is_ok());
 
-        // 11) Verify bola is not an admin
+        // 10) Verify bola is not an admin
         let admins = amal_group
             .admin_list(&amal_group.mls_provider().unwrap())
             .unwrap();
         assert!(!admins.contains(&bola.inbox_id().to_string()));
 
-        // 12) verify bola can't perform an admin only action
+        // 11) verify bola can't perform an admin only action
         bola_group.sync().await.unwrap();
         let result = bola_group
             .update_group_name("Bola's Group Forever".to_string())
