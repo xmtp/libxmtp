@@ -1,4 +1,5 @@
 pub mod device_sync;
+// mod device_sync_legacy;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -12,6 +13,9 @@ pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod validated_commit;
+
+#[cfg(test)]
+pub mod test_utils;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
@@ -40,12 +44,15 @@ use crate::groups::group_mutable_metadata::{
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::consent_record::ConsentType;
+use crate::storage::user_preferences::StoredUserPreferences;
 use crate::storage::{
     group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
+use crate::subscriptions::SyncEvent;
+use crate::utils::time::hmac_epoch;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -95,6 +102,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
+use tokio::sync::broadcast::Sender;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_common::retry::RetryableError;
@@ -103,7 +111,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::Identifier;
-use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -328,6 +336,33 @@ pub struct HmacKey {
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
     pub epoch: i64,
+}
+
+impl HmacKey {
+    pub fn new() -> Self {
+        Self {
+            key: xmtp_common::rand_array::<42>(),
+            epoch: hmac_epoch(),
+        }
+    }
+
+    pub fn save_and_sync_to_other_devices(
+        &self,
+        conn: &DbConnection,
+        local_events: &Sender<LocalEvents>,
+    ) -> Result<(), StorageError> {
+        StoredUserPreferences::store_hmac_key(&conn, self)?;
+        self.sync_to_other_devices(local_events);
+        Ok(())
+    }
+
+    pub fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
+        local_events.send(LocalEvents::SyncEvent(
+            SyncEvent::PreferenceUpdateDispatchRequest(vec![UserPreferenceUpdate::HmacKeyUpdate {
+                key: self.key.to_vec(),
+            }]),
+        ));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -747,7 +782,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         Some(welcome.created_ns as i64)
                     )
                 }
-                ConversationType::Sync => StoredGroup::new_from_welcome(
+                ConversationType::Sync => {
+                // Let the DeviceSync worker know about the presence of a new
+                // sync group that came in from a welcome.
+                let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+
+                StoredGroup::new_from_welcome(
                     group_id.clone(),
                     now_ns(),
                     GroupMembershipState::Allowed,
@@ -758,7 +798,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     disappearing_settings,
                     None,
                     None
-                ),
+                )},
             };
 
             // Insert or replace the group in the database.
@@ -777,16 +817,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
+        tracing::info!("Creating sync group.");
+
         let context = client.context();
-        let creator_inbox_id = context.inbox_id();
 
         let protected_metadata =
-            build_protected_metadata_extension(creator_inbox_id, ConversationType::Sync)?;
+            build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
         let mutable_metadata = build_mutable_metadata_extension_default(
-            creator_inbox_id,
+            context.inbox_id(),
             GroupMetadataOptions::default(),
         )?;
-        let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
+        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
         let group_config = build_group_config(
@@ -810,12 +851,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
         stored_group.store(provider.conn_ref())?;
+        let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
 
-        Ok(Self::new_from_arc(
-            client,
-            stored_group.id,
-            stored_group.created_at_ns,
-        ))
+        Ok(group)
     }
 
     /// Send a message on this users XMTP [`Client`].
@@ -907,7 +945,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///     timestamp attached to intent & stored message.
-    fn prepare_message<F>(
+    pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
@@ -1041,7 +1079,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id<S: AsRef<str>>(
+    pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
@@ -1051,13 +1089,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    pub async fn add_members_by_inbox_id_with_provider<S: AsRef<str>>(
+    pub async fn add_members_by_inbox_id_with_provider<S: AsIdRef>(
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
             .await?;
@@ -1548,7 +1586,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map(UserPreferenceUpdate::ConsentUpdate)
             .collect();
 
-        if !new_records.is_empty() && self.client.history_sync_url().is_some() {
+        if !new_records.is_empty() && self.client.device_sync_server_url().is_some() {
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .client
@@ -2521,7 +2559,7 @@ pub(crate) mod tests {
             now
         );
 
-        let dm_group = alix.group(dm_group.id).unwrap();
+        let dm_group = alix.group(&dm_group.id).unwrap();
         let alix_msgs = dm_group
             .find_messages(&MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
@@ -4289,7 +4327,7 @@ pub(crate) mod tests {
         let bola_group_id = bola_group.group_id.clone();
 
         // Bola fetches group from the database
-        let bola_fetched_group = bola.group(bola_group_id).unwrap();
+        let bola_fetched_group = bola.group(&bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_inbox_id of the inviter
         let added_by_inbox = bola_fetched_group.added_by_inbox_id().unwrap();

@@ -41,6 +41,7 @@ test-utils = [
   "dep:const_format",
   "mockall",
   "xmtp_common/test-utils",
+  "dep:ethers"
 ]
 update-schema = ["toml"]
 

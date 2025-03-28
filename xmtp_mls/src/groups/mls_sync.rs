@@ -8,11 +8,14 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
+use crate::{
+    configuration::sync_update_installations_interval_ns,
+    storage::group::{ConversationType, StoredGroup},
+};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -37,7 +40,7 @@ use crate::{
         user_preferences::StoredUserPreferences,
         ProviderTransactions, StorageError,
     },
-    subscriptions::{LocalEvents, SyncMessage},
+    subscriptions::{LocalEvents, SyncEvent},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
 };
@@ -710,7 +713,7 @@ where
                 );
                 let message_bytes = application_message.into_bytes();
 
-                let mut bytes = Bytes::from(message_bytes.clone());
+                let mut bytes = Bytes::from(message_bytes);
                 let envelope = PlaintextEnvelope::decode(&mut bytes)?;
 
                 match envelope.content {
@@ -722,14 +725,15 @@ where
                             calculate_message_id(&self.group_id, &content, &idempotency_key);
                         let queryable_content_fields =
                             Self::extract_queryable_content_fields(&content);
-                        StoredGroupMessage {
-                            id: message_id,
+
+                        let storage_result = StoredGroupMessage {
+                            id: message_id.clone(),
                             group_id: self.group_id.clone(),
                             decrypted_message_bytes: content,
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            sender_inbox_id,
+                            sender_inbox_id: sender_inbox_id.clone(),
                             delivery_status: DeliveryStatus::Published,
                             content_type: queryable_content_fields.content_type,
                             version_major: queryable_content_fields.version_major,
@@ -737,7 +741,24 @@ where
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
                         }
-                        .store_or_ignore(provider.conn_ref())?
+                        .store_or_ignore(provider.conn_ref())?;
+
+                        // If this message was sent by us on another installation, check if it
+                        // belongs to a sync group, and if it is - notify the worker.
+                        if sender_inbox_id == self.client.inbox_id() {
+                            if let Some(StoredGroup {
+                                conversation_type: ConversationType::Sync,
+                                ..
+                            }) = provider.conn_ref().find_group(&self.group_id)?
+                            {
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                            }
+                        }
+
+                        storage_result
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -773,14 +794,14 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Request { message_id },
+                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                                    SyncEvent::Request { message_id },
                                 ));
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
                                 let content: DeviceSyncContent =
-                                    DeviceSyncContent::Reply(history_reply);
+                                    DeviceSyncContent::Payload(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -807,9 +828,10 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Reply { message_id },
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
@@ -1746,8 +1768,9 @@ where
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
-                let local_events = self.client.local_events();
-                StoredUserPreferences::new_hmac_key(&conn, local_events)?
+                let hmac_key = HmacKey::new();
+                hmac_key.save_and_sync_to_other_devices(&conn, self.client.local_events())?;
+                hmac_key.key.to_vec()
             }
         };
         ikm.extend(&self.group_id);

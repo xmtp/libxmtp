@@ -80,6 +80,11 @@ impl AsIdRef for InboxId {
         self
     }
 }
+impl AsIdRef for &InboxId {
+    fn as_ref(&self) -> InboxIdRef<'_> {
+        self
+    }
+}
 impl AsIdRef for InboxIdRef<'_> {
     fn as_ref(&self) -> InboxIdRef<'_> {
         self

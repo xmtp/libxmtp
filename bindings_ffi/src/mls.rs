@@ -24,41 +24,42 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
-use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
+use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
-use xmtp_mls::storage::group::ConversationType;
 use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
 use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
+        device_sync::{
+            backup::{BackupImporter, BackupMetadata},
+            preference_sync::UserPreferenceUpdate,
+            ENC_KEY_SIZE,
+        },
         group_metadata::GroupMetadata,
+        group_mutable_metadata::MessageDisappearingSettings,
         group_mutable_metadata::MetadataField,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
             PermissionsPolicies, PolicySet,
         },
-        intents::{PermissionPolicyOption, PermissionUpdateType},
+        intents::{PermissionPolicyOption, PermissionUpdateType, UpdateGroupMembershipResult},
         members::PermissionLevel,
-        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+        DMMetadataOptions, GroupMetadataOptions, HmacKey, MlsGroup, PreconfiguredPolicies,
+        UpdateAdminListType,
     },
     identity::IdentityStrategy,
     storage::{
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-        group::GroupQueryArgs,
+        group::{ConversationType, GroupQueryArgs},
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::ApiBuilder;
-use xmtp_proto::xmtp::device_sync::BackupElementSelection;
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
@@ -118,7 +119,7 @@ pub async fn create_client(
     account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
-    history_sync_url: Option<String>,
+    device_sync_server_url: Option<String>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -157,8 +158,8 @@ pub async fn create_client(
         .with_remote_verifier()?
         .store(store);
 
-    if let Some(url) = &history_sync_url {
-        builder = builder.history_sync_url(url);
+    if let Some(url) = &device_sync_server_url {
+        builder = builder.device_sync_server_url(url);
     }
 
     let xmtp_client = builder.build().await?;
@@ -519,11 +520,9 @@ impl FfiXmtpClient {
     }
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+    pub async fn send_sync_request(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .send_sync_request(&provider, kind.into())
-            .await?;
+        self.inner_client.send_sync_request(&provider).await?;
 
         Ok(())
     }
@@ -648,9 +647,8 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        let opts: BackupOptions = opts.into();
-        opts.export_to_file(provider, path, &check_key(key)?)
-            .await?;
+        let options: BackupOptions = opts.into();
+        BackupExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
 
         Ok(())
     }
@@ -659,7 +657,7 @@ impl FfiXmtpClient {
     pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
-        importer.insert(&provider).await?;
+        importer.run(&provider).await?;
         Ok(())
     }
 
@@ -723,7 +721,14 @@ impl From<FfiBackupOptions> for BackupOptions {
         Self {
             start_ns: value.start_ns,
             end_ns: value.start_ns,
-            elements: value.elements.into_iter().map(Into::into).collect(),
+            elements: value
+                .elements
+                .into_iter()
+                .map(|el| {
+                    let element: BackupElementSelection = el.into();
+                    element.into()
+                })
+                .collect(),
         }
     }
 }
@@ -1276,9 +1281,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(
-                GroupQueryArgs::from(opts).conversation_type(ConversationType::Group),
-            )?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Group),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1299,7 +1305,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Dm),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1459,8 +1468,8 @@ impl FfiConversations {
 impl FfiConversations {
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        let sync_group = inner.get_sync_group(&conn)?;
+        let provider = inner.mls_provider()?;
+        let sync_group = inner.get_sync_group(&provider)?;
         Ok(sync_group.into())
     }
 }
@@ -2952,19 +2961,22 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_device_sync_server_url(wallet, None).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_device_sync_server_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
     }
 
-    async fn new_test_client_with_wallet_and_history_sync_url(
+    async fn new_test_client_with_wallet_and_device_sync_server_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
-        history_sync_url: Option<String>,
+        device_sync_server_url: Option<String>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -2981,7 +2993,7 @@ mod tests {
             ident,
             nonce,
             None,
-            history_sync_url,
+            device_sync_server_url,
         )
         .await
         .unwrap();
@@ -2995,7 +3007,7 @@ mod tests {
 
     async fn new_test_client_no_panic(
         wallet: xmtp_cryptography::utils::LocalWallet,
-        history_sync_url: Option<String>,
+        device_sync_server_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -3012,7 +3024,7 @@ mod tests {
             ident,
             nonce,
             None,
-            history_sync_url,
+            device_sync_server_url,
         )
         .await?;
 
@@ -3171,8 +3183,11 @@ mod tests {
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_device_sync_server_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+        )
+        .await
     }
 
     impl FfiConversation {
@@ -6539,9 +6554,10 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
-        let alix_a_conn = alix_a.inner_client.store().conn().unwrap();
+        let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
         // wait for alix_a's sync worker to create a sync group
-        let _ = wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_conn) }).await;
+        let _ =
+            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
 
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)

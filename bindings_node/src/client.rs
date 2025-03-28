@@ -17,7 +17,6 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
@@ -124,7 +123,7 @@ pub async fn create_client(
   inbox_id: String,
   account_identifier: Identifier,
   encryption_key: Option<Uint8Array>,
-  history_sync_url: Option<String>,
+  device_sync_server_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
@@ -161,13 +160,13 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match history_sync_url {
+  let xmtp_client = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store)
-      .history_sync_url(&url)
+      .device_sync_server_url(&url)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,
@@ -263,23 +262,14 @@ impl Client {
   }
 
   #[napi]
-  pub async fn send_history_sync_request(&self) -> Result<()> {
-    self.send_sync_request(DeviceSyncKind::MessageHistory).await
-  }
-
-  #[napi]
-  pub async fn send_consent_sync_request(&self) -> Result<()> {
-    self.send_sync_request(DeviceSyncKind::Consent).await
-  }
-
-  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<()> {
+  pub async fn send_sync_request(&self) -> Result<()> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .send_sync_request(&provider, kind)
+      .send_sync_request(&provider)
       .await
       .map_err(ErrorWrapper::from)?;
 

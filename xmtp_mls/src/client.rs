@@ -1,5 +1,5 @@
-#[cfg(any(test, feature = "test-utils"))]
-use crate::groups::device_sync::WorkerHandle;
+use crate::builder::SyncWorkerMode;
+use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
@@ -41,6 +41,7 @@ use tokio::sync::broadcast;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retry_async, retryable, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_id::AsIdRef;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -51,6 +52,9 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{ApiStats, IdentityStats};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
+
+#[cfg(test)]
+pub(crate) mod test_utils;
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -148,14 +152,28 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
     pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
     pub(crate) context: Arc<XmtpMlsLocalContext>,
-    pub(crate) history_sync_url: Option<String>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     /// The method of verifying smart contract wallet signatures for this Client
     pub(crate) scw_verifier: Arc<V>,
     pub(crate) version_info: Arc<VersionInfo>,
+    pub(crate) device_sync: DeviceSync,
+}
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) sync_worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+#[derive(Clone)]
+pub struct DeviceSync {
+    pub(crate) server_url: Option<String>,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
+    pub(crate) mode: SyncWorkerMode,
+}
+
+impl DeviceSync {
+    pub(crate) fn enabled(&self) -> bool {
+        matches!(self.mode, SyncWorkerMode::Enabled)
+    }
+
+    pub(crate) fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.worker_handle.lock().as_ref().cloned()
+    }
 }
 
 // most of these things are `Arc`'s
@@ -164,13 +182,10 @@ impl<ApiClient, V> Clone for Client<ApiClient, V> {
         Self {
             api_client: self.api_client.clone(),
             context: self.context.clone(),
-            history_sync_url: self.history_sync_url.clone(),
             local_events: self.local_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             version_info: self.version_info.clone(),
-
-            #[cfg(any(test, feature = "test-utils"))]
-            sync_worker_handle: self.sync_worker_handle.clone(),
+            device_sync: self.device_sync.clone(),
         }
     }
 }
@@ -248,13 +263,7 @@ where
     pub fn identity_api_stats(&self) -> IdentityStats {
         self.api_client.api_client.identity_stats()
     }
-}
 
-impl<ApiClient, V> Client<ApiClient, V>
-where
-    ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
-{
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
@@ -263,7 +272,8 @@ where
         identity: Identity,
         store: EncryptedMessageStore,
         scw_verifier: V,
-        history_sync_url: Option<String>,
+        device_sync_server_url: Option<String>,
+        device_sync_worker_mode: SyncWorkerMode,
     ) -> Self
     where
         V: SmartContractSignatureVerifier,
@@ -280,12 +290,14 @@ where
         Self {
             api_client: api_client.into(),
             context,
-            history_sync_url,
             local_events: tx,
-            #[cfg(any(test, feature = "test-utils"))]
-            sync_worker_handle: Arc::new(parking_lot::Mutex::default()),
             scw_verifier: scw_verifier.into(),
             version_info: Arc::new(VersionInfo::default()),
+            device_sync: DeviceSync {
+                worker_handle: Arc::new(parking_lot::Mutex::default()),
+                server_url: device_sync_server_url,
+                mode: device_sync_worker_mode,
+            },
         }
     }
 
@@ -310,10 +322,8 @@ where
         // TODO: The only worker we have right now are the
         // sync workers. if we have other workers we
         // should create a better way to track them.
-        if self.history_sync_url.is_some() {
-            self.start_sync_worker();
-        }
 
+        self.start_sync_worker();
         self.start_disappearing_messages_cleaner_worker();
 
         Ok(())
@@ -339,8 +349,8 @@ where
         self.context.mls_provider()
     }
 
-    pub fn history_sync_url(&self) -> Option<&String> {
-        self.history_sync_url.as_ref()
+    pub fn device_sync_server_url(&self) -> Option<&String> {
+        self.device_sync.server_url.as_ref()
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
@@ -439,7 +449,7 @@ where
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
-        if self.history_sync_url.is_some() && !changed_records.is_empty() {
+        if self.device_sync.enabled() && !changed_records.is_empty() {
             let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
@@ -596,29 +606,29 @@ where
     /// Find or create a Direct Message by inbox_id with the default settings
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
-        inbox_id: InboxId,
+        inbox_id: impl AsIdRef,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider()?;
         let group = provider.conn_ref().find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: &inbox_id,
+            member_two_inbox_id: inbox_id,
         })?;
         if let Some(group) = group {
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
-        self.create_dm_by_inbox_id(inbox_id, opts).await
+        self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
 
-    pub(crate) fn create_sync_group(
+    pub(crate) async fn create_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-
-        Ok(sync_group)
+        let group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+        group.update_installations().await?;
+        Ok(group)
     }
 
     /// Look up a group by its ID
@@ -641,9 +651,9 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
+    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
         let conn = &self.store().conn()?;
-        self.group_with_conn(conn, &group_id)
+        self.group_with_conn(conn, group_id)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -1099,7 +1109,6 @@ pub(crate) mod tests {
             consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
             schema::identity_updates,
         },
-        utils::test::HISTORY_SYNC_URL,
         XmtpApi,
     };
 
@@ -1355,10 +1364,10 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups.len(), 2);
 
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(alix_bo_group1.clone().group_id).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 0);
-        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 0);
         alix_bo_group1
@@ -1376,7 +1385,7 @@ pub(crate) mod tests {
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(alix_bo_group2.clone().group_id).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 1);
     }
@@ -1415,7 +1424,7 @@ pub(crate) mod tests {
         assert_eq!(bob_received_groups, 2);
 
         // Verify Bob initially has no messages
-        let bo_group1 = bo.group(alix_bo_group1.group_id.clone()).unwrap();
+        let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
         assert_eq!(
             bo_group1
                 .find_messages(&MsgQueryArgs::default())
@@ -1423,7 +1432,7 @@ pub(crate) mod tests {
                 .len(),
             0
         );
-        let bo_group2 = bo.group(alix_bo_group2.group_id.clone()).unwrap();
+        let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
@@ -1741,9 +1750,8 @@ pub(crate) mod tests {
     async fn should_stream_consent() {
         let alix_wallet = generate_local_wallet();
         let bo_wallet = generate_local_wallet();
-        let alix =
-            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
-        let bo = ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
+        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
 
         let group = alix
             .create_group_with_inbox_ids(

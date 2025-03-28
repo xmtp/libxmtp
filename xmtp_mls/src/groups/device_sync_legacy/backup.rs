@@ -1,20 +1,30 @@
+use super::DeviceSyncError;
+use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use backup_exporter::BackupExporter;
+use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
 
-pub use importer::BackupImporter;
+pub use backup_importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
+mod backup_exporter;
+mod backup_importer;
 mod export_stream;
-pub mod exporter;
-pub mod importer;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error("Missing metadata")]
     MissingMetadata,
+}
+
+pub struct BackupOptions {
+    pub start_ns: Option<i64>,
+    pub end_ns: Option<i64>,
+    pub elements: Vec<BackupElementSelection>,
 }
 
 #[derive(Default)]
@@ -38,17 +48,29 @@ impl BackupMetadata {
     }
 }
 
-pub(crate) trait OptionsToSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave;
-}
-impl OptionsToSave for BackupMetadataSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave {
+impl From<BackupOptions> for BackupMetadataSave {
+    fn from(value: BackupOptions) -> Self {
         Self {
-            end_ns: options.end_ns,
-            start_ns: options.start_ns,
-            elements: options.elements.iter().map(|&e| e as i32).collect(),
+            end_ns: value.end_ns,
+            start_ns: value.start_ns,
+            elements: value.elements.iter().map(|&e| e as i32).collect(),
             exported_at_ns: now_ns(),
         }
+    }
+}
+
+impl BackupOptions {
+    pub async fn export_to_file(
+        self,
+        provider: XmtpOpenMlsProvider,
+        path: impl AsRef<Path>,
+        key: &[u8],
+    ) -> Result<(), DeviceSyncError> {
+        let provider = Arc::new(provider);
+        let mut exporter = BackupExporter::new(self, &provider, key);
+        exporter.write_to_file(path).await?;
+
+        Ok(())
     }
 }
 
@@ -66,10 +88,10 @@ mod tests {
         },
         utils::test::wait_for_min_intents,
     };
+    use backup_exporter::BackupExporter;
+    use backup_importer::BackupImporter;
     use diesel::RunQueryDsl;
-    use exporter::BackupExporter;
     use futures::io::Cursor;
-    use importer::BackupImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -98,8 +120,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages as i32,
-                BackupElementSelection::Consent as i32,
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
         };
 
@@ -126,7 +148,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2_provider).await.unwrap();
+        importer.insert(&alix2_provider).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -139,8 +161,11 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
+        use crate::utils::HISTORY_SYNC_URL;
+
         let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix =
+            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
         let alix_conn = alix.store().conn().unwrap();
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
 
@@ -192,8 +217,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages.into(),
-                BackupElementSelection::Consent.into(),
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
             ],
         };
 
@@ -215,7 +240,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.run(&alix2_provider).await.unwrap();
+        importer.insert(&alix2_provider).await.unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider

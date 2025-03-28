@@ -493,7 +493,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(DeviceSyncContent::Reply(ref reply)) => {
+                    Ok(DeviceSyncContent::Payload(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {
@@ -530,8 +530,8 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
     let mut builder = builder.api_client(grpc);
 
     builder = match (cli.testnet, &cli.env) {
-        (false, Env::Local) => builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
-        (false, Env::Dev) => builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS),
+        (false, Env::Local) => builder.device_sync_server_url(MessageHistoryUrls::LOCAL_ADDRESS),
+        (false, Env::Dev) => builder.device_sync_server_url(MessageHistoryUrls::DEV_ADDRESS),
         _ => builder,
     };
 

@@ -125,7 +125,7 @@ pub async fn create_client(
   account_identifier: Identifier,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
-  history_sync_url: Option<String>,
+  device_sync_server_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
@@ -158,12 +158,12 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match history_sync_url {
+  let xmtp_client = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
-      .history_sync_url(&url)
+      .device_sync_server_url(&url)
       .build()
       .await
       .map_err(|e| JsError::new(&e.to_string()))?,
@@ -263,24 +263,15 @@ impl Client {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = sendHistorySyncRequest)]
-  pub async fn send_history_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::MessageHistory).await
-  }
-
-  #[wasm_bindgen(js_name = sendConsentSyncRequest)]
-  pub async fn send_consent_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::Consent).await
-  }
-
-  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
+  #[wasm_bindgen(js_name = sendSyncRequest)]
+  pub async fn send_sync_request(&self) -> Result<(), JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider, kind)
+      .send_sync_request(&provider)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

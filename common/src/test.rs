@@ -1,22 +1,20 @@
 //! Common Test Utilites
+use crate::time::Expired;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use rand::{
     distributions::{Alphanumeric, DistString},
     seq::IteratorRandom,
     Rng,
 };
+use std::collections::HashMap;
 use std::{future::Future, sync::OnceLock};
 use xmtp_cryptography::utils as crypto_utils;
-
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod traced_test;
 #[cfg(not(target_arch = "wasm32"))]
 pub use traced_test::TestWriter;
-
-use crate::time::Expired;
 
 mod logger;
 mod macros;
@@ -95,6 +93,7 @@ where
             .then(|| {
                 fmt::layer()
                     .compact()
+                    .with_ansi(true)
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
                             if field.name() == "message" {
@@ -160,10 +159,6 @@ pub fn rand_hexstring() -> String {
 
 pub fn rand_account_address() -> String {
     Alphanumeric.sample_string(&mut crypto_utils::rng(), 42)
-}
-
-pub fn rand_vec<const N: usize>() -> Vec<u8> {
-    crate::rand_array::<N>().to_vec()
 }
 
 pub fn rand_u64() -> u64 {
