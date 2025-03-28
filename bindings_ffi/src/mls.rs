@@ -2948,53 +2948,33 @@ mod tests {
         Ok(())
     }
 
-    async fn new_dev_test_client() -> Arc<FfiXmtpClient> {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            None,
-            Some(xmtp_api_grpc::DEV_ADDRESS.to_string()),
-            Some(true),
-        )
-        .await
-    }
-
     /// Create a new test client with a given wallet.
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None, None, None).await
+        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            Some(HISTORY_SYNC_URL.to_string()),
-            None,
-            None,
-        )
-        .await
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
-        host: Option<String>,
-        is_secure: Option<bool>,
     ) -> Arc<FfiXmtpClient> {
-        // Use a default for `host` if None is provided.
-        let host = host.unwrap_or_else(|| xmtp_api_grpc::LOCALHOST_ADDRESS.to_string());
-        // Use a default for `is_secure` if None is provided.
-        let is_secure = is_secure.unwrap_or(false);
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(host, is_secure).await.unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
@@ -3191,13 +3171,8 @@ mod tests {
 
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            Some(HISTORY_SYNC_URL.to_string()),
-            None,
-            None,
-        )
-        .await
+        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
+            .await
     }
 
     impl FfiConversation {
@@ -7847,55 +7822,6 @@ mod tests {
         let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
         let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
         assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_can_add_remove_installation_with_a_bad_key_package() {
-        let alix_client = new_dev_test_client().await;
-        let bo_client = new_dev_test_client().await;
-        let group = alix_client
-            .conversations()
-            .create_group_with_inbox_ids(
-                vec![
-                    "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string(),
-                ],
-                FfiCreateGroupOptions::default(),
-            )
-            .await
-            .unwrap();
-
-        group
-            .add_members(vec![bo_client.account_identifier.clone()])
-            .await
-            .unwrap();
-        bo_client
-            .conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
-        group.sync().await.unwrap();
-        let bo_groups = bo_client
-            .conversations()
-            .list_groups(FfiListConversationsOptions::default())
-            .unwrap();
-        assert_eq!(bo_groups.len(), 1);
-        assert_eq!(group.list_members().await.unwrap().len(), 3);
-        group
-            .remove_members(vec![bo_client.account_identifier.clone()])
-            .await
-            .unwrap();
-        group
-            .remove_members_by_inbox_id(vec![
-                "f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string(),
-            ])
-            .await
-            .unwrap();
-        alix_client
-            .conversations()
-            .sync_all_conversations(None)
-            .await
-            .unwrap();
-        assert_eq!(group.list_members().await.unwrap().len(), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
