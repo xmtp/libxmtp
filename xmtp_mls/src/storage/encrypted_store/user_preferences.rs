@@ -105,12 +105,22 @@ impl StoredUserPreferences {
         Ok(hmac_key)
     }
 
-    pub fn sync_cursor(conn: &DbConnection) -> Result<Option<SyncCursor>, StorageError> {
-        let Some(sync_cursor) = Self::load(conn)?.sync_cursor else {
-            return Ok(None);
+    /// Returns nothing if the cursor's group_id does not match the provided group_id
+    pub fn sync_cursor(conn: &DbConnection, group_id: &[u8]) -> Result<SyncCursor, StorageError> {
+        let default = || SyncCursor {
+            group_id: group_id.to_vec(),
+            last_message_ns: 0,
         };
 
-        Ok(SyncCursor::load(&sync_cursor))
+        let Some(sync_cursor) = Self::load(conn)?.sync_cursor else {
+            return Ok(default());
+        };
+
+        let cursor = SyncCursor::load(&sync_cursor);
+        let cursor = cursor
+            .and_then(|c| (c.group_id == group_id).then(|| c))
+            .unwrap_or_else(default);
+        Ok(cursor)
     }
 
     pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
@@ -158,29 +168,29 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    async fn sync_cursor_sets_and_loads() {
+    async fn test_sync_cursor() {
         with_connection(|conn| {
             // Loads fine when there's nothing in the db
-            let cursor = StoredUserPreferences::sync_cursor(conn).unwrap();
-            assert!(cursor.is_none());
+            let cursor = StoredUserPreferences::sync_cursor(conn, &[1, 2, 3, 4]).unwrap();
+            assert_eq!(cursor.group_id, &[1, 2, 3, 4]);
+            assert_eq!(cursor.last_message_ns, 0);
 
             let mut cursor = SyncCursor {
                 group_id: vec![1, 2, 3, 4],
                 last_message_ns: 1234,
             };
 
-            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
-
             // Check stores on an empty row fine
-            let db_cursor = StoredUserPreferences::sync_cursor(conn).unwrap().unwrap();
+            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
+            let db_cursor = StoredUserPreferences::sync_cursor(conn, &cursor.group_id).unwrap();
             assert_eq!(cursor, db_cursor);
 
             cursor.group_id = vec![1, 2, 3, 5];
             cursor.last_message_ns = 1235;
-            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
 
             // Check stores on an occupied row fine
-            let db_cursor = StoredUserPreferences::sync_cursor(conn).unwrap().unwrap();
+            StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
+            let db_cursor = StoredUserPreferences::sync_cursor(conn, &cursor.group_id).unwrap();
             assert_eq!(cursor, db_cursor);
         })
         .await;
