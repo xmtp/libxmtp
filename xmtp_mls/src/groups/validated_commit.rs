@@ -670,7 +670,7 @@ fn expected_diff_matches_commit(
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     existing_installation_ids: HashSet<Vec<u8>>,
-    failed_installation_ids: &[Vec<u8>],
+    failed_installation_ids: &HashSet<Vec<u8>>,
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff

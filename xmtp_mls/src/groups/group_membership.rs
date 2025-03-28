@@ -7,14 +7,14 @@ use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipP
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMembership {
     pub(crate) members: HashMap<String, u64>,
-    pub(crate) failed_installations: Vec<Vec<u8>>,
+    pub(crate) failed_installations: HashSet<Vec<u8>>,
 }
 
 impl GroupMembership {
     pub fn new() -> Self {
         GroupMembership {
             members: HashMap::new(),
-            failed_installations: Vec::new(),
+            failed_installations: HashSet::new(),
         }
     }
 
@@ -96,7 +96,10 @@ impl TryFrom<Vec<u8>> for GroupMembership {
 
         Ok(GroupMembership {
             members: membership_proto.members,
-            failed_installations: membership_proto.failed_installations,
+            failed_installations: membership_proto
+                .failed_installations
+                .into_iter()
+                .collect::<HashSet<_>>(),
         })
     }
 }
@@ -105,7 +108,7 @@ impl From<&GroupMembership> for Vec<u8> {
     fn from(value: &GroupMembership) -> Self {
         let membership_proto = GroupMembershipProto {
             members: value.members.clone(),
-            failed_installations: value.failed_installations.clone(),
+            failed_installations: value.failed_installations.iter().cloned().collect(),
         };
 
         membership_proto.encode_to_vec()
@@ -124,7 +127,7 @@ pub struct MembershipDiffWithKeyPackages {
     pub new_installations: Vec<Installation>,
     pub new_key_packages: Vec<KeyPackage>,
     pub removed_installations: HashSet<Vec<u8>>,
-    pub failed_installations: Vec<Vec<u8>>,
+    pub failed_installations: HashSet<Vec<u8>>,
 }
 
 impl MembershipDiffWithKeyPackages {
@@ -132,7 +135,7 @@ impl MembershipDiffWithKeyPackages {
         new_installations: Vec<Installation>,
         new_key_packages: Vec<KeyPackage>,
         removed_installations: HashSet<Vec<u8>>,
-        failed_installations: Vec<Vec<u8>>,
+        failed_installations: HashSet<Vec<u8>>,
     ) -> MembershipDiffWithKeyPackages {
         MembershipDiffWithKeyPackages {
             new_installations,
