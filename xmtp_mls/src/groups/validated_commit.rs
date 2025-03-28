@@ -396,6 +396,7 @@ impl ValidatedCommit {
             added_installations,
             removed_installations,
             current_group_members,
+            &new_group_membership.failed_installations,
         )?;
         credentials_to_verify.push(actor.clone());
 
@@ -669,6 +670,7 @@ fn expected_diff_matches_commit(
     added_installations: HashSet<Vec<u8>>,
     removed_installations: HashSet<Vec<u8>>,
     existing_installation_ids: HashSet<Vec<u8>>,
+    failed_installation_ids: &[Vec<u8>],
 ) -> Result<(), CommitValidationError> {
     // Check and make sure that any added installations are either:
     // 1. In the expected diff
@@ -687,12 +689,21 @@ fn expected_diff_matches_commit(
         ));
     }
 
-    if removed_installations.ne(&expected_diff.removed_installations) {
+    let filtered_expected: HashSet<_> = expected_diff
+        .removed_installations
+        .iter()
+        .filter(|id| !failed_installation_ids.contains(*id))
+        .cloned()
+        .collect();
+
+    if removed_installations != filtered_expected {
+        let unexpected: Vec<_> = removed_installations
+            .difference(&expected_diff.removed_installations)
+            .cloned()
+            .collect();
+
         return Err(CommitValidationError::UnexpectedInstallationsRemoved(
-            removed_installations
-                .difference(&expected_diff.removed_installations)
-                .cloned()
-                .collect::<Vec<Vec<u8>>>(),
+            unexpected,
         ));
     }
 

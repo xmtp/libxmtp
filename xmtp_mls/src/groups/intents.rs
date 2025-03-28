@@ -3,7 +3,7 @@ use openmls::prelude::{
     MlsMessageOut,
 };
 use prost::{bytes::Bytes, DecodeError, Message};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
@@ -363,9 +363,13 @@ impl UpdateGroupMembershipIntentData {
             new_membership.remove(inbox_id)
         }
 
-        new_membership
+        new_membership.failed_installations = new_membership
             .failed_installations
-            .extend(self.failed_installations.iter().cloned());
+            .into_iter()
+            .chain(self.failed_installations.iter().cloned())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
 
         tracing::info!("updated group membership: {:?}", new_membership.members);
         new_membership
