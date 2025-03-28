@@ -1032,7 +1032,10 @@ pub(crate) mod tests {
         // Ensure there are two installations on the inbox
         assert_eq!(association_state.installation_ids().len(), 2);
 
-        set_test_mode_upload_malformed_keypackage(true, Some(vec![client2.installation_public_key().to_vec()]));
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![client2.installation_public_key().to_vec()]),
+        );
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
@@ -1061,7 +1064,10 @@ pub(crate) mod tests {
         // Ensure there are two installations on the inbox
         assert_eq!(association_state.installation_ids().len(), 3);
 
-        set_test_mode_upload_malformed_keypackage(true, Some(vec![client2.installation_public_key().to_vec()]));
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![client2.installation_public_key().to_vec()]),
+        );
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
