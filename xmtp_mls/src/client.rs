@@ -775,6 +775,7 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
+                        inserted_at_ns: None,
                     })
                 });
 

@@ -379,10 +379,7 @@ where
         let mut cursor =
             StoredUserPreferences::sync_cursor(provider.conn_ref(), &sync_group.group_id)?;
 
-        let messages = sync_group.find_messages(&MsgQueryArgs {
-            sent_after_ns: Some(cursor.last_message_ns),
-            ..Default::default()
-        })?;
+        let messages = sync_group.sync_messages(cursor.last_message_ns)?;
 
         for (msg, content) in messages.iter_with_content() {
             if msg.sender_installation_id == self.installation_id() {

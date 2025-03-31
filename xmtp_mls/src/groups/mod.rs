@@ -987,6 +987,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
+            inserted_at_ns: None,
         };
         group_message.store(provider.conn_ref())?;
 
@@ -1021,6 +1022,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
+        Ok(messages)
+    }
+
+    pub(crate) fn sync_messages(
+        &self,
+        inserted_after_ns: i64,
+    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
+        let conn = self.context().store().conn()?;
+        let messages = conn.sync_messages(&self.group_id, inserted_after_ns)?;
         Ok(messages)
     }
 

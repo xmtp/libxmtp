@@ -1,17 +1,10 @@
-use std::fmt::Display;
-
 use super::{
     schema::user_preferences::{self, dsl},
     DbConnection,
 };
-use crate::{
-    groups::{device_sync::preference_sync::UserPreferenceUpdate, HmacKey},
-    storage::StorageError,
-    subscriptions::LocalEvents,
-    Store,
-};
+use crate::{groups::HmacKey, storage::StorageError, Store};
 use diesel::{insert_into, prelude::*};
-use tokio::sync::broadcast::Sender;
+use std::fmt::Display;
 
 #[derive(
     Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default,

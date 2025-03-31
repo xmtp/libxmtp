@@ -42,6 +42,8 @@ pub struct StoredGroupMessage {
     pub decrypted_message_bytes: Vec<u8>,
     /// Time in nanoseconds the message was sent.
     pub sent_at_ns: i64,
+    /// Time in nanoseconds the message was inserted into the local database.
+    pub inserted_at_ns: Option<i64>,
     /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
     pub kind: GroupMessageKind,
     /// The ID of the App Installation this message was sent from.
@@ -292,7 +294,7 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     /// Query for group messages with their reactions
@@ -399,6 +401,19 @@ impl DbConnection {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub(crate) fn sync_messages(
+        &self,
+        group_id: &[u8],
+        inserted_after_ns: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        let query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::inserted_at_ns.gt(inserted_after_ns))
+            .order(dsl::inserted_at_ns.asc());
+
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
@@ -509,6 +524,7 @@ pub(crate) mod tests {
             version_minor: 0,
             authority_id: "unknown".to_string(),
             reference_id: None,
+            inserted_at_ns: None,
         }
     }
 

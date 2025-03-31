@@ -740,6 +740,7 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
+                            inserted_at_ns: None,
                         }
                         .store_or_ignore(provider.conn_ref())?;
 
@@ -790,6 +791,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
+                                    inserted_at_ns: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -824,6 +826,7 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
+                                    inserted_at_ns: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -1278,6 +1281,7 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
+            inserted_at_ns: None,
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
