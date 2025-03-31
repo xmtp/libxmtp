@@ -625,7 +625,7 @@ pub(crate) mod tests {
         builder::ClientBuilder,
         groups::group_membership::GroupMembership,
         storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::test::FullXmtpClient,
+        utils::{set_test_mode_upload_malformed_keypackage, test::FullXmtpClient},
         Client, XmtpApi,
     };
     use xmtp_common::rand_vec;
@@ -1022,6 +1022,71 @@ pub(crate) mod tests {
         // Make sure there is only one installation on the inbox
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         assert_eq!(association_state.installation_ids().len(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn revoke_installation_with_malformed_keypackage() {
+        let wallet = generate_local_wallet();
+        let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        // Ensure there are two installations on the inbox
+        assert_eq!(association_state.installation_ids().len(), 2);
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![client2.installation_public_key().to_vec()]),
+        );
+
+        // Now revoke the second client
+        let mut revoke_installation_request = client1
+            .revoke_installations(vec![client2.installation_public_key().to_vec()])
+            .await
+            .unwrap();
+        add_wallet_signature(&mut revoke_installation_request, &wallet).await;
+        client1
+            .apply_signature_request(revoke_installation_request)
+            .await
+            .unwrap();
+
+        // Make sure there is only one installation on the inbox
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        assert_eq!(association_state.installation_ids().len(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn revoke_good_installation_with_other_malformed_keypackage() {
+        let wallet = generate_local_wallet();
+        let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let client3: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        // Ensure there are two installations on the inbox
+        assert_eq!(association_state.installation_ids().len(), 3);
+
+        set_test_mode_upload_malformed_keypackage(
+            true,
+            Some(vec![client2.installation_public_key().to_vec()]),
+        );
+
+        // Now revoke the second client
+        let mut revoke_installation_request = client1
+            .revoke_installations(vec![client3.installation_public_key().to_vec()])
+            .await
+            .unwrap();
+        add_wallet_signature(&mut revoke_installation_request, &wallet).await;
+        client1
+            .apply_signature_request(revoke_installation_request)
+            .await
+            .unwrap();
+
+        // Make sure there is only one installation on the inbox
+        let association_state = get_association_state(&client1, client1.inbox_id()).await;
+        assert_eq!(association_state.installation_ids().len(), 2);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
