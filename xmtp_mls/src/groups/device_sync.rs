@@ -13,7 +13,6 @@ use crate::{
 };
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use backup::BackupImporter;
-#[cfg(not(target_arch = "wasm32"))]
 use backup::{exporter::BackupExporter, BackupError};
 use futures::{future::join_all, Stream, StreamExt};
 // use futures_util::StreamExt;
@@ -406,7 +405,7 @@ where
                     handle.increment_metric(SyncMetric::PayloadsProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
-                    // We'll process even our own messages here.
+                    // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
 
                     for update in preference_updates {
                         update.store(provider, handle)?;
