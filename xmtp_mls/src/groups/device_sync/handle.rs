@@ -27,6 +27,8 @@ pub enum SyncMetric {
     RequestsReceived,
     PayloadsSent,
     PayloadsProcessed,
+    HmacKeysReceived,
+    ConsentUpdatesReceived,
 }
 
 impl<Metric> WorkerHandle<Metric>

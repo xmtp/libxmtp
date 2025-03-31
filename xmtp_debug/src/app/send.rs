@@ -51,7 +51,7 @@ impl Send {
         let client = crate::app::client_from_identity(&identity, network).await?;
         let provider = client.mls_provider()?;
         client.sync_welcomes(&provider).await?;
-        let xmtp_group = client.group(group.id.to_vec())?;
+        let xmtp_group = client.group(&group.id.to_vec())?;
         xmtp_group.send_message(data.as_bytes()).await?;
         Ok(())
     }

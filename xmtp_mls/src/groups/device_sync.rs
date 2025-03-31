@@ -382,13 +382,13 @@ where
         let messages = sync_group.sync_messages(cursor.last_message_ns)?;
 
         for (msg, content) in messages.iter_with_content() {
-            if msg.sender_installation_id == self.installation_id() {
-                // Ignore our own messages
-                continue;
-            }
-
             match content {
                 DeviceSyncContent::Request(request) => {
+                    if msg.sender_installation_id == self.installation_id() {
+                        // Ignore our own messages
+                        continue;
+                    }
+
                     self.send_sync_payload(
                         Some(request),
                         || async { self.acknowledge_sync_request(&provider).await },
@@ -397,12 +397,19 @@ where
                     .await?;
                 }
                 DeviceSyncContent::Payload(payload) => {
+                    if msg.sender_installation_id == self.installation_id() {
+                        // Ignore our own messages
+                        continue;
+                    }
+
                     self.process_sync_payload(payload).await?;
                     handle.increment_metric(SyncMetric::PayloadsProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
+                    // We'll process even our own messages here.
+
                     for update in preference_updates {
-                        update.store(provider)?;
+                        update.store(provider, handle)?;
                     }
                 }
                 DeviceSyncContent::Acknowledge(_) => {
@@ -411,7 +418,7 @@ where
             }
 
             // Move the cursor
-            // cursor.last_message_ns = msg.inserted_at_ns;
+            cursor.last_message_ns = msg.inserted_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
         }
 

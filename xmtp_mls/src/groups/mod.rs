@@ -358,7 +358,7 @@ impl HmacKey {
     }
 
     pub fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
-        local_events.send(LocalEvents::SyncEvent(
+        let _ = local_events.send(LocalEvents::SyncEvent(
             SyncEvent::PreferenceUpdateDispatchRequest(vec![UserPreferenceUpdate::HmacKeyUpdate {
                 key: self.key.to_vec(),
             }]),

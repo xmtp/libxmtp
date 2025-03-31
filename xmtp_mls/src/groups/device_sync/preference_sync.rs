@@ -44,10 +44,15 @@ impl UserPreferenceUpdate {
         Ok(())
     }
 
-    pub(super) fn store(self, provider: &XmtpOpenMlsProvider) -> Result<(), StorageError> {
+    pub(super) fn store(
+        self,
+        provider: &XmtpOpenMlsProvider,
+        handle: &WorkerHandle<SyncMetric>,
+    ) -> Result<(), StorageError> {
         match self {
             Self::ConsentUpdate(consent_record) => {
                 let _ = consent_record.store(provider.conn_ref());
+                handle.increment_metric(SyncMetric::ConsentUpdatesReceived);
             }
             Self::HmacKeyUpdate { key } => {
                 let Ok(key) = key.try_into() else {
@@ -61,6 +66,7 @@ impl UserPreferenceUpdate {
                         epoch: hmac_epoch(),
                     },
                 )?;
+                handle.increment_metric(SyncMetric::HmacKeysReceived);
             }
         }
 

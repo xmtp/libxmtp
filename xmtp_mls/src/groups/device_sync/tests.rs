@@ -1,5 +1,8 @@
 use super::*;
-use crate::{groups::DMMetadataOptions, utils::Tester};
+use crate::{
+    groups::{DMMetadataOptions, GroupMetadataOptions},
+    utils::Tester,
+};
 use anyhow::Result;
 
 #[xmtp_common::test]
@@ -105,6 +108,25 @@ async fn double_sync_works_fine() -> Result<()> {
 
     // Alix2 should be able to talk fine with bo
     alix2.test_talk_in_dm_with(&bo).await?;
+
+    Ok(())
+}
+
+#[xmtp_common::test]
+async fn test_hmac_sync() -> Result<()> {
+    let alix1 = Tester::new().await;
+    let alix2 = Tester::new().await;
+
+    alix1.worker.wait_for_init().await?;
+    alix2.worker.wait_for_init().await?;
+
+    alix1.sync_welcomes(&alix1.provider).await?;
+    alix2.sync_welcomes(&alix2.provider).await?;
+
+    let group = alix1.create_group(None, GroupMetadataOptions::default())?;
+    let alix1_keys = group.hmac_keys(-1..=1)?;
+
+    alix2.worker.wait(SyncMetric::HmacKeysReceived, 1).await;
 
     Ok(())
 }
