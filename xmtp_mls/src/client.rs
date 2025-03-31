@@ -3,6 +3,7 @@ use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
+use crate::storage::group_message::NewStoredGroupMessage;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -775,7 +776,7 @@ where
                         version_minor: conversation_item.version_minor?,
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
-                        inserted_at_ns: None,
+                        inserted_at_ns: 0,
                     })
                 });
 

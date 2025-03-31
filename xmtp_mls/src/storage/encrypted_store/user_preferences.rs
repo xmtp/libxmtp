@@ -50,7 +50,8 @@ impl Display for SyncCursor {
 }
 
 impl Store<DbConnection> for StoredUserPreferences {
-    fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
+    type Output = ();
+    fn store(&self, conn: &DbConnection) -> Result<Self::Output, StorageError> {
         conn.raw_query_write(|conn| {
             diesel::update(dsl::user_preferences)
                 .set(self)

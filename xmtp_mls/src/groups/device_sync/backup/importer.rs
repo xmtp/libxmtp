@@ -2,7 +2,9 @@ use super::{BackupError, BackupMetadata};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
-        consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
+        consent_record::StoredConsentRecord,
+        group::StoredGroup,
+        group_message::{NewStoredGroupMessage, StoredGroupMessage},
         DbConnection, StorageError,
     },
     Store, XmtpOpenMlsProvider,
@@ -124,7 +126,7 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
             ignore_unique_constraints(group.store(conn))?;
         }
         Element::GroupMessage(message) => {
-            let message: StoredGroupMessage = message.try_into()?;
+            let message: NewStoredGroupMessage = message.try_into()?;
             ignore_unique_constraints(message.store(conn))?;
         }
         _ => {}
@@ -134,11 +136,11 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
 }
 
 // If the record is already there, it's fine. Backup does not overwrite existing records.
-fn ignore_unique_constraints(result: Result<(), StorageError>) -> Result<(), StorageError> {
+fn ignore_unique_constraints<T>(result: Result<T, StorageError>) -> Result<(), StorageError> {
     use diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
-    if let Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) = result
-    {
-        return Ok(());
+    match result {
+        Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) => Ok(()),
+        Ok(_) => Ok(()),
+        Err(err) => Err(err),
     }
-    result
 }

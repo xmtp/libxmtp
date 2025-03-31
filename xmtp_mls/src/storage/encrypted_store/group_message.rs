@@ -27,9 +27,7 @@ use super::{
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore, StorageError};
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Eq, PartialEq)]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
 /// Successfully processed messages to be returned to the User.
@@ -43,7 +41,38 @@ pub struct StoredGroupMessage {
     /// Time in nanoseconds the message was sent.
     pub sent_at_ns: i64,
     /// Time in nanoseconds the message was inserted into the local database.
-    pub inserted_at_ns: Option<i64>,
+    pub inserted_at_ns: i64,
+    /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
+    pub kind: GroupMessageKind,
+    /// The ID of the App Installation this message was sent from.
+    pub sender_installation_id: Vec<u8>,
+    /// The Inbox ID of the Sender
+    pub sender_inbox_id: String,
+    /// We optimistically store messages before sending.
+    pub delivery_status: DeliveryStatus,
+    /// The Content Type of the message
+    pub content_type: ContentType,
+    /// The content type version major
+    pub version_major: i32,
+    /// The content type version minor
+    pub version_minor: i32,
+    /// The ID of the authority defining the content type
+    pub authority_id: String,
+    /// The ID of a referenced message
+    pub reference_id: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
+#[diesel(table_name = group_messages)]
+pub struct NewStoredGroupMessage {
+    /// Id of the message.
+    pub id: Vec<u8>,
+    /// Id of the group this message is tied to.
+    pub group_id: Vec<u8>,
+    /// Contents of message after decryption.
+    pub decrypted_message_bytes: Vec<u8>,
+    /// Time in nanoseconds the message was sent.
+    pub sent_at_ns: i64,
     /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
     pub kind: GroupMessageKind,
     /// The ID of the App Installation this message was sent from.
@@ -225,8 +254,8 @@ where
 }
 
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
-impl_store!(StoredGroupMessage, group_messages);
-impl_store_or_ignore!(StoredGroupMessage, group_messages);
+impl_store!(NewStoredGroupMessage, group_messages, StoredGroupMessage);
+impl_store_or_ignore!(NewStoredGroupMessage, group_messages, StoredGroupMessage);
 
 #[derive(Default, Clone)]
 pub struct MsgQueryArgs {
@@ -509,8 +538,8 @@ pub(crate) mod tests {
         group_id: Option<&[u8]>,
         sent_at_ns: Option<i64>,
         content_type: Option<ContentType>,
-    ) -> StoredGroupMessage {
-        StoredGroupMessage {
+    ) -> NewStoredGroupMessage {
+        NewStoredGroupMessage {
             id: rand_vec::<24>(),
             group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
             decrypted_message_bytes: rand_vec::<24>(),
@@ -524,7 +553,6 @@ pub(crate) mod tests {
             version_minor: 0,
             authority_id: "unknown".to_string(),
             reference_id: None,
-            inserted_at_ns: None,
         }
     }
 
@@ -547,8 +575,11 @@ pub(crate) mod tests {
 
             message.store(conn).unwrap();
 
-            let stored_message = conn.get_group_message(id);
-            assert_eq!(stored_message.unwrap(), Some(message));
+            let stored_message = conn.get_group_message(id).unwrap().unwrap();
+            assert_eq!(
+                stored_message.decrypted_message_bytes,
+                message.decrypted_message_bytes
+            );
         })
         .await
     }

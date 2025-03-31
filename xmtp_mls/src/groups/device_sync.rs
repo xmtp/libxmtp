@@ -402,7 +402,7 @@ where
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
                     for update in preference_updates {
-                        todo!();
+                        update.store(provider)?;
                     }
                 }
                 DeviceSyncContent::Acknowledge(_) => {
@@ -411,7 +411,7 @@ where
             }
 
             // Move the cursor
-            cursor.last_message_ns = msg.sent_at_ns;
+            // cursor.last_message_ns = msg.inserted_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
         }
 

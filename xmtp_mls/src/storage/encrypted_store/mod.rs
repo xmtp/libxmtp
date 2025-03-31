@@ -275,36 +275,64 @@ macro_rules! impl_fetch_list {
 // Inserts the model into the database by primary key, erroring if the model already exists
 #[macro_export]
 macro_rules! impl_store {
+    // Original variant without return type parameter (defaults to returning ())
     ($model:ty, $table:ident) => {
         impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection>
             for $model
         {
+            type Output = ();
+
             fn store(
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
-                })?;
-                Ok(())
+                        .map_err(Into::into)
+                        .map(|_| ())
+                })
+            }
+        }
+    };
+
+    // New variant that accepts a custom return type
+    ($model:ty, $table:ident, $return_type:ty) => {
+        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection>
+            for $model
+        {
+            type Output = $return_type;
+
+            fn store(
+                &self,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+            ) -> Result<Self::Output, $crate::StorageError> {
+                into.raw_query_write(|conn| {
+                    diesel::insert_into($table::table)
+                        .values(self)
+                        .returning($table::all_columns)
+                        .get_result(conn)
+                        .map_err(Into::into)
+                })
             }
         }
     };
 }
 
-// Inserts the model into the database by primary key, silently skipping on unique constraints
 #[macro_export]
 macro_rules! impl_store_or_ignore {
+    // Original variant without return type parameter (defaults to returning ())
     ($model:ty, $table:ident) => {
         impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
             for $model
         {
+            type Output = ();
+
             fn store_or_ignore(
                 &self,
                 into: &$crate::storage::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
@@ -315,13 +343,36 @@ macro_rules! impl_store_or_ignore {
             }
         }
     };
+
+    // New variant that accepts a custom return type
+    ($model:ty, $table:ident, $return_type:ty) => {
+        impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
+            for $model
+        {
+            type Output = $return_type;
+
+            fn store_or_ignore(
+                &self,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+            ) -> Result<Self::Output, $crate::StorageError> {
+                into.raw_query_write(|conn| {
+                    diesel::insert_or_ignore_into($table::table)
+                        .values(self)
+                        .returning($table::all_columns)
+                        .get_result(conn)
+                        .map_err(Into::into)
+                })
+            }
+        }
+    };
 }
 
 impl<T> Store<DbConnection> for Vec<T>
 where
     T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
+    type Output = ();
+    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }

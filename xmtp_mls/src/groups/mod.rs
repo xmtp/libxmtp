@@ -44,6 +44,7 @@ use crate::groups::group_mutable_metadata::{
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::storage::consent_record::ConsentType;
+use crate::storage::group_message::NewStoredGroupMessage;
 use crate::storage::user_preferences::StoredUserPreferences;
 use crate::storage::{
     group::DmIdExt,
@@ -973,7 +974,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
-        let group_message = StoredGroupMessage {
+        let group_message = NewStoredGroupMessage {
             id: message_id.clone(),
             group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
@@ -987,7 +988,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
-            inserted_at_ns: None,
         };
         group_message.store(provider.conn_ref())?;
 

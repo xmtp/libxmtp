@@ -40,7 +40,7 @@ diesel::table! {
         group_id -> Binary,
         decrypted_message_bytes -> Binary,
         sent_at_ns -> BigInt,
-        inserted_at_ns -> Nullable<BigInt>,
+        inserted_at_ns -> BigInt,
         kind -> Integer,
         sender_installation_id -> Binary,
         sender_inbox_id -> Text,

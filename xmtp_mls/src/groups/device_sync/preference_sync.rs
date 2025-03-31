@@ -60,7 +60,7 @@ impl UserPreferenceUpdate {
                         key,
                         epoch: hmac_epoch(),
                     },
-                );
+                )?;
             }
         }
 

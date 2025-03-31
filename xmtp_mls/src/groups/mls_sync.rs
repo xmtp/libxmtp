@@ -8,7 +8,6 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::storage::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
@@ -43,6 +42,10 @@ use crate::{
     subscriptions::{LocalEvents, SyncEvent},
     utils::{hash::sha256, id::calculate_message_id, time::hmac_epoch},
     Delete, Fetch, StoreOrIgnore,
+};
+use crate::{
+    groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+    storage::group_message::NewStoredGroupMessage,
 };
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -726,7 +729,7 @@ where
                         let queryable_content_fields =
                             Self::extract_queryable_content_fields(&content);
 
-                        let storage_result = StoredGroupMessage {
+                        NewStoredGroupMessage {
                             id: message_id.clone(),
                             group_id: self.group_id.clone(),
                             decrypted_message_bytes: content,
@@ -740,7 +743,6 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            inserted_at_ns: None,
                         }
                         .store_or_ignore(provider.conn_ref())?;
 
@@ -758,8 +760,6 @@ where
                                     .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
                             }
                         }
-
-                        storage_result
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -777,7 +777,7 @@ where
                                 );
 
                                 // store the request message
-                                StoredGroupMessage {
+                                NewStoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
                                     decrypted_message_bytes: content_bytes,
@@ -791,7 +791,6 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    inserted_at_ns: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -812,7 +811,7 @@ where
                                 );
 
                                 // store the reply message
-                                StoredGroupMessage {
+                                NewStoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
                                     decrypted_message_bytes: content_bytes,
@@ -826,7 +825,6 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    inserted_at_ns: None,
                                 }
                                 .store_or_ignore(provider.conn_ref())?;
 
@@ -1267,7 +1265,7 @@ where
             }
         };
         self.handle_metadata_update_from_commit(conn, payload.metadata_field_changes)?;
-        let msg = StoredGroupMessage {
+        let msg = NewStoredGroupMessage {
             id: message_id,
             group_id: group_id.to_vec(),
             decrypted_message_bytes: encoded_payload_bytes.to_vec(),
@@ -1281,9 +1279,8 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            inserted_at_ns: None,
         };
-        msg.store_or_ignore(conn)?;
+        let msg = msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
 

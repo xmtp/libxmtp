@@ -1,7 +1,9 @@
 use super::*;
 use crate::storage::{
     group::ConversationType,
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    group_message::{
+        ContentType, DeliveryStatus, GroupMessageKind, NewStoredGroupMessage, StoredGroupMessage,
+    },
     schema::{group_messages, groups},
     StorageError,
 };
@@ -53,7 +55,7 @@ impl BackupRecordProvider for GroupMessageSave {
     }
 }
 
-impl TryFrom<GroupMessageSave> for StoredGroupMessage {
+impl TryFrom<GroupMessageSave> for NewStoredGroupMessage {
     type Error = DeserializationError;
     fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
         let kind = value.kind().try_into()?;
@@ -74,7 +76,6 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             version_minor: value.version_minor,
             authority_id: value.authority_id,
             reference_id: value.reference_id,
-            inserted_at_ns: None,
         })
     }
 }
