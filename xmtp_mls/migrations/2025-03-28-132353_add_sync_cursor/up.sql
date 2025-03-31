@@ -19,3 +19,11 @@ LIMIT
     1;
 
 DROP TABLE user_preferences_old;
+
+-- Add an inserted_at_ns to group_messages
+ALTER TABLE group_messages
+ADD COLUMN inserted_at_ns INTEGER DEFAULT (unixepoch('subsecond') * 1_000_000_000);
+
+-- Set the existing messages inserted_at_ns to sent_at_ns
+UPDATE group_messages
+SET inserted_at_ns = sent_at_ns;
