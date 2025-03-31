@@ -147,29 +147,6 @@ where
         *self.device_sync.worker_handle.lock() = Some(worker.handle.clone());
         worker.spawn_worker();
     }
-
-    /// This should be triggered when a new sync group appears,
-    /// indicating the presence of a new installation.
-    pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let provider = self.mls_provider()?;
-        let groups = self.find_groups(GroupQueryArgs::default())?;
-
-        // Add the new installation to groups in batches
-        for chunk in groups.chunks(20) {
-            let mut add_futs = vec![];
-            for group in chunk {
-                add_futs.push(group.add_missing_installations(&provider));
-            }
-            let results = join_all(add_futs).await;
-            for result in results {
-                if let Err(err) = result {
-                    tracing::warn!("Unable to add new installation to group. {err:?}");
-                }
-            }
-        }
-
-        Ok(())
-    }
 }
 
 pub struct SyncWorker<ApiClient, V> {
@@ -789,6 +766,29 @@ where
         sync_group.sync_with_conn(provider).await?;
 
         Ok(sync_group)
+    }
+
+    /// This should be triggered when a new sync group appears,
+    /// indicating the presence of a new installation.
+    pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
+        let provider = self.mls_provider()?;
+        let groups = self.find_groups(GroupQueryArgs::default())?;
+
+        // Add the new installation to groups in batches
+        for chunk in groups.chunks(20) {
+            let mut add_futs = vec![];
+            for group in chunk {
+                add_futs.push(group.add_missing_installations(&provider));
+            }
+            let results = join_all(add_futs).await;
+            for result in results {
+                if let Err(err) = result {
+                    tracing::warn!("Unable to add new installation to group. {err:?}");
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
