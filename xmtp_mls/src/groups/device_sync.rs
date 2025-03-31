@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tokio_util::{compat::TokioAsyncReadCompatExt, io::StreamReader};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
@@ -608,7 +608,7 @@ where
             // Make exporter mutable
             let mut exporter = exporter;
 
-            // Wasm does not support streamed requests
+            // Wasm does not support stream uploads. So we'll just consume the stream into a vec.
             let mut buffer = Vec::new();
             exporter.read_to_end(&mut buffer).await?;
             buffer
@@ -715,17 +715,27 @@ where
             );
             return Err(DeviceSyncError::Reqwest(err));
         }
-        let stream = response
-            .bytes_stream()
-            .map(|result| result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
 
-        // Convert that stream into a reader
-        let tokio_reader = StreamReader::new(stream);
-        // Convert that tokio reader into a futures reader.
-        // We use futures reader for WASM compat.
-        let futures_reader = tokio_reader.compat();
+        #[cfg(not(target_arch = "wasm32"))]
+        let reader = {
+            let stream = response.bytes_stream().map(|result| {
+                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            });
+
+            // Convert that stream into a reader
+            let tokio_reader = tokio_util::io::StreamReader::new(stream);
+            // Convert that tokio reader into a futures reader.
+            // We use futures reader for WASM compat.
+            tokio_reader.compat()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let reader = {
+            let bytes = response.bytes().await?;
+            futures::io::Cursor::new(bytes)
+        };
+
         // Create an importer around that futures_reader.
-        let mut importer = BackupImporter::load(Box::pin(futures_reader), &reply.key).await?;
+        let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
 
         // Run the import.
         importer.run(&provider).await?;
