@@ -14,19 +14,14 @@ use crate::{
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use backup::BackupImporter;
 use backup::{exporter::BackupExporter, BackupError};
-use futures::{future::join_all, AsyncReadExt, Stream, StreamExt};
-// use futures_util::StreamExt;
-use futures::stream::TryStreamExt;
+use futures::{future::join_all, Stream, StreamExt};
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tokio_util::{
-    compat::TokioAsyncReadCompatExt,
-    io::{ReaderStream, StreamReader},
-};
+use tokio_util::{compat::TokioAsyncReadCompatExt, io::StreamReader};
 use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
@@ -597,12 +592,28 @@ where
         // 1. Build the exporter
         let exporter = BackupExporter::new(options, &provider, &key);
         let metadata = exporter.metadata().clone();
-        // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
-        let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(exporter);
-        // 3. Add a stream layer over the async read
-        let stream = ReaderStream::new(exporter_compat);
-        // 4. Pipe that stream as the body to the request to the history server
-        let body = reqwest::Body::wrap_stream(stream);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let body = {
+            // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
+            let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(exporter);
+            // 3. Add a stream layer over the async read
+            let stream = tokio_util::io::ReaderStream::new(exporter_compat);
+            // 4. Pipe that stream as the body to the request to the history server
+            reqwest::Body::wrap_stream(stream)
+        };
+        #[cfg(target_arch = "wasm32")]
+        let body = {
+            use futures::AsyncReadExt;
+            // Make exporter mutable
+            let mut exporter = exporter;
+
+            // Wasm does not support streamed requests
+            let mut buffer = Vec::new();
+            exporter.read_to_end(&mut buffer).await?;
+            buffer
+        };
+
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
         tracing::info!("Uploading sync payload to history server...");
