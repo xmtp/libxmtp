@@ -92,7 +92,6 @@ pub enum DeviceSyncError {
     Subscribe(#[from] SubscribeError),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
-    #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Backup(#[from] BackupError),
     #[error(transparent)]
@@ -730,8 +729,8 @@ where
         };
         #[cfg(target_arch = "wasm32")]
         let reader = {
-            let bytes = response.bytes().await?;
-            futures::io::Cursor::new(bytes)
+            // WASM doesn't support request streaming. Consume the response instead.
+            futures::io::Cursor::new(response.bytes().await?)
         };
 
         // Create an importer around that futures_reader.

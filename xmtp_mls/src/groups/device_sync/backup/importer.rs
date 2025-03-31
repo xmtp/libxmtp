@@ -2,10 +2,8 @@ use super::{BackupError, BackupMetadata};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     storage::{
-        consent_record::StoredConsentRecord,
-        group::StoredGroup,
-        group_message::{NewStoredGroupMessage, StoredGroupMessage},
-        DbConnection, StorageError,
+        consent_record::StoredConsentRecord, group::StoredGroup,
+        group_message::NewStoredGroupMessage, DbConnection, StorageError,
     },
     Store, XmtpOpenMlsProvider,
 };
