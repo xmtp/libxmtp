@@ -14,16 +14,19 @@ use crate::{
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use backup::BackupImporter;
 use backup::{exporter::BackupExporter, BackupError};
-use futures::{future::join_all, Stream, StreamExt};
+use futures::{future::join_all, AsyncReadExt, Stream, StreamExt};
 // use futures_util::StreamExt;
+use futures::stream::TryStreamExt;
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tokio_util::compat::TokioAsyncReadCompatExt;
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio_util::{
+    compat::TokioAsyncReadCompatExt,
+    io::{ReaderStream, StreamReader},
+};
 use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
