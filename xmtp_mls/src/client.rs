@@ -1094,6 +1094,7 @@ pub(crate) mod tests {
     use super::Client;
     use crate::storage::consent_record::{ConsentType, StoredConsentRecord};
     use crate::subscriptions::StreamMessages;
+    use crate::utils::Tester;
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1398,8 +1399,11 @@ pub(crate) mod tests {
         tokio::test(flavor = "multi_thread", worker_threads = 2)
     )]
     async fn test_sync_all_groups_and_welcomes() {
-        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        alix.worker.wait_for_init().await.unwrap();
+        bo.worker.wait_for_init().await.unwrap();
 
         // Create two groups and add Bob
         let alix_bo_group1 = alix
@@ -1423,7 +1427,7 @@ pub(crate) mod tests {
             .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), None)
             .await
             .unwrap();
-        assert_eq!(bob_received_groups, 2);
+        assert_eq!(bob_received_groups, 3);
 
         // Verify Bob initially has no messages
         let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
@@ -1461,7 +1465,8 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_unknown, 0);
+        // 1 to account for the sync group
+        assert_eq!(bob_received_groups_unknown, 1);
 
         // Verify Bob still has no messages
         assert_eq!(
@@ -1497,7 +1502,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_all, 2);
+        assert_eq!(bob_received_groups_all, 3);
 
         // Verify Bob now has all messages
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();

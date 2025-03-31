@@ -683,13 +683,13 @@ impl Conversation {
 mod tests {
   use wasm_bindgen_test::wasm_bindgen_test;
   use xmtp_mls::storage::group_message::{
-    ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage,
+    ContentType, DeliveryStatus, GroupMessageKind, NewStoredGroupMessage,
   };
   wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
   #[wasm_bindgen_test]
   fn test_group_message_to_object() {
-    let stored_message = StoredGroupMessage {
+    let stored_message = NewStoredGroupMessage {
       id: xmtp_common::rand_vec::<32>(),
       group_id: xmtp_common::rand_vec::<32>(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
