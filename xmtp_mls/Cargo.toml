@@ -72,6 +72,9 @@ tls_codec = { workspace = true }
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
+tokio-util = { version = "0.7", default-features = false, features = [
+  "compat",
+] }
 tracing.workspace = true
 trait-variant.workspace = true
 xmtp_common.workspace = true
@@ -127,9 +130,6 @@ libsqlite3-sys = { workspace = true }
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
-tokio-util = { version = "0.7", default-features = false, features = [
-  "compat",
-] }
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
