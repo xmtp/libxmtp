@@ -97,6 +97,4 @@ struct MessageComposerView: View {
         }
         .padding(4)
     }
-    
-    
 }

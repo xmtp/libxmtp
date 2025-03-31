@@ -1,7 +1,6 @@
 import SwiftUI
 import XMTPiOS
 
-
 // The navigation stack for the logged-in session.
 //
 // See `HomeView` where this is configured as the NavigationStack(path:)
@@ -17,27 +16,26 @@ import XMTPiOS
 @Observable
 class Router {
     var routes = [Route]()
-    
+
     func push(route: Route) {
         routes.append(route)
     }
-    
+
     func back() {
         _ = routes.popLast()
     }
 }
-
 
 // Navigable destinations for logged-in sessions.
 enum Route: Hashable, Identifiable, View {
     case conversation(conversationId: String)
     case createConversation
     case user(inboxId: String)
-    
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(self.hashValue)
     }
-    
+
     static func == (lhs: Route, rhs: Route) -> Bool {
         switch (lhs, rhs) {
         case (.conversation(let lId), .conversation(let rId)):
@@ -50,7 +48,7 @@ enum Route: Hashable, Identifiable, View {
             false
         }
     }
-    
+
     var id: String {
         switch self {
         case .conversation(let conversationId):

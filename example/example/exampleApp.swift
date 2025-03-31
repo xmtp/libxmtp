@@ -37,7 +37,7 @@ private struct LoginView: View {
     @Environment(XmtpSession.self) var session
     @State var isLoggingIn = false
     var body: some View {
-        
+
         // TODO: support more login methods
         Button("Login (random account)") {
             isLoggingIn = true

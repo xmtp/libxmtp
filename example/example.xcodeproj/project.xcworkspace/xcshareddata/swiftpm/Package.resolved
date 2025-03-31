@@ -1,5 +1,5 @@
 {
-  "originHash" : "b0e2265cd299a76158aecd92f65691f082440fb697cd38b4000c0c07fdfe3d27",
+  "originHash" : "315cd607981566bf90ef6f86b6d8ce921b7e750d120a36d40a0dab749db8fe84",
   "pins" : [
     {
       "identity" : "bigint",
@@ -29,21 +29,21 @@
       }
     },
     {
+      "identity" : "csecp256k1.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tesseract-one/CSecp256k1.swift.git",
+      "state" : {
+        "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
+        "version" : "0.2.0"
+      }
+    },
+    {
       "identity" : "libxmtp-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp-swift.git",
       "state" : {
-        "revision" : "9a901ea9ac39cb9a1fd0e0a1455b5f68fda627f8",
-        "version" : "4.0.1"
-      }
-    },
-    {
-      "identity" : "secp256k1.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/GigaBitcoin/secp256k1.swift",
-      "state" : {
-        "revision" : "48fb20fce4ca3aad89180448a127d5bc16f0e44c",
-        "version" : "0.10.0"
+        "revision" : "2c3ec2626dd34b2f814cba018636c7fdd202f16f",
+        "version" : "4.0.3"
       }
     },
     {
@@ -107,15 +107,6 @@
       "state" : {
         "revision" : "a34201439c74b53f0fd71ef11741af7e7caf01e1",
         "version" : "1.4.2"
-      }
-    },
-    {
-      "identity" : "web3swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/web3swift-team/web3swift",
-      "state" : {
-        "revision" : "119d179305788687e80083671698b3f08c970e7f",
-        "version" : "3.3.0"
       }
     }
   ],

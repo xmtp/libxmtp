@@ -34,27 +34,27 @@ class ObservableCache<T> {
         }
         return result.item
     }
-    
+
     // Empty the cache
     func clear() {
         lock.lock()
         itemCache.removeAllObjects()
         lock.unlock()
     }
-    
+
     // Permit outside insertion of values (e.g. prefill or update the cache)
     // Note: listeners will be broadcast with the update.
     func insert(identifier: String, value: T) {
         let result = getOrCreate(identifier: identifier)
         result.item.value = value
     }
-    
+
     // Permit outside initiation of a reload of the value for an item.
     func reload(_ identifier: String) -> Task<T?, Error> {
         let result = getOrCreate(identifier: identifier)
         return doLoad(identifier: identifier, item: result.item)
     }
-    
+
     // This locks to avoid duplicate entries for the specified identifier.
     private func getOrCreate(identifier: String) -> (item: ObservableItem<T>, fromCache: Bool) {
         lock.lock()
@@ -68,7 +68,7 @@ class ObservableCache<T> {
         lock.unlock()
         return (item, false)
     }
-    
+
     private func doLoad(identifier: String, item: ObservableItem<T>) -> Task<T?, Error> {
         return Task {
             do {
@@ -86,10 +86,9 @@ class ObservableCache<T> {
 class ObservableItem<T> {
     let identifier: String
     var value: T?
-    
+
     init(identifier: String, defaultValue: T? = nil) {
         self.identifier = identifier
         self.value = defaultValue
     }
 }
-
