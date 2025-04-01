@@ -44,25 +44,22 @@ use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_db::{
+    group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
+    StorageOption,
+};
 use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
-use xmtp_mls::storage::group::GroupQueryArgs;
-use xmtp_mls::storage::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_mls::groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions};
 use xmtp_mls::XmtpApi;
-use xmtp_mls::{
-    builder::ClientBuilderError,
-    client::ClientError,
-    groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions},
-    identity::IdentityStrategy,
-    storage::{
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
-        StorageOption,
-    },
-    InboxOwner,
-};
+use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
+use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
+
 use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 

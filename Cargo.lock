@@ -455,6 +455,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
@@ -485,6 +486,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
@@ -1470,27 +1472,6 @@ name = "dyn-clone"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
-
-[[package]]
-name = "dynosaur"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1b7ff6b5c4d1df9f75c6bcce5cebfa480a448d298b0c83a07b3f5bb318ad10f"
-dependencies = [
- "dynosaur_derive",
- "trait-variant",
-]
-
-[[package]]
-name = "dynosaur_derive"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a600ac649c596084163b9bcde422e9973a321dd190b9d8b15dde23986e53f425"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.90",
-]
 
 [[package]]
 name = "ecdsa"
@@ -7444,6 +7425,7 @@ dependencies = [
  "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
@@ -7563,6 +7545,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
@@ -7574,11 +7557,13 @@ version = "1.2.0-dev"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "bytes",
  "console_error_panic_hook",
  "ctor",
  "futures",
  "getrandom",
  "gloo-timers 0.3.0",
+ "hex",
  "js-sys",
  "once_cell",
  "parking_lot 0.12.3",
@@ -7647,6 +7632,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_db"
+version = "1.2.0-dev"
+dependencies = [
+ "bincode",
+ "derive_builder",
+ "diesel",
+ "diesel_migrations",
+ "dyn-clone",
+ "hex",
+ "libsqlite3-sys",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_rust_crypto",
+ "openmls_traits",
+ "parking_lot 0.12.3",
+ "prost",
+ "rand",
+ "serde",
+ "sqlite-wasm-rs",
+ "thiserror 2.0.11",
+ "tokio",
+ "tracing",
+ "wasm-bindgen-test",
+ "xmtp_common",
+ "xmtp_content_types",
+ "xmtp_cryptography",
+ "xmtp_proto",
+ "zeroize",
+]
+
+[[package]]
 name = "xmtp_id"
 version = "1.2.0-dev"
 dependencies = [
@@ -7679,6 +7695,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_common",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_proto",
 ]
 
@@ -7700,17 +7717,13 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "async-compression",
- "async-stream",
- "async-trait",
  "bincode",
  "bytes",
  "chrono",
- "console_error_panic_hook",
  "const_format",
  "criterion",
  "ctor",
  "diesel",
- "diesel_migrations",
  "dyn-clone",
  "ethers",
  "fdlimit",
@@ -7722,8 +7735,6 @@ dependencies = [
  "hkdf",
  "hmac",
  "indicatif",
- "libsqlite3-sys",
- "mockall",
  "mockito",
  "once_cell",
  "openmls",
@@ -7751,7 +7762,6 @@ dependencies = [
  "toml 0.8.19",
  "tracing",
  "tracing-subscriber",
- "tracing-wasm",
  "trait-variant",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
@@ -7762,6 +7772,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_proto",
  "zeroize",
@@ -7773,7 +7784,6 @@ version = "1.2.0-dev"
 dependencies = [
  "async-trait",
  "derive_builder",
- "dynosaur",
  "ed25519-dalek",
  "futures",
  "hex",
@@ -7801,6 +7811,7 @@ dependencies = [
  "chrono",
  "coset",
  "criterion",
+ "ctor",
  "ethers",
  "fdlimit",
  "futures",
@@ -7825,6 +7836,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",

@@ -1,9 +1,10 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{group::ConversationType, refresh_state::EntityKind, NotFound},
     Client, XmtpOpenMlsProvider,
 };
+use xmtp_db::{group::ConversationType, refresh_state::EntityKind, NotFound};
+
 use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
 use std::{
@@ -451,7 +452,7 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
-    use crate::storage::group::GroupQueryArgs;
+    use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;

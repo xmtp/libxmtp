@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 
-use crate::{impl_store, storage::StorageError};
+use crate::{StorageError, impl_store};
 
 use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
-
-use xmtp_id::associations::{unverified::UnverifiedIdentityUpdate, AssociationError};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -34,14 +32,6 @@ impl StoredIdentityUpdate {
             server_timestamp_ns,
             payload,
         }
-    }
-}
-
-impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
-    type Error = AssociationError;
-
-    fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
-        Ok(UnverifiedIdentityUpdate::try_from(update.payload)?)
     }
 }
 
@@ -124,6 +114,30 @@ impl DbConnection {
         // Convert the Vec to a HashMap
         Ok(HashMap::from_iter(result_tuples))
     }
+
+    pub fn filter_inbox_ids_needing_updates<'a>(
+        &self,
+        filters: &[(&'a str, i64)],
+    ) -> Result<Vec<&'a str>, StorageError> {
+        let existing_sequence_ids =
+            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+
+        let needs_update = filters
+            .iter()
+            .filter_map(|filter| {
+                let existing_sequence_id = existing_sequence_ids.get(filter.0);
+                if let Some(sequence_id) = existing_sequence_id {
+                    if sequence_id.ge(&filter.1) {
+                        return None;
+                    }
+                }
+
+                Some(filter.0)
+            })
+            .collect::<Vec<&str>>();
+
+        Ok(needs_update)
+    }
 }
 
 #[cfg(test)]
@@ -131,7 +145,7 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, test_utils::with_connection};
     use xmtp_common::{rand_time, rand_vec};
 
     use super::*;
@@ -167,7 +181,6 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
-        .await;
     }
 
     #[xmtp_common::test]
@@ -200,7 +213,6 @@ pub(crate) mod tests {
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -236,7 +248,6 @@ pub(crate) mod tests {
                 None
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -253,6 +264,5 @@ pub(crate) mod tests {
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
-        .await
     }
 }

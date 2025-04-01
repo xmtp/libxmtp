@@ -1,6 +1,6 @@
 use napi::bindgen_prelude::Uint8Array;
 use prost::Message as ProstMessage;
-use xmtp_mls::storage::group_message::{
+use xmtp_db::group_message::{
   DeliveryStatus as XmtpDeliveryStatus, GroupMessageKind as XmtpGroupMessageKind, MsgQueryArgs,
   SortDirection as XmtpSortDirection, StoredGroupMessage, StoredGroupMessageWithReactions,
 };

@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 
-use super::{db_connection::DbConnection, schema::openmls_key_store, StorageError};
-use crate::{impl_fetch, impl_store, Delete};
+use super::{StorageError, db_connection::DbConnection, schema::openmls_key_store};
+use crate::{Delete, impl_fetch, impl_store};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = openmls_key_store)]

@@ -1,9 +1,9 @@
 use super::DeviceSyncError;
-use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use backup_exporter::BackupExporter;
 use std::{path::Path, sync::Arc};
 use thiserror::Error;
 use xmtp_common::time::now_ns;
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
 
 pub use backup_importer::BackupImporter;
@@ -78,15 +78,7 @@ impl BackupOptions {
 mod tests {
     use super::*;
     use crate::{
-        builder::ClientBuilder,
-        groups::GroupMetadataOptions,
-        storage::{
-            consent_record::StoredConsentRecord,
-            group::StoredGroup,
-            group_message::StoredGroupMessage,
-            schema::{consent_records, group_messages, groups},
-        },
-        utils::test::wait_for_min_intents,
+        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use backup_exporter::BackupExporter;
     use backup_importer::BackupImporter;
@@ -94,6 +86,12 @@ mod tests {
     use futures::io::Cursor;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::{
+        consent_record::StoredConsentRecord,
+        group::StoredGroup,
+        group_message::StoredGroupMessage,
+        schema::{consent_records, group_messages, groups},
+    };
 
     #[xmtp_common::test]
     async fn test_buffer_export_import() {

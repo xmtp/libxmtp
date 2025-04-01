@@ -1,8 +1,7 @@
 use super::*;
-use crate::{
-    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
-    Client,
-};
+use crate::Client;
+use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
+
 use serde::{Deserialize, Serialize};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
@@ -91,11 +90,9 @@ impl UserPreferenceUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        builder::ClientBuilder,
-        groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentState, ConsentType},
-    };
+    use crate::{builder::ClientBuilder, groups::scoped_client::ScopedGroupClient};
+    use xmtp_db::consent_record::{ConsentState, ConsentType};
+
     use crypto_utils::generate_local_wallet;
 
     #[derive(Serialize, Deserialize, Clone)]

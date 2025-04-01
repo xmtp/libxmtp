@@ -29,11 +29,9 @@ pub(crate) mod tests {
     const HISTORY_SERVER_PORT: u16 = 5558;
 
     use super::*;
-    use crate::{
-        builder::ClientBuilder,
-        groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentState, ConsentType},
-    };
+    use crate::{builder::ClientBuilder, groups::scoped_client::ScopedGroupClient};
+    use xmtp_db::consent_record::{ConsentState, ConsentType};
+
     use xmtp_common::{
         assert_ok,
         time::{Duration, Instant},

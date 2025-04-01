@@ -20,12 +20,8 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-use crate::{
-    builder::ClientBuilder,
-    identity::IdentityStrategy,
-    storage::{DbConnection, EncryptedMessageStore, StorageOption},
-    Client, InboxOwner, XmtpApi,
-};
+use crate::{builder::ClientBuilder, identity::IdentityStrategy, Client, InboxOwner, XmtpApi};
+use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -42,25 +38,6 @@ pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 use xmtp_api_http::XmtpHttpApiClient;
 #[cfg(any(feature = "http-api", target_arch = "wasm32"))]
 pub type TestClient = XmtpHttpApiClient;
-
-impl EncryptedMessageStore {
-    pub fn generate_enc_key() -> [u8; 32] {
-        xmtp_common::rand_array::<32>()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn remove_db_files<P: AsRef<str>>(path: P) {
-        use crate::storage::EncryptedConnection;
-
-        let path = path.as_ref();
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_file(EncryptedConnection::salt_file(path).unwrap()).unwrap();
-    }
-
-    /// just a no-op on wasm32
-    #[cfg(target_arch = "wasm32")]
-    pub fn remove_db_files<P: AsRef<str>>(_path: P) {}
-}
 
 impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {

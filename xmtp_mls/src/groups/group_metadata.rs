@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMetadataV1 as GroupMetadataProto, Inbox as InboxProto,
 };
 
-use crate::storage::group::ConversationType;
+use xmtp_db::group::ConversationType;
 
 #[derive(Debug, Error)]
 pub enum GroupMetadataError {
@@ -26,6 +26,8 @@ pub enum GroupMetadataError {
     InvalidDmMembers,
     #[error("missing a dm member")]
     MissingDmMember,
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
 }
 
 /// `GroupMetadata` is immutable and created at the time of group creation.
@@ -102,36 +104,6 @@ impl TryFrom<&Extensions> for GroupMetadata {
     }
 }
 
-/**
- * XMTP supports the following types of conversation
- *
- * *Group*: A conversation with 1->N members and complex permissions and roles
- * *DM*: A conversation between 2 members with simplified permissions
- * *Sync*: A conversation between all the devices of a single member with simplified permissions
- */
-impl From<ConversationType> for ConversationTypeProto {
-    fn from(value: ConversationType) -> Self {
-        match value {
-            ConversationType::Group => Self::Group,
-            ConversationType::Dm => Self::Dm,
-            ConversationType::Sync => Self::Sync,
-        }
-    }
-}
-
-impl TryFrom<i32> for ConversationType {
-    type Error = GroupMetadataError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Ok(match value {
-            1 => Self::Group,
-            2 => Self::Dm,
-            3 => Self::Sync,
-            _ => return Err(GroupMetadataError::InvalidConversationType),
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct DmMembers<Id: AsRef<str>> {
     pub member_one_inbox_id: Id,
@@ -168,7 +140,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: &DmMembers<Id>) -> Self {
-        format!("{members}")
+        members.to_string()
     }
 }
 
@@ -177,7 +149,7 @@ where
     Id: AsRef<str>,
 {
     fn from(members: DmMembers<Id>) -> Self {
-        format!("{members}")
+        members.to_string()
     }
 }
 
@@ -223,4 +195,24 @@ pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, Gro
         .ok_or(GroupMetadataError::MissingExtension)?;
 
     extension.metadata().try_into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn test_dm_members_sort() {
+        let members = DmMembers {
+            member_one_inbox_id: "thats_me".to_string(),
+            member_two_inbox_id: "some_wise_guy".to_string(),
+        };
+
+        let members2 = DmMembers {
+            member_one_inbox_id: "some_wise_guy".to_string(),
+            member_two_inbox_id: "thats_me".to_string(),
+        };
+
+        assert_eq!(members.to_string(), members2.to_string());
+    }
 }
