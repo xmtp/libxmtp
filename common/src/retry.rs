@@ -494,7 +494,7 @@ pub(crate) mod tests {
         Err(SomeError::ARetryableError)
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_retries_twice_and_succeeds() {
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -509,7 +509,7 @@ pub(crate) mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_works_with_random_args() {
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
@@ -524,7 +524,7 @@ pub(crate) mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[xmtp_macro::test(transform = "false")]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;
@@ -535,7 +535,7 @@ pub(crate) mod tests {
         assert!(result.is_err())
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_only_runs_non_retryable_once() {
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
@@ -548,7 +548,7 @@ pub(crate) mod tests {
         assert_eq!(attempts, 1);
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_works_async() {
         async fn retryable_async_fn(rx: &mut mpsc::Receiver<usize>) -> Result<(), SomeError> {
             let val = rx.recv().await.unwrap();
@@ -573,7 +573,7 @@ pub(crate) mod tests {
         assert!(rx.is_empty());
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform_try = "false")]
     async fn it_works_async_mut() {
         async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
             if *data == 2 {
