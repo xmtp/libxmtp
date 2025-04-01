@@ -9,14 +9,13 @@ use napi::threadsafe_function::{
 };
 use napi::JsFunction;
 use napi_derive::napi;
+use xmtp_db::consent_record::ConsentState as XmtpConsentState;
+use xmtp_db::group::ConversationType as XmtpConversationType;
+use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
-use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
-};
-use xmtp_mls::storage::consent_record::ConsentState as XmtpConsentState;
-use xmtp_mls::storage::group::ConversationType as XmtpConversationType;
-use xmtp_mls::storage::group::GroupMembershipState as XmtpGroupMembershipState;
-use xmtp_mls::storage::group::GroupQueryArgs;
+use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::{Identifier, IdentityExt};

@@ -1,12 +1,18 @@
 use crate::{
-    groups::HmacKey,
-    storage::{association_state::StoredAssociationState, user_preferences::StoredUserPreferences},
+    client::ClientError,
+    groups::{
+        group_membership::{GroupMembership, MembershipDiff},
+        HmacKeyExt,
+    },
+    Client, XmtpApi,
 };
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
+use xmtp_db::{association_state::StoredAssociationState, user_preferences::HmacKey};
+use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
         apply_update,
@@ -23,12 +29,6 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-use crate::{
-    client::ClientError,
-    groups::group_membership::{GroupMembership, MembershipDiff},
-    storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-    Client, XmtpApi,
-};
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
 
@@ -48,41 +48,16 @@ pub struct InstallationDiff {
 pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error(transparent)]
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
+            InstallationDiffError::Storage(e) => retryable!(e),
         }
-    }
-}
-
-impl DbConnection {
-    /// Take a list of inbox_id/sequence_id tuples and determine which `inbox_id`s have missing entries
-    /// in the local DB
-    pub(crate) fn filter_inbox_ids_needing_updates<'a>(
-        &self,
-        filters: &[(InboxIdRef<'a>, i64)],
-    ) -> Result<Vec<&'a str>, ClientError> {
-        let existing_sequence_ids =
-            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
-
-        let needs_update = filters
-            .iter()
-            .filter_map(|filter| {
-                let existing_sequence_id = existing_sequence_ids.get(filter.0);
-                if let Some(sequence_id) = existing_sequence_id {
-                    if sequence_id.ge(&filter.1) {
-                        return None;
-                    }
-                }
-
-                Some(filter.0)
-            })
-            .collect::<Vec<&str>>();
-
-        Ok(needs_update)
     }
 }
 
@@ -160,7 +135,7 @@ where
             conn,
             inbox_id.to_string(),
             last_sequence_id,
-            association_state.clone(),
+            association_state.clone().into(),
         )?;
 
         Ok(association_state)
@@ -230,7 +205,7 @@ where
                 conn,
                 inbox_id.to_string(),
                 last_sequence_id,
-                final_state.clone(),
+                final_state.clone().into(),
             )?;
         }
 
@@ -622,12 +597,11 @@ pub(crate) mod tests {
     };
 
     use crate::{
-        builder::ClientBuilder,
-        groups::group_membership::GroupMembership,
-        storage::{db_connection::DbConnection, identity_update::StoredIdentityUpdate},
-        utils::{set_test_mode_upload_malformed_keypackage, test::FullXmtpClient},
+        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
         Client, XmtpApi,
     };
+    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
+
     use xmtp_common::rand_vec;
 
     use super::{is_member_of_association_state, load_identity_updates};
@@ -771,6 +745,7 @@ pub(crate) mod tests {
             get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 0);
+            // TODO: Verify state is actually in db instead of just checking logs
             assert_logged!("Wrote association", 1);
 
             let association_state = get_association_state(&client, inbox_id).await;
@@ -1027,6 +1002,8 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_installation_with_malformed_keypackage() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
         let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
@@ -1059,6 +1036,8 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_good_installation_with_other_malformed_keypackage() {
+        use crate::utils::set_test_mode_upload_malformed_keypackage;
+
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
         let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;

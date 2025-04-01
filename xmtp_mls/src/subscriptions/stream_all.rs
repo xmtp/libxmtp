@@ -6,14 +6,14 @@ use std::{
 use crate::subscriptions::stream_messages::MessagesApiSubscription;
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    storage::{
-        group::{ConversationType, GroupQueryArgs},
-        group_message::StoredGroupMessage,
-    },
-    types::GroupId,
     Client,
 };
+
 use futures::stream::Stream;
+use xmtp_db::{
+    group::{ConversationType, GroupQueryArgs},
+    group_message::StoredGroupMessage,
+};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
@@ -22,6 +22,8 @@ use super::{
     stream_messages::StreamGroupMessages,
     Result, SubscribeError,
 };
+use xmtp_common::types::GroupId;
+
 use pin_project_lite::pin_project;
 
 pin_project! {
@@ -302,7 +304,6 @@ mod tests {
     #[timeout(Duration::from_secs(15))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
-        xmtp_common::logger();
         let mut replace = xmtp_common::InboxIdReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

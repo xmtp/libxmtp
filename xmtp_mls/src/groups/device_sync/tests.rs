@@ -137,7 +137,5 @@ async fn test_hmac_and_consent_prefrence_sync() -> Result<()> {
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
 
-    let sg = alix2.get_sync_group(&alix2.provider)?;
-
     Ok(())
 }

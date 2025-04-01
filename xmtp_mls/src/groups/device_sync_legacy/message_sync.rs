@@ -1,8 +1,9 @@
 use super::*;
-use crate::storage::group::GroupQueryArgs;
-use crate::storage::group_message::MsgQueryArgs;
+use crate::Client;
 use crate::XmtpApi;
-use crate::{storage::group::StoredGroup, Client};
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group::StoredGroup;
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>

@@ -1,4 +1,4 @@
-use super::{export_stream::BatchExportStream, BackupOptions, OptionsToSave, BACKUP_VERSION};
+use super::{export_stream::BatchExportStream, OptionsToSave, BACKUP_VERSION};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
     XmtpOpenMlsProvider,
@@ -10,7 +10,9 @@ use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{
+    backup_element::Element, BackupElement, BackupMetadataSave, BackupOptions,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;

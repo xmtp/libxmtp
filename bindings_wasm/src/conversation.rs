@@ -9,14 +9,14 @@ use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use xmtp_db::group::ConversationType;
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
   group_mutable_metadata::MetadataField as XmtpMetadataField,
   intents::PermissionUpdateType as XmtpPermissionUpdateType,
   members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
 };
-use xmtp_mls::storage::group::ConversationType;
-use xmtp_mls::storage::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use prost::Message as ProstMessage;
@@ -682,7 +682,7 @@ impl Conversation {
 #[cfg(test)]
 mod tests {
   use wasm_bindgen_test::wasm_bindgen_test;
-  use xmtp_mls::storage::group_message::{
+  use xmtp_db::group_message::{
     ContentType, DeliveryStatus, GroupMessageKind, NewStoredGroupMessage,
   };
   wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);

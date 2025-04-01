@@ -26,13 +26,11 @@ use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
 use std::{fs, path::PathBuf, sync::Arc};
 use xmtp_cryptography::utils::LocalWallet;
+use xmtp_db::{EncryptedMessageStore, StorageOption};
 use xmtp_id::associations::unverified::UnverifiedRecoverableEcdsaSignature;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::InboxOwner;
-use xmtp_mls::{
-    identity::IdentityStrategy,
-    storage::{EncryptedMessageStore, StorageOption},
-};
+use xmtp_mls::identity::IdentityStrategy;
 
 use crate::args::{self, AppOpts};
 

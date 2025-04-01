@@ -1,11 +1,7 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
     groups::device_sync::{DeviceSyncError, NONCE_SIZE},
-    storage::{
-        consent_record::StoredConsentRecord, group::StoredGroup,
-        group_message::NewStoredGroupMessage, DbConnection, StorageError,
-    },
-    Store, XmtpOpenMlsProvider,
+    XmtpOpenMlsProvider,
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
@@ -13,6 +9,10 @@ use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::StoredGroup, group_message::NewStoredGroupMessage,
+    DbConnection, StorageError, Store,
+};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -135,7 +135,7 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
 
 // If the record is already there, it's fine. Backup does not overwrite existing records.
 fn ignore_unique_constraints<T>(result: Result<T, StorageError>) -> Result<(), StorageError> {
-    use diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
+    use xmtp_db::diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
     match result {
         Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) => Ok(()),
         Ok(_) => Ok(()),

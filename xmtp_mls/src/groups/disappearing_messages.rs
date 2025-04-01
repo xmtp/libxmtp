@@ -1,12 +1,12 @@
 use crate::client::ClientError;
 use crate::configuration::WORKER_RESTART_DELAY;
-use crate::storage::StorageError;
 use crate::Client;
 use futures::StreamExt;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::instrument;
+use xmtp_db::StorageError;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 

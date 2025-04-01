@@ -1,5 +1,6 @@
 use openmls::versions::ProtocolVersion;
-use openmls_traits::types::Ciphersuite;
+
+pub use xmtp_cryptography::configuration::CIPHERSUITE;
 
 pub struct DeviceSyncUrls;
 
@@ -11,9 +12,6 @@ impl DeviceSyncUrls {
 
 /// Duration to wait before restarting workers in case of an error.
 pub const WORKER_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
-
-pub const CIPHERSUITE: Ciphersuite =
-    Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519;
 
 pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
@@ -39,8 +37,6 @@ pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 pub const MAX_GROUP_SIZE: usize = 400;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
-
-pub const MAX_DB_POOL_SIZE: u32 = 25;
 
 /// the max amount of data that can be sent in one gRPC call
 /// we leave 5 * 1024 * 1024 as extra buffer room

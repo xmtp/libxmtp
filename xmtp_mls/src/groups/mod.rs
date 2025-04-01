@@ -43,17 +43,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::storage::consent_record::ConsentType;
-use crate::storage::group_message::NewStoredGroupMessage;
-use crate::storage::user_preferences::StoredUserPreferences;
-use crate::storage::{
-    group::DmIdExt,
-    group_message::{ContentType, StoredGroupMessageWithReactions},
-    refresh_state::EntityKind,
-    NotFound, ProviderTransactions, StorageError,
-};
 use crate::subscriptions::SyncEvent;
-use crate::utils::time::hmac_epoch;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -66,18 +56,8 @@ use crate::{
     identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
-    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
-    storage::{
-        consent_record::{ConsentState, StoredConsentRecord},
-        db_connection::DbConnection,
-        group::{ConversationType, GroupMembershipState, StoredGroup},
-        group_intent::IntentKind,
-        group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        sql_key_store,
-    },
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
-    Store,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
@@ -111,6 +91,25 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::consent_record::ConsentType;
+use xmtp_db::group_message::NewStoredGroupMessage;
+use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::Store;
+use xmtp_db::{
+    consent_record::{ConsentState, StoredConsentRecord},
+    db_connection::DbConnection,
+    group::{ConversationType, GroupMembershipState, StoredGroup},
+    group_intent::IntentKind,
+    group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+    sql_key_store,
+};
+use xmtp_db::{
+    group::DmIdExt,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    refresh_state::EntityKind,
+    NotFound, ProviderTransactions, StorageError,
+};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -137,7 +136,7 @@ pub enum GroupError {
     #[error("invalid group membership")]
     InvalidGroupMembership,
     #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
     #[error("intent error: {0}")]
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
@@ -170,8 +169,6 @@ pub enum GroupError {
     ReceiveErrors(Vec<GroupMessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
-    #[error("diesel error {0}")]
-    Diesel(#[from] diesel::result::Error),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
@@ -242,7 +239,6 @@ impl RetryableError for GroupError {
         match self {
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
-            Self::Diesel(diesel) => diesel.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Hpke(hpke) => hpke.is_retryable(),
@@ -333,22 +329,17 @@ impl<C> Clone for MlsGroup<C> {
     }
 }
 
-#[derive(Debug)]
-pub struct HmacKey {
-    pub key: [u8; 42],
-    // # of 30 day periods since unix epoch
-    pub epoch: i64,
+pub trait HmacKeyExt {
+    fn save_and_sync_to_other_devices(
+        &self,
+        conn: &DbConnection,
+        local_events: &Sender<LocalEvents>,
+    ) -> Result<(), StorageError>;
+    fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>);
 }
 
-impl HmacKey {
-    pub fn new() -> Self {
-        Self {
-            key: xmtp_common::rand_array::<42>(),
-            epoch: hmac_epoch(),
-        }
-    }
-
-    pub fn save_and_sync_to_other_devices(
+impl HmacKeyExt for HmacKey {
+    fn save_and_sync_to_other_devices(
         &self,
         conn: &DbConnection,
         local_events: &Sender<LocalEvents>,
@@ -358,7 +349,7 @@ impl HmacKey {
         Ok(())
     }
 
-    pub fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
+    fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
         let _ = local_events.send(LocalEvents::SyncEvent(
             SyncEvent::PreferenceUpdateDispatchRequest(vec![UserPreferenceUpdate::HmacKeyUpdate {
                 key: self.key.to_vec(),
@@ -575,15 +566,18 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            membership_state,
-            context.inbox_id().to_string(),
-            None,
-            opts.message_disappearing_settings,
-            None,
-        );
+        let stored_group = StoredGroup::builder()
+            .id(group_id.clone())
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
@@ -631,19 +625,25 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            membership_state,
-            context.inbox_id().to_string(),
-            Some(DmMembers {
-                member_one_inbox_id: dm_target_inbox_id,
-                member_two_inbox_id: client.inbox_id().to_string(),
-            }),
-            opts.message_disappearing_settings,
-            None,
-        );
+        let stored_group = StoredGroup::builder()
+            .id(group_id.clone())
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .dm_id(Some(
+                DmMembers {
+                    member_one_inbox_id: dm_target_inbox_id,
+                    member_two_inbox_id: client.inbox_id().to_string(),
+                }
+                .to_string(),
+            ))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
@@ -756,51 +756,35 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 }
             });
 
+            let mut group = StoredGroup::builder();
+            group.id(group_id)
+                .created_at_ns(now_ns())
+                .added_by_inbox_id(&added_by_inbox_id)
+                .welcome_id(welcome.id as i64)
+                .conversation_type(conversation_type)
+                .dm_id(dm_members.map(String::from))
+                .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
+                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
+
             let to_store = match conversation_type {
-                ConversationType::Group => StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Pending,
-                    added_by_inbox_id,
-                    welcome.id as i64,
-                    conversation_type,
-                    dm_members,
-                    disappearing_settings,
-                    paused_for_version,
-                    None
-                ),
+                ConversationType::Group => {
+                    group
+                        .membership_state(GroupMembershipState::Pending)
+                        .paused_for_version(paused_for_version)
+                        .build()?
+                },
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
-                    StoredGroup::new_from_welcome(
-                        group_id.clone(),
-                        now_ns(),
-                        GroupMembershipState::Pending,
-                        added_by_inbox_id,
-                        welcome.id as i64,
-                        conversation_type,
-                        dm_members,
-                        disappearing_settings,
-                        None,
-                        Some(welcome.created_ns as i64)
-                    )
+                    group
+                        .membership_state(GroupMembershipState::Pending)
+                        .last_message_ns(welcome.created_ns as i64)
+                        .build()?
                 }
                 ConversationType::Sync => {
-                // Let the DeviceSync worker know about the presence of a new
-                // sync group that came in from a welcome.
-                let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
-
-                StoredGroup::new_from_welcome(
-                    group_id.clone(),
-                    now_ns(),
-                    GroupMembershipState::Allowed,
-                    added_by_inbox_id,
-                    welcome.id as i64,
-                    conversation_type,
-                    dm_members,
-                    disappearing_settings,
-                    None,
-                    None
-                )},
+                    group
+                        .membership_state(GroupMembershipState::Allowed)
+                        .build()?
+                },
             };
 
             // Insert or replace the group in the database.
@@ -850,7 +834,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
-            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
+            StoredGroup::new_sync_group(group_id, now_ns(), GroupMembershipState::Allowed);
 
         stored_group.store(provider.conn_ref())?;
         let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
@@ -1718,18 +1702,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(
-            group_id.clone(),
-            now_ns(),
-            GroupMembershipState::Allowed, // Use Allowed as default for tests
-            context.inbox_id().to_string(),
-            Some(DmMembers {
-                member_one_inbox_id: client.inbox_id().to_string(),
-                member_two_inbox_id: dm_target_inbox_id,
-            }),
-            None,
-            None,
-        );
+        let stored_group = StoredGroup::builder()
+            .id(group_id.clone())
+            .created_at_ns(now_ns())
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .dm_id(Some(
+                DmMembers {
+                    member_one_inbox_id: client.inbox_id().to_string(),
+                    member_two_inbox_id: dm_target_inbox_id,
+                }
+                .to_string(),
+            ))
+            .build()?;
 
         stored_group.store(provider.conn_ref())?;
         Ok(Self::new_from_arc(
@@ -2160,8 +2145,6 @@ pub(crate) mod tests {
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
-    use crate::storage::group::StoredGroup;
-    use crate::storage::schema::groups;
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -2175,16 +2158,18 @@ pub(crate) mod tests {
             validate_dm_group, DeliveryStatus, GroupError, GroupMetadataOptions,
             PreconfiguredPolicies, UpdateAdminListType,
         },
-        storage::{
-            consent_record::ConsentState,
-            group::{ConversationType, GroupQueryArgs},
-            group_intent::{IntentKind, IntentState},
-            group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-            xmtp_openmls_provider::XmtpOpenMlsProvider,
-        },
         utils::test::FullXmtpClient,
     };
     use xmtp_common::StreamHandle as _;
+    use xmtp_db::group::StoredGroup;
+    use xmtp_db::schema::groups;
+    use xmtp_db::{
+        consent_record::ConsentState,
+        group::{ConversationType, GroupQueryArgs},
+        group_intent::{IntentKind, IntentState},
+        group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+    };
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -3575,7 +3560,7 @@ pub(crate) mod tests {
                     image_url_square: Some("url".to_string()),
                     description: Some("group description".to_string()),
                     message_disappearing_settings: Some(
-                        expected_group_message_disappearing_settings.clone(),
+                        expected_group_message_disappearing_settings,
                     ),
                 },
             )
@@ -3875,7 +3860,7 @@ pub(crate) mod tests {
 
         amal_group
             .update_conversation_message_disappearing_settings(
-                expected_group_message_expiration_settings.clone(),
+                expected_group_message_expiration_settings,
             )
             .await
             .unwrap();

@@ -1,12 +1,11 @@
-use ethers::signers::LocalWallet;
-use std::{ops::Deref, sync::Arc};
-use xmtp_cryptography::utils::generate_local_wallet;
-
 use crate::{
     builder::ClientBuilder,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
-    storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
+use ethers::signers::LocalWallet;
+use std::{ops::Deref, sync::Arc};
+use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_db::XmtpOpenMlsProvider;
 
 use super::FullXmtpClient;
 

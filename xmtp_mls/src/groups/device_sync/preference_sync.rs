@@ -1,11 +1,10 @@
 use super::*;
-use crate::{
-    groups::HmacKey,
-    storage::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences},
-    utils::time::hmac_epoch,
-    Client,
-};
+use crate::{utils::time::hmac_epoch, Client};
 use serde::{Deserialize, Serialize};
+use xmtp_db::{
+    consent_record::StoredConsentRecord,
+    user_preferences::{HmacKey, StoredUserPreferences},
+};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
@@ -123,14 +122,9 @@ impl UserPreferenceUpdate {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_cryptography::utils::generate_local_wallet;
-
     use super::*;
-    use crate::{
-        builder::ClientBuilder,
-        groups::scoped_client::ScopedGroupClient,
-        storage::consent_record::{ConsentState, ConsentType},
-    };
+    use crate::{groups::scoped_client::ScopedGroupClient, utils::Tester};
+    use xmtp_db::consent_record::{ConsentState, ConsentType};
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -157,35 +151,27 @@ mod tests {
 
     #[xmtp_common::test]
     async fn test_hmac_sync() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
-        let amal_a_worker = amal_a.device_sync.worker_handle().unwrap();
-
-        let amal_b = ClientBuilder::new_test_client(&wallet).await;
-        let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
-        let amal_b_worker = amal_b.device_sync.worker_handle().unwrap();
+        let amal_a = Tester::new().await;
+        let amal_b = Tester::new_from_wallet(amal_a.wallet.clone()).await;
 
         // wait for the new sync group
-        amal_a_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
-        amal_b_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
+        amal_a.worker.wait(SyncMetric::PayloadsProcessed, 1).await;
+        amal_b.worker.wait(SyncMetric::PayloadsProcessed, 1).await;
 
-        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
+        amal_a.sync_welcomes(&amal_a.provider).await.unwrap();
 
-        let sync_group_a = amal_a.get_sync_group(&amal_a_provider).unwrap();
-        let sync_group_b = amal_b.get_sync_group(&amal_b_provider).unwrap();
+        let sync_group_a = amal_a.get_sync_group(&amal_a.provider).unwrap();
+        let sync_group_b = amal_b.get_sync_group(&amal_b.provider).unwrap();
         assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
 
-        sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
-        sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
+        sync_group_a.sync_with_conn(&amal_a.provider).await.unwrap();
+        sync_group_b.sync_with_conn(&amal_a.provider).await.unwrap();
 
         // Wait for a to process the new hmac key
-        amal_a_worker.wait(SyncMetric::PayloadsProcessed, 1).await;
+        amal_a.worker.wait(SyncMetric::PayloadsProcessed, 1).await;
 
-        let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
-        let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();
+        let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref()).unwrap();
+        let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref()).unwrap();
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -194,7 +180,7 @@ mod tests {
             .await
             .unwrap();
 
-        let new_pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
+        let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref()).unwrap();
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

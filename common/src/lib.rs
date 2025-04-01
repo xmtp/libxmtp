@@ -23,9 +23,9 @@ pub use wasm::*;
 pub mod stream_handles;
 pub use stream_handles::*;
 
-pub mod time;
-
 pub mod fmt;
+pub mod time;
+pub mod types;
 
 use rand::{
     distributions::{Alphanumeric, DistString},

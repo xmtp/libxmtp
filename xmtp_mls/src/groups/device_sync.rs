@@ -1,15 +1,8 @@
 use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
-    storage::{
-        group::GroupQueryArgs,
-        group_message::{MsgQueryArgs, StoredGroupMessage},
-        user_preferences::StoredUserPreferences,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-        NotFound, StorageError,
-    },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError},
-    Client, Store,
+    Client,
 };
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use backup::BackupImporter;
@@ -25,6 +18,13 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{time::Duration, ExponentialBackoff};
+use xmtp_db::{
+    group::GroupQueryArgs,
+    group_message::{MsgQueryArgs, StoredGroupMessage},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    NotFound, StorageError,
+};
+use xmtp_db::{user_preferences::StoredUserPreferences, Store};
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -56,6 +56,8 @@ pub enum DeviceSyncError {
     IO(#[from] std::io::Error),
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]

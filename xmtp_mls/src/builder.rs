@@ -10,9 +10,10 @@ use crate::{
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
-    storage::EncryptedMessageStore,
     StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use xmtp_db::EncryptedMessageStore;
+
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::Retry;
 
@@ -258,13 +259,14 @@ pub(crate) mod tests {
     use std::sync::atomic::AtomicBool;
 
     use crate::builder::ClientBuilderError;
+    use crate::identity::Identity;
     use crate::identity::IdentityError;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
-    use crate::{identity::Identity, storage::identity::StoredIdentity, Store};
     use xmtp_api::test_utils::*;
     use xmtp_api::ApiClientWrapper;
     use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
+    use xmtp_db::{identity::StoredIdentity, Store};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
@@ -291,10 +293,8 @@ pub(crate) mod tests {
     };
 
     use super::{ClientBuilder, IdentityStrategy};
-    use crate::{
-        storage::{EncryptedMessageStore, StorageOption},
-        Client, InboxOwner,
-    };
+    use crate::{Client, InboxOwner};
+    use xmtp_db::{EncryptedMessageStore, StorageOption};
 
     async fn register_client<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,

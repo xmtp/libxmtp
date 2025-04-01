@@ -56,15 +56,7 @@ impl OptionsToSave for BackupMetadataSave {
 mod tests {
     use super::*;
     use crate::{
-        builder::ClientBuilder,
-        groups::GroupMetadataOptions,
-        storage::{
-            consent_record::StoredConsentRecord,
-            group::StoredGroup,
-            group_message::StoredGroupMessage,
-            schema::{consent_records, group_messages, groups},
-        },
-        utils::test::wait_for_min_intents,
+        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use diesel::RunQueryDsl;
     use exporter::BackupExporter;
@@ -72,6 +64,12 @@ mod tests {
     use importer::BackupImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::{
+        consent_record::StoredConsentRecord,
+        group::StoredGroup,
+        group_message::StoredGroupMessage,
+        schema::{consent_records, group_messages, groups},
+    };
 
     #[xmtp_common::test]
     async fn test_buffer_export_import() {

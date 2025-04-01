@@ -14,6 +14,18 @@ targets = [
 ]
 
 [features]
+test-utils = [
+  "tracing-subscriber",
+  "xmtp_id/test-utils",
+  "xmtp_db/test-utils",
+  "xmtp_proto/test-utils",
+  "xmtp_api/test-utils",
+  "xmtp_api_http/test-utils",
+  "xmtp_api_grpc/test-utils",
+  "dep:const_format",
+  "xmtp_common/test-utils",
+  "dep:ethers"
+]
 bench = [
   "test-utils",
   "indicatif",
@@ -29,30 +41,14 @@ bench = [
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc"]
 http-api = ["dep:xmtp_api_http"]
-test-utils = [
-  "tracing-subscriber",
-  "dep:tracing-wasm",
-  "dep:console_error_panic_hook",
-  "xmtp_id/test-utils",
-  "xmtp_proto/test-utils",
-  "xmtp_api/test-utils",
-  "xmtp_api_http/test-utils",
-  "xmtp_api_grpc/test-utils",
-  "dep:const_format",
-  "mockall",
-  "xmtp_common/test-utils",
-  "dep:ethers"
-]
-update-schema = ["toml"]
+update-schema = ["toml", "anyhow"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 async-compression.workspace = true
-async-stream.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
-diesel_migrations = { workspace = true, features = ["sqlite"] }
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
@@ -84,16 +80,15 @@ zeroize.workspace = true
 xmtp_api = { workspace = true }
 xmtp_content_types = { path = "../xmtp_content_types" }
 xmtp_cryptography = { workspace = true }
+xmtp_db = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
-console_error_panic_hook = { workspace = true, optional = true }
 const_format = { workspace = true, optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
-tracing-wasm = { version = "0.2", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 # Test/Bench Utils
@@ -101,7 +96,6 @@ anyhow = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
-mockall = { version = "0.13.1", optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -110,14 +104,7 @@ tracing-subscriber = { workspace = true, features = [
   "registry",
 ], optional = true }
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-diesel = { workspace = true, features = [
-  "r2d2",
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-] }
 tokio = { workspace = true, features = [
   "macros",
   "tracing",
@@ -126,22 +113,12 @@ tokio = { workspace = true, features = [
 ] }
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
-libsqlite3-sys = { workspace = true }
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-diesel = { workspace = true, features = [
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-] }
-sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
-  "bundled",
-] }
-
 chrono = { workspace = true, features = ["wasmbind"] }
 getrandom = { workspace = true, features = ["js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
@@ -153,7 +130,6 @@ web-sys.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 const_format.workspace = true
-mockall.workspace = true
 openmls_basic_credential.workspace = true
 wasm-bindgen-test.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
@@ -163,6 +139,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
@@ -176,17 +153,29 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-console_error_panic_hook = { version = "0.1" }
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
-tracing-wasm = { version = "0.2" }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
+diesel = { workspace = true, features = [
+  "returning_clauses_for_sqlite_3_35",
+  "sqlite",
+  "32-column-tables",
+] }
+sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
+  "bundled",
+] }
+
 
 [[bin]]
 doc = false
