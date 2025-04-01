@@ -5,7 +5,7 @@ use diesel::{connection::AnsiTransactionManager, prelude::*};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use super::{db_connection::DbConnectionPrivate, StorageError, StorageOption, XmtpDb};
+use super::{StorageError, StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 
 #[derive(Clone)]
 pub struct WasmDb {
@@ -26,11 +26,13 @@ impl std::fmt::Debug for WasmDb {
 impl WasmDb {
     pub fn new(opts: &StorageOption) -> Result<Self, StorageError> {
         use super::StorageOption::*;
-        let name = xmtp_common::rand_string::<12>();
-        let name = format!("file:/xmtp-test-{}.db?vfs=memdb", name);
         let conn = match opts {
-            Ephemeral => SqliteConnection::establish(name.as_str()),
-            Persistent(ref db_path) => SqliteConnection::establish(db_path),
+            Ephemeral => {
+                let name = xmtp_common::rand_string::<12>();
+                let name = format!("file:/xmtp-test-{}.db?vfs=memdb", name);
+                SqliteConnection::establish(name.as_str())
+            }
+            Persistent(db_path) => SqliteConnection::establish(db_path),
         }?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),

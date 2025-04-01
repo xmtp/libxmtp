@@ -6,8 +6,9 @@ use tls_codec::Deserialize;
 
 use crate::{
     client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError, hpke::decrypt_welcome,
-    identity::parse_credential, storage::xmtp_openmls_provider::XmtpOpenMlsProvider,
+    identity::parse_credential,
 };
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,

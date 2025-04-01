@@ -1,8 +1,8 @@
 use super::schema::conversation_list::dsl::conversation_list;
-use crate::storage::consent_record::ConsentState;
-use crate::storage::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
-use crate::storage::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
-use crate::storage::{DbConnection, StorageError};
+use crate::consent_record::ConsentState;
+use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
+use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
+use crate::{DbConnection, StorageError};
 use diesel::dsl::sql;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
@@ -61,8 +61,8 @@ impl DbConnection {
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
-        use crate::storage::schema::consent_records::dsl as consent_dsl;
-        use crate::storage::schema::conversation_list::dsl as conversation_list_dsl;
+        use crate::schema::consent_records::dsl as consent_dsl;
+        use crate::schema::conversation_list::dsl as conversation_list_dsl;
 
         let GroupQueryArgs {
             allowed_states,
@@ -177,14 +177,14 @@ impl DbConnection {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::storage::consent_record::{ConsentState, ConsentType};
-    use crate::storage::group::tests::{
+    use crate::Store;
+    use crate::consent_record::{ConsentState, ConsentType};
+    use crate::group::tests::{
         generate_consent_record, generate_dm, generate_group, generate_group_with_created_at,
     };
-    use crate::storage::group::{GroupMembershipState, GroupQueryArgs};
-    use crate::storage::group_message::ContentType;
-    use crate::storage::tests::with_connection;
-    use crate::Store;
+    use crate::group::{GroupMembershipState, GroupQueryArgs};
+    use crate::group_message::ContentType;
+    use crate::test_utils::with_connection;
 
     #[xmtp_common::test]
     async fn test_single_group_multiple_messages() {
@@ -195,13 +195,12 @@ pub(crate) mod tests {
 
             // Insert multiple messages into the group
             for i in 1..5 {
-                let message =
-                    crate::storage::encrypted_store::group_message::tests::generate_message(
-                        None,
-                        Some(&group.id),
-                        Some(i * 1000),
-                        Some(ContentType::Text),
-                    );
+                let message = crate::encrypted_store::group_message::tests::generate_message(
+                    None,
+                    Some(&group.id),
+                    Some(i * 1000),
+                    Some(ContentType::Text),
+                );
                 message.store(conn).unwrap();
             }
 
@@ -220,7 +219,6 @@ pub(crate) mod tests {
                 "Last message should be the most recent one"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -235,7 +233,7 @@ pub(crate) mod tests {
             group_b.store(conn).unwrap();
             group_c.store(conn).unwrap();
             // Add a message to group_b
-            let message = crate::storage::encrypted_store::group_message::tests::generate_message(
+            let message = crate::encrypted_store::group_message::tests::generate_message(
                 None,
                 Some(&group_b.id),
                 Some(3000), // Last message timestamp
@@ -262,7 +260,6 @@ pub(crate) mod tests {
                 "Group created before the last message with no messages should come last"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -273,13 +270,12 @@ pub(crate) mod tests {
             group.store(conn).unwrap();
 
             // Add an initial message
-            let first_message =
-                crate::storage::encrypted_store::group_message::tests::generate_message(
-                    None,
-                    Some(&group.id),
-                    Some(1000),
-                    Some(ContentType::Text),
-                );
+            let first_message = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group.id),
+                Some(1000),
+                Some(ContentType::Text),
+            );
             first_message.store(conn).unwrap();
 
             // Fetch the conversation list and check last message
@@ -294,13 +290,12 @@ pub(crate) mod tests {
             );
 
             // Add a newer message
-            let second_message =
-                crate::storage::encrypted_store::group_message::tests::generate_message(
-                    None,
-                    Some(&group.id),
-                    Some(2000),
-                    Some(ContentType::Text),
-                );
+            let second_message = crate::encrypted_store::group_message::tests::generate_message(
+                None,
+                Some(&group.id),
+                Some(2000),
+                Some(ContentType::Text),
+            );
             second_message.store(conn).unwrap();
 
             // Fetch the conversation list again and validate the last message is updated
@@ -313,7 +308,6 @@ pub(crate) mod tests {
                 "Last message should now match the second (newest) message"
             );
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -383,6 +377,5 @@ pub(crate) mod tests {
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
         })
-        .await
     }
 }

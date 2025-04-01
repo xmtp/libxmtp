@@ -1,13 +1,14 @@
 use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
-    storage::group_message::StoredGroupMessage,
     subscriptions::{
         stream_messages::{ProcessMessageFuture, StreamGroupMessages},
         Result, SubscribeError,
     },
-    types::GroupId,
 };
+use xmtp_common::types::GroupId;
+use xmtp_db::group_message::StoredGroupMessage;
+
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
@@ -98,10 +99,9 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions,
-        storage::group_message::GroupMessageKind,
-    };
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use xmtp_db::group_message::GroupMessageKind;
+
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
 

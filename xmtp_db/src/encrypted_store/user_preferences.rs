@@ -1,15 +1,11 @@
-use crate::{
-    groups::device_sync::preference_sync::UserPreferenceUpdate, storage::StorageError,
-    subscriptions::LocalEvents, Store,
-};
+use crate::{StorageError, Store};
 
 use super::{
-    schema::user_preferences::{self, dsl},
     DbConnection,
+    schema::user_preferences::{self, dsl},
 };
 use diesel::prelude::*;
-use rand::{rngs::OsRng, RngCore};
-use tokio::sync::broadcast::Sender;
+use rand::{RngCore, rngs::OsRng};
 
 #[derive(Identifiable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default)]
 #[diesel(table_name = user_preferences)]
@@ -55,22 +51,12 @@ impl StoredUserPreferences {
         Ok(result.pop().unwrap_or_default())
     }
 
-    pub fn new_hmac_key(
-        conn: &DbConnection,
-        local_events: &Sender<LocalEvents>,
-    ) -> Result<Vec<u8>, StorageError> {
+    pub fn new_hmac_key(conn: &DbConnection) -> Result<Vec<u8>, StorageError> {
         let mut preferences = Self::load(conn)?;
 
         let mut hmac_key = vec![0; 32];
         OsRng.fill_bytes(&mut hmac_key);
         preferences.hmac_key = Some(hmac_key.clone());
-
-        // Sync the new key to other devices
-        let _ = local_events.send(LocalEvents::OutgoingPreferenceUpdates(vec![
-            UserPreferenceUpdate::HmacKeyUpdate {
-                key: hmac_key.clone(),
-            },
-        ]));
 
         let to_insert: NewStoredUserPreferences = (&preferences).into();
         conn.raw_query_write(|conn| {
@@ -85,37 +71,29 @@ impl StoredUserPreferences {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_cryptography::utils::generate_local_wallet;
-
-    use crate::builder::ClientBuilder;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
     use super::*;
 
     #[xmtp_common::test]
     async fn test_insert_and_update_preferences() {
-        let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        crate::test_utils::with_connection(|conn| {
+            let pref = StoredUserPreferences::load(conn).unwrap();
+            // by default, there is no key
+            assert!(pref.hmac_key.is_none());
 
-        let conn = client.store().conn().unwrap();
+            // set an hmac key
+            let hmac_key = StoredUserPreferences::new_hmac_key(conn).unwrap();
+            let pref = StoredUserPreferences::load(conn).unwrap();
+            // Make sure it saved
+            assert_eq!(hmac_key, pref.hmac_key.unwrap());
 
-        // loads and stores a default
-        let pref = StoredUserPreferences::load(&conn).unwrap();
-        // by default, there is no key
-        assert!(pref.hmac_key.is_none());
-
-        // set an hmac key
-        let hmac_key = StoredUserPreferences::new_hmac_key(&conn, &client.local_events).unwrap();
-        let pref = StoredUserPreferences::load(&conn).unwrap();
-        // Make sure it saved
-        assert_eq!(hmac_key, pref.hmac_key.unwrap());
-
-        // check that there are two preferences stored
-        let query = dsl::user_preferences.order(dsl::id.desc());
-        let result = conn
-            .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
-            .unwrap();
-        assert_eq!(result.len(), 1);
+            // check that there are two preferences stored
+            let query = dsl::user_preferences.order(dsl::id.desc());
+            let result = conn
+                .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
+                .unwrap();
+            assert_eq!(result.len(), 1);
+        })
     }
 }

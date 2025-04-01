@@ -22,7 +22,7 @@ pub enum GenericError {
     #[error("Client builder error: {0}")]
     ClientBuilder(#[from] xmtp_mls::builder::ClientBuilderError),
     #[error("Storage error: {0}")]
-    Storage(#[from] xmtp_mls::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
     #[error("Group error: {0}")]
     GroupError(#[from] xmtp_mls::groups::GroupError),
     #[error("Signature: {0}")]
@@ -69,7 +69,7 @@ pub enum FfiSubscribeError {
     #[error("Subscribe Error {0}")]
     Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error("Storage error: {0}")]
-    Storage(#[from] xmtp_mls::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 impl From<String> for GenericError {
@@ -111,5 +111,13 @@ mod tests {
     #[test]
     pub fn test_get_version_info() {
         print!("{}", get_version_info());
+    }
+
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        xmtp_common::logger();
+        let _ = fdlimit::raise_fd_limit();
     }
 }

@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 
-use super::{db_connection::DbConnection, schema::key_package_history, StorageError};
-use crate::{impl_store_or_ignore, StoreOrIgnore};
+use super::{StorageError, db_connection::DbConnection, schema::key_package_history};
+use crate::{StoreOrIgnore, impl_store_or_ignore};
 use xmtp_common::time::now_ns;
 
 #[derive(Insertable, Debug, Clone)]
@@ -91,7 +91,7 @@ impl DbConnection {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::encrypted_store::tests::with_connection;
+    use crate::test_utils::with_connection;
     use xmtp_common::rand_vec;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -113,7 +113,6 @@ mod tests {
                 .unwrap();
             assert!(all_entries.is_empty());
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -142,6 +141,5 @@ mod tests {
                 .unwrap();
             assert_eq!(earlier_entries.len(), 2);
         })
-        .await
     }
 }

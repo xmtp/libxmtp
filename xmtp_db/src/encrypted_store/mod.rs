@@ -42,7 +42,7 @@ pub use native::RawDbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use sqlcipher_connection::EncryptedConnection;
 
-use super::{xmtp_openmls_provider::XmtpOpenMlsProviderPrivate, StorageError};
+use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProviderPrivate};
 use crate::Store;
 use db_connection::DbConnectionPrivate;
 use diesel::{
@@ -52,7 +52,7 @@ use diesel::{
     result::Error,
     sql_query,
 };
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -156,7 +156,7 @@ impl EncryptedMessageStore {
 
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
 pub mod private {
-    use crate::storage::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
+    use crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
 
     use super::*;
     use diesel::connection::SimpleConnection;
@@ -234,24 +234,20 @@ fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
 #[macro_export]
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
-        impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection
-        {
+        impl $crate::Fetch<$model> for $crate::encrypted_store::db_connection::DbConnection {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
-                use $crate::storage::encrypted_store::schema::$table::dsl::*;
+                use $crate::encrypted_store::schema::$table::dsl::*;
                 Ok(self.raw_query_read(|conn| $table.first(conn).optional())?)
             }
         }
     };
 
     ($model:ty, $table:ident, $key:ty) => {
-        impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection
-        {
+        impl $crate::Fetch<$model> for $crate::encrypted_store::db_connection::DbConnection {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
-                use $crate::storage::encrypted_store::schema::$table::dsl::*;
+                use $crate::encrypted_store::schema::$table::dsl::*;
                 Ok(self.raw_query_read(|conn| $table.find(key.clone()).first(conn).optional())?)
             }
         }
@@ -261,11 +257,9 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_fetch_list {
     ($model:ty, $table:ident) => {
-        impl $crate::FetchList<$model>
-            for $crate::storage::encrypted_store::db_connection::DbConnection
-        {
+        impl $crate::FetchList<$model> for $crate::encrypted_store::db_connection::DbConnection {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
-                use $crate::storage::encrypted_store::schema::$table::dsl::*;
+                use $crate::encrypted_store::schema::$table::dsl::*;
                 Ok(self.raw_query_read(|conn| $table.load::<$model>(conn))?)
             }
         }
@@ -276,12 +270,10 @@ macro_rules! impl_fetch_list {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection>
-            for $model
-        {
+        impl $crate::Store<$crate::encrypted_store::db_connection::DbConnection> for $model {
             fn store(
                 &self,
-                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+                into: &$crate::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
@@ -298,12 +290,12 @@ macro_rules! impl_store {
 #[macro_export]
 macro_rules! impl_store_or_ignore {
     ($model:ty, $table:ident) => {
-        impl $crate::StoreOrIgnore<$crate::storage::encrypted_store::db_connection::DbConnection>
+        impl $crate::StoreOrIgnore<$crate::encrypted_store::db_connection::DbConnection>
             for $model
         {
             fn store_or_ignore(
                 &self,
-                into: &$crate::storage::encrypted_store::db_connection::DbConnection,
+                into: &$crate::encrypted_store::db_connection::DbConnection,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
@@ -336,7 +328,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError> + std::error::Error;
+        E: From<StorageError> + std::error::Error;
 }
 
 impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
@@ -360,7 +352,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<StorageError> + std::error::Error,
+        E: From<StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
@@ -371,7 +363,8 @@ where
             Ok(value) => {
                 conn.raw_query_write(|conn| {
                     <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })?;
+                })
+                .map_err(StorageError::from)?;
                 tracing::debug!("Transaction being committed");
                 Ok(value)
             }
@@ -382,7 +375,7 @@ where
                 }) {
                     Ok(()) => Err(err),
                     Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
+                    Err(rollback) => Err(StorageError::from(rollback).into()),
                 }
             }
         }
@@ -399,38 +392,11 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::{
-        storage::{
-            group::{GroupMembershipState, StoredGroup},
-            identity::StoredIdentity,
-        },
         Fetch, Store,
+        group::{GroupMembershipState, StoredGroup},
+        identity::StoredIdentity,
     };
     use xmtp_common::{rand_vec, time::now_ns, tmp_path};
-
-    /// Test harness that loads an Ephemeral store.
-    pub async fn with_connection<F, R>(fun: F) -> R
-    where
-        F: FnOnce(&DbConnection) -> R,
-    {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-        let conn = &store.conn().expect("acquiring a Connection failed");
-        fun(conn)
-    }
-
-    impl EncryptedMessageStore {
-        pub async fn new_test() -> Self {
-            let tmp_path = tmp_path();
-            EncryptedMessageStore::new(
-                StorageOption::Persistent(tmp_path),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .expect("constructing message store failed.")
-        }
-    }
 
     #[xmtp_common::test]
     async fn ephemeral_store() {
@@ -583,7 +549,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
-        use crate::storage::native::NativeStorageError;
+        use crate::native::NativeStorageError;
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();

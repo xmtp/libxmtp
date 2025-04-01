@@ -7,11 +7,9 @@ use diesel::{
     sql_types::Integer,
 };
 
-use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
+use super::{Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{
-    impl_store, impl_store_or_ignore,
-    storage::{NotFound, StorageError},
-    StoreOrIgnore,
+    StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
 };
 
 #[repr(i32)]
@@ -131,7 +129,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, test_utils::with_connection};
 
     #[xmtp_common::test]
     async fn get_cursor_with_no_existing_state() {
@@ -144,7 +142,6 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -160,7 +157,6 @@ pub(crate) mod tests {
             entry.store(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -178,7 +174,6 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -198,7 +193,6 @@ pub(crate) mod tests {
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
         })
-        .await
     }
 
     #[xmtp_common::test]
@@ -231,6 +225,5 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(group_state_retrieved.cursor, 456);
         })
-        .await
     }
 }

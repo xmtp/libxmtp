@@ -1,4 +1,4 @@
-use crate::{impl_store, storage::StorageError};
+use crate::{StorageError, impl_store};
 
 use super::Sqlite;
 use super::{
@@ -15,6 +15,11 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_proto::{
+    ConversionError,
+    xmtp::device_sync::consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
+};
+mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -55,6 +60,23 @@ impl DbConnection {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        Ok(self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))?)
+    }
+
+    pub fn consent_records_paged(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        let query = consent_records::table
+            .order_by((consent_records::entity_type, consent_records::entity))
+            .limit(limit)
+            .offset(offset);
+
+        Ok(self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?)
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
@@ -201,7 +223,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::encrypted_store::tests::with_connection;
+    use crate::test_utils::with_connection;
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -281,6 +303,5 @@ mod tests {
             // ensure the db matches the state of what was returned
             assert_eq!(db_cr.state, existing.state);
         })
-        .await;
     }
 }

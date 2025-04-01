@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_mls::storage::consent_record::{
+use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
 
