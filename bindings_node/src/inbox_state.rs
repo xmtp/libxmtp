@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{client::Client, identity::Identifier, ErrorWrapper};
-use napi::bindgen_prelude::{BigInt, Object, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
