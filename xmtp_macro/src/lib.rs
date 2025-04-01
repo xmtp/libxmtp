@@ -28,11 +28,8 @@ pub fn test(
     syn::parse_macro_input!(attr with attribute_parser);
 
     // Parse the function as an ItemFn
-    let input_fn = syn::parse_macro_input!(body as syn::ItemFn);
+    let mut input_fn = syn::parse_macro_input!(body as syn::ItemFn);
     let is_async = input_fn.sig.asyncness.is_some();
-
-    // Check if the function returns unit type ()
-    let should_transform = returns_unit(&input_fn.sig.output);
 
     // Generate the appropriate test attributes
     let test_attrs = if is_async {
@@ -51,28 +48,17 @@ pub fn test(
         }
     };
 
-    if !should_transform {
-        // If function doesn't return unit, just add the test attributes
-        return proc_macro::TokenStream::from(quote! {
-            #test_attrs
-            #input_fn
-        });
+    // Transform ? to .unwrap() on functions that return ()
+    if returns_unit(&input_fn.sig.output) {
+        let input_fn_tokens = quote!(#input_fn);
+        let transformed_tokens = transform_question_marks(input_fn_tokens.into());
+        input_fn = syn::parse_macro_input!(transformed_tokens as syn::ItemFn);
     }
 
-    // For unit-returning functions, transform the body token by token
-    let input_fn_tokens = quote!(#input_fn);
-    let transformed_tokens = transform_question_marks(input_fn_tokens.into());
-
-    // Parse the tokens back to a function
-    let transformed_fn = syn::parse_macro_input!(transformed_tokens as syn::ItemFn);
-
-    // Combine with attributes
-    let output = quote! {
+    proc_macro::TokenStream::from(quote! {
         #test_attrs
-        #transformed_fn
-    };
-
-    proc_macro::TokenStream::from(output)
+        #input_fn
+    })
 }
 
 // Check if a function's return type is () (unit)
