@@ -850,7 +850,7 @@ where
 
     /// Fetches the current key package from the network for each of the `installation_id`s specified
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn get_key_packages_for_installation_ids(
+    pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<
