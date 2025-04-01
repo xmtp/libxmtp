@@ -3,7 +3,6 @@ use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::storage::consent_record::ConsentType;
-use crate::storage::group_message::NewStoredGroupMessage;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -1539,8 +1538,8 @@ pub(crate) mod tests {
         tokio::test(flavor = "multi_thread", worker_threads = 1)
     )]
     async fn test_add_remove_then_add_again() {
-        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal = Tester::new().await;
+        let bola = Tester::new().await;
 
         // Create a group and invite bola
         let amal_group = amal
@@ -1560,15 +1559,13 @@ pub(crate) mod tests {
         assert_eq!(amal_group.members().await.unwrap().len(), 1);
 
         // See if Bola can see that they were added to the group
-        bola.sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
+        bola.sync_welcomes(&bola.provider).await.unwrap();
         let bola_groups = bola.find_groups(Default::default()).unwrap();
         assert_eq!(bola_groups.len(), 1);
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        // TODO: figure out why Bola's status is not updating to be inactive
-        // assert!(!bola_group.is_active().unwrap());
+
+        assert!(!bola_group.is_active(&bola.provider).unwrap());
 
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();

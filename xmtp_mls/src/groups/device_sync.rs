@@ -214,6 +214,8 @@ where
                     }
 
                     SyncEvent::PreferenceUpdateDispatchRequest(preference_updates) => {
+                        tracing::info!("Outgoing preference updates {preference_updates:?}");
+
                         let provider = self.client.mls_provider()?;
                         self.client
                             .send_device_sync_message(
@@ -221,6 +223,17 @@ where
                                 DeviceSyncContent::PreferenceUpdates(preference_updates.clone()),
                             )
                             .await?;
+
+                        for update in &preference_updates {
+                            match update {
+                                UserPreferenceUpdate::ConsentUpdate(_) => {
+                                    self.handle.increment_metric(SyncMetric::ConsentUpdatesSent);
+                                }
+                                UserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                                    self.handle.increment_metric(SyncMetric::HmacKeysSent);
+                                }
+                            }
+                        }
 
                         // TODO: V1 support, remove on next hammer.
                         UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
@@ -330,7 +343,7 @@ where
                     break;
                 } else {
                     tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                    // Wait 2 seconds before restarting.
+                    // Wait before restarting.
                     xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                 }
             }
@@ -381,6 +394,7 @@ where
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
 
+                    tracing::info!("aabbcc");
                     for update in preference_updates {
                         update.store(provider, handle)?;
                     }
@@ -674,14 +688,17 @@ where
         // Check if this reply was asked for by this installation.
         if !self.did_this_installation_ask_for_this_reply(&provider, &reply)? {
             // This installation didn't ask for it. Ignore the reply.
+            tracing::info!("Sync response was not intended for this installation.");
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
+        tracing::info!("Sync response is for this installation. Syncing welcomes.");
         self.sync_welcomes(&provider).await?;
 
         // Get a download stream of the payload.
+        tracing::info!("Downloading sync payload.");
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -713,6 +730,7 @@ where
         // Create an importer around that futures_reader.
         let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
 
+        tracing::info!("Importing the sync payload.");
         // Run the import.
         importer.run(&provider).await?;
 

@@ -24,6 +24,8 @@ impl UserPreferenceUpdate {
         updates: Vec<Self>,
         client: &Client<C, V>,
     ) -> Result<(), DeviceSyncError> {
+        return Ok(());
+
         let provider = client.mls_provider()?;
         let sync_group = client.ensure_sync_group(&provider).await?;
 
@@ -59,6 +61,7 @@ impl UserPreferenceUpdate {
                     tracing::error!("Device Sync: Received HMAC key was wrong length.");
                     return Ok(());
                 };
+                tracing::info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(
                     provider.conn_ref(),
                     &HmacKey {

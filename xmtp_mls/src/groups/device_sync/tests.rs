@@ -82,11 +82,10 @@ async fn only_one_payload_sent() -> Result<()> {
 }
 
 #[xmtp_common::test]
-async fn double_sync_works_fine() -> Result<()> {
+async fn test_double_sync_works_fine() -> Result<()> {
     let alix1 = Tester::new().await;
-    let bo = Tester::new().await;
 
-    // Create a dm and chat with bo
+    let bo = Tester::new().await;
     alix1.test_talk_in_dm_with(&bo).await?;
 
     let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
@@ -113,20 +112,32 @@ async fn double_sync_works_fine() -> Result<()> {
 }
 
 #[xmtp_common::test]
-async fn test_hmac_sync() -> Result<()> {
+async fn test_hmac_prefrence_sync() -> Result<()> {
     let alix1 = Tester::new().await;
-    let alix2 = Tester::new().await;
-
     alix1.worker.wait_for_init().await?;
-    alix2.worker.wait_for_init().await?;
 
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix2.sync_welcomes(&alix2.provider).await?;
+    let bo = Tester::new().await;
+    let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
-    let group = alix1.create_group(None, GroupMetadataOptions::default())?;
-    let alix1_keys = group.hmac_keys(-1..=1)?;
+    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    alix2.worker.wait_for_init().await.unwrap();
 
-    alix2.worker.wait(SyncMetric::HmacKeysReceived, 1).await;
+    alix1.sync_welcomes(&alix1.provider).await.unwrap();
+    alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
+
+    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await?;
+
+    let alix1_keys = dm.hmac_keys(-1..=1)?;
+    alix1.worker.wait(SyncMetric::HmacKeysSent, 1).await?;
+
+    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.worker.wait(SyncMetric::HmacKeysReceived, 1).await?;
+
+    let alix2_dm = alix2.group(&dm.group_id)?;
+    let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;
+
+    assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
 
     Ok(())
 }

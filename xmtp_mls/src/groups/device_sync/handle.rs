@@ -27,6 +27,8 @@ pub enum SyncMetric {
     RequestsReceived,
     PayloadsSent,
     PayloadsProcessed,
+    HmacKeysSent,
+    ConsentUpdatesSent,
     HmacKeysReceived,
     ConsentUpdatesReceived,
 }

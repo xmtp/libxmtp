@@ -333,6 +333,7 @@ impl<C> Clone for MlsGroup<C> {
     }
 }
 
+#[derive(Debug)]
 pub struct HmacKey {
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
@@ -1626,7 +1627,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: &XmtpOpenMlsProvider) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
+        let result = self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()));
+
+        if let Err(GroupError::NotFound(_)) = result {
+            return Ok(false);
+        }
+
+        result
     }
 
     /// Get the `GroupMetadata` of the group.
