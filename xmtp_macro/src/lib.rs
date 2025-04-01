@@ -22,21 +22,19 @@ pub fn test(
     attr: proc_macro::TokenStream,
     body: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    // Parse the input function
+    // Parse the input function attributes
     let mut attributes = Attributes::default();
     let attribute_parser = syn::meta::parser(|meta| attributes.parse(meta));
     syn::parse_macro_input!(attr with attribute_parser);
 
-    // Parse the function
-    let mut input_fn = syn::parse_macro_input!(body as syn::ItemFn);
+    // Parse the function as an ItemFn
+    let input_fn = syn::parse_macro_input!(body as syn::ItemFn);
+    let is_async = input_fn.sig.asyncness.is_some();
 
-    // Check if function returns unit type () and if so, transform ? to unwrap()
-    if returns_unit(&input_fn.sig.output) {
-        transform_question_marks(&mut input_fn);
-    }
+    // Check if the function returns unit type ()
+    let should_transform = returns_unit(&input_fn.sig.output);
 
     // Generate the appropriate test attributes
-    let is_async = input_fn.sig.asyncness.is_some();
     let test_attrs = if is_async {
         let flavor = attributes
             .flavor
@@ -53,10 +51,25 @@ pub fn test(
         }
     };
 
-    // Combine attributes with the function
+    if !should_transform {
+        // If function doesn't return unit, just add the test attributes
+        return proc_macro::TokenStream::from(quote! {
+            #test_attrs
+            #input_fn
+        });
+    }
+
+    // For unit-returning functions, transform the body token by token
+    let input_fn_tokens = quote!(#input_fn);
+    let transformed_tokens = transform_question_marks(input_fn_tokens.into());
+
+    // Parse the tokens back to a function
+    let transformed_fn = syn::parse_macro_input!(transformed_tokens as syn::ItemFn);
+
+    // Combine with attributes
     let output = quote! {
         #test_attrs
-        #input_fn
+        #transformed_fn
     };
 
     proc_macro::TokenStream::from(output)
@@ -80,34 +93,37 @@ fn returns_unit(return_type: &syn::ReturnType) -> bool {
     }
 }
 
-// Transform ? operators to .unwrap() calls in-place
-fn transform_question_marks(input_fn: &mut syn::ItemFn) {
-    // Create a visitor that will modify all expressions with ? operators
-    struct QuestionMarkVisitor;
+// Transform ? operators to .unwrap() calls at the token level
+fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let mut result = proc_macro2::TokenStream::new();
+    let mut tokens = proc_macro2::TokenStream::from(tokens)
+        .into_iter()
+        .peekable();
 
-    impl syn::visit_mut::VisitMut for QuestionMarkVisitor {
-        fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
-            // First check if this is a try expression (with ?)
-            if let syn::Expr::Try(expr_try) = expr {
-                // Get the inner expression that ? is applied to
-                let inner = &expr_try.expr;
-                // Replace the try expr with an unwrap call
-                *expr = syn::parse_quote!( #inner.unwrap() );
-
-                // After replacing, visit the inner expression again
-                // in case it also contains ? operators
-                self.visit_expr_mut(expr);
-                return;
+    while let Some(token) = tokens.next() {
+        match &token {
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '?' => {
+                // Replace ? with .unwrap() using quote!
+                let unwrap_tokens = quote!(.unwrap());
+                result.extend(unwrap_tokens);
             }
-
-            // If it's not a try expression, visit all child expressions
-            syn::visit_mut::visit_expr_mut(self, expr);
+            proc_macro2::TokenTree::Group(g) => {
+                // Recursively transform tokens in groups
+                let transformed_stream = transform_question_marks(g.stream().into());
+                let transformed_group = proc_macro2::Group::new(
+                    g.delimiter(),
+                    proc_macro2::TokenStream::from(transformed_stream),
+                );
+                result.extend(quote!(#transformed_group));
+            }
+            _ => {
+                // Keep other tokens as is
+                result.extend(quote!(#token));
+            }
         }
     }
 
-    // Apply the visitor to transform all try expressions in the function
-    let mut visitor = QuestionMarkVisitor;
-    syn::visit_mut::visit_item_fn_mut(&mut visitor, input_fn);
+    result.into()
 }
 
 #[derive(Default)]
