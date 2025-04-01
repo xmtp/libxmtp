@@ -38,5 +38,8 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 [build-dependencies]
 napi-build = "2.0.1"
 
+[dev-dependencies]
+chrono = { workspace = true }
+
 [package.metadata.cross.build.env]
 volumes = ["__LIB12_DEP=../"]

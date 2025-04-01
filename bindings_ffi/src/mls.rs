@@ -398,16 +398,18 @@ impl FfiXmtpClient {
 
         let key_packages: HashMap<Vec<u8>, FfiKeyPackageStatus> = key_packages
             .into_iter()
-            .map(|(installation_id, key_package_result)| match key_package_result {
-                Ok(key_package) => (installation_id, key_package.into()),
-                Err(e) => (
-                    installation_id,
-                    FfiKeyPackageStatus {
-                        lifetime: None,
-                        validation_error: Some(e.to_string()),
-                    },
-                ),
-            })
+            .map(
+                |(installation_id, key_package_result)| match key_package_result {
+                    Ok(key_package) => (installation_id, key_package.into()),
+                    Err(e) => (
+                        installation_id,
+                        FfiKeyPackageStatus {
+                            lifetime: None,
+                            validation_error: Some(e.to_string()),
+                        },
+                    ),
+                },
+            )
             .collect();
 
         Ok(key_packages)

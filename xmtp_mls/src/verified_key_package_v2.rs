@@ -2,11 +2,11 @@ use std::panic::{self, AssertUnwindSafe};
 
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
+    key_packages::Lifetime,
     prelude::{
         tls_codec::{Deserialize, Error as TlsCodecError},
         KeyPackage, KeyPackageIn, KeyPackageVerifyError,
     },
-    key_packages::Lifetime,
 };
 use openmls_rust_crypto::RustCrypto;
 use prost::{DecodeError, Message};
@@ -87,12 +87,8 @@ impl VerifiedKeyPackageV2 {
         }));
 
         match lifetime_result {
-            Ok(lifetime) => {
-                Some(lifetime.into())
-            },
-            Err(_) => {
-                None
-            }
+            Ok(lifetime) => Some(lifetime.into()),
+            Err(_) => None,
         }
     }
 }

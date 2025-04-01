@@ -1,7 +1,9 @@
 use crate::{client::Client, identity::Identifier};
 use js_sys::Uint8Array;
-use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use std::collections::HashMap;
+use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
+use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -76,6 +78,40 @@ impl From<AssociationState> for InboxState {
   }
 }
 
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
+pub struct KeyPackageStatus {
+  #[wasm_bindgen(js_name = lifetime)]
+  pub lifetime: Option<Lifetime>,
+  #[wasm_bindgen(js_name = validationError)]
+  pub validation_error: Option<String>,
+}
+
+#[wasm_bindgen]
+#[derive(Clone, serde::Serialize)]
+pub struct Lifetime {
+  pub not_before: u64,
+  pub not_after: u64,
+}
+
+impl From<VerifiedLifetime> for Lifetime {
+  fn from(lifetime: VerifiedLifetime) -> Self {
+    Self {
+      not_before: lifetime.not_before,
+      not_after: lifetime.not_after,
+    }
+  }
+}
+
+impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
+  fn from(key_package: VerifiedKeyPackageV2) -> Self {
+    Self {
+      lifetime: key_package.life_time().map(Into::into),
+      validation_error: None,
+    }
+  }
+}
+
 #[wasm_bindgen]
 impl Client {
   /**
@@ -107,5 +143,48 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(state.into())
+  }
+
+  /**
+   * Get key package statuses for a list of installation IDs.
+   *
+   * Returns a JavaScript object mapping installation ID strings to KeyPackageStatus objects.
+   */
+  #[wasm_bindgen(js_name = getKeyPackageStatusesForInstallationIds)]
+  pub async fn get_key_package_statuses_for_installation_ids(
+    &self,
+    installation_ids: Vec<Uint8Array>,
+  ) -> Result<JsValue, JsError> {
+    // Convert Uint8Array to Vec<u8>
+    let installation_ids: Vec<Vec<u8>> = installation_ids
+      .into_iter()
+      .map(|arr| arr.to_vec())
+      .collect();
+
+    let key_package_results = self
+      .inner_client()
+      .get_key_packages_for_installation_ids(installation_ids)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    // Create a HashMap to store results
+    let mut result_map: HashMap<String, KeyPackageStatus> = HashMap::new();
+
+    for (installation_id, key_package_result) in key_package_results {
+      let status = match key_package_result {
+        Ok(key_package) => KeyPackageStatus::from(key_package),
+        Err(e) => KeyPackageStatus {
+          lifetime: None,
+          validation_error: Some(e.to_string()),
+        },
+      };
+
+      // Convert installation_id to hex string for JavaScript
+      let id_key = hex::encode(&installation_id);
+      result_map.insert(id_key, status);
+    }
+
+    // Convert HashMap to JsValue
+    Ok(crate::to_value(&result_map)?)
   }
 }
