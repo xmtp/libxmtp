@@ -61,6 +61,7 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+chrono = { workspace = true }
 # passkey testing
 passkey = "0.4"
 coset = "0.3"
