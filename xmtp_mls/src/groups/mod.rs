@@ -2139,8 +2139,9 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     use crate::groups::scoped_client::ScopedGroupClient;
+    use crate::utils::Tester;
     use diesel::connection::SimpleConnection;
-    use diesel::RunQueryDsl;
+    use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
     use futures::future::join_all;
     use prost::Message;
     use std::sync::Arc;
@@ -2523,13 +2524,9 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_dm_stitching() {
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let alix_provider = alix.mls_provider().unwrap();
-        let alix_conn = alix_provider.conn_ref();
-
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix = Tester::new().await;
+        alix.wait_for_sync_worker_init().await;
+        let bo = Tester::new().await;
 
         let bo_dm = bo
             .find_or_create_dm_by_inbox_id(
@@ -2549,20 +2546,30 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        alix.sync_all_welcomes_and_groups(&alix_provider, None)
+        alix.sync_all_welcomes_and_groups(&alix.provider, None)
             .await
             .unwrap();
 
         // The dm shows up
-        let alix_groups = alix_conn
-            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
+        let alix_groups = alix
+            .provider
+            .conn_ref()
+            .raw_query_read(|conn| {
+                groups::table
+                    .order(groups::created_at_ns.desc())
+                    .load::<StoredGroup>(conn)
+            })
             .unwrap();
-        assert_eq!(alix_groups.len(), 2);
+        assert_eq!(alix_groups.len(), 3);
         // They should have the same ID
         assert_eq!(alix_groups[0].dm_id, alix_groups[1].dm_id);
 
         // The dm is filtered out up
-        let mut alix_filtered_groups = alix_conn.find_groups(GroupQueryArgs::default()).unwrap();
+        let mut alix_filtered_groups = alix
+            .provider
+            .conn_ref()
+            .find_groups(GroupQueryArgs::default())
+            .unwrap();
         assert_eq!(alix_filtered_groups.len(), 1);
 
         let dm_group = alix_filtered_groups.pop().unwrap();
@@ -4783,6 +4790,8 @@ pub(crate) mod tests {
     async fn test_parallel_syncs() {
         let wallet = generate_local_wallet();
         let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        alix1.wait_for_sync_worker_init().await;
+
         let alix1_group = alix1
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();

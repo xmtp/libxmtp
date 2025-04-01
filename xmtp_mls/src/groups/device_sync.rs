@@ -270,7 +270,7 @@ where
     //// Ideally called when the client is registered.
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
-    pub async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
+    async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
         let Self {
             ref init,
             ref client,
@@ -356,16 +356,18 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
+    /// Returns number of new messages processed
     async fn process_new_sync_group_messages(
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<usize, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         let mut cursor =
             StoredUserPreferences::sync_cursor(provider.conn_ref(), &sync_group.group_id)?;
 
         let messages = sync_group.sync_messages(cursor.last_message_ns)?;
+        let mut num_processed = 0;
 
         for (msg, content) in messages.iter_with_content() {
             match content {
@@ -407,9 +409,17 @@ where
             // Move the cursor
             cursor.last_message_ns = msg.inserted_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
+            num_processed += 1;
         }
 
-        Ok(())
+        Ok(num_processed)
+    }
+
+    /// Blocks until the sync worker notifies that it is initialized and running.
+    pub async fn wait_for_sync_worker_init(&self) {
+        if let Some(handle) = self.device_sync.worker_handle() {
+            let _ = handle.wait_for_init().await;
+        }
     }
 
     /// Acknowledge the existence of a new sync group.
