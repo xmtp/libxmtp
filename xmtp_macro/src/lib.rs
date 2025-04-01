@@ -25,20 +25,19 @@ pub fn test(
     // Parse the input function
     let mut attributes = Attributes::default();
     let attribute_parser = syn::meta::parser(|meta| attributes.parse(meta));
-
     syn::parse_macro_input!(attr with attribute_parser);
 
     // Parse the function
-    let input = syn::parse_macro_input!(body as syn::ItemFn);
+    let mut input_fn = syn::parse_macro_input!(body as syn::ItemFn);
 
-    // Check if the function is async
-    let is_async = input.sig.asyncness.is_some();
-
-    // Transform the function body with our visitor
-    let transformed_fn = transform_question_marks(input);
+    // Check if function returns unit type () and if so, transform ? to unwrap()
+    if returns_unit(&input_fn.sig.output) {
+        transform_question_marks(&mut input_fn);
+    }
 
     // Generate the appropriate test attributes
-    let test_attributes = if is_async {
+    let is_async = input_fn.sig.asyncness.is_some();
+    let test_attrs = if is_async {
         let flavor = attributes
             .flavor
             .unwrap_or(syn::LitStr::new("current_thread", Span::call_site()));
@@ -54,31 +53,48 @@ pub fn test(
         }
     };
 
-    // Combine the attributes with the transformed function
+    // Combine attributes with the function
     let output = quote! {
-        #test_attributes
-        #transformed_fn
+        #test_attrs
+        #input_fn
     };
 
     proc_macro::TokenStream::from(output)
 }
 
-// Function to transform the entire function, replacing ? with .unwrap()
-fn transform_question_marks(mut input_fn: syn::ItemFn) -> syn::ItemFn {
+// Check if a function's return type is () (unit)
+fn returns_unit(return_type: &syn::ReturnType) -> bool {
+    match return_type {
+        // No explicit return type means it returns ()
+        syn::ReturnType::Default => true,
+
+        // Explicit return type, check if it's ()
+        syn::ReturnType::Type(_, ty) => {
+            if let syn::Type::Tuple(tuple) = &**ty {
+                // Empty tuple () is the unit type
+                tuple.elems.is_empty()
+            } else {
+                false
+            }
+        }
+    }
+}
+
+// Transform ? operators to .unwrap() calls in-place
+fn transform_question_marks(input_fn: &mut syn::ItemFn) {
     // Create a visitor that will modify all expressions with ? operators
     struct QuestionMarkVisitor;
 
     impl syn::visit_mut::VisitMut for QuestionMarkVisitor {
         fn visit_expr_mut(&mut self, expr: &mut syn::Expr) {
-            // We need to be careful with the order of operations here.
-            // First, check if this is a try expression (with ?)
+            // First check if this is a try expression (with ?)
             if let syn::Expr::Try(expr_try) = expr {
                 // Get the inner expression that ? is applied to
                 let inner = &expr_try.expr;
                 // Replace the try expr with an unwrap call
                 *expr = syn::parse_quote!( #inner.unwrap() );
 
-                // After replacing, we need to visit the inner expression
+                // After replacing, visit the inner expression again
                 // in case it also contains ? operators
                 self.visit_expr_mut(expr);
                 return;
@@ -91,19 +107,7 @@ fn transform_question_marks(mut input_fn: syn::ItemFn) -> syn::ItemFn {
 
     // Apply the visitor to transform all try expressions in the function
     let mut visitor = QuestionMarkVisitor;
-    syn::visit_mut::visit_item_fn_mut(&mut visitor, &mut input_fn);
-
-    input_fn
-}
-
-fn find_ident(iter: &mut impl Iterator<Item = TokenTree>) -> Option<Ident> {
-    match iter.next()? {
-        TokenTree::Ident(i) => Some(i),
-        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
-            find_ident(&mut g.stream().into_iter())
-        }
-        _ => None,
-    }
+    syn::visit_mut::visit_item_fn_mut(&mut visitor, input_fn);
 }
 
 #[derive(Default)]
