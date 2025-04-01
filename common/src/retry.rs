@@ -524,7 +524,7 @@ pub(crate) mod tests {
         retry_async!(Retry::default(), (async { test_fn() })).unwrap();
     }
 
-    #[xmtp_macro::test]
+    #[xmtp_macro::test(transform = "false")]
     async fn it_fails_on_three_retries() {
         let closure = || -> Result<(), SomeError> {
             retry_error_fn()?;

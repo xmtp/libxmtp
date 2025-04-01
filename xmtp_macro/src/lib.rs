@@ -24,7 +24,7 @@ pub fn test(
 ) -> proc_macro::TokenStream {
     // Parse the input function attributes
     let mut attributes = Attributes::default();
-    let attribute_parser = syn::meta::parser(|meta| attributes.parse(meta));
+    let attribute_parser = syn::meta::parser(|meta| attributes.parse(&meta));
     syn::parse_macro_input!(attr with attribute_parser);
 
     // Parse the function as an ItemFn
@@ -49,7 +49,12 @@ pub fn test(
     };
 
     // Transform ? to .unwrap() on functions that return ()
-    if returns_unit(&input_fn.sig.output) {
+    let should_transform = returns_unit(&input_fn.sig.output)
+        && !attributes
+            .transform
+            .as_ref()
+            .map_or(false, |val| val.value() == "false");
+    if should_transform {
         let input_fn_tokens = quote!(#input_fn);
         let transformed_tokens = transform_question_marks(input_fn_tokens.into());
         input_fn = syn::parse_macro_input!(transformed_tokens as syn::ItemFn);
@@ -116,17 +121,22 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
 struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
+    transform: Option<syn::LitStr>,
 }
 
 impl Attributes {
-    fn parse(&mut self, meta: syn::meta::ParseNestedMeta) -> syn::parse::Result<()> {
+    fn parse(&mut self, meta: &syn::meta::ParseNestedMeta) -> syn::Result<()> {
         if meta.path.is_ident("async") {
             self.r#async = true;
+            return Ok(());
         } else if meta.path.is_ident("flavor") {
-            self.flavor = Some(meta.value()?.parse::<syn::LitStr>()?);
-        } else {
-            return Err(meta.error("unknown attribute"));
+            self.flavor = Some(meta.value()?.parse()?);
+            return Ok(());
+        } else if meta.path.is_ident("transform") {
+            self.transform = Some(meta.value()?.parse()?);
+            return Ok(());
         }
-        Ok(())
+
+        Err(meta.error("unknown attribute"))
     }
 }
