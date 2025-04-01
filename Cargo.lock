@@ -439,6 +439,7 @@ dependencies = [
 name = "bindings_node"
 version = "1.2.0-dev"
 dependencies = [
+ "chrono",
  "futures",
  "hex",
  "napi",
@@ -464,6 +465,7 @@ dependencies = [
 name = "bindings_wasm"
 version = "1.2.0-dev"
 dependencies = [
+ "chrono",
  "console_error_panic_hook",
  "futures",
  "hex",
@@ -7807,6 +7809,7 @@ name = "xmtpv3"
 version = "1.2.0-dev"
 dependencies = [
  "async-trait",
+ "chrono",
  "coset",
  "criterion",
  "ctor",

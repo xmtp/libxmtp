@@ -1,5 +1,8 @@
+use std::panic::{self, AssertUnwindSafe};
+
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
+    key_packages::Lifetime,
     prelude::{
         tls_codec::{Deserialize, Error as TlsCodecError},
         KeyPackage, KeyPackageIn, KeyPackageVerifyError,
@@ -24,6 +27,19 @@ pub enum KeyPackageVerificationError {
     Decode(#[from] DecodeError),
 }
 
+pub struct VerifiedLifetime {
+    pub not_before: u64,
+    pub not_after: u64,
+}
+
+impl From<&Lifetime> for VerifiedLifetime {
+    fn from(value: &Lifetime) -> Self {
+        Self {
+            not_before: value.not_before(),
+            not_after: value.not_after(),
+        }
+    }
+}
 /// A wrapper around the MLS key package struct with some additional fields
 #[derive(Clone, Debug)]
 pub struct VerifiedKeyPackageV2 {
@@ -63,6 +79,17 @@ impl VerifiedKeyPackageV2 {
 
     pub fn hpke_init_key(&self) -> Vec<u8> {
         self.inner.hpke_init_key().as_slice().to_vec()
+    }
+
+    pub fn life_time(&self) -> Option<VerifiedLifetime> {
+        let lifetime_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.inner.life_time() // This might panic
+        }));
+
+        match lifetime_result {
+            Ok(lifetime) => Some(lifetime.into()),
+            Err(_) => None,
+        }
     }
 }
 

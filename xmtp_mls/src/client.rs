@@ -861,7 +861,7 @@ where
 
     /// Fetches the current key package from the network for each of the `installation_id`s specified
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn get_key_packages_for_installation_ids(
+    pub async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<
@@ -1403,8 +1403,8 @@ pub(crate) mod tests {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
-        alix.worker.wait_for_init().await.unwrap();
-        bo.worker.wait_for_init().await.unwrap();
+        alix.worker.wait_for_init().await;
+        bo.worker.wait_for_init().await;
 
         // Create two groups and add Bob
         let alix_bo_group1 = alix

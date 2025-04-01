@@ -111,7 +111,12 @@ where
 }
 
 impl WorkerHandle<SyncMetric> {
+    #[cfg(not(test))]
     pub async fn wait_for_init(&self) -> Result<(), Elapsed> {
         self.wait(SyncMetric::Init, 1).await
+    }
+    #[cfg(test)]
+    pub async fn wait_for_init(&self) {
+        self.wait(SyncMetric::Init, 1).await.unwrap();
     }
 }
