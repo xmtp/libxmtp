@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    groups::{DMMetadataOptions, GroupMetadataOptions},
-    utils::Tester,
-};
+use crate::{groups::DMMetadataOptions, utils::Tester};
 use anyhow::Result;
 
 #[xmtp_common::test]
@@ -112,7 +109,7 @@ async fn test_double_sync_works_fine() -> Result<()> {
 }
 
 #[xmtp_common::test]
-async fn test_hmac_prefrence_sync() -> Result<()> {
+async fn test_hmac_and_consent_prefrence_sync() -> Result<()> {
     let alix1 = Tester::new().await;
     alix1.worker.wait_for_init().await?;
 
@@ -138,6 +135,7 @@ async fn test_hmac_prefrence_sync() -> Result<()> {
     let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;
 
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
+    assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
 
     Ok(())
 }
