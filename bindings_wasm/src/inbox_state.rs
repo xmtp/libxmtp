@@ -153,13 +153,14 @@ impl Client {
   #[wasm_bindgen(js_name = getKeyPackageStatusesForInstallationIds)]
   pub async fn get_key_package_statuses_for_installation_ids(
     &self,
-    installation_ids: Vec<Uint8Array>,
+    installation_ids: Vec<String>,
   ) -> Result<JsValue, JsError> {
-    // Convert Uint8Array to Vec<u8>
-    let installation_ids: Vec<Vec<u8>> = installation_ids
+    // Convert String to Vec<u8>
+    let installation_ids = installation_ids
       .into_iter()
-      .map(|arr| arr.to_vec())
-      .collect();
+      .map(hex::decode)
+      .collect::<std::result::Result<Vec<Vec<u8>>, _>>()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     let key_package_results = self
       .inner_client()
