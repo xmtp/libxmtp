@@ -735,16 +735,19 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
+        use crate::utils::Tester;
         use xmtp_common::assert_logged;
+
         xmtp_common::traced_test!(async {
-            let wallet = generate_local_wallet();
-            let wallet_2 = generate_local_wallet();
-            let client = ClientBuilder::new_test_client(&wallet).await;
+            let client = Tester::new().await;
             let inbox_id = client.inbox_id();
+            client.wait_for_sync_worker_init().await;
+
+            let wallet_2 = generate_local_wallet();
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 0);
+            assert_logged!("Loaded association", 4);
             // TODO: Verify state is actually in db instead of just checking logs
             assert_logged!("Wrote association", 1);
 
@@ -753,11 +756,13 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.wallet.identifier()
             );
-            assert!(association_state.get(&wallet.identifier().into()).is_some());
+            assert!(association_state
+                .get(&client.wallet.identifier().into())
+                .is_some());
 
-            assert_logged!("Loaded association", 1);
+            assert_logged!("Loaded association", 5);
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
@@ -774,18 +779,18 @@ pub(crate) mod tests {
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 1);
+            assert_logged!("Loaded association", 5);
             assert_logged!("Wrote association", 2);
 
             let association_state = get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 2);
+            assert_logged!("Loaded association", 6);
             assert_logged!("Wrote association", 2);
 
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.wallet.identifier()
             );
             assert!(association_state
                 .get(&wallet_2.member_identifier())
