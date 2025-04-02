@@ -5391,6 +5391,40 @@ mod tests {
         assert!(stream.is_closed());
     }
 
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_all_messages_error() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        println!("alix: {}", alix.inbox_id());
+        println!("bo: {}", bo.inbox_id());
+
+        let alix_group_1 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        println!("alix group id:{:?}",hex::encode(&alix_group_1.inner.group_id));
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let bo_stream = bo
+            .conversations()
+            .stream_all_messages(stream_callback.clone())
+            .await;
+        bo_stream.wait_for_ready().await;
+        alix_group_1.send("1 from alix".as_bytes().to_vec()).await.unwrap();
+        let bo_conversations = bo.conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        let bo_conversation = bo_conversations[0].clone();
+        println!("bo group id:{:?}",hex::encode(&bo_conversation.conversation.inner.group_id));
+        bo_conversation.conversation.send("2 from bo".as_bytes().to_vec()).await.unwrap();
+        //if we send more messages it get resolved
+    }
+
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
