@@ -49,7 +49,6 @@ diesel::table! {
         version_major -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
-        inserted_at_ns -> BigInt,
     }
 }
 

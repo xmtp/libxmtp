@@ -34,44 +34,13 @@ use super::{
 use crate::{StorageError, impl_fetch, impl_store, impl_store_or_ignore};
 mod convert;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Identifiable, Queryable, Eq, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,
+)]
 #[diesel(table_name = group_messages)]
 #[diesel(primary_key(id))]
 /// Successfully processed messages to be returned to the User.
 pub struct StoredGroupMessage {
-    /// Id of the message.
-    pub id: Vec<u8>,
-    /// Id of the group this message is tied to.
-    pub group_id: Vec<u8>,
-    /// Contents of message after decryption.
-    pub decrypted_message_bytes: Vec<u8>,
-    /// Time in nanoseconds the message was sent.
-    pub sent_at_ns: i64,
-    /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
-    pub kind: GroupMessageKind,
-    /// The ID of the App Installation this message was sent from.
-    pub sender_installation_id: Vec<u8>,
-    /// The Inbox ID of the Sender
-    pub sender_inbox_id: String,
-    /// We optimistically store messages before sending.
-    pub delivery_status: DeliveryStatus,
-    /// The Content Type of the message
-    pub content_type: ContentType,
-    /// The content type version major
-    pub version_major: i32,
-    /// The content type version minor
-    pub version_minor: i32,
-    /// The ID of the authority defining the content type
-    pub authority_id: String,
-    /// The ID of a referenced message
-    pub reference_id: Option<Vec<u8>>,
-    /// Time in nanoseconds the message was inserted into the local database.
-    pub inserted_at_ns: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
-#[diesel(table_name = group_messages)]
-pub struct NewStoredGroupMessage {
     /// Id of the message.
     pub id: Vec<u8>,
     /// Id of the group this message is tied to.
@@ -261,8 +230,8 @@ where
 }
 
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
-impl_store!(NewStoredGroupMessage, group_messages, StoredGroupMessage);
-impl_store_or_ignore!(NewStoredGroupMessage, group_messages, StoredGroupMessage);
+impl_store!(StoredGroupMessage, group_messages, StoredGroupMessage);
+impl_store_or_ignore!(StoredGroupMessage, group_messages, StoredGroupMessage);
 
 #[derive(Default, Clone, Builder)]
 #[builder(setter(into))]
@@ -486,12 +455,12 @@ impl DbConnection {
     pub fn sync_messages(
         &self,
         group_id: &[u8],
-        inserted_after_ns: i64,
+        offset: i64,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
-            .filter(dsl::inserted_at_ns.gt(inserted_after_ns))
-            .order(dsl::inserted_at_ns.asc());
+            .offset(offset)
+            .order(dsl::sent_at_ns.asc());
 
         Ok(self.raw_query_read(|conn| query.load(conn))?)
     }

@@ -4,7 +4,7 @@ use xmtp_proto::xmtp::device_sync::message_backup::{
     ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
 };
 
-impl TryFrom<GroupMessageSave> for NewStoredGroupMessage {
+impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     type Error = ConversionError;
     fn try_from(value: GroupMessageSave) -> Result<Self, Self::Error> {
         let kind = value.kind().try_into()?;

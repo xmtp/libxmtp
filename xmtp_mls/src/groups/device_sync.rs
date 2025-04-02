@@ -368,7 +368,7 @@ where
         let mut cursor =
             StoredUserPreferences::sync_cursor(provider.conn_ref(), &sync_group.group_id)?;
 
-        let messages = sync_group.sync_messages(cursor.last_message_ns)?;
+        let messages = sync_group.sync_messages(cursor.cursor)?;
         let mut num_processed = 0;
 
         for (msg, content) in messages.iter_with_content() {
@@ -409,7 +409,7 @@ where
             }
 
             // Move the cursor
-            cursor.last_message_ns = msg.inserted_at_ns;
+            cursor.cursor += 1;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
             num_processed += 1;
         }

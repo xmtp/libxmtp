@@ -57,6 +57,7 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{
     db_connection::DbConnection,
     group::{ConversationType, StoredGroup},
@@ -68,7 +69,6 @@ use xmtp_db::{
     Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
 };
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
-use xmtp_db::{group_message::NewStoredGroupMessage, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
@@ -719,7 +719,7 @@ where
                         let queryable_content_fields =
                             Self::extract_queryable_content_fields(&content);
 
-                        NewStoredGroupMessage {
+                        StoredGroupMessage {
                             id: message_id.clone(),
                             group_id: self.group_id.clone(),
                             decrypted_message_bytes: content,
@@ -768,7 +768,7 @@ where
                                 );
 
                                 // store the request message
-                                NewStoredGroupMessage {
+                                StoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
                                     decrypted_message_bytes: content_bytes,
@@ -802,7 +802,7 @@ where
                                 );
 
                                 // store the reply message
-                                NewStoredGroupMessage {
+                                StoredGroupMessage {
                                     id: message_id.clone(),
                                     group_id: self.group_id.clone(),
                                     decrypted_message_bytes: content_bytes,
@@ -1256,7 +1256,7 @@ where
             }
         };
         self.handle_metadata_update_from_commit(conn, payload.metadata_field_changes)?;
-        let msg = NewStoredGroupMessage {
+        let msg = StoredGroupMessage {
             id: message_id,
             group_id: group_id.to_vec(),
             decrypted_message_bytes: encoded_payload_bytes.to_vec(),

@@ -15,37 +15,32 @@ pub struct StoredUserPreferences {
     pub id: i32,
     /// Randomly generated hmac key root
     pub hmac_key: Option<Vec<u8>>,
-    // Sync cursor: sync_group_id:last_message_ns
+    // Sync cursor: sync_group_id:cursor
     pub sync_cursor: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SyncCursor {
     pub group_id: Vec<u8>,
-    pub last_message_ns: i64,
+    pub cursor: i64,
 }
 
 impl SyncCursor {
     fn load(cursor: &str) -> Option<Self> {
         let mut split = cursor.split(":");
         let group_id = split.next()?;
-        let last_message_ns = split.next()?.parse().ok()?;
+        let cursor = split.next()?.parse().ok()?;
 
         Some(Self {
             group_id: hex::decode(group_id).ok()?,
-            last_message_ns,
+            cursor,
         })
     }
 }
 
 impl Display for SyncCursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}:{}",
-            hex::encode(&self.group_id),
-            self.last_message_ns
-        )
+        write!(f, "{}:{}", hex::encode(&self.group_id), self.cursor)
     }
 }
 
@@ -108,7 +103,7 @@ impl StoredUserPreferences {
     pub fn sync_cursor(conn: &DbConnection, group_id: &[u8]) -> Result<SyncCursor, StorageError> {
         let default = || SyncCursor {
             group_id: group_id.to_vec(),
-            last_message_ns: 0,
+            cursor: 0,
         };
 
         let Some(sync_cursor) = Self::load(conn)?.sync_cursor else {
@@ -177,11 +172,11 @@ mod tests {
             // Loads fine when there's nothing in the db
             let cursor = StoredUserPreferences::sync_cursor(conn, &[1, 2, 3, 4]).unwrap();
             assert_eq!(cursor.group_id, &[1, 2, 3, 4]);
-            assert_eq!(cursor.last_message_ns, 0);
+            assert_eq!(cursor.cursor, 0);
 
             let mut cursor = SyncCursor {
                 group_id: vec![1, 2, 3, 4],
-                last_message_ns: 1234,
+                cursor: 1234,
             };
 
             // Check stores on an empty row fine
@@ -190,7 +185,7 @@ mod tests {
             assert_eq!(cursor, db_cursor);
 
             cursor.group_id = vec![1, 2, 3, 5];
-            cursor.last_message_ns = 1235;
+            cursor.cursor = 1235;
 
             // Check stores on an occupied row fine
             StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();

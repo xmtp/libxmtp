@@ -49,11 +49,11 @@ pub fn test(
     };
 
     // Transform ? to .unwrap() on functions that return ()
-    let should_transform = returns_unit(&input_fn.sig.output)
-        && !attributes
-            .transform_try
-            .as_ref()
-            .map_or(false, |val| val.value() == "false");
+    let should_transform = attributes
+        .unwrap_try
+        .as_ref()
+        .map_or(false, |v| v.value() == "true")
+        && returns_unit(&input_fn.sig.output);
     if should_transform {
         let input_fn_tokens = quote!(#input_fn);
         let transformed_tokens = transform_question_marks(input_fn_tokens.into());
@@ -121,7 +121,7 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
 struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
-    transform_try: Option<syn::LitStr>,
+    unwrap_try: Option<syn::LitStr>,
 }
 
 impl Attributes {
@@ -132,8 +132,8 @@ impl Attributes {
         } else if meta.path.is_ident("flavor") {
             self.flavor = Some(meta.value()?.parse()?);
             return Ok(());
-        } else if meta.path.is_ident("transform_try") {
-            self.transform_try = Some(meta.value()?.parse()?);
+        } else if meta.path.is_ident("unwrap_try") {
+            self.unwrap_try = Some(meta.value()?.parse()?);
             return Ok(());
         }
 

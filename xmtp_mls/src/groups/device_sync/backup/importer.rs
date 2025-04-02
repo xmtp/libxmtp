@@ -10,7 +10,7 @@ use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::StoredGroup, group_message::NewStoredGroupMessage,
+    consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
     DbConnection, StorageError, Store,
 };
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
@@ -124,7 +124,7 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
             ignore_unique_constraints(group.store(conn))?;
         }
         Element::GroupMessage(message) => {
-            let message: NewStoredGroupMessage = message.try_into()?;
+            let message: StoredGroupMessage = message.try_into()?;
             ignore_unique_constraints(message.store(conn))?;
         }
         _ => {}

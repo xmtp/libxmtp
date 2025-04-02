@@ -11,8 +11,8 @@ pub(crate) fn generate_message(
     group_id: Option<&[u8]>,
     sent_at_ns: Option<i64>,
     content_type: Option<ContentType>,
-) -> NewStoredGroupMessage {
-    NewStoredGroupMessage {
+) -> StoredGroupMessage {
+    StoredGroupMessage {
         id: rand_vec::<24>(),
         group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec::<24>()),
         decrypted_message_bytes: rand_vec::<24>(),
