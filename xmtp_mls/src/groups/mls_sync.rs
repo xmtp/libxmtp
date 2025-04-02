@@ -2078,13 +2078,20 @@ pub(crate) mod tests {
         let amal_a = Arc::new(ClientBuilder::new_test_client(&wallet).await);
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
+        amal_a
+            .device_sync
+            .worker_handle()
+            .unwrap()
+            .wait_for_init()
+            .await
+            .unwrap();
 
         let conn = amal_a.context().store().conn().unwrap();
         let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 1);
+        assert_eq!(provider.conn_ref().intents_deleted(), 2);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
@@ -2105,9 +2112,9 @@ pub(crate) mod tests {
         });
 
         let published = provider.conn_ref().intents_published();
-        assert_eq!(published, 101);
+        assert_eq!(published, 103);
         let created = provider.conn_ref().intents_created();
-        assert_eq!(created, 101);
+        assert_eq!(created, 103);
         if !errs.is_empty() {
             panic!("Errors during publish");
         }
