@@ -7822,6 +7822,7 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tracing",
+ "tracing-appender",
  "tracing-oslog",
  "tracing-subscriber",
  "tracing_android_trace",
