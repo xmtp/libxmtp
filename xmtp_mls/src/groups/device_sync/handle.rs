@@ -62,10 +62,14 @@ where
     }
 
     /// Blocks until metric's specified count is met
-    pub async fn wait(&self, metric: Metric, count: usize) -> Result<(), Elapsed> {
+    pub async fn wait(
+        &self,
+        metric: Metric,
+        count: usize,
+    ) -> Result<(), xmtp_common::time::Expired> {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
 
-        tokio::time::timeout(Duration::from_secs(10), async {
+        xmtp_common::time::timeout(Duration::from_secs(10), async {
             while metric.load(Ordering::SeqCst) < count {
                 self.notify.notified().await;
             }
@@ -111,7 +115,7 @@ where
 }
 
 impl WorkerHandle<SyncMetric> {
-    pub async fn wait_for_init(&self) -> Result<(), Elapsed> {
+    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
         self.wait(SyncMetric::Init, 1).await
     }
 }
