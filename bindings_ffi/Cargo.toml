@@ -64,12 +64,7 @@ xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 chrono = { workspace = true }
-# passkey testing
-passkey = "0.4"
-coset = "0.3"
-url.workspace = true
 async-trait.workspace = true
-public-suffix = "0.1.2"
 fdlimit = { workspace = true }
 ctor.workspace = true
 

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-mod tester;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tester;
 
 use crate::{builder::ClientBuilder, identity::IdentityStrategy, Client, InboxOwner, XmtpApi};
 use std::sync::Arc;
@@ -8,17 +9,13 @@ use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
 use xmtp_id::{
-    associations::{
-        test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-        Identifier,
-    },
+    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-#[allow(unused_imports)]
-pub(crate) use tester::*;
+#[cfg(any(test, feature = "test-utils"))]
+pub use tester::*;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -239,9 +236,8 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 ) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
-    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
-    );
+    let unverified_signature = owner.sign(&signature_text).unwrap();
+
     signature_request
         .add_signature(unverified_signature, client.scw_verifier())
         .await

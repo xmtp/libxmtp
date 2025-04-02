@@ -152,7 +152,7 @@ mod tests {
     #[xmtp_common::test]
     async fn test_hmac_sync() {
         let amal_a = Tester::new().await;
-        let amal_b = Tester::new_from_wallet(amal_a.wallet.clone()).await;
+        let amal_b = amal_a.clone().await;
 
         // wait for the new sync group
         amal_a.worker.wait(SyncMetric::PayloadsProcessed, 1).await;

@@ -108,9 +108,7 @@ pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) 
     );
     if let Some(mut req) = signature_request {
         let signature_text = req.signature_text();
-        let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-            UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text)?.into()),
-        );
+        let unverified_signature = owner.sign(&signature_text)?;
         req.add_signature(unverified_signature, client.scw_verifier())
             .await?;
 

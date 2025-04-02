@@ -274,9 +274,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
-    use xmtp_id::associations::unverified::{
-        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
-    };
+    use xmtp_id::associations::unverified::UnverifiedSignature;
     use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::ApiBuilder;
@@ -304,12 +302,7 @@ pub(crate) mod tests {
         let signature_text = signature_request.signature_text();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
         signature_request
-            .add_signature(
-                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
-                    owner.sign(&signature_text).unwrap().into(),
-                )),
-                &scw_verifier,
-            )
+            .add_signature(owner.sign(&signature_text).unwrap(), &scw_verifier)
             .await
             .unwrap();
 
@@ -342,7 +335,10 @@ pub(crate) mod tests {
         .encode(&mut public_key_buf)
         .unwrap();
         let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
-        let signed_public_key: Vec<u8> = wallet.sign(&message).unwrap().into();
+        let signed_public_key = match wallet.sign(&message).unwrap() {
+            UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
+            _ => unreachable!("Wallets only provide ecdsa signatures."),
+        };
         let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
         let recovery_id = recovery_id[0];
         let signed_private_key: SignedPrivateKey = SignedPrivateKey {

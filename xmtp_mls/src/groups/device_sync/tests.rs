@@ -10,7 +10,7 @@ async fn basic_sync() {
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
 
     // Create a second client for alix
-    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    let alix2 = alix1.clone().await;
     alix2.worker.wait_for_init().await?;
 
     // Have alix1 receive new sync group, and auto-send a sync payload
@@ -32,7 +32,7 @@ async fn basic_sync() {
 #[xmtp_common::test(unwrap_try = "true")]
 async fn only_one_payload_sent() {
     let alix1 = Tester::new().await;
-    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    let alix2 = alix1.clone().await;
     let bo = Tester::new().await;
 
     let dm = alix1
@@ -48,7 +48,7 @@ async fn only_one_payload_sent() {
     alix1.worker.wait(SyncMetric::PayloadsSent, 1).await?;
     alix1.worker.clear_metric(SyncMetric::PayloadsSent);
 
-    let alix3 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    let alix3 = alix1.clone().await;
     alix3.worker.wait_for_init().await?;
 
     // Have alix1 and 2 fetch the new sync group
@@ -80,7 +80,7 @@ async fn test_double_sync_works_fine() {
     let bo = Tester::new().await;
     alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    let alix2 = alix1.clone().await;
     alix2.worker.wait_for_init().await?;
 
     // Pull down the new sync group, triggering a payload to be sent
@@ -109,7 +109,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
     let bo = Tester::new().await;
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = Tester::new_from_wallet(alix1.wallet.clone()).await;
+    let alix2 = alix1.clone().await;
     alix2.worker.wait_for_init().await?;
 
     alix1.sync_welcomes(&alix1.provider).await?;

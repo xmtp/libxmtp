@@ -24,7 +24,12 @@ test-utils = [
   "xmtp_api_grpc/test-utils",
   "dep:const_format",
   "xmtp_common/test-utils",
-  "dep:ethers"
+  "dep:ethers",
+  "dep:passkey",
+  "dep:coset",
+  "dep:url",
+  "dep:public-suffix",
+  "dep:futures-executor"
 ]
 bench = [
   "test-utils",
@@ -90,6 +95,11 @@ ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
+passkey = { version =  "0.4", optional = true}
+coset =  { version = "0.3", optional = true}
+url = {workspace = true, optional = true}
+public-suffix = { version = "0.1.2", optional = true }
+futures-executor = { version = "0.3", optional = true}
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
