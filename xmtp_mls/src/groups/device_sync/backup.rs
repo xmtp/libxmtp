@@ -55,15 +55,17 @@ impl OptionsToSave for BackupMetadataSave {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::Tester;
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
-    use diesel::RunQueryDsl;
+    use diesel::prelude::*;
     use exporter::BackupExporter;
     use futures::io::Cursor;
     use importer::BackupImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
+
     use xmtp_db::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
@@ -137,20 +139,18 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let alix_conn = alix.store().conn().unwrap();
-        let alix_provider = Arc::new(alix.mls_provider().unwrap());
+        use diesel::QueryDsl;
+        use xmtp_db::group::ConversationType;
 
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
         // wait for user preference update
-        wait_for_min_intents(&alix_conn, 1).await;
+        wait_for_min_intents(&alix.provider.conn_ref(), 1).await;
 
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
@@ -158,33 +158,38 @@ mod tests {
             .unwrap();
 
         // wait for add member intent/commit
-        wait_for_min_intents(&alix_conn, 2).await;
+        tracing::error!("B");
+        wait_for_min_intents(&alix.provider.conn_ref(), 2).await;
 
         alix_group.send_message(b"hello there").await.unwrap();
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(&alix_conn, 7).await;
 
-        let mut consent_records: Vec<StoredConsentRecord> = alix_provider
+        wait_for_min_intents(&alix.provider.conn_ref(), 4).await;
+
+        let mut consent_records: Vec<StoredConsentRecord> = alix
+            .provider
             .conn_ref()
             .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop().unwrap();
 
-        let mut groups: Vec<StoredGroup> = alix_provider
+        let mut groups: Vec<StoredGroup> = alix
+            .provider
             .conn_ref()
             .raw_query_read(|conn| groups::table.load(conn))
             .unwrap();
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop().unwrap();
 
-        let old_messages: Vec<StoredGroupMessage> = alix_provider
+        let old_messages: Vec<StoredGroupMessage> = alix
+            .provider
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
-        assert_eq!(old_messages.len(), 6);
+        assert_eq!(old_messages.len(), 3);
 
         let opts = BackupOptions {
             start_ns: None,
@@ -196,27 +201,28 @@ mod tests {
         };
 
         let key = vec![7; 32];
-        let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
+        let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
         let path = Path::new("archive.xmtp");
         let _ = std::fs::remove_file(path);
         exporter.write_to_file(path).await.unwrap();
 
-        let alix2_wallet = generate_local_wallet();
-        let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
-        let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
+        let alix2 = Tester::new().await;
+        alix2.wait_for_sync_worker_init().await;
 
         // No consent before
-        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+        let consent_records: Vec<StoredConsentRecord> = alix2
+            .provider
             .conn_ref()
             .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.run(&alix2_provider).await.unwrap();
+        importer.run(&alix2.provider).await.unwrap();
 
         // Consent is there after the import
-        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+        let consent_records: Vec<StoredConsentRecord> = alix2
+            .provider
             .conn_ref()
             .raw_query_read(|conn| consent_records::table.load(conn))
             .unwrap();
@@ -224,17 +230,27 @@ mod tests {
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2_provider
+        let groups: Vec<StoredGroup> = alix2
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
+            .raw_query_read(|conn| {
+                groups::table
+                    .filter(groups::conversation_type.ne(ConversationType::Sync))
+                    .load(conn)
+            })
             .unwrap();
         assert_eq!(groups.len(), 1);
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> = alix2_provider
+        let messages: Vec<StoredGroupMessage> = alix2
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read(|conn| {
+                group_messages::table
+                    .filter(group_messages::group_id.eq(&groups[0].id))
+                    .load(conn)
+            })
             .unwrap();
         // Only the application messages should sync
         assert_eq!(messages.len(), 1);

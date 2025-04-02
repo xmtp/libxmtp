@@ -15,7 +15,7 @@ use super::FullXmtpClient;
 pub(crate) struct Tester {
     pub wallet: LocalWallet,
     pub client: FullXmtpClient,
-    pub provider: XmtpOpenMlsProvider,
+    pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Arc<WorkerHandle<SyncMetric>>,
 }
 
@@ -33,7 +33,7 @@ impl Tester {
         Self {
             wallet,
             client,
-            provider,
+            provider: Arc::new(provider),
             worker,
         }
     }
