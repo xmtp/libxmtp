@@ -3434,14 +3434,20 @@ mod tests {
             .await
             .unwrap();
         let challenge = sig_request.signature_text().await.unwrap();
+        let UnverifiedSignature::Passkey(sig) = passkey.sign(&challenge).unwrap() else {
+            unreachable!()
+        };
         sig_request
-            .add_passkey_signature(passkey.sign(&challenge))
+            .add_passkey_signature(FfiPasskeySignature {
+                public_key: sig.public_key,
+                signature: sig.signature,
+                authenticator_data: sig.authenticator_data,
+                client_data_json: sig.client_data_json,
+            })
             .await
             .unwrap();
 
-        alex.apply_signature_request(signature_request)
-            .await
-            .unwrap();
+        alex.apply_signature_request(sig_request).await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -6381,13 +6387,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
-        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_a = new_test_client_with_wallet(wallet.clone()).await;
         let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
         // wait for alix_a's sync worker to create a sync group
         let _ =
             wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
 
-        let alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        let alix_b = new_test_client_with_wallet(wallet).await;
         wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
             .await
             .unwrap();
@@ -6473,7 +6479,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
         let wallet = generate_local_wallet();
-        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix_a = new_test_client_with_wallet(wallet.clone()).await;
         let stream_a_callback = Arc::new(RustStreamCallback::default());
 
         let a_stream = alix_a
@@ -6481,7 +6487,7 @@ mod tests {
             .stream_preferences(stream_a_callback.clone())
             .await;
 
-        let _alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        let _alix_b = new_test_client_with_wallet(wallet).await;
 
         let result = stream_a_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());

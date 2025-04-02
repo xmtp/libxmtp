@@ -47,7 +47,7 @@ impl Tester<LocalWallet> {
 
 impl Tester<PasskeyUser> {
     pub(crate) async fn new_passkey() -> Self {
-        let passkey_user = new_passkey_user().await;
+        let passkey_user = PasskeyUser::new().await;
         Self::new_from_owner(passkey_user).await
     }
 }
@@ -202,7 +202,7 @@ impl PasskeyUser {
     pub fn identifier(&self) -> Identifier {
         Identifier::Passkey(ident::Passkey {
             key: self.public_key(),
-            relying_party: self.origin.domain(),
+            relying_party: self.origin.domain().map(str::to_string),
         })
     }
 }
