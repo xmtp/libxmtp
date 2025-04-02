@@ -6392,7 +6392,7 @@ mod tests {
             .await
             .unwrap();
 
-        let bo = new_test_client_with_history().await;
+        let bo = new_test_client().await;
 
         // wait for the first installation to get invited to the new sync group
         wait_for_eq(
