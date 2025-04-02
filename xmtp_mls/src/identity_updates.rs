@@ -584,8 +584,13 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::{
+        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
+        utils::Tester, Client, XmtpApi,
+    };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
     use xmtp_id::{
         associations::{
             builder::{SignatureRequest, SignatureRequestError},
@@ -595,12 +600,6 @@ pub(crate) mod tests {
         },
         scw_verifier::SmartContractSignatureVerifier,
     };
-
-    use crate::{
-        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
-        Client, XmtpApi,
-    };
-    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 
     use xmtp_common::rand_vec;
 
@@ -735,7 +734,6 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
-        use crate::utils::Tester;
         use xmtp_common::assert_logged;
 
         xmtp_common::traced_test!(async {

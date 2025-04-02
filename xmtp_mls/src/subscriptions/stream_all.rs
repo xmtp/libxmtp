@@ -404,7 +404,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

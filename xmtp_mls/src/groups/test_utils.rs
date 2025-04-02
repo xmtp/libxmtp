@@ -5,8 +5,6 @@ use xmtp_db::group_message::MsgQueryArgs;
 impl<Client: ScopedGroupClient> MlsGroup<Client> {
     // Sends a mesage to other group and ensures delivery, returning sent message contents.
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<String> {
-        // Sync to update to the latest epoch
-        self.sync().await?;
         let msg = xmtp_common::rand_string::<20>();
         self.send_message(msg.as_bytes()).await?;
 
