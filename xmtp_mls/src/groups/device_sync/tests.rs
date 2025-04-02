@@ -1,5 +1,8 @@
 use super::*;
-use crate::{groups::DMMetadataOptions, utils::Tester};
+use crate::{
+    groups::{DMMetadataOptions, GroupMetadataOptions, UpdateAdminListType},
+    utils::Tester,
+};
 
 #[xmtp_common::test]
 async fn basic_sync() {
@@ -129,4 +132,54 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
+}
+
+#[xmtp_common::test]
+async fn test_fork() {
+    let alix = Tester::new().await;
+    let bo = Tester::new().await;
+    let cal = Tester::new().await;
+
+    let group = alix.create_group(None, GroupMetadataOptions::default())?;
+    group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    bo.sync_welcomes(&bo.provider).await?;
+    let bo_group = bo.group(&group.group_id)?;
+
+    group.test_can_talk_with(&bo_group).await?;
+
+    let fut = async {
+        for i in 0..10 {
+            group.update_group_name("hi".to_string()).await?;
+            group.add_members_by_inbox_id(&[cal.inbox_id()]).await?;
+            group
+                .update_admin_list(UpdateAdminListType::Add, cal.inbox_id().to_string())
+                .await?;
+            group.remove_members_by_inbox_id(&[cal.inbox_id()]).await?;
+            group.update_installations().await?;
+            group.update_group_description(format!("{i}")).await?;
+            group
+                .update_admin_list(UpdateAdminListType::Remove, cal.inbox_id().to_string())
+                .await?;
+        }
+    };
+    let fut2 = async {
+        for _ in 0..20 {
+            bo_group.sync().await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    tokio::join!(fut, fut2);
+
+    let bo2 = Tester::new_from_wallet(bo.wallet.clone()).await;
+
+    bo_group.update_installations().await?;
+    bo2.sync_welcomes(&bo2.provider).await?;
+    let bo2_group = bo2.group(&group.group_id)?;
+    bo2_group.sync().await?;
+
+    bo_group.sync().await?;
+
+    group.test_can_talk_with(&bo_group).await?;
+    group.test_can_talk_with(&bo2_group).await?;
 }
