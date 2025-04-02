@@ -138,13 +138,6 @@ mod tests {
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
-            // set an hmac key
-            let hmac_key = HmacKey::new();
-            StoredUserPreferences::store_hmac_key(conn, &hmac_key).unwrap();
-            let pref = StoredUserPreferences::load(conn).unwrap();
-            // Make sure it saved
-            assert_eq!(hmac_key.key.to_vec(), pref.hmac_key.unwrap());
-
             // loads and stores a default
             let pref = StoredUserPreferences::load(&conn).unwrap();
             // by default, there is no key
@@ -157,7 +150,7 @@ mod tests {
             // Make sure it saved
             assert_eq!(hmac_key.key.to_vec(), pref.hmac_key.unwrap());
 
-            // check that there are two preferences stored
+            // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());
             let result = conn
                 .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
