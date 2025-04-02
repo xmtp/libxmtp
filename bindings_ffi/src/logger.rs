@@ -176,7 +176,7 @@ static LOGGER: LazyLock<
     let _ = tracing_subscriber::registry()
         .with(native_layer.boxed())
         .with(filter)
-        .init();
+        .try_init();
     Arc::new(Mutex::new(reload_handle))
 });
 
@@ -189,20 +189,20 @@ static FILE_INITIALIZED: LazyLock<Arc<AtomicBool>> =
 /// turns on logging to a file on-disk in the directory specified.
 /// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
 /// i.e "libxmtp.log.2025-04-02"
-/// A maximum of 10 log files are kept.
+/// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
-pub fn enter_debug_writer(directory: String) -> Result<(), GenericError> {
+pub fn enter_debug_writer(directory: String, max_files: u32) -> Result<(), GenericError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory)?;
+        enable_debug_file_inner(directory, max_files)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
     }
     Ok(())
 }
 
-fn enable_debug_file_inner(directory: String) -> Result<(), GenericError> {
+fn enable_debug_file_inner(directory: String, max_files: u32) -> Result<(), GenericError> {
     let file_appender = RollingFileAppender::builder()
         .filename_prefix("libxmtp.log")
-        .max_log_files(10)
+        .max_log_files(max_files as usize)
         .build(&directory)?;
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
@@ -272,7 +272,7 @@ mod test_logger {
         init_logger();
         let s = xmtp_common::rand_hexstring();
         let path = std::env::temp_dir().join(format!("{}-log-test", s));
-        enter_debug_writer(path.display().to_string()).unwrap();
+        enter_debug_writer(path.display().to_string(), 10).unwrap();
         let rand_nums = hex::encode(xmtp_common::rand_vec::<100>());
         tracing::info!("test log");
         tracing::debug!(rand_nums);
