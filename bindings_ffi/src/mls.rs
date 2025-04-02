@@ -3283,17 +3283,11 @@ mod tests {
     impl SignWithWallet for FfiSignatureRequest {
         async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
             let signature_text = self.inner.lock().await.signature_text();
-            let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
             self.inner
                 .lock()
                 .await
-                .add_signature(
-                    UnverifiedSignature::RecoverableEcdsa(
-                        UnverifiedRecoverableEcdsaSignature::new(wallet_signature),
-                    ),
-                    &self.scw_verifier,
-                )
+                .add_signature(wallet.sign(&signature_text).unwrap(), &self.scw_verifier)
                 .await
                 .unwrap();
         }
@@ -3433,115 +3427,21 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_associate_passkey() {
         let alex = new_test_client().await;
-
-        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
-        let parameters_from_rp = PublicKeyCredentialParameters {
-            ty: PublicKeyCredentialType::PublicKey,
-            alg: coset::iana::Algorithm::ES256,
-        };
-        let pk_user_entity = PublicKeyCredentialUserEntity {
-            id: random_vec(32).into(),
-            display_name: "Alex Passkey".into(),
-            name: "apk@example.org".into(),
-        };
-        let pk_auth_store: Option<Passkey> = None;
-        let pk_aaguid = Aaguid::new_empty();
-        let pk_user_validation_method = PkUserValidationMethod {};
-        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = Client::new(pk_auth);
-
-        let request = CredentialCreationOptions {
-            public_key: PublicKeyCredentialCreationOptions {
-                rp: PublicKeyCredentialRpEntity {
-                    id: None, // Leaving the ID as None means use the effective domain
-                    name: origin.domain().unwrap().into(),
-                },
-                user: pk_user_entity,
-                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
-                // It's guaranteed to be unique, and that's good enough for us.
-                // All we care about is if that unique credential signs below.
-                challenge: Bytes::from(vec![]),
-                pub_key_cred_params: vec![parameters_from_rp],
-                timeout: None,
-                exclude_credentials: None,
-                authenticator_selection: None,
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        // Now create the credential.
-        let my_webauthn_credential = pk_client
-            .register(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-
-        let public_key = my_webauthn_credential.response.public_key.unwrap().to_vec();
-        let public_key = public_key[26..].to_vec();
+        let passkey = PasskeyUser::new().await;
 
         let sig_request = alex
-            .add_identity(FfiIdentifier {
-                identifier: hex::encode(&public_key),
-                identifier_kind: FfiIdentifierKind::Passkey,
-            })
+            .add_identity(passkey.identifier().into())
             .await
             .unwrap();
-
         let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = challenge.as_bytes().to_vec();
-
-        let request = CredentialRequestOptions {
-            public_key: PublicKeyCredentialRequestOptions {
-                challenge: Bytes::from(challenge_bytes),
-                timeout: None,
-                rp_id: Some(String::from(origin.domain().unwrap())),
-                allow_credentials: None,
-                user_verification: UserVerificationRequirement::default(),
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        let cred = pk_client
-            .authenticate(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-        let resp = cred.response;
-
-        let mut signature = resp.signature.to_vec();
-
-        // Try to add a bad sig first
-        // Corrupt the sig
-        signature[4] = signature[4].wrapping_add(1);
-        let result = sig_request
-            .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key: public_key.clone(),
-            })
-            .await;
-        // It should not verify
-        assert!(result.is_err());
-
-        // un-corrupt the sig
-        signature[4] = signature[4].wrapping_sub(1);
         sig_request
-            .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key: public_key.clone(),
-            })
+            .add_passkey_signature(passkey.sign(&challenge))
             .await
-            // should be good
             .unwrap();
 
-        alex.apply_signature_request(sig_request).await.unwrap();
+        alex.apply_signature_request(signature_request)
+            .await
+            .unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

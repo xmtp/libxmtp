@@ -143,8 +143,67 @@ impl InboxOwner for PasskeyUser {
 }
 
 impl PasskeyUser {
+    pub async fn new() -> Self {
+        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
+        let parameters_from_rp = PublicKeyCredentialParameters {
+            ty: PublicKeyCredentialType::PublicKey,
+            alg: coset::iana::Algorithm::ES256,
+        };
+        let pk_user_entity = PublicKeyCredentialUserEntity {
+            id: random_vec(32).into(),
+            display_name: "Alex Passkey".into(),
+            name: "apk@example.org".into(),
+        };
+        let pk_auth_store: Option<Passkey> = None;
+        let pk_aaguid = Aaguid::new_empty();
+        let pk_user_validation_method = PkUserValidationMethod {};
+        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
+        let mut pk_client = Client::new(pk_auth);
+
+        let request = CredentialCreationOptions {
+            public_key: PublicKeyCredentialCreationOptions {
+                rp: PublicKeyCredentialRpEntity {
+                    id: None, // Leaving the ID as None means use the effective domain
+                    name: origin.domain().unwrap().into(),
+                },
+                user: pk_user_entity,
+                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
+                // It's guaranteed to be unique, and that's good enough for us.
+                // All we care about is if that unique credential signs below.
+                challenge: Bytes::from(vec![]),
+                pub_key_cred_params: vec![parameters_from_rp],
+                timeout: None,
+                exclude_credentials: None,
+                authenticator_selection: None,
+                hints: None,
+                attestation: AttestationConveyancePreference::None,
+                attestation_formats: None,
+                extensions: None,
+            },
+        };
+
+        // Now create the credential.
+        let pk_cred = pk_client
+            .register(origin.clone(), request, DefaultClientData)
+            .await
+            .unwrap();
+
+        Self {
+            pk_client: Arc::new(Mutex::new(pk_client)),
+            pk_cred: Arc::new(pk_cred),
+            origin,
+        }
+    }
+
     fn public_key(&self) -> Vec<u8> {
         self.pk_cred.response.public_key.as_ref().unwrap()[26..].to_vec()
+    }
+
+    pub fn identifier(&self) -> Identifier {
+        Identifier::Passkey(ident::Passkey {
+            key: self.public_key(),
+            relying_party: self.origin.domain(),
+        })
     }
 }
 
@@ -170,57 +229,5 @@ impl UserValidationMethod for PkUserValidationMethod {
 
     fn is_presence_enabled(&self) -> bool {
         true
-    }
-}
-
-async fn new_passkey_user() -> PasskeyUser {
-    let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
-    let parameters_from_rp = PublicKeyCredentialParameters {
-        ty: PublicKeyCredentialType::PublicKey,
-        alg: coset::iana::Algorithm::ES256,
-    };
-    let pk_user_entity = PublicKeyCredentialUserEntity {
-        id: random_vec(32).into(),
-        display_name: "Alex Passkey".into(),
-        name: "apk@example.org".into(),
-    };
-    let pk_auth_store: Option<Passkey> = None;
-    let pk_aaguid = Aaguid::new_empty();
-    let pk_user_validation_method = PkUserValidationMethod {};
-    let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-    let mut pk_client = Client::new(pk_auth);
-
-    let request = CredentialCreationOptions {
-        public_key: PublicKeyCredentialCreationOptions {
-            rp: PublicKeyCredentialRpEntity {
-                id: None, // Leaving the ID as None means use the effective domain
-                name: origin.domain().unwrap().into(),
-            },
-            user: pk_user_entity,
-            // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
-            // It's guaranteed to be unique, and that's good enough for us.
-            // All we care about is if that unique credential signs below.
-            challenge: Bytes::from(vec![]),
-            pub_key_cred_params: vec![parameters_from_rp],
-            timeout: None,
-            exclude_credentials: None,
-            authenticator_selection: None,
-            hints: None,
-            attestation: AttestationConveyancePreference::None,
-            attestation_formats: None,
-            extensions: None,
-        },
-    };
-
-    // Now create the credential.
-    let pk_cred = pk_client
-        .register(origin.clone(), request, DefaultClientData)
-        .await
-        .unwrap();
-
-    PasskeyUser {
-        pk_client: Arc::new(Mutex::new(pk_client)),
-        pk_cred: Arc::new(pk_cred),
-        origin,
     }
 }
