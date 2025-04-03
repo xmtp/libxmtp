@@ -1,6 +1,9 @@
 use crate::{
     builder::ClientBuilder,
-    groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    groups::{
+        device_sync::handle::{SyncMetric, WorkerHandle},
+        MlsGroup,
+    },
 };
 use ethers::signers::LocalWallet;
 use parking_lot::Mutex;
@@ -28,11 +31,8 @@ use super::FullXmtpClient;
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 #[allow(dead_code)]
-pub(crate) struct Tester<Owner>
-where
-    Owner: InboxOwner,
-{
-    pub owner: Box<Owner>,
+pub(crate) struct Tester<Owner> {
+    pub owner: Owner,
     pub client: FullXmtpClient,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Arc<WorkerHandle<SyncMetric>>,
@@ -58,7 +58,7 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     pub(crate) async fn clone(&self) -> Self {
-        Self::new_from_owner((&*self.owner).clone()).await
+        Self::new_from_owner(self.owner.clone()).await
     }
 
     pub(crate) async fn new_from_owner(owner: Owner) -> Self {
@@ -67,11 +67,16 @@ where
         let worker = client.device_sync.worker_handle().unwrap();
 
         Self {
-            owner: Box::new(owner),
+            owner,
             client,
             provider: Arc::new(provider),
             worker,
         }
+    }
+
+    pub(crate) async fn sync_group(&self) -> MlsGroup<FullXmtpClient> {
+        self.worker.wait_for_init().await.unwrap();
+        self.get_sync_group(&self.provider).unwrap()
     }
 }
 

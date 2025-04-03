@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
 use proc_macro2::*;
-use quote::quote;
+use quote::{quote, quote_spanned};
 
 /// A test macro that delegates to the appropriate test framework based on the target architecture.
 ///
@@ -94,17 +94,29 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
     while let Some(token) = tokens.next() {
         match &token {
             proc_macro2::TokenTree::Punct(p) if p.as_char() == '?' => {
-                // Replace ? with .unwrap() using quote!
-                let unwrap_tokens = quote!(.unwrap());
+                // Get the span from the question mark token
+                let span = p.span();
+
+                // Use quote_spanned! to generate .unwrap() with the original span
+                let unwrap_tokens = quote_spanned! {span=>
+                    .unwrap()
+                };
+
                 result.extend(unwrap_tokens);
             }
             proc_macro2::TokenTree::Group(g) => {
                 // Recursively transform tokens in groups
                 let transformed_stream = transform_question_marks(g.stream().into());
-                let transformed_group = proc_macro2::Group::new(
+
+                // Create a new group with the same delimiter and span
+                let mut transformed_group = proc_macro2::Group::new(
                     g.delimiter(),
                     proc_macro2::TokenStream::from(transformed_stream),
                 );
+
+                // Set the span explicitly
+                let span = g.span();
+                transformed_group.set_span(span);
                 result.extend(quote!(#transformed_group));
             }
             _ => {

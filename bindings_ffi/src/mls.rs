@@ -522,10 +522,7 @@ impl FfiXmtpClient {
             &public_key,
         )?)
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
         let scw_verifier = self.inner_client.scw_verifier().clone();
         self.inner_client

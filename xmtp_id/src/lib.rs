@@ -9,7 +9,6 @@ use associations::{
     unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     Identifier,
 };
-use async_trait::async_trait;
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},

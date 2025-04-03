@@ -349,11 +349,11 @@ impl HmacKeyExt for HmacKey {
     }
 
     fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
-        let _ = local_events.send(LocalEvents::SyncEvent(
-            SyncEvent::PreferenceUpdateDispatchRequest(vec![UserPreferenceUpdate::HmacKeyUpdate {
+        let _ = local_events.send(LocalEvents::SyncEvent(SyncEvent::PreferencesOutgoing(
+            vec![UserPreferenceUpdate::HmacKeyUpdate {
                 key: self.key.to_vec(),
-            }]),
-        ));
+            }],
+        )));
     }
 }
 
@@ -1586,10 +1586,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         if !new_records.is_empty() && self.client.device_sync_server_url().is_some() {
             // Dispatch an update event so it can be synced across devices
-            let _ = self
-                .client
-                .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(new_records));
+            let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                SyncEvent::PreferencesOutgoing(new_records),
+            ));
         }
 
         Ok(())

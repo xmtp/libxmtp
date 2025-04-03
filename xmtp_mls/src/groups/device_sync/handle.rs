@@ -9,7 +9,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{sync::Notify, time::error::Elapsed};
+use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 
 pub struct WorkerHandle<Metric>
@@ -27,10 +27,13 @@ pub enum SyncMetric {
     RequestsReceived,
     PayloadsSent,
     PayloadsProcessed,
-    HmacKeysSent,
-    ConsentUpdatesSent,
-    HmacKeysReceived,
-    ConsentUpdatesReceived,
+    HmacSent,
+    HmacReceived,
+    ConsentSent,
+    ConsentReceived,
+
+    V1ConsentSent,
+    V1HmacSent,
 }
 
 impl<Metric> WorkerHandle<Metric>

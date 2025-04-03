@@ -119,10 +119,10 @@ async fn test_hmac_and_consent_prefrence_sync() {
     alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await?;
 
     let alix1_keys = dm.hmac_keys(-1..=1)?;
-    alix1.worker.wait(SyncMetric::HmacKeysSent, 1).await?;
+    alix1.worker.wait(SyncMetric::HmacSent, 1).await?;
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
-    alix2.worker.wait(SyncMetric::HmacKeysReceived, 1).await?;
+    alix2.worker.wait(SyncMetric::HmacReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;

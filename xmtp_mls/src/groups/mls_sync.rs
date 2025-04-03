@@ -834,10 +834,9 @@ where
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::IncomingPreferenceUpdate(updates));
+                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                                    SyncEvent::PreferencesIncoming(updates),
+                                ));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);

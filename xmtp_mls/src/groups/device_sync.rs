@@ -215,54 +215,21 @@ where
                             .await?;
                     }
 
-                    SyncEvent::PreferenceUpdateDispatchRequest(preference_updates) => {
-                        tracing::info!("Outgoing preference updates {preference_updates:?}");
-
-                        let provider = self.client.mls_provider()?;
-                        self.client
-                            .send_device_sync_message(
-                                &provider,
-                                DeviceSyncContent::PreferenceUpdates(preference_updates.clone()),
-                            )
+                    SyncEvent::PreferencesOutgoing(preference_updates) => {
+                        UserPreferenceUpdate::sync(preference_updates, &self.client, &self.handle)
                             .await?;
+                    }
 
-                        for update in &preference_updates {
-                            match update {
-                                UserPreferenceUpdate::ConsentUpdate(_) => {
-                                    self.handle.increment_metric(SyncMetric::ConsentUpdatesSent);
-                                }
-                                UserPreferenceUpdate::HmacKeyUpdate { .. } => {
-                                    self.handle.increment_metric(SyncMetric::HmacKeysSent);
-                                }
-                            }
-                        }
-
-                        // TODO: V1 support, remove on next hammer.
-                        UserPreferenceUpdate::sync_across_devices(preference_updates, &self.client)
-                            .await?;
+                    SyncEvent::PreferencesIncoming(_) => {
+                        // Intentionally left blank. This event is for streaming to consume.
                     }
 
                     // Device Sync V1 events
                     SyncEvent::Reply { .. } => {}
-                    SyncEvent::Request { .. } => {}
+                    SyncEvent::Request { .. } => {
+                        // TODO: process v1 requests
+                    }
                 },
-                // V1 events
-                LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::info!("Outgoing preference update {preference_updates:?}");
-                    retry_async!(
-                        self.retry,
-                        (async {
-                            UserPreferenceUpdate::sync_across_devices(
-                                preference_updates.clone(),
-                                &self.client,
-                            )
-                            .await
-                        })
-                    )?;
-                }
-                LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::info!("Incoming preference update");
-                }
                 _ => {}
             }
         }
@@ -397,8 +364,6 @@ where
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-
-                    tracing::info!("aabbcc");
                     for update in preference_updates {
                         update.store(provider, handle)?;
                     }

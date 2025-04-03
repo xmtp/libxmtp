@@ -78,12 +78,8 @@ mod tests {
         use futures::io::BufReader;
         use futures_util::AsyncReadExt;
 
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let alix_provider = Arc::new(alix.mls_provider().unwrap());
-
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -107,7 +103,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
+            let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -165,7 +161,6 @@ mod tests {
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-
         wait_for_min_intents(&alix.provider.conn_ref(), 4).await;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix

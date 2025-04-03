@@ -2,6 +2,7 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
+use crate::subscriptions::SyncEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -454,7 +455,9 @@ where
                 .collect();
             let _ = self
                 .local_events
-                .send(LocalEvents::OutgoingPreferenceUpdates(records));
+                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesOutgoing(
+                    records,
+                )));
         }
 
         Ok(())
@@ -1400,10 +1403,10 @@ pub(crate) mod tests {
     )]
     async fn test_sync_all_groups_and_welcomes() {
         let alix = Tester::new().await;
-        let bo = Tester::new().await;
+        let bo = Tester::new_passkey().await;
 
-        alix.worker.wait_for_init().await;
-        bo.worker.wait_for_init().await;
+        alix.worker.wait_for_init().await.unwrap();
+        bo.worker.wait_for_init().await.unwrap();
 
         // Create two groups and add Bob
         let alix_bo_group1 = alix
