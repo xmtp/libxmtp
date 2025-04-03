@@ -78,6 +78,7 @@ pub async fn connect_to_backend(
     is_secure: bool,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
+
     log::info!(
         host,
         is_secure,
