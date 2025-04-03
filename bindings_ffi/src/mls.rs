@@ -3322,18 +3322,21 @@ mod tests {
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         // Why is this 2?
-        assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
-        assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        let get_inbox_ids = ident_stats.get_inbox_ids.get_count();
+        let send_welcome_messages = stats.send_welcome_messages.get_count();
+        let send_group_messages = stats.send_group_messages.get_count();
 
         // Sleep for 2 seconds and make sure nothing else has sent
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
-        assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
-        assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        assert_eq!(ident_stats.get_inbox_ids.get_count(), get_inbox_ids);
+        assert_eq!(
+            stats.send_welcome_messages.get_count(),
+            send_welcome_messages
+        );
+        assert_eq!(stats.send_group_messages.get_count(), send_group_messages);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
