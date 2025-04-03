@@ -154,8 +154,7 @@ jobs:
       
       - name: Run Swift local script
         run: |
-          cd libxmtp
-          bindings_ffi/run_swift_local.sh ../libxmtp-swift
+          cd libxmtp/bindings_ffi && ./run_swift_local.sh
       
       - name: Update LibXMTP.podspec
         run: |
