@@ -33,11 +33,13 @@ where
     type GroupMessageStream<'a>
         = stream::LocalBoxStream<'a, Result<mls_v1::GroupMessage, Self::Error>>
     where
+        P: 'a,
         C: 'a;
     #[cfg(target_arch = "wasm32")]
     type WelcomeMessageStream<'a>
         = stream::LocalBoxStream<'a, Result<mls_v1::WelcomeMessage, Self::Error>>
     where
+        P: 'a,
         C: 'a;
 
     async fn subscribe_group_messages(
