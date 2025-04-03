@@ -17,7 +17,7 @@ use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
-use xmtp_db::{StorageError, Store, XmtpOpenMlsProvider};
+use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
@@ -29,9 +29,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub mod consent_sync;
-pub mod message_sync;
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
@@ -106,9 +103,12 @@ where
         let conn = provider.conn_ref();
 
         let records = match request.kind() {
-            DeviceSyncKind::Consent => vec![self.syncable_consent_records(conn)?],
+            DeviceSyncKind::Consent => vec![self.v1_syncable_consent_records(conn)?],
             DeviceSyncKind::MessageHistory => {
-                vec![self.syncable_groups(conn)?, self.syncable_messages(conn)?]
+                vec![
+                    self.v1_syncable_groups(conn)?,
+                    self.v1_syncable_messages(conn)?,
+                ]
             }
             DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
         };
@@ -268,7 +268,7 @@ where
             Box::pin(group.sync_with_conn(provider)).await?;
         }
 
-        handle.increment_metric(SyncMetric::V1PayloadSent);
+        handle.increment_metric(SyncMetric::V1PayloadProcessed);
 
         Ok(())
     }
@@ -386,20 +386,54 @@ where
 
         Ok(())
     }
+
+    fn v1_syncable_consent_records(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let consent_records = conn
+            .consent_records()?
+            .into_iter()
+            .map(Syncable::ConsentRecord)
+            .collect();
+        Ok(consent_records)
+    }
+
+    pub(super) fn v1_syncable_groups(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let groups = conn
+            .find_groups(GroupQueryArgs::default())?
+            .into_iter()
+            .map(Syncable::Group)
+            .collect();
+
+        Ok(groups)
+    }
+
+    pub(super) fn v1_syncable_messages(
+        &self,
+        conn: &DbConnection,
+    ) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let groups = conn.find_groups(GroupQueryArgs::default())?;
+
+        let mut all_messages = vec![];
+        for StoredGroup { id, .. } in groups.into_iter() {
+            let messages = conn.get_group_messages(&id, &MsgQueryArgs::default())?;
+            for msg in messages {
+                all_messages.push(Syncable::GroupMessage(msg));
+            }
+        }
+
+        Ok(all_messages)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
     Reply(DeviceSyncReplyProto),
-}
-
-pub struct MessageHistoryUrls;
-
-impl MessageHistoryUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network/";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network/";
 }
 
 pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, DeviceSyncError> {
@@ -569,4 +603,44 @@ fn encrypt_syncables_with_key(
     result.append(&mut cipher.encrypt(nonce_array, &*payload)?);
 
     Ok((result, enc_key))
+}
+
+#[cfg(test)]
+mod tests {
+    use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+
+    use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn v1_sync_still_works() {
+        let alix1 = Tester::new().await;
+        let alix2 = alix1.clone().await;
+
+        alix1.sync_welcomes(&alix1.provider).await?;
+        alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
+
+        alix2.get_sync_group(&alix2.provider)?.sync().await?;
+        alix2.worker.wait(SyncMetric::PayloadProcessed, 1).await?;
+
+        assert_eq!(alix1.worker.get(SyncMetric::V1PayloadSent), 0);
+        assert_eq!(alix2.worker.get(SyncMetric::V1PayloadProcessed), 0);
+
+        alix2
+            .v1_send_sync_request(&alix2.provider, DeviceSyncKind::MessageHistory)
+            .await?;
+        alix1.sync_device_sync_group(&alix1.provider).await?;
+        alix1.worker.wait(SyncMetric::V1PayloadSent, 1).await?;
+
+        alix2.sync_device_sync_group(&alix2.provider).await?;
+        alix2.worker.wait(SyncMetric::V1PayloadProcessed, 1).await?;
+
+        alix2
+            .v1_send_sync_request(&alix2.provider, DeviceSyncKind::Consent)
+            .await?;
+        alix1.sync_device_sync_group(&alix1.provider).await?;
+        alix1.worker.wait(SyncMetric::V1PayloadSent, 2).await?;
+
+        alix2.sync_device_sync_group(&alix2.provider).await?;
+        alix2.worker.wait(SyncMetric::V1PayloadProcessed, 2).await?;
+    }
 }

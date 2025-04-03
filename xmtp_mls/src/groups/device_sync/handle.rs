@@ -35,6 +35,7 @@ pub enum SyncMetric {
     V1ConsentSent,
     V1HmacSent,
     V1PayloadSent,
+    V1PayloadProcessed,
 }
 
 impl<Metric> WorkerHandle<Metric>
@@ -48,7 +49,7 @@ where
         }
     }
 
-    pub fn get_metric_count(&self, metric: Metric) -> usize {
+    pub fn get(&self, metric: Metric) -> usize {
         let mut lock = self.metrics.lock();
         let atomic = lock.entry(metric).or_default();
         atomic.load(Ordering::SeqCst)
