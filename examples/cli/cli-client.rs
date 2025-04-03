@@ -195,7 +195,7 @@ impl InboxOwner for Wallet {
         }
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         match self {
             Wallet::LocalWallet(w) => w.sign(text),
         }
@@ -565,12 +565,7 @@ where
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();
-    let sig_bytes: Vec<u8> = w
-        .sign(signature_request.signature_text().as_str())
-        .unwrap()
-        .into();
-    let signature =
-        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
+    let signature = w.sign(&signature_request.signature_text()).unwrap();
     signature_request
         .add_signature(signature, client.scw_verifier())
         .await
