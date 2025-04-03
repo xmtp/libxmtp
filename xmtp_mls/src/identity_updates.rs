@@ -754,10 +754,10 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &client.wallet.identifier()
+                &client.owner.identifier()
             );
             assert!(association_state
-                .get(&client.wallet.identifier().into())
+                .get(&client.owner.identifier().into())
                 .is_some());
 
             assert_logged!("Loaded association", 5);
@@ -788,7 +788,7 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &client.wallet.identifier()
+                &client.owner.identifier()
             );
             assert!(association_state
                 .get(&wallet_2.member_identifier())
