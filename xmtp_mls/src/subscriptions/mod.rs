@@ -19,14 +19,14 @@ use crate::{
         device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
     },
-    storage::{
-        consent_record::StoredConsentRecord, group::ConversationType,
-        group_message::StoredGroupMessage, NotFound, StorageError,
-    },
     Client, XmtpApi,
 };
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::ConversationType,
+    group_message::StoredGroupMessage, NotFound, StorageError,
+};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -184,8 +184,6 @@ pub enum SubscribeError {
     #[error("processing group message in stream: {0}")]
     ReceiveGroup(#[from] GroupMessageProcessingError),
     #[error(transparent)]
-    Database(#[from] diesel::result::Error),
-    #[error(transparent)]
     Storage(#[from] StorageError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
@@ -206,7 +204,6 @@ impl RetryableError for SubscribeError {
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
             ReceiveGroup(e) => retryable!(e),
-            Database(e) => retryable!(e),
             Storage(e) => retryable!(e),
             Decode(_) => false,
             NotFound(e) => retryable!(e),

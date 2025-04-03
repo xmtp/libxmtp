@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::storage::{native::NativeStorageError, NotFound};
+use crate::{NotFound, native::NativeStorageError};
 
 use super::{EncryptionKey, StorageOption};
 
@@ -46,11 +46,11 @@ impl EncryptedConnection {
     /// Creates a file for the salt and stores it
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, NativeStorageError> {
         use super::StorageOption::*;
-        Self::check_for_sqlcipher(opts, None)?;
 
         let salt = match opts {
             Ephemeral => None,
-            Persistent(ref db_path) => {
+            Persistent(db_path) => {
+                Self::check_for_sqlcipher(opts, None)?;
                 let mut salt = [0u8; 16];
                 let db_pathbuf = PathBuf::from(db_path);
                 let salt_path = Self::salt_file(db_path)?;
@@ -212,7 +212,7 @@ impl EncryptedConnection {
 
     /// Output the corect order of PRAGMAS to instantiate a connection
     fn pragmas(&self) -> impl Display {
-        let Self { ref key, ref salt } = self;
+        let Self { key, salt } = self;
 
         if let Some(s) = salt {
             format!(
@@ -315,7 +315,7 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::EncryptedMessageStore;
+    use crate::EncryptedMessageStore;
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
     use xmtp_common::tmp_path;
@@ -342,6 +342,7 @@ mod tests {
                 Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
@@ -377,8 +378,7 @@ mod tests {
                     pragma_key(hex::encode(key))
                 ))
                 .unwrap();
-                conn.run_pending_migrations(crate::storage::MIGRATIONS)
-                    .unwrap();
+                conn.run_pending_migrations(crate::MIGRATIONS).unwrap();
             }
 
             // no plaintext header before migration
@@ -387,7 +387,9 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
+                .await
+                .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();

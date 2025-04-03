@@ -2,7 +2,8 @@ use prost::Message;
 use serde::Serialize;
 use valuable::Valuable;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
-use xmtp_mls::{groups::MlsGroup, storage::group_message::StoredGroupMessage, XmtpApi};
+use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_mls::{groups::MlsGroup, XmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[derive(Serialize, Debug, Valuable)]

@@ -12,6 +12,15 @@ use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
+use xmtp_db::group::ConversationType;
+use xmtp_db::group_message::{ContentType, MsgQueryArgs};
+use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::{
+    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+    group::GroupQueryArgs,
+    group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    EncryptedMessageStore, EncryptionKey, StorageOption,
+};
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
@@ -31,9 +40,7 @@ use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
-use xmtp_mls::storage::group::ConversationType;
-use xmtp_mls::storage::group_message::{ContentType, MsgQueryArgs};
-use xmtp_mls::storage::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -49,12 +56,6 @@ use xmtp_mls::{
         GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
-    storage::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-        group::GroupQueryArgs,
-        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-        EncryptedMessageStore, EncryptionKey, StorageOption,
-    },
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::ApiBuilder;
@@ -74,6 +75,7 @@ pub async fn connect_to_backend(
     is_secure: bool,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
+
     log::info!(
         host,
         is_secure,
@@ -140,9 +142,9 @@ pub async fn create_client(
             let key: EncryptionKey = key
                 .try_into()
                 .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            EncryptedMessageStore::new(storage_option, key)?
+            EncryptedMessageStore::new(storage_option, key).await?
         }
-        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
+        None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
     };
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
@@ -383,6 +385,35 @@ impl FfiXmtpClient {
     ) -> Result<FfiInboxState, GenericError> {
         let state = self.inner_client.inbox_state(refresh_from_network).await?;
         Ok(state.into())
+    }
+
+    // Returns a HashMap of installation_id to FfiKeyPackageStatus
+    pub async fn get_key_package_statuses_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<HashMap<Vec<u8>, FfiKeyPackageStatus>, GenericError> {
+        let key_packages = self
+            .inner_client
+            .get_key_packages_for_installation_ids(installation_ids)
+            .await?;
+
+        let key_packages: HashMap<Vec<u8>, FfiKeyPackageStatus> = key_packages
+            .into_iter()
+            .map(
+                |(installation_id, key_package_result)| match key_package_result {
+                    Ok(key_package) => (installation_id, key_package.into()),
+                    Err(e) => (
+                        installation_id,
+                        FfiKeyPackageStatus {
+                            lifetime: None,
+                            validation_error: Some(e.to_string()),
+                        },
+                    ),
+                },
+            )
+            .collect();
+
+        Ok(key_packages)
     }
 
     /**
@@ -785,6 +816,36 @@ pub struct FfiHmacKey {
 pub struct FfiInstallation {
     pub id: Vec<u8>,
     pub client_timestamp_ns: Option<u64>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiKeyPackageStatus {
+    pub lifetime: Option<FfiLifetime>,
+    pub validation_error: Option<String>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiLifetime {
+    pub not_before: u64,
+    pub not_after: u64,
+}
+
+impl From<VerifiedLifetime> for FfiLifetime {
+    fn from(value: VerifiedLifetime) -> Self {
+        Self {
+            not_before: value.not_before,
+            not_after: value.not_after,
+        }
+    }
+}
+
+impl From<VerifiedKeyPackageV2> for FfiKeyPackageStatus {
+    fn from(value: VerifiedKeyPackageV2) -> Self {
+        Self {
+            lifetime: value.life_time().map(Into::into),
+            validation_error: None,
+        }
+    }
 }
 
 impl From<AssociationState> for FfiInboxState {
@@ -2758,15 +2819,16 @@ mod tests {
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{
         test_utils::WalletTestExt,
         unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
     };
     use xmtp_mls::{
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
-        storage::EncryptionKey,
         InboxOwner,
     };
+
     use xmtp_proto::xmtp::mls::message_contents::{
         content_types::{ReactionAction, ReactionSchema, ReactionV2},
         ContentTypeId, EncodedContent,
@@ -2976,7 +3038,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -3007,7 +3069,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -6915,7 +6977,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -6954,7 +7016,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
             ffi_ident,
             nonce,
@@ -7018,7 +7080,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &client_b_inbox_id,
             ffi_ident,
             nonce,
@@ -7053,7 +7115,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -7075,7 +7137,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7094,7 +7156,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7124,7 +7186,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_mls::storage::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7822,5 +7884,82 @@ mod tests {
         let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
         let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
         assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_key_package_validation() {
+        // Create a test client
+        let client = new_test_client().await;
+
+        // Get the client's inbox state to retrieve installation IDs
+        let inbox_state = client.inbox_state(true).await.unwrap();
+        // let inbox_state = client.get_latest_inbox_state("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string()).await.unwrap();
+        // let inbox_state = client.get_latest_inbox_state("bd03ba1d688c7ababe4e39eb0012a3cff7003e0faef2e164ff95e1ce4db30141".to_string()).await.unwrap();
+
+        // Extract installation IDs from the inbox state
+        let installation_ids: Vec<Vec<u8>> = inbox_state
+            .installations
+            .iter()
+            .map(|installation| installation.id.clone())
+            .collect();
+
+        assert!(
+            !installation_ids.is_empty(),
+            "Client should have at least one installation ID"
+        );
+
+        // Get key packages for the installation IDs
+        let key_package_statuses = client
+            .get_key_package_statuses_for_installation_ids(installation_ids.clone())
+            .await
+            .unwrap();
+
+        // Verify we got results for all installation IDs
+        assert_eq!(
+            key_package_statuses.len(),
+            installation_ids.len(),
+            "Should get key package status for each installation ID"
+        );
+
+        // Check each key package status
+        for (installation_id, key_package_status) in key_package_statuses {
+            println!("Installation ID: {:?}", hex::encode(&installation_id));
+
+            if let Some(error) = &key_package_status.validation_error {
+                println!("Key package validation error: {}", error);
+            } else if let Some(lifetime) = &key_package_status.lifetime {
+                let not_before_date =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(lifetime.not_before as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_else(|| lifetime.not_before.to_string());
+                let not_after_date =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(lifetime.not_after as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_else(|| lifetime.not_after.to_string());
+
+                println!(
+                    "Key package valid: not_before={} ({}), not_after={} ({})",
+                    lifetime.not_before, not_before_date, lifetime.not_after, not_after_date
+                );
+                println!();
+
+                // Verify the lifetime is valid (not expired)
+                let current_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                assert!(
+                    lifetime.not_before <= current_time,
+                    "Key package should be valid now"
+                );
+                assert!(
+                    lifetime.not_after > current_time,
+                    "Key package should not be expired"
+                );
+            } else {
+                println!("No lifetime for this key package")
+            }
+        }
     }
 }

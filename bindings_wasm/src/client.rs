@@ -8,10 +8,10 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
@@ -129,7 +129,6 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  xmtp_mls::storage::init_sqlite().await;
   let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into())?;
 
   let storage_option = match db_path {
@@ -144,9 +143,11 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
+        .await
         .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
+      .await
       .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?,
   };
 

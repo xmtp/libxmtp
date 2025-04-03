@@ -8,6 +8,12 @@ use std::{
     fmt::Debug,
 };
 
+use prost::Message;
+use xmtp_db::association_state::StoredAssociationState;
+use xmtp_proto::{
+    xmtp::identity::associations::AssociationState as AssociationStateProto, ConversionError,
+};
+
 use super::{
     ident,
     member::{Identifier, Member},
@@ -70,6 +76,14 @@ impl TryFrom<MemberIdentifier> for Identifier {
             }
         };
         Ok(ident)
+    }
+}
+
+impl TryFrom<StoredAssociationState> for AssociationState {
+    type Error = ConversionError;
+
+    fn try_from(stored_state: StoredAssociationState) -> Result<Self, Self::Error> {
+        AssociationStateProto::decode(stored_state.state.as_slice())?.try_into()
     }
 }
 

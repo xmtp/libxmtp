@@ -1,23 +1,27 @@
 use futures::FutureExt;
 use std::future::Future;
 use wasm_bindgen::prelude::*;
-use xmtp_mls::storage::{OpfsSAHError, OpfsSAHPoolUtil};
+use xmtp_db::{init_sqlite, OpfsSAHError, OpfsSAHPoolUtil};
 
 #[wasm_bindgen]
 pub struct Opfs;
 
 #[wasm_bindgen]
 impl Opfs {
+  pub async fn init_sqlite_opfs() {
+    init_sqlite().await
+  }
+
   /// Check if the global OPFS object has been initialized
   #[wasm_bindgen]
   pub fn exists() -> bool {
-    xmtp_mls::storage::SQLITE.get().is_some()
+    xmtp_db::SQLITE.get().is_some()
   }
 
   /// gets the error from Opfs, if any.
   #[wasm_bindgen]
   pub fn error() -> Option<String> {
-    if let Some(Err(e)) = xmtp_mls::storage::SQLITE.get() {
+    if let Some(Err(e)) = xmtp_db::SQLITE.get() {
       Some(e.to_string())
     } else {
       None
@@ -91,7 +95,7 @@ where
   F: Fn(&'a OpfsSAHPoolUtil) -> Fut,
   Fut: Future<Output = Result<T, OpfsSAHError>> + 'a,
 {
-  if let Some(pool) = xmtp_mls::storage::SQLITE.get() {
+  if let Some(pool) = xmtp_db::SQLITE.get() {
     match pool {
       Ok(p) => Ok(f(p).await?),
       Err(e) => Err(JsError::new(&e.to_string())),

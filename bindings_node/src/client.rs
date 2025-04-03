@@ -12,10 +12,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::storage::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
@@ -146,9 +146,11 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
+        .await
         .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
+      .await
       .map_err(|e| Error::from_reason(format!("{e} Error creating unencrypted message store")))?,
   };
 

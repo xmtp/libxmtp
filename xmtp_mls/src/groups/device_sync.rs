@@ -6,15 +6,8 @@ pub use crate::utils::WorkerHandle;
 use crate::{
     client::ClientError,
     configuration::NS_IN_HOUR,
-    storage::{
-        consent_record::StoredConsentRecord,
-        group::{ConversationType, GroupQueryArgs, StoredGroup},
-        group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-        DbConnection, NotFound, StorageError,
-    },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncMessage},
-    Client, Store,
+    Client,
 };
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -37,6 +30,14 @@ use xmtp_common::{
     ExponentialBackoff,
 };
 use xmtp_cryptography::utils as crypto_utils;
+use xmtp_db::{
+    consent_record::StoredConsentRecord,
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
+    group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    DbConnection, NotFound, StorageError,
+};
+use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
@@ -75,6 +76,8 @@ pub enum DeviceSyncError {
     IO(#[from] std::io::Error),
     #[error("Serialization/Deserialization Error {0}")]
     Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("reqwest error: {0}")]
@@ -617,7 +620,7 @@ where
 
         let groups =
             conn.find_groups(GroupQueryArgs::default().conversation_type(ConversationType::Group))?;
-        for crate::storage::group::StoredGroup { id, .. } in groups.into_iter() {
+        for xmtp_db::group::StoredGroup { id, .. } in groups.into_iter() {
             let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
@@ -721,17 +724,7 @@ where
                     conn.insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {
-                    if let Err(err) = group_message.store(conn) {
-                        match err {
-                            // this is fine because we are inserting messages that already exist
-                            StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
-                                _,
-                            )) => {}
-                            // otherwise propagate the error
-                            _ => Err(err)?,
-                        }
-                    }
+                    group_message.store_or_ignore(conn)?;
                 }
                 Syncable::ConsentRecord(consent_record) => {
                     if let Some(existing_consent_record) =

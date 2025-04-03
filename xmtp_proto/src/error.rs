@@ -218,6 +218,10 @@ pub enum ConversionError {
         /// type of the item being converted
         r#type: &'static str,
     },
+    #[error("field {} unspecified", _0)]
+    Unspecified(&'static str),
+    #[error("field {} deprecated", _0)]
+    Deprecated(&'static str),
     #[error("type {} has invalid length. expected {} got {}", .item, .expected, .got)]
     InvalidLength {
         /// the item being converted

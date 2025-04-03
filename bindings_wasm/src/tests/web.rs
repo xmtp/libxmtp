@@ -11,7 +11,7 @@ pub async fn test_create_client() {
 
 #[wasm_bindgen_test]
 pub async fn wipe_client_files() {
-  xmtp_mls::storage::init_sqlite().await;
+  xmtp_db::init_sqlite().await;
   Opfs::wipe_files().await.unwrap();
   let client = create_test_client().await;
   let count = Opfs::get_file_count();

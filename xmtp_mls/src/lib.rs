@@ -10,7 +10,6 @@ pub mod identity;
 pub mod identity_updates;
 mod intents;
 mod mutex_registry;
-pub mod storage;
 pub mod subscriptions;
 pub mod types;
 pub mod utils;
@@ -20,8 +19,8 @@ pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use storage::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 use tokio::sync::Mutex as TokioMutex;
+use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 
 pub use xmtp_id::InboxOwner;
 pub use xmtp_proto::api_client::trait_impls::*;
@@ -84,50 +83,8 @@ pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
-/// Inserts a model to the underlying data store, erroring if it already exists
-pub trait Store<StorageConnection> {
-    fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
-}
-
-/// Inserts a model to the underlying data store, silent no-op on unique constraint violations
-pub trait StoreOrIgnore<StorageConnection> {
-    fn store_or_ignore(&self, into: &StorageConnection) -> Result<(), StorageError>;
-}
-
-/// Fetches a model from the underlying data store, returning None if it does not exist
-pub trait Fetch<Model> {
-    type Key;
-    fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
-}
-
-/// Fetches all instances of `Model` from the data store.
-/// Returns an empty list if no items are found or an error if the fetch fails.
-pub trait FetchList<Model> {
-    fn fetch_list(&self) -> Result<Vec<Model>, StorageError>;
-}
-
-/// Fetches a filtered list of `Model` instances matching the specified key.
-/// Logs an error and returns an empty list if no items are found or if an error occurs.
-///
-/// # Parameters
-/// - `key`: The key used to filter the items in the data store.
-pub trait FetchListWithKey<Model> {
-    type Key;
-    fn fetch_list_with_key(&self, keys: &[Self::Key]) -> Result<Vec<Model>, StorageError>;
-}
-
-/// Deletes a model from the underlying data store
-pub trait Delete<Model> {
-    type Key;
-    fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
-}
-
 use crate::groups::GroupError;
-/*
-pub use stream_handles::{
-    spawn, AbortHandle, GenericStreamHandle, StreamHandle, StreamHandleError,
-};
-*/
+
 #[cfg(test)]
 pub(crate) mod tests {
     // Execute once before any tests are run

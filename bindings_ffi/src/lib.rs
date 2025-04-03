@@ -6,6 +6,7 @@ pub mod logger;
 pub mod mls;
 
 pub use crate::inbox_owner::SigningError;
+pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use mls::*;
 use std::error::Error;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -22,7 +23,7 @@ pub enum GenericError {
     #[error("Client builder error: {0}")]
     ClientBuilder(#[from] xmtp_mls::builder::ClientBuilderError),
     #[error("Storage error: {0}")]
-    Storage(#[from] xmtp_mls::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
     #[error("Group error: {0}")]
     GroupError(#[from] xmtp_mls::groups::GroupError),
     #[error("Signature: {0}")]
@@ -61,6 +62,12 @@ pub enum GenericError {
     Grpc(#[from] xmtp_api_grpc::GrpcError),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    #[error("Error initializing rolling log file")]
+    LogInit(#[from] tracing_appender::rolling::InitError),
+    #[error(transparent)]
+    ReloadLog(#[from] tracing_subscriber::reload::Error),
+    #[error("Error initializing debug log file")]
+    Log(String),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
@@ -69,7 +76,7 @@ pub enum FfiSubscribeError {
     #[error("Subscribe Error {0}")]
     Subscribe(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error("Storage error: {0}")]
-    Storage(#[from] xmtp_mls::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 impl From<String> for GenericError {
@@ -111,5 +118,13 @@ mod tests {
     #[test]
     pub fn test_get_version_info() {
         print!("{}", get_version_info());
+    }
+
+    // Execute once before any tests are run
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        crate::logger::init_logger();
+        let _ = fdlimit::raise_fd_limit();
     }
 }

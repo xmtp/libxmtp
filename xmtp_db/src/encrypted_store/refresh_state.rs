@@ -7,11 +7,9 @@ use diesel::{
     sql_types::Integer,
 };
 
-use super::{db_connection::DbConnection, schema::refresh_state, Sqlite};
+use super::{Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{
-    impl_store, impl_store_or_ignore,
-    storage::{NotFound, StorageError},
-    StoreOrIgnore,
+    StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
 };
 
 #[repr(i32)]
@@ -131,7 +129,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::{Store, test_utils::with_connection};
 
     #[xmtp_common::test]
     async fn get_cursor_with_no_existing_state() {

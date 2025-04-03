@@ -22,7 +22,7 @@ enum MessageSendError {
     #[error(transparent)]
     Group(#[from] xmtp_mls::groups::GroupError),
     #[error(transparent)]
-    Storage(#[from] xmtp_mls::storage::StorageError),
+    Storage(#[from] xmtp_db::StorageError),
 }
 
 pub struct GenerateMessages {

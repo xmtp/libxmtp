@@ -10,9 +10,10 @@ use crate::{
     client::Client,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
-    storage::EncryptedMessageStore,
     StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use xmtp_db::EncryptedMessageStore;
+
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::Retry;
 
@@ -222,13 +223,14 @@ pub(crate) mod tests {
     use std::sync::atomic::AtomicBool;
 
     use crate::builder::ClientBuilderError;
+    use crate::identity::Identity;
     use crate::identity::IdentityError;
     use crate::utils::test::TestClient;
     use crate::XmtpApi;
-    use crate::{identity::Identity, storage::identity::StoredIdentity, Store};
     use xmtp_api::test_utils::*;
     use xmtp_api::ApiClientWrapper;
     use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
+    use xmtp_db::{identity::StoredIdentity, Store};
 
     use openmls::credentials::{Credential, CredentialType};
     use prost::Message;
@@ -255,10 +257,8 @@ pub(crate) mod tests {
     };
 
     use super::{ClientBuilder, IdentityStrategy};
-    use crate::{
-        storage::{EncryptedMessageStore, StorageOption},
-        Client, InboxOwner,
-    };
+    use crate::{Client, InboxOwner};
+    use xmtp_db::{EncryptedMessageStore, StorageOption};
 
     async fn register_client<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
@@ -467,6 +467,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmp_path()),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let client1 = Client::builder(identity_strategy.clone())
@@ -549,6 +550,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -592,6 +594,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -634,6 +637,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -672,6 +676,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let stored: StoredIdentity = (&Identity {
@@ -707,8 +712,9 @@ pub(crate) mod tests {
         let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
-        let store_a =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_a = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let nonce = 1;
         let ident = wallet.identifier();
@@ -738,8 +744,9 @@ pub(crate) mod tests {
         drop(client_a);
 
         // Reload the existing store and wallet
-        let store_b =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_b = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let client_b = Client::builder(IdentityStrategy::new(
             inbox_id,
@@ -781,8 +788,9 @@ pub(crate) mod tests {
         // .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
-        let store_d =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_d = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
         let client_d = Client::builder(IdentityStrategy::CachedOnly)
             .api_client(
                 <TestClient as XmtpTestClient>::create_local()
