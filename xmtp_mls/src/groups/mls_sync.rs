@@ -1549,7 +1549,7 @@ where
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed_ns = now_ns - last_ns;
-        if elapsed_ns > interval_ns {
+        if elapsed_ns > interval_ns && self.is_active(provider)? {
             self.add_missing_installations(provider).await?;
             provider
                 .conn_ref()

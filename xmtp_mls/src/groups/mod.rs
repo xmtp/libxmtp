@@ -231,6 +231,8 @@ pub enum GroupError {
     TooManyCharacters { length: usize },
     #[error("Group is paused until version {0} is available")]
     GroupPausedUntilUpdate(String),
+    #[error("Group is inactive")]
+    GroupInactive,
 }
 
 impl RetryableError for GroupError {
@@ -285,7 +287,8 @@ impl RetryableError for GroupError {
             | Self::CredentialError(_)
             | Self::EncodeError(_)
             | Self::TooManyCharacters { .. }
-            | Self::GroupPausedUntilUpdate(_) => false,
+            | Self::GroupPausedUntilUpdate(_)
+            | Self::GroupInactive => false,
         }
     }
 }
@@ -858,6 +861,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         message: &[u8],
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<u8>, GroupError> {
+        if !self.is_active(provider)? {
+            tracing::warn!("Unable to send a message on an inactive group.");
+            return Err(GroupError::GroupInactive);
+        }
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(provider, update_interval_ns)
