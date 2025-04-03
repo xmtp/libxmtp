@@ -216,7 +216,11 @@ impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
 /// i.e "libxmtp.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
-pub fn enter_debug_writer(directory: String, rotation: FfiLogRotation, max_files: u32) -> Result<(), GenericError> {
+pub fn enter_debug_writer(
+    directory: String,
+    rotation: FfiLogRotation,
+    max_files: u32,
+) -> Result<(), GenericError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
         enable_debug_file_inner(directory, rotation, max_files)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
@@ -224,14 +228,18 @@ pub fn enter_debug_writer(directory: String, rotation: FfiLogRotation, max_files
     Ok(())
 }
 
-fn enable_debug_file_inner(directory: String, rotation: FfiLogRotation, max_files: u32) -> Result<(), GenericError> {
+fn enable_debug_file_inner(
+    directory: String,
+    rotation: FfiLogRotation,
+    max_files: u32,
+) -> Result<(), GenericError> {
     let version = env!("CARGO_PKG_VERSION");
     let file_appender = RollingFileAppender::builder()
         .filename_prefix(format!("libxmtp-v{}.log", version))
         .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
-    
+
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
         .finish(file_appender);
