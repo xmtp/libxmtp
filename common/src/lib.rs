@@ -28,8 +28,8 @@ pub mod time;
 pub mod types;
 
 use rand::{
-    distributions::{Alphanumeric, DistString},
     RngCore, SeedableRng,
+    distributions::{Alphanumeric, DistString},
 };
 use rand_chacha::ChaCha20Rng;
 
