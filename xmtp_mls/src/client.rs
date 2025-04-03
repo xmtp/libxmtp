@@ -448,7 +448,7 @@ where
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
-        if self.device_sync.enabled() && !changed_records.is_empty() {
+        if !changed_records.is_empty() {
             let records = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
@@ -1756,10 +1756,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn should_stream_consent() {
-        let alix_wallet = generate_local_wallet();
-        let bo_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         let group = alix
             .create_group_with_inbox_ids(

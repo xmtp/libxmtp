@@ -835,7 +835,7 @@ where
 
                                 // Broadcast those updates for integrators to be notified of changes
                                 let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::PreferencesIncoming(updates),
+                                    SyncEvent::PreferencesChanged(updates),
                                 ));
                             }
                             _ => {

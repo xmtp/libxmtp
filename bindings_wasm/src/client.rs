@@ -8,12 +8,12 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_common::Retry;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
 use crate::identity::Identifier;
@@ -271,7 +271,7 @@ impl Client {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider)
+      .send_sync_request(&provider, &Retry::default())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

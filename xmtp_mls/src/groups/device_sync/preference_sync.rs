@@ -22,6 +22,7 @@ impl UserPreferenceUpdate {
         updates: Vec<Self>,
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
+        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         tracing::info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
@@ -30,6 +31,7 @@ impl UserPreferenceUpdate {
             .send_device_sync_message(
                 &provider,
                 DeviceSyncContent::PreferenceUpdates(updates.clone()),
+                retry,
             )
             .await?;
 
@@ -41,7 +43,7 @@ impl UserPreferenceUpdate {
         // Dispatch the updates to the streams
         client
             .local_events
-            .send(LocalEvents::SyncEvent(SyncEvent::PreferencesIncoming(
+            .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
                 updates.clone(),
             )));
 

@@ -56,7 +56,7 @@ pub enum SyncEvent {
     NewSyncGroupFromWelcome,
     NewSyncGroupMsg,
     PreferencesOutgoing(Vec<UserPreferenceUpdate>),
-    PreferencesIncoming(Vec<UserPreferenceUpdate>),
+    PreferencesChanged(Vec<UserPreferenceUpdate>),
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
@@ -84,7 +84,7 @@ impl LocalEvents {
 
     fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
         match self {
-            Self::SyncEvent(SyncEvent::PreferencesIncoming(updates)) => {
+            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
@@ -94,33 +94,14 @@ impl LocalEvents {
                     .collect();
                 Some(updates)
             }
-            Self::SyncEvent(SyncEvent::PreferencesOutgoing(updates)) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                        _ => None,
-                    })
-                    .collect();
-                Some(updates)
-            }
+
             _ => None,
         }
     }
 
     fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
         match self {
-            Self::SyncEvent(SyncEvent::PreferencesIncoming(updates)) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
-            Self::SyncEvent(SyncEvent::PreferencesOutgoing(updates)) => {
+            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {

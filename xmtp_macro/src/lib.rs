@@ -108,13 +108,12 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
                 // Recursively transform tokens in groups
                 let transformed_stream = transform_question_marks(g.stream().into());
 
-                // Create a new group with the same delimiter and span
                 let mut transformed_group = proc_macro2::Group::new(
                     g.delimiter(),
                     proc_macro2::TokenStream::from(transformed_stream),
                 );
 
-                // Set the span explicitly
+                // Preserve the span
                 let span = g.span();
                 transformed_group.set_span(span);
                 result.extend(quote!(#transformed_group));

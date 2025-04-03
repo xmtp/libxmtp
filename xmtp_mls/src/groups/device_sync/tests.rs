@@ -90,7 +90,9 @@ async fn test_double_sync_works_fine() {
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
     alix2.worker.wait(SyncMetric::PayloadsProcessed, 1).await?;
 
-    alix2.send_sync_request(&alix2.provider).await?;
+    alix2
+        .send_sync_request(&alix2.provider, &Retry::default())
+        .await?;
     alix1.get_sync_group(&alix1.provider)?.sync().await?;
     alix1.worker.wait(SyncMetric::PayloadsSent, 2).await?;
 
