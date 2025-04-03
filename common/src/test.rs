@@ -135,7 +135,7 @@ pub fn logger() {
     use tracing_subscriber::EnvFilter;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("info").unwrap();
+        let filter = EnvFilter::builder().parse("debug").unwrap();
         // .with_default_directive(tracing::metadata::LevelFilter::INFO.into());
         // .parse_lossy("xmtp_mls::subscriptions=debug,xmtp_mls::groups=info");
 

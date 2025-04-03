@@ -181,6 +181,7 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -213,6 +214,7 @@ pub(crate) mod tests {
             assert_eq!(only_update_2.len(), 1);
             assert_eq!(only_update_2[0].sequence_id, 2);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -248,6 +250,7 @@ pub(crate) mod tests {
                 None
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -264,5 +267,6 @@ pub(crate) mod tests {
                 .expect("query should work");
             assert_eq!(sequence_id, 2);
         })
+        .await
     }
 }

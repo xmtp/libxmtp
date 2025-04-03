@@ -342,6 +342,7 @@ mod tests {
                 Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
@@ -386,7 +387,9 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
+                .await
+                .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
