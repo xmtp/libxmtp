@@ -2,7 +2,7 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "../xmtp_db/src/encrypted_store/schema_gen.rs"
+file = "src/storage/encrypted_store/schema_gen.rs"
 
 [migrations_directory]
-dir = "../xmtp_db/migrations"
+dir = "migrations"
