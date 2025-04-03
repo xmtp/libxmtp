@@ -154,7 +154,6 @@ mod tests {
             .unwrap();
 
         // wait for add member intent/commit
-        tracing::error!("B");
         wait_for_min_intents(&alix.provider.conn_ref(), 2).await;
 
         alix_group.send_message(b"hello there").await.unwrap();
@@ -184,7 +183,7 @@ mod tests {
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
-        assert_eq!(old_messages.len(), 3);
+        assert_eq!(old_messages.len(), 6);
 
         let opts = BackupOptions {
             start_ns: None,

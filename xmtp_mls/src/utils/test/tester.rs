@@ -63,6 +63,8 @@ where
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle().unwrap();
 
+        worker.wait_for_init().await.unwrap();
+
         Self {
             owner,
             client,
