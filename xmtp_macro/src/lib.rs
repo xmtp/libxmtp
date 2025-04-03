@@ -30,38 +30,21 @@ pub fn test(
     // Parse the function as an ItemFn
     let mut input_fn = syn::parse_macro_input!(body as syn::ItemFn);
     let is_async = input_fn.sig.asyncness.is_some();
-    let no_wasm = attributes.no_wasm();
 
     // Generate the appropriate test attributes
-    let mut test_attrs = if is_async {
+    let test_attrs = if is_async {
         let flavor = attributes.flavor();
 
-        let mut token_stream = TokenStream::new();
-        token_stream.extend(quote! {
+        quote! {
             #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor))]
-        });
-        if !no_wasm {
-            token_stream.extend(quote!{
             #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
-            });
         }
-
-        token_stream
     } else {
-        let mut token_stream = TokenStream::new();
-        token_stream.extend(quote! {
+        quote! {
             #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), test)]
-        });
-        if !no_wasm {
-            token_stream.extend(quote! {
-                #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
-            });
+            #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
         }
-        token_stream
     };
-    if no_wasm {
-        test_attrs.extend(quote! {#[cfg(not(target_arch = "wasm32"))]});
-    }
 
     // Transform ? to .unwrap() on functions that return ()
     let should_transform = attributes.unwrap_try() && returns_unit(&input_fn.sig.output);
@@ -98,11 +81,11 @@ fn returns_unit(return_type: &syn::ReturnType) -> bool {
 // Transform ? operators to .unwrap() calls at the token level
 fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut result = proc_macro2::TokenStream::new();
-    let mut tokens = proc_macro2::TokenStream::from(tokens)
+    let tokens = proc_macro2::TokenStream::from(tokens)
         .into_iter()
         .peekable();
 
-    while let Some(token) = tokens.next() {
+    for token in tokens {
         match &token {
             proc_macro2::TokenTree::Punct(p) if p.as_char() == '?' => {
                 // Get the span from the question mark token
@@ -144,7 +127,6 @@ struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
     unwrap_try: Option<syn::LitStr>,
-    wasm: Option<syn::LitStr>,
 }
 
 impl Attributes {
@@ -158,11 +140,7 @@ impl Attributes {
     fn unwrap_try(&self) -> bool {
         self.unwrap_try
             .as_ref()
-            .map_or(false, |v| v.value() == "true")
-    }
-
-    fn no_wasm(&self) -> bool {
-        self.wasm.as_ref().map_or(false, |v| v.value() == "false")
+            .is_some_and(|v| v.value() == "true")
     }
 }
 
@@ -176,9 +154,6 @@ impl Attributes {
             return Ok(());
         } else if meta.path.is_ident("unwrap_try") {
             self.unwrap_try = Some(meta.value()?.parse()?);
-            return Ok(());
-        } else if meta.path.is_ident("wasm") {
-            self.wasm = Some(meta.value()?.parse()?);
             return Ok(());
         }
 
