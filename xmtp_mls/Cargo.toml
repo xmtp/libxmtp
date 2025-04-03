@@ -24,7 +24,12 @@ test-utils = [
   "xmtp_api_grpc/test-utils",
   "dep:const_format",
   "xmtp_common/test-utils",
-  "dep:ethers"
+  "dep:ethers",
+  "dep:passkey",
+  "dep:coset",
+  "dep:url",
+  "dep:public-suffix",
+  "dep:futures-executor",
 ]
 bench = [
   "test-utils",
@@ -86,11 +91,15 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
 const_format = { workspace = true, optional = true }
+coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
+futures-executor = { version = "0.3", optional = true }
+passkey = { version = "0.4", optional = true }
+public-suffix = { version = "0.1.2", optional = true }
 toml = { version = "0.8.4", optional = true }
+url = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
-
 
 # Test/Bench Utils
 anyhow = { workspace = true, optional = true }
@@ -141,11 +150,12 @@ fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
-passkey = { version =  "0.4"}
-coset =  { version = "0.3"}
-url = {workspace = true}
+passkey = { version = "0.4" }
+coset = { version = "0.3" }
+url = { workspace = true }
 public-suffix = { version = "0.1.2" }
-futures-executor = { version = "0.3"}
+futures-executor = { version = "0.3" }
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
