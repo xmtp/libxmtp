@@ -1,5 +1,9 @@
-use futures::{FutureExt, Stream, StreamExt};
-use std::{future::Future, pin::Pin, task::Poll};
+use futures::{
+    Stream,
+    future::{Future, FutureExt},
+    stream::StreamExt,
+};
+use std::{pin::Pin, task::Poll};
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]

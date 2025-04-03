@@ -3,10 +3,10 @@ use std::sync::Once;
 use tracing::{Metadata, Subscriber};
 use tracing_flame::{FlameLayer, FlushGuard};
 use tracing_subscriber::{
+    EnvFilter,
     layer::{Context, Filter, Layer, SubscriberExt},
     registry::LookupSpan,
     util::SubscriberInitExt,
-    EnvFilter,
 };
 static INIT: Once = Once::new();
 

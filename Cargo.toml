@@ -75,6 +75,7 @@ pbjson-types = "0.7.0"
 prost = { version = "^0.13", default-features = false }
 prost-types = { version = "^0.13", default-features = false }
 rand = "0.8.5"
+rand_chacha = "0.3.1"
 regex = "1.10.4"
 rustc-hex = "2.1.0"
 serde = { version = "1.0", default-features = false }

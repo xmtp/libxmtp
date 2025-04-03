@@ -1,10 +1,10 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    PublishIdentityUpdateRequest, PublishIdentityUpdateResponse, FILE_DESCRIPTOR_SET,
+    FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
 };
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 
@@ -48,7 +48,7 @@ mod test {
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::identity::api::v1::{
-            PublishIdentityUpdateRequest, FILE_DESCRIPTOR_SET,
+            FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest,
         };
         let pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);

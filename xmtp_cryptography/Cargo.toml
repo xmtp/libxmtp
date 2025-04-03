@@ -22,7 +22,7 @@ k256 = { version = "0.13.3", features = ["ecdh"] }
 openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
 rand = { workspace = true }
-rand_chacha = "0.3.1"
+rand_chacha.workspace = true
 rustc-hex.workspace = true
 serde = { workspace = true }
 sha2.workspace = true

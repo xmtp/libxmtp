@@ -20,8 +20,8 @@ use crate::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 use rand::Rng;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
