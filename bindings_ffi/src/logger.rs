@@ -187,24 +187,51 @@ static WORKER: OnceLock<Arc<Mutex<Option<WorkerGuard>>>> = OnceLock::new();
 static FILE_INITIALIZED: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
+/// Enum representing log file rotation options
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
+pub enum FfiLogRotation {
+    /// Rotate log files every minute
+    Minutely = 0,
+    /// Rotate log files every hour
+    Hourly = 1,
+    /// Rotate log files every day
+    Daily = 2,
+    /// Never rotate log files
+    Never = 3,
+}
+
+impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
+    fn from(rotation: FfiLogRotation) -> Self {
+        match rotation {
+            FfiLogRotation::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
+            FfiLogRotation::Hourly => tracing_appender::rolling::Rotation::HOURLY,
+            FfiLogRotation::Daily => tracing_appender::rolling::Rotation::DAILY,
+            FfiLogRotation::Never => tracing_appender::rolling::Rotation::NEVER,
+        }
+    }
+}
+
 /// turns on logging to a file on-disk in the directory specified.
 /// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
 /// i.e "libxmtp.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
-pub fn enter_debug_writer(directory: String, max_files: u32) -> Result<(), GenericError> {
+pub fn enter_debug_writer(directory: String, rotation: FfiLogRotation, max_files: u32) -> Result<(), GenericError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory, max_files)?;
+        enable_debug_file_inner(directory, rotation, max_files)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
     }
     Ok(())
 }
 
-fn enable_debug_file_inner(directory: String, max_files: u32) -> Result<(), GenericError> {
+fn enable_debug_file_inner(directory: String, rotation: FfiLogRotation, max_files: u32) -> Result<(), GenericError> {
+    let version = env!("CARGO_PKG_VERSION");
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix("libxmtp.log")
+        .filename_prefix(format!("libxmtp-v{}.log", version))
+        .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
+    
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
         .finish(file_appender);
@@ -273,7 +300,7 @@ mod test_logger {
         init_logger();
         let s = xmtp_common::rand_hexstring();
         let path = std::env::temp_dir().join(format!("{}-log-test", s));
-        enter_debug_writer(path.display().to_string(), 10).unwrap();
+        enter_debug_writer(path.display().to_string(), FfiLogRotation::Minutely, 10).unwrap();
         let rand_nums = hex::encode(xmtp_common::rand_vec::<100>());
         tracing::info!("test log");
         tracing::debug!(rand_nums);
