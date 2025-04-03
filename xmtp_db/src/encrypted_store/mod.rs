@@ -137,11 +137,11 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<wasm::Wasm
 #[cfg(target_arch = "wasm32")]
 impl EncryptedMessageStore {
     pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key))
+        Self::new_database(opts, Some(enc_key)).await
     }
 
     pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None)
+        Self::new_database(opts, None).await
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
@@ -149,7 +149,7 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         _enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        let db = wasm::WasmDb::new(&opts)?;
+        let db = wasm::WasmDb::new(&opts).await?;
         let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
@@ -483,7 +483,7 @@ pub(crate) mod tests {
         let db =
             native::NativeDb::new(&opts, Some(EncryptedMessageStore::generate_enc_key())).unwrap();
         #[cfg(target_arch = "wasm32")]
-        let db = wasm::WasmDb::new(&opts).unwrap();
+        let db = wasm::WasmDb::new(&opts).await.unwrap();
 
         let store = EncryptedMessageStore { db, opts };
         store.db.validate(&store.opts).unwrap();
@@ -562,8 +562,8 @@ pub(crate) mod tests {
             // Setup a persistent store
             let store =
                 EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-                .await
-                .unwrap();
+                            .await
+                            .unwrap();
 
             StoredIdentity::new(
                 "dummy_address".to_string(),
@@ -575,7 +575,10 @@ pub(crate) mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
+        let res =
+           
+           
+            EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails
         assert!(

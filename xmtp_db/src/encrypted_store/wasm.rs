@@ -1,12 +1,21 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
-use super::{StorageError, StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
+use super::{StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::AnsiTransactionManager, prelude::*};
 use parking_lot::Mutex;
 use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
 use std::sync::Arc;
+use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
+
+#[derive(Debug, Error)]
+pub enum WasmStorageError {
+    #[error("OPFS {0}")]
+    SAH(#[from] OpfsSAHError),
+    #[error(transparent)]
+    Connection(#[from] diesel::ConnectionError),
+}
 
 #[derive(Clone)]
 pub struct WasmDb {
@@ -20,15 +29,30 @@ pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
 pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
 
 /// Initialize the SQLite WebAssembly Library
+/// Generally this should not be required to call, since it
+/// is called as part of creating a new EncryptedMessageStore.
+/// However, if opfs needs to be used before client creation, this should
+/// be called.
 pub async fn init_sqlite() {
-    let util = SQLITE.get_or_init(|| init_opfs()).await;
+    if let Err(e) = SQLITE.get_or_init(|| init_opfs()).await {
+        tracing::error!("{e}");
+    }
+}
+
+async fn maybe_resize() -> Result<(), WasmStorageError> {
     if let Some(Ok(util)) = SQLITE.get() {
         let capacity = util.get_capacity();
         let used = util.get_file_count();
-        if used > capacity / 2 {
-            util.add_capacity(capacity * 2).await?;
+        if used >= capacity / 2 {
+            let adding = (capacity * 2) - capacity;
+            tracing::debug!(
+                "{used} files in pool, increasing capacity to {}",
+                adding + capacity
+            );
+            util.add_capacity(adding).await?;
         }
     }
+    Ok(())
 }
 
 async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
@@ -81,8 +105,10 @@ impl std::fmt::Debug for WasmDb {
 }
 
 impl WasmDb {
-    pub async fn new(opts: &StorageOption) -> Result<Self, StorageError> {
+    pub async fn new(opts: &StorageOption) -> Result<Self, WasmStorageError> {
         use super::StorageOption::*;
+        init_sqlite().await;
+        maybe_resize().await?;
         let conn = match opts {
             Ephemeral => {
                 let name = xmtp_common::rand_string::<12>();
@@ -103,11 +129,11 @@ impl WasmDb {
 }
 
 impl XmtpDb for WasmDb {
-    type Error = StorageError;
+    type Error = WasmStorageError;
     type Connection = SqliteConnection;
     type TransactionManager = AnsiTransactionManager;
 
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, StorageError> {
+    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error> {
         Ok(DbConnectionPrivate::from_arc_mutex(
             self.conn.clone(),
             None,
@@ -115,15 +141,15 @@ impl XmtpDb for WasmDb {
         ))
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), StorageError> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn release_connection(&self) -> Result<(), StorageError> {
+    fn release_connection(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), StorageError> {
+    fn reconnect(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -145,7 +171,9 @@ mod tests {
         let p = o
             .map(|o| String::from(o))
             .unwrap_or(xmtp_common::tmp_path());
-        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32]).unwrap();
+        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32])
+            .await
+            .unwrap();
         let conn = store.conn().expect("acquiring connection failed");
         let r = f(conn);
         if let Ok(u) = util {
@@ -165,7 +193,9 @@ mod tests {
         let p = o
             .map(|o| String::from(o))
             .unwrap_or(xmtp_common::tmp_path());
-        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32]).unwrap();
+        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32])
+            .await
+            .unwrap();
         let conn = store.conn().expect("acquiring connection failed");
         let r = f(conn).await;
         if let Ok(u) = util {
@@ -191,5 +221,38 @@ mod tests {
             intent.store(&c1).unwrap();
         })
         .await;
+    }
+
+    #[xmtp_common::test]
+    async fn opfs_dynamically_resizes() {
+        use xmtp_common::tmp_path as path;
+        xmtp_common::logger();
+        init_sqlite().await;
+        if let Some(Ok(util)) = SQLITE.get() {
+            util.wipe_files().await.unwrap();
+            let current_capacity = util.get_capacity();
+            if current_capacity > 6 {
+                util.reduce_capacity(current_capacity - 6).await.unwrap();
+            }
+        }
+        with_opfs_async(&*path(), async move |_| {
+            with_opfs_async(&*path(), async move |_| {
+                with_opfs_async(&*path(), async move |_| {
+                    with_opfs(&*path(), |_| {
+                        // should have been resized here
+                        if let Some(Ok(util)) = SQLITE.get() {
+                            let cap = util.get_capacity();
+                            assert_eq!(cap, 12);
+                        } else {
+                            panic!("opfs failed to init")
+                        }
+                    })
+                    .await
+                })
+                .await
+            })
+            .await
+        })
+        .await
     }
 }
