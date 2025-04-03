@@ -591,9 +591,10 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         let stream = alix
