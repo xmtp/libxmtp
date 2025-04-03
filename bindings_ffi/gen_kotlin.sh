@@ -54,7 +54,7 @@ CRATE_VERSION=$(cargo metadata --manifest-path $BINDINGS_MANIFEST --format-versi
 echo "CRATE_VERSION: $CRATE_VERSION"
 
 # Construct the download URL using both versions
-DOWNLOAD_URL="https://github.com/xmtp/libxmtp/releases/download/kotlin-bindings-${CRATE_VERSION}-${VERSION}/LibXMTPKotlinFFI.zip"
+DOWNLOAD_URL="https://github.com/xmtp/libxmtp/releases/download/kotlin-bindings-${CRATE_VERSION}.${VERSION}/LibXMTPKotlinFFI.zip"
 echo "DOWNLOAD_URL: $DOWNLOAD_URL"
 
 # Remove existing zip file if it exists

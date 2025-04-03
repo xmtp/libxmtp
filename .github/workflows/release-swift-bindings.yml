@@ -103,8 +103,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: swift-bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
-          release_name: Swift-Bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
+          tag_name: swift-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
           body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
           draft: false
           prerelease: true
