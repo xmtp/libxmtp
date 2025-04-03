@@ -1442,7 +1442,7 @@ pub(crate) mod tests {
             .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), None)
             .await
             .unwrap();
-        assert_eq!(bob_received_groups, 3);
+        assert_eq!(bob_received_groups, 2);
 
         // Verify Bob initially has no messages
         let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
@@ -1480,8 +1480,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        // 1 to account for the sync group
-        assert_eq!(bob_received_groups_unknown, 1);
+        assert_eq!(bob_received_groups_unknown, 0);
 
         // Verify Bob still has no messages
         assert_eq!(
@@ -1517,7 +1516,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_all, 3);
+        assert_eq!(bob_received_groups_all, 2);
 
         // Verify Bob now has all messages
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
