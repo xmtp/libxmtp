@@ -24,9 +24,9 @@ where
 pub enum SyncMetric {
     Init,
     SyncGroupWelcomesProcessed,
-    RequestsReceived,
-    PayloadsSent,
-    PayloadsProcessed,
+    RequestReceived,
+    PayloadSent,
+    PayloadProcessed,
     HmacSent,
     HmacReceived,
     ConsentSent,
@@ -34,6 +34,7 @@ pub enum SyncMetric {
 
     V1ConsentSent,
     V1HmacSent,
+    V1PayloadSent,
 }
 
 impl<Metric> WorkerHandle<Metric>
@@ -53,7 +54,7 @@ where
         atomic.load(Ordering::SeqCst)
     }
 
-    pub(super) fn increment_metric(&self, metric: Metric) {
+    pub(crate) fn increment_metric(&self, metric: Metric) {
         let mut lock = self.metrics.lock();
         let atomic = lock.entry(metric).or_default();
         atomic.fetch_add(1, Ordering::SeqCst);

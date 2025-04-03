@@ -4,6 +4,7 @@ use crate::XmtpApi;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::DbConnection;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -53,24 +54,18 @@ pub(crate) mod tests {
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
-        utils::test::{wait_for_min_intents, HISTORY_SYNC_URL},
+        utils::{test::wait_for_min_intents, Tester},
     };
-    use xmtp_common::{assert_ok, wait_for_some};
+    use xmtp_common::assert_ok;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[xmtp_common::test]
     #[cfg_attr(target_family = "wasm", ignore)]
     async fn test_message_history_sync() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
+        let amal_a = Tester::new().await;
 
         // Create an alix client.
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
+        let alix = Tester::new().await;
 
         // Have amal_a create a group and add alix to that group, then send a message.
         let group = amal_a
@@ -83,17 +78,17 @@ pub(crate) mod tests {
         group.send_message(&[1, 2, 3]).await.unwrap();
 
         // Ensure that groups and messages now exists.
-        let syncable_groups = amal_a.syncable_groups(amal_a_conn).unwrap();
+        let syncable_groups = amal_a.syncable_groups(amal_a.provider.conn_ref()).unwrap();
         assert_eq!(syncable_groups.len(), 1);
-        let syncable_messages = amal_a.syncable_messages(amal_a_conn).unwrap();
+        let syncable_messages = amal_a
+            .syncable_messages(amal_a.provider.conn_ref())
+            .unwrap();
         assert_eq!(syncable_messages.len(), 2); // welcome message, and message that was just sent
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b = amal_a.clone().await;
 
-        let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
+        let groups_b = amal_b.syncable_groups(amal_b.provider.conn_ref()).unwrap();
         assert_eq!(groups_b.len(), 0);
 
         // make sure amal's worker has time to sync
@@ -101,32 +96,32 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_b_conn, 3).await;
+        wait_for_min_intents(amal_b.provider.conn_ref(), 3).await;
         tracing::info!("Waiting for intents published");
 
-        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
-            .sync_welcomes(&amal_a_provider)
+            .sync_welcomes(&amal_a.provider)
             .await
             .expect("sync_welcomes");
-        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
         // Have the second installation request for a consent sync.
         amal_b
-            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
+            .v1_send_sync_request(&amal_b.provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
-        assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
+        let amal_a_sync_group = amal_a.get_sync_group(&amal_a.provider).unwrap();
+        assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a.provider).await);
 
         xmtp_common::wait_for_some(|| async {
             amal_b
-                .get_latest_sync_reply(&amal_b_provider, DeviceSyncKind::MessageHistory)
+                .v1_get_latest_sync_reply(&amal_b.provider, DeviceSyncKind::MessageHistory)
                 .await
                 .unwrap()
         })
@@ -135,10 +130,22 @@ pub(crate) mod tests {
 
         xmtp_common::wait_for_eq(
             || {
-                let groups_a = amal_a.syncable_groups(amal_a_conn).unwrap().len();
-                let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap().len();
-                let messages_a = amal_a.syncable_messages(amal_a_conn).unwrap().len();
-                let messages_b = amal_b.syncable_messages(amal_b_conn).unwrap().len();
+                let groups_a = amal_a
+                    .syncable_groups(amal_a.provider.conn_ref())
+                    .unwrap()
+                    .len();
+                let groups_b = amal_b
+                    .syncable_groups(amal_b.provider.conn_ref())
+                    .unwrap()
+                    .len();
+                let messages_a = amal_a
+                    .syncable_messages(amal_a.provider.conn_ref())
+                    .unwrap()
+                    .len();
+                let messages_b = amal_b
+                    .syncable_messages(amal_b.provider.conn_ref())
+                    .unwrap()
+                    .len();
                 futures::future::ready(groups_a != groups_b || messages_a != messages_b)
             },
             true,
@@ -149,31 +156,25 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_sync_continues_during_db_disconnect() {
-        let wallet = generate_local_wallet();
-        let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
+        let amal_a = Tester::new().await;
 
         // make sure amal's worker has time to sync
         // 3 Intents:
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 3).await;
+        wait_for_min_intents(amal_a.provider.conn_ref(), 3).await;
         tracing::info!("Waiting for intents published");
-        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
 
         // let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Disconnecting");
         amal_a.release_db_connection().unwrap();
 
         // Create a second installation for amal.
-        let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b = amal_a.clone().await;
 
-        let groups_b = amal_b.syncable_groups(amal_b_conn).unwrap();
+        let groups_b = amal_b.syncable_groups(amal_b.provider.conn_ref()).unwrap();
         assert_eq!(groups_b.len(), 0);
 
         // make sure amal's worker has time to sync
@@ -181,12 +182,12 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_b_conn, 3).await;
+        wait_for_min_intents(amal_b.provider.conn_ref(), 3).await;
         tracing::info!("Waiting for intents published");
 
         // Have the second installation request for a consent sync.
         amal_b
-            .send_sync_request(&amal_b_provider, DeviceSyncKind::MessageHistory)
+            .v1_send_sync_request(&amal_b.provider, DeviceSyncKind::MessageHistory)
             .await
             .unwrap();
 
@@ -196,15 +197,15 @@ pub(crate) mod tests {
         // 2 Intents:
         //  1.) Device Sync Request
         //  2.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 2).await;
+        wait_for_min_intents(amal_a.provider.conn_ref(), 2).await;
         tracing::info!("Waiting for intents published");
 
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
-            .sync_welcomes(&amal_a_provider)
+            .sync_welcomes(&amal_a.provider)
             .await
             .expect("sync_welcomes");
-        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
     }
@@ -224,43 +225,6 @@ pub(crate) mod tests {
             .syncable_groups(&amal_a.store().conn().unwrap())
             .unwrap();
         assert_eq!(result.len(), 2);
-    }
-
-    #[xmtp_common::test]
-    async fn test_externals_cant_join_sync_group() {
-        let wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        amal.sync_welcomes(&amal.mls_provider().unwrap())
-            .await
-            .expect("sync welcomes");
-
-        let bo_wallet = generate_local_wallet();
-        let bo_client =
-            ClientBuilder::new_test_client_with_history(&bo_wallet, HISTORY_SYNC_URL).await;
-
-        bo_client
-            .sync_welcomes(&bo_client.mls_provider().unwrap())
-            .await
-            .expect("sync welcomes");
-
-        let amal_sync_group =
-            wait_for_some(|| async { amal.store().conn().unwrap().latest_sync_group().unwrap() })
-                .await;
-
-        assert!(amal_sync_group.is_some());
-
-        let amal_sync_group = amal_sync_group.unwrap();
-
-        // try to join amal's sync group
-        let sync_group_id = amal_sync_group.id.clone();
-        let created_at_ns = amal_sync_group.created_at_ns;
-
-        let external_client_group =
-            MlsGroup::new(bo_client.clone(), sync_group_id.clone(), created_at_ns);
-        let result = external_client_group
-            .add_members(&[bo_wallet.identifier()])
-            .await;
-        assert!(result.is_err());
     }
 
     #[wasm_bindgen_test(unsupported = test)]

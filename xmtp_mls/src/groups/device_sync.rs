@@ -237,9 +237,29 @@ where
                     }
 
                     // Device Sync V1 events
-                    SyncEvent::Reply { .. } => {}
-                    SyncEvent::Request { .. } => {
-                        // TODO: process v1 requests
+                    SyncEvent::Reply { message_id } => {
+                        let provider = self.client.mls_provider()?;
+                        if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
+                            let content: DeviceSyncContent =
+                                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                            if let DeviceSyncContent::Payload(reply) = content {
+                                self.client
+                                    .v1_process_sync_reply(&provider, reply, &self.handle)
+                                    .await;
+                            }
+                        }
+                    }
+                    SyncEvent::Request { message_id } => {
+                        let provider = self.client.mls_provider()?;
+                        if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
+                            let content: DeviceSyncContent =
+                                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+                            if let DeviceSyncContent::Request(request) = content {
+                                self.client
+                                    .v1_reply_to_sync_request(&provider, request, &self.handle)
+                                    .await?;
+                            }
+                        }
                     }
                 },
                 _ => {}
@@ -374,7 +394,7 @@ where
                     }
 
                     self.process_sync_payload(payload).await?;
-                    handle.increment_metric(SyncMetric::PayloadsProcessed);
+                    handle.increment_metric(SyncMetric::PayloadProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
@@ -643,7 +663,7 @@ where
         self.send_device_sync_message(&provider, content, retry)
             .await?;
 
-        handle.increment_metric(SyncMetric::PayloadsSent);
+        handle.increment_metric(SyncMetric::PayloadSent);
 
         Ok(())
     }

@@ -1017,7 +1017,6 @@ where
         self.sync_welcomes(provider).await?;
         let query_args = GroupQueryArgs {
             consent_states,
-            include_sync_groups: true,
             include_duplicate_dms: true,
             ..GroupQueryArgs::default()
         };
