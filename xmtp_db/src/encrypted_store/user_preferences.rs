@@ -73,6 +73,12 @@ impl HmacKey {
     }
 }
 
+impl Default for HmacKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
         let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
@@ -112,7 +118,7 @@ impl StoredUserPreferences {
 
         let cursor = SyncCursor::load(&sync_cursor);
         let cursor = cursor
-            .and_then(|c| (c.group_id == group_id).then(|| c))
+            .and_then(|c| (c.group_id == group_id).then_some(c))
             .unwrap_or_else(default);
         Ok(cursor)
     }
@@ -120,7 +126,7 @@ impl StoredUserPreferences {
     pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
         let mut pref = Self::load(conn)?;
         pref.sync_cursor = Some(format!("{cursor}"));
-        Ok(pref.store(conn)?)
+        pref.store(conn)
     }
 }
 
@@ -139,14 +145,14 @@ mod tests {
             assert!(pref.hmac_key.is_none());
 
             // loads and stores a default
-            let pref = StoredUserPreferences::load(&conn).unwrap();
+            let pref = StoredUserPreferences::load(conn).unwrap();
             // by default, there is no key
             assert!(pref.hmac_key.is_none());
 
             // set an hmac key
             let hmac_key = HmacKey::new();
-            StoredUserPreferences::store_hmac_key(&conn, &hmac_key).unwrap();
-            let pref = StoredUserPreferences::load(&conn).unwrap();
+            StoredUserPreferences::store_hmac_key(conn, &hmac_key).unwrap();
+            let pref = StoredUserPreferences::load(conn).unwrap();
             // Make sure it saved
             assert_eq!(hmac_key.key.to_vec(), pref.hmac_key.unwrap());
 

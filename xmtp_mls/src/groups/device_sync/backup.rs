@@ -133,7 +133,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[xmtp_common::test(wasm = "false", unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = "true")]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
         use diesel::QueryDsl;
         use xmtp_db::group::ConversationType;
