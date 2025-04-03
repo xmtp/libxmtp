@@ -2798,10 +2798,7 @@ mod tests {
     };
     use xmtp_cryptography::utils::rng;
     use xmtp_db::EncryptionKey;
-    use xmtp_id::associations::{
-        test_utils::WalletTestExt,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    };
+    use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         utils::PasskeyUser,
@@ -2856,21 +2853,6 @@ mod tests {
             Ok(bytes)
         }
     }
-
-    enum InboxOwnerSignatureType {
-        Ecdsa,
-        P256,
-    }
-
-    trait HasEcdsaSignature {}
-    impl HasEcdsaSignature for FfiWalletInboxOwner {}
-
-    pub struct FfiPasskeyInboxOwner {
-        passkey_user: PasskeyUser,
-    }
-
-    trait HasP256Signature {}
-    impl HasP256Signature for FfiWalletInboxOwner {}
 
     #[derive(Default)]
     struct RustStreamCallback {
@@ -3117,6 +3099,10 @@ mod tests {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
     }
+    async fn new_passkey_client() -> Arc<FfiXmtpClient> {
+        let pk_user = PasskeyUser::new().await;
+        new_test_client_with_passkey(pk_user).await
+    }
 
     impl FfiConversation {
         #[cfg(test)]
@@ -3297,7 +3283,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = new_test_client().await;
+        let alex = new_passkey_client().await;
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
