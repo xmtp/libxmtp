@@ -46,8 +46,17 @@ pub enum StorageError {
     #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
     Native(#[from] super::native::NativeStorageError),
     #[cfg(target_arch = "wasm32")]
-    #[cfg_attr(target_arch = "wasm32", error("wasm"))]
-    Wasm,
+    #[cfg_attr(target_arch = "wasm32", error(transparent))]
+    Wasm(#[from] super::wasm::WasmStorageError),
+    #[error("decoding from database failed {}", _0)]
+    Prost(#[from] prost::DecodeError),
+}
+
+impl From<std::convert::Infallible> for StorageError {
+    fn from(_: std::convert::Infallible) -> StorageError {
+        // infallible can never fail/occur
+        unreachable!()
+    }
 }
 
 impl StorageError {

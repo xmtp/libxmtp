@@ -1186,4 +1186,13 @@ pub(crate) mod tests {
         })
         .await
     }
+
+    #[xmtp_common::test]
+    fn new_sync_group_does_not_panic() {
+        let _ = StoredGroup::new_sync_group(
+            xmtp_common::rand_vec::<24>(),
+            100,
+            GroupMembershipState::Allowed,
+        );
+    }
 }

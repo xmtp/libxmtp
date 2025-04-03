@@ -1,13 +1,17 @@
 use futures::FutureExt;
 use std::future::Future;
 use wasm_bindgen::prelude::*;
-use xmtp_mls::storage::{OpfsSAHError, OpfsSAHPoolUtil};
+use xmtp_mls::storage::{init_sqlite, OpfsSAHError, OpfsSAHPoolUtil};
 
 #[wasm_bindgen]
 pub struct Opfs;
 
 #[wasm_bindgen]
 impl Opfs {
+  pub async fn init_sqlite_opfs() {
+    init_sqlite().await
+  }
+
   /// Check if the global OPFS object has been initialized
   #[wasm_bindgen]
   pub fn exists() -> bool {

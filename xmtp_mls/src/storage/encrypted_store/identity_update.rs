@@ -168,7 +168,7 @@ pub(crate) mod tests {
             let second_update = all_updates.last().unwrap();
             assert_eq!(second_update.payload, update_2_payload);
         })
-        .await;
+        .await
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
