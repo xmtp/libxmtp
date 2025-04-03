@@ -1,5 +1,9 @@
 # @xmtp/node-bindings
 
+## 1.1.4
+
+- Made encrypted message store creation async
+
 ## 1.1.3
 
 - Fixed removing inboxes with invalid key packages from groups
