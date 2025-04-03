@@ -15,6 +15,7 @@ prost.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tracing.workspace = true
+tracing-appender = "0.2"
 tracing-subscriber = { workspace = true, features = [
   "registry",
   "env-filter",
