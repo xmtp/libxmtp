@@ -55,8 +55,6 @@ impl OptionsToSave for BackupMetadataSave {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::groups::device_sync::handle::SyncMetric;
-    use crate::groups::GroupError;
     use crate::utils::Tester;
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,

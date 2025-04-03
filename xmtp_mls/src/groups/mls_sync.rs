@@ -2073,8 +2073,9 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        let wallet = generate_local_wallet();
-        let amal_a = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        use crate::utils::Tester;
+        let amal_a = Tester::new().await;
+
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
         amal_a
@@ -2090,7 +2091,7 @@ pub(crate) mod tests {
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 2);
+        assert_eq!(provider.conn_ref().intents_deleted(), 3);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
@@ -2111,9 +2112,9 @@ pub(crate) mod tests {
         });
 
         let published = provider.conn_ref().intents_published();
-        assert_eq!(published, 103);
+        assert_eq!(published, 106);
         let created = provider.conn_ref().intents_created();
-        assert_eq!(created, 103);
+        assert_eq!(created, 106);
         if !errs.is_empty() {
             panic!("Errors during publish");
         }

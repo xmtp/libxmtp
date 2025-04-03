@@ -245,7 +245,7 @@ where
                             if let DeviceSyncContent::Payload(reply) = content {
                                 self.client
                                     .v1_process_sync_reply(&provider, reply, &self.handle)
-                                    .await;
+                                    .await?;
                             }
                         }
                     }

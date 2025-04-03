@@ -1,5 +1,5 @@
+#![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
-
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::DeviceSyncError;
 use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
@@ -35,7 +35,7 @@ pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
-enum Syncable {
+pub(super) enum Syncable {
     Group(StoredGroup),
     GroupMessage(StoredGroupMessage),
     ConsentRecord(StoredConsentRecord),
