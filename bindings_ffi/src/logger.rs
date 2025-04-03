@@ -187,24 +187,126 @@ static WORKER: OnceLock<Arc<Mutex<Option<WorkerGuard>>>> = OnceLock::new();
 static FILE_INITIALIZED: LazyLock<Arc<AtomicBool>> =
     LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
+/// Enum representing log file rotation options
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
+pub enum FfiLogRotation {
+    /// Rotate log files every minute
+    Minutely = 0,
+    /// Rotate log files every hour
+    Hourly = 1,
+    /// Rotate log files every day
+    Daily = 2,
+    /// Never rotate log files
+    Never = 3,
+}
+
+impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
+    fn from(rotation: FfiLogRotation) -> Self {
+        match rotation {
+            FfiLogRotation::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
+            FfiLogRotation::Hourly => tracing_appender::rolling::Rotation::HOURLY,
+            FfiLogRotation::Daily => tracing_appender::rolling::Rotation::DAILY,
+            FfiLogRotation::Never => tracing_appender::rolling::Rotation::NEVER,
+        }
+    }
+}
+
+/// Enum representing log levels
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
+pub enum FfiLogLevel {
+    /// Error level logs only
+    Error = 0,
+    /// Warning level and above
+    Warn = 1,
+    /// Info level and above
+    Info = 2,
+    /// Debug level and above
+    Debug = 3,
+    /// Trace level and all logs
+    Trace = 4,
+}
+
+impl FfiLogLevel {
+    fn to_filter_directive(&self) -> &str {
+        match self {
+            FfiLogLevel::Error => {
+                "xmtp_mls=error,xmtp_id=error,\
+                    xmtp_api=error,xmtp_api_grpc=error,xmtp_proto=error,\
+                    xmtp_common=error,xmtp_api_d14n=error,\
+                    xmtp_content_types=error,xmtp_cryptography=error,\
+                    xmtp_user_preferences=error,xmtpv3=error,xmtp_db=error"
+            }
+            FfiLogLevel::Warn => {
+                "xmtp_mls=warn,xmtp_id=warn,\
+                    xmtp_api=warn,xmtp_api_grpc=warn,xmtp_proto=warn,\
+                    xmtp_common=warn,xmtp_api_d14n=warn,\
+                    xmtp_content_types=warn,xmtp_cryptography=warn,\
+                    xmtp_user_preferences=warn,xmtpv3=warn,xmtp_db=warn"
+            }
+            FfiLogLevel::Info => {
+                "xmtp_mls=info,xmtp_id=info,\
+                    xmtp_api=info,xmtp_api_grpc=info,xmtp_proto=info,\
+                    xmtp_common=info,xmtp_api_d14n=info,\
+                    xmtp_content_types=info,xmtp_cryptography=info,\
+                    xmtp_user_preferences=info,xmtpv3=info,xmtp_db=info"
+            }
+            FfiLogLevel::Debug => FILTER_DIRECTIVE,
+            FfiLogLevel::Trace => {
+                "xmtp_mls=trace,xmtp_id=trace,\
+                    xmtp_api=trace,xmtp_api_grpc=trace,xmtp_proto=trace,\
+                    xmtp_common=trace,xmtp_api_d14n=trace,\
+                    xmtp_content_types=trace,xmtp_cryptography=trace,\
+                    xmtp_user_preferences=trace,xmtpv3=trace,xmtp_db=trace"
+            }
+        }
+    }
+}
+
 /// turns on logging to a file on-disk in the directory specified.
 /// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
 /// i.e "libxmtp.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
-pub fn enter_debug_writer(directory: String, max_files: u32) -> Result<(), GenericError> {
+pub fn enter_debug_writer(
+    directory: String,
+    log_level: FfiLogLevel,
+    rotation: FfiLogRotation,
+    max_files: u32,
+) -> Result<(), GenericError> {
+    enter_debug_writer_with_level(directory, rotation, max_files, log_level)
+}
+
+/// turns on logging to a file on-disk with a specified log level.
+/// files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
+/// i.e "libxmtp.log.2025-04-02"
+/// A maximum of 'max_files' log files are kept.
+#[uniffi::export]
+pub fn enter_debug_writer_with_level(
+    directory: String,
+    rotation: FfiLogRotation,
+    max_files: u32,
+    log_level: FfiLogLevel,
+) -> Result<(), GenericError> {
     if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory, max_files)?;
+        enable_debug_file_inner(directory, rotation, max_files, log_level)?;
         FILE_INITIALIZED.store(true, Ordering::Relaxed);
     }
     Ok(())
 }
 
-fn enable_debug_file_inner(directory: String, max_files: u32) -> Result<(), GenericError> {
+fn enable_debug_file_inner(
+    directory: String,
+    rotation: FfiLogRotation,
+    max_files: u32,
+    log_level: FfiLogLevel,
+) -> Result<(), GenericError> {
+    let version = env!("CARGO_PKG_VERSION");
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix("libxmtp.log")
+        .filename_prefix(format!("libxmtp-v{}.log", version))
+        .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
+
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
         .finish(file_appender);
@@ -213,7 +315,7 @@ fn enable_debug_file_inner(directory: String, max_files: u32) -> Result<(), Gene
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
         let filter = EnvFilter::builder()
-            .parse(FILTER_DIRECTIVE)
+            .parse(log_level.to_filter_directive())
             .unwrap_or_else(|_| EnvFilter::new("info"));
         *l.filter_mut() = filter;
     })?;
@@ -273,10 +375,16 @@ mod test_logger {
         init_logger();
         let s = xmtp_common::rand_hexstring();
         let path = std::env::temp_dir().join(format!("{}-log-test", s));
-        enter_debug_writer(path.display().to_string(), 10).unwrap();
+        enter_debug_writer(
+            path.display().to_string(),
+            FfiLogLevel::Trace,
+            FfiLogRotation::Minutely,
+            10,
+        )
+        .unwrap();
         let rand_nums = hex::encode(xmtp_common::rand_vec::<100>());
         tracing::info!("test log");
-        tracing::debug!(rand_nums);
+        tracing::trace!(rand_nums);
         tracing::info!("test log");
         exit_debug_writer().unwrap();
 
