@@ -29,17 +29,21 @@ pub mod types;
 
 use rand::{
     distributions::{Alphanumeric, DistString},
-    RngCore,
+    RngCore, SeedableRng,
 };
-use xmtp_cryptography::utils as crypto_utils;
+use rand_chacha::ChaCha20Rng;
+
+pub fn rng() -> ChaCha20Rng {
+    ChaCha20Rng::from_entropy()
+}
 
 pub fn rand_string<const N: usize>() -> String {
-    Alphanumeric.sample_string(&mut crypto_utils::rng(), N)
+    Alphanumeric.sample_string(&mut rng(), N)
 }
 
 pub fn rand_array<const N: usize>() -> [u8; N] {
     let mut buffer = [0u8; N];
-    crypto_utils::rng().fill_bytes(&mut buffer);
+    rng().fill_bytes(&mut buffer);
     buffer
 }
 
