@@ -113,6 +113,7 @@ mod tests {
                 .unwrap();
             assert!(all_entries.is_empty());
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -141,5 +142,6 @@ mod tests {
                 .unwrap();
             assert_eq!(earlier_entries.len(), 2);
         })
+        .await
     }
 }

@@ -23,7 +23,7 @@ impl EncryptedMessageStore {
 }
 
 /// Test harness that loads an Ephemeral store.
-pub fn with_connection<F, R>(fun: F) -> R
+pub async fn with_connection<F, R>(fun: F) -> R
 where
     F: FnOnce(&DbConnection) -> R,
 {
@@ -31,6 +31,7 @@ where
         StorageOption::Ephemeral,
         EncryptedMessageStore::generate_enc_key(),
     )
+    .await
     .unwrap();
     let conn = &store.conn().expect("acquiring a Connection failed");
     fun(conn)
@@ -46,6 +47,7 @@ where
         StorageOption::Ephemeral,
         EncryptedMessageStore::generate_enc_key(),
     )
+    .await
     .unwrap();
     let conn = store.conn().expect("acquiring a Connection failed");
     fun(conn).await
@@ -58,6 +60,12 @@ impl EncryptedMessageStore {
             StorageOption::Persistent(tmp_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .expect("constructing message store failed.")
+    }
+
+    pub async fn new_test_with_path(path: &str) -> Self {
+        EncryptedMessageStore::new(StorageOption::Persistent(path.to_string()), [0u8; 32]).await
+            .expect("constructing message store failed.")
     }
 }

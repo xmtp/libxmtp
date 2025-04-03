@@ -120,5 +120,6 @@ pub(super) mod tests {
 
             assert_eq!(all_groups.len(), 1);
         })
+        .await
     }
 }

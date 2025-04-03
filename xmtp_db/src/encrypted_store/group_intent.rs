@@ -1,3 +1,4 @@
+use derive_builder::Builder;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -126,19 +127,25 @@ impl Delete<StoredGroupIntent> for DbConnection {
 /// NewGroupIntent is the data needed to create a new group intent.
 /// Do not use this struct directly outside of the storage module.
 /// Use the `queue_intent` method on `MlsGroup` instead.
-#[derive(Insertable, Debug, PartialEq, Clone)]
+#[derive(Insertable, Debug, PartialEq, Clone, Builder)]
 #[diesel(table_name = group_intents)]
+#[builder(setter(into), build_fn(error = "StorageError"))]
 pub struct NewGroupIntent {
     pub kind: IntentKind,
     pub group_id: Vec<u8>,
     pub data: Vec<u8>,
-    pub state: IntentState,
     pub should_push: bool,
+    #[builder(default = "IntentState::ToPublish")]
+    pub state: IntentState,
 }
 
 impl_store!(NewGroupIntent, group_intents);
 
 impl NewGroupIntent {
+    pub fn builder() -> NewGroupIntentBuilder {
+        NewGroupIntentBuilder::default()
+    }
+
     pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>, should_push: bool) -> Self {
         Self {
             kind,
@@ -471,6 +478,7 @@ pub(crate) mod tests {
 
             assert_eq!(fetched.id, id);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -549,6 +557,7 @@ pub(crate) mod tests {
             results = conn.find_group_intents(group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -591,6 +600,7 @@ pub(crate) mod tests {
             assert_eq!(find_result.id, intent.id);
             assert_eq!(find_result.published_in_epoch, Some(1));
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -636,6 +646,7 @@ pub(crate) mod tests {
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -680,6 +691,7 @@ pub(crate) mod tests {
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -715,6 +727,7 @@ pub(crate) mod tests {
                 StorageError::NotFound(_)
             ));
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -742,5 +755,6 @@ pub(crate) mod tests {
             intent = find_first_intent(conn, group_id.clone());
             assert_eq!(intent.publish_attempts, 2);
         })
+        .await
     }
 }
