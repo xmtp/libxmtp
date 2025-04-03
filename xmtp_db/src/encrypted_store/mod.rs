@@ -41,6 +41,8 @@ pub use diesel::sqlite::{Sqlite, SqliteConnection};
 pub use native::RawDbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use sqlcipher_connection::EncryptedConnection;
+#[cfg(target_arch = "wasm32")]
+pub use wasm::{OpfsSAHError, OpfsSAHPoolUtil, SQLITE, init_sqlite};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProviderPrivate};
 use crate::Store;
@@ -106,18 +108,18 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::Na
 impl EncryptedMessageStore {
     /// Created a new store
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key))
+    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_database(opts, Some(enc_key)).await
     }
 
     /// Create a new, unencrypted database
-    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None)
+    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+        Self::new_database(opts, None).await
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
     #[tracing::instrument(level = "debug", skip_all)]
-    fn new_database(
+    async fn new_database(
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
@@ -134,20 +136,20 @@ pub type EncryptedMessageStore = self::private::EncryptedMessageStore<wasm::Wasm
 
 #[cfg(target_arch = "wasm32")]
 impl EncryptedMessageStore {
-    pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key))
+    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_database(opts, Some(enc_key)).await
     }
 
-    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None)
+    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+        Self::new_database(opts, None).await
     }
 
     /// This function is private so that an unencrypted database cannot be created by accident
-    fn new_database(
+    async fn new_database(
         opts: StorageOption,
         _enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        let db = wasm::WasmDb::new(&opts)?;
+        let db = wasm::WasmDb::new(&opts).await?;
         let mut this = Self { db, opts };
         this.init_db()?;
         Ok(this)
@@ -453,6 +455,7 @@ pub(crate) mod tests {
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = &store.conn().unwrap();
 
@@ -473,6 +476,7 @@ pub(crate) mod tests {
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
             let conn = &store.conn().unwrap();
 
@@ -495,6 +499,7 @@ pub(crate) mod tests {
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
             let conn = &store.conn().unwrap();
 
@@ -527,7 +532,7 @@ pub(crate) mod tests {
         let db =
             native::NativeDb::new(&opts, Some(EncryptedMessageStore::generate_enc_key())).unwrap();
         #[cfg(target_arch = "wasm32")]
-        let db = wasm::WasmDb::new(&opts).unwrap();
+        let db = wasm::WasmDb::new(&opts).await.unwrap();
 
         let store = EncryptedMessageStore { db, opts };
         store.db.validate(&store.opts).unwrap();
@@ -606,6 +611,7 @@ pub(crate) mod tests {
             // Setup a persistent store
             let store =
                 EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
+                    .await
                     .unwrap();
 
             StoredIdentity::new(
@@ -618,7 +624,8 @@ pub(crate) mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
+        let res =
+            EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails
         assert!(
@@ -641,6 +648,7 @@ pub(crate) mod tests {
                 StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             let conn1 = &store.conn().unwrap();

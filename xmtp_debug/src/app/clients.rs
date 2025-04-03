@@ -80,14 +80,17 @@ async fn new_client_inner(
     ))
     .api_client(api)
     .with_remote_verifier()?
-    .store(EncryptedMessageStore::new(
-        StorageOption::Persistent(
-            dir.into_os_string()
-                .into_string()
-                .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
-        ),
-        [0u8; 32],
-    )?)
+    .store(
+        EncryptedMessageStore::new(
+            StorageOption::Persistent(
+                dir.into_os_string()
+                    .into_string()
+                    .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
+            ),
+            [0u8; 32],
+        )
+        .await?,
+    )
     .build()
     .await?;
 
@@ -130,7 +133,8 @@ async fn existing_client_inner(
     let store = EncryptedMessageStore::new(
         StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
         [0u8; 32],
-    );
+    )
+    .await;
     if let Err(e) = &store {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }

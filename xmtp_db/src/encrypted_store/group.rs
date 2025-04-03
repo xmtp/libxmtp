@@ -659,6 +659,7 @@ pub(crate) mod tests {
                 test_group
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -676,6 +677,7 @@ pub(crate) mod tests {
             let fetched_group: Option<StoredGroup> = conn.fetch(&test_group.id).unwrap();
             assert_eq!(fetched_group, Some(test_group));
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -696,6 +698,7 @@ pub(crate) mod tests {
                 }
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -836,6 +839,7 @@ pub(crate) mod tests {
             let conversation_type = fetched_group.unwrap().conversation_type;
             assert_eq!(conversation_type, ConversationType::Group);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -868,6 +872,7 @@ pub(crate) mod tests {
             assert_eq!(allowed_groups.len(), 1);
             assert_eq!(allowed_groups[0].id, sync_group.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -938,6 +943,7 @@ pub(crate) mod tests {
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -954,6 +960,7 @@ pub(crate) mod tests {
             }
             assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
+        .await
     }
 
     #[xmtp_common::test]

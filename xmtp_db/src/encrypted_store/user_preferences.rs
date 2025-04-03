@@ -156,7 +156,8 @@ mod tests {
                 .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
                 .unwrap();
             assert_eq!(result.len(), 1);
-        });
+        })
+        .await;
     }
 
     #[xmtp_common::test]
@@ -184,6 +185,7 @@ mod tests {
             StoredUserPreferences::store_sync_cursor(conn, &cursor).unwrap();
             let db_cursor = StoredUserPreferences::sync_cursor(conn, &cursor.group_id).unwrap();
             assert_eq!(cursor, db_cursor);
-        });
+        })
+        .await;
     }
 }

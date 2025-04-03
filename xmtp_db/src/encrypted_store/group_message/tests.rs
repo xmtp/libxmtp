@@ -35,6 +35,7 @@ async fn it_does_not_error_on_empty_messages() {
         let id = vec![0x0];
         assert_eq!(conn.get_group_message(id).unwrap(), None);
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -53,6 +54,7 @@ async fn it_gets_messages() {
             message.decrypted_message_bytes
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -66,6 +68,7 @@ async fn it_cannot_insert_message_without_group() {
             StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
         );
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -100,6 +103,7 @@ async fn it_gets_many_messages() {
             msg.sent_at_ns
         });
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -150,6 +154,7 @@ async fn it_gets_messages_by_time() {
             .unwrap();
         assert_eq!(messages.len(), 2);
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -196,6 +201,7 @@ async fn it_deletes_middle_message_by_expiration_time() {
                 .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
         ); // Message 3
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -250,6 +256,7 @@ async fn it_gets_messages_by_kind() {
             .unwrap();
         assert_eq!(membership_changes.len(), 15);
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -302,6 +309,7 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(messages_desc[2].sent_at_ns, 10_000);
         assert_eq!(messages_desc[3].sent_at_ns, 1_000);
     })
+    .await
 }
 
 #[xmtp_common::test]
@@ -375,4 +383,5 @@ async fn it_gets_messages_by_content_type() {
         assert!(!should_push(updated_messages[0].content_type.to_string()));
         assert_eq!(updated_messages[0].sent_at_ns, 3_000);
     })
+    .await
 }

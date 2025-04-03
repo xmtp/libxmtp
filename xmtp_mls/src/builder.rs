@@ -499,6 +499,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmp_path()),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let client1 = Client::builder(identity_strategy.clone())
@@ -581,6 +582,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -624,6 +626,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -666,6 +669,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let nonce = 0;
         let ident = generate_local_wallet().identifier();
@@ -704,6 +708,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(tmpdb),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let stored: StoredIdentity = (&Identity {
@@ -739,8 +744,9 @@ pub(crate) mod tests {
         let db_key = EncryptedMessageStore::generate_enc_key();
 
         // Generate a new Wallet + Store
-        let store_a =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_a = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let nonce = 1;
         let ident = wallet.identifier();
@@ -770,8 +776,9 @@ pub(crate) mod tests {
         drop(client_a);
 
         // Reload the existing store and wallet
-        let store_b =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_b = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
 
         let client_b = Client::builder(IdentityStrategy::new(
             inbox_id,
@@ -813,8 +820,9 @@ pub(crate) mod tests {
         // .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
-        let store_d =
-            EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key).unwrap();
+        let store_d = EncryptedMessageStore::new(StorageOption::Persistent(tmpdb.clone()), db_key)
+            .await
+            .unwrap();
         let client_d = Client::builder(IdentityStrategy::CachedOnly)
             .api_client(
                 <TestClient as XmtpTestClient>::create_local()

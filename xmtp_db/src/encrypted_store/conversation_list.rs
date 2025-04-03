@@ -221,6 +221,7 @@ pub(crate) mod tests {
                 "Last message should be the most recent one"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -262,6 +263,7 @@ pub(crate) mod tests {
                 "Group created before the last message with no messages should come last"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -310,6 +312,7 @@ pub(crate) mod tests {
                 "Last message should now match the second (newest) message"
             );
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -382,5 +385,6 @@ pub(crate) mod tests {
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
         })
+        .await
     }
 }

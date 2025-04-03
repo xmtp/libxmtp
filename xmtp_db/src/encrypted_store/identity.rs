@@ -53,6 +53,7 @@ pub(crate) mod tests {
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = &store.conn().unwrap();
 
