@@ -1,6 +1,7 @@
 use super::D14nClient;
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
+use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
 use xmtp_proto::traits::Client;
@@ -14,7 +15,6 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
-use xmtp_proto::XmtpApiError;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]

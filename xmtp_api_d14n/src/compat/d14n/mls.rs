@@ -1,6 +1,7 @@
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
 use xmtp_common::RetryableError;
+use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
@@ -10,7 +11,6 @@ use xmtp_proto::v4_utils::{
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
-use xmtp_proto::XmtpApiError;
 
 use super::D14nClient;
 

@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
@@ -49,7 +49,7 @@ mod test {
     #[xmtp_common::test]
     fn test_file_descriptor() {
         use xmtp_proto::xmtp::xmtpv4::payer_api::{
-            PublishClientEnvelopesRequest, FILE_DESCRIPTOR_SET,
+            FILE_DESCRIPTOR_SET, PublishClientEnvelopesRequest,
         };
 
         let pnq = crate::path_and_query::<PublishClientEnvelopesRequest>(FILE_DESCRIPTOR_SET);

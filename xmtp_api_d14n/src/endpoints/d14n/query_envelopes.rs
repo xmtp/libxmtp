@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
@@ -90,7 +90,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, FILE_DESCRIPTOR_SET};
+        use xmtp_proto::xmtp::xmtpv4::message_api::{FILE_DESCRIPTOR_SET, QueryEnvelopesRequest};
         let pnq = crate::path_and_query::<QueryEnvelopesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }

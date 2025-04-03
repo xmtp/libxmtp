@@ -1,10 +1,10 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    get_inbox_ids_request, GetInboxIdsRequest, GetInboxIdsResponse, FILE_DESCRIPTOR_SET,
+    FILE_DESCRIPTOR_SET, GetInboxIdsRequest, GetInboxIdsResponse, get_inbox_ids_request,
 };
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
@@ -66,7 +66,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::identity::api::v1::{GetInboxIdsRequest, FILE_DESCRIPTOR_SET};
+        use xmtp_proto::xmtp::identity::api::v1::{FILE_DESCRIPTOR_SET, GetInboxIdsRequest};
 
         let pnq = crate::path_and_query::<GetInboxIdsRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
@@ -78,7 +78,7 @@ mod test {
         let client = client.build().await.unwrap();
         let endpoint = GetInboxIds::builder()
             .addresses(vec![
-                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string()
+                "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".to_string(),
             ])
             .build()
             .unwrap();

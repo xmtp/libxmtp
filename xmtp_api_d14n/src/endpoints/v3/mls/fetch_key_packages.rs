@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
@@ -45,7 +45,7 @@ mod test {
 
     #[xmtp_common::test]
     fn test_file_descriptor() {
-        use xmtp_proto::xmtp::mls::api::v1::{FetchKeyPackagesRequest, FILE_DESCRIPTOR_SET};
+        use xmtp_proto::xmtp::mls::api::v1::{FILE_DESCRIPTOR_SET, FetchKeyPackagesRequest};
         let pnq = crate::path_and_query::<FetchKeyPackagesRequest>(FILE_DESCRIPTOR_SET);
         println!("{}", pnq);
     }
