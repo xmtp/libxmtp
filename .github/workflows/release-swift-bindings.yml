@@ -89,14 +89,14 @@ jobs:
         id: checksum
         working-directory: bindings_ffi
         run: |
-          echo "::set-output name=checksum::$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')"
+          echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> $GITHUB_OUTPUT
       - name: Get short SHA
         id: slug
-        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
       - name: Get crate version
         id: version
         run: |
-          echo "::set-output name=value::$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')"
+          echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
@@ -117,3 +117,99 @@ jobs:
           asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
           asset_name: LibXMTPSwiftFFI.zip
           asset_content_type: application/zip
+      
+  update-swift-repo:
+    needs: [package-swift]
+    runs-on: warp-macos-13-arm64-6x
+    steps:
+      - name: Checkout libxmtp
+        uses: actions/checkout@v4
+        with:
+          path: libxmtp
+      
+      - name: Checkout libxmtp-swift
+        uses: actions/checkout@v4
+        with:
+          repository: xmtp/libxmtp-swift
+          path: libxmtp-swift
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+      
+      - name: Get version and SHA
+        id: version_info
+        run: |
+          cd libxmtp
+          VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
+          SHA7=$(echo ${GITHUB_SHA} | cut -c1-7)
+          RELEASE_TAG="swift-bindings-${VERSION}.${SHA7}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
+          echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+      
+      - name: Create branch in libxmtp-swift
+        run: |
+          cd libxmtp-swift
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b update-to-${{ steps.version_info.outputs.release_tag }}
+      
+      - name: Run Swift local script
+        run: |
+          cd libxmtp
+          bindings_ffi/run_swift_local.sh ../libxmtp-swift
+      
+      - name: Update LibXMTP.podspec
+        run: |
+          cd libxmtp-swift
+          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
+          VERSION="${{ steps.version_info.outputs.version }}"
+          
+          # Update version in podspec
+          sed -i '' "s/s.version *= *\"[0-9.]*\"/s.version      = \"${VERSION}\"/" LibXMTP.podspec
+          
+          # Update source URL in podspec
+          sed -i '' "s|s.source *= *{.*}|s.source       = { :http => \"${RELEASE_URL}\" }|" LibXMTP.podspec
+          
+          # Verify podspec
+          pod spec lint LibXMTP.podspec || echo "Podspec validation failed but continuing"
+      
+      - name: Get checksum from release
+        id: get_checksum
+        run: |
+          cd libxmtp
+          CHECKSUM=$(curl -s https://api.github.com/repos/xmtp/libxmtp/releases/tags/${{ steps.version_info.outputs.release_tag }} | jq -r '.body' | grep -o '[a-f0-9]\{64\}')
+          echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
+      
+      - name: Update Package.swift
+        run: |
+          cd libxmtp-swift
+          RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
+          CHECKSUM="${{ steps.get_checksum.outputs.checksum }}"
+          
+          # Update URL and checksum in Package.swift
+          sed -i '' "s|url: \"https://github.com/xmtp/libxmtp/releases/download/.*\"|url: \"${RELEASE_URL}\"|" Package.swift
+          sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
+      
+      - name: Commit and push changes
+        run: |
+          cd libxmtp-swift
+          git add -A
+          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+          git push origin update-to-${{ steps.version_info.outputs.release_tag }}
+      
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+          path: libxmtp-swift
+          commit-message: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+          branch: update-to-${{ steps.version_info.outputs.release_tag }}
+          base: main
+          title: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+          body: |
+            This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}.
+            
+            Changes:
+            - Updated Sources directory with latest Swift bindings
+            - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
+            - Updated binary URLs to point to the new release
+            - Updated checksum in Package.swift
