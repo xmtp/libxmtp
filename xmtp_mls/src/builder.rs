@@ -152,7 +152,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         );
 
         // start workers
-        if matches!(device_sync_worker_mode, SyncWorkerMode::Enabled) {
+        if !matches!(device_sync_worker_mode, SyncWorkerMode::Disabled) {
             client.start_sync_worker();
         }
         client.start_disappearing_messages_cleaner_worker();

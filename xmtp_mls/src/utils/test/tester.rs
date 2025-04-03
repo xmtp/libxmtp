@@ -1,9 +1,6 @@
 use crate::{
     builder::ClientBuilder,
-    groups::{
-        device_sync::handle::{SyncMetric, WorkerHandle},
-        MlsGroup,
-    },
+    groups::device_sync::handle::{SyncMetric, WorkerHandle},
 };
 use ethers::signers::LocalWallet;
 use parking_lot::Mutex;
@@ -72,11 +69,6 @@ where
             provider: Arc::new(provider),
             worker,
         }
-    }
-
-    pub(crate) async fn sync_group(&self) -> MlsGroup<FullXmtpClient> {
-        self.worker.wait_for_init().await.unwrap();
-        self.get_sync_group(&self.provider).unwrap()
     }
 }
 

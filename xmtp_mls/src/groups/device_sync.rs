@@ -210,6 +210,10 @@ where
                                 &self.retry,
                             )
                             .await?;
+
+                        // Send the HMAC as well
+                        UserPreferenceUpdate::sync_hmac(&self.client, &self.handle, &self.retry)
+                            .await?;
                     }
                     SyncEvent::NewSyncGroupMsg => {
                         let provider = self.client.mls_provider()?;

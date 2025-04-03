@@ -162,14 +162,12 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
     pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
+
+    #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
 }
 
 impl DeviceSync {
-    pub(crate) fn enabled(&self) -> bool {
-        matches!(self.mode, SyncWorkerMode::Enabled)
-    }
-
     pub(crate) fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
         self.worker_handle.lock().as_ref().cloned()
     }

@@ -41,7 +41,7 @@ impl UserPreferenceUpdate {
         });
 
         // Dispatch the updates to the streams
-        client
+        let _ = client
             .local_events
             .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
                 updates.clone(),
@@ -49,6 +49,24 @@ impl UserPreferenceUpdate {
 
         // TODO: v1 support - remove this on next hammer
         Self::v1_sync_across_devices(updates, client, handle).await?;
+
+        Ok(())
+    }
+
+    pub(super) async fn sync_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
+        client: &Client<C, V>,
+        handle: &WorkerHandle<SyncMetric>,
+        retry: &Retry,
+    ) -> Result<(), DeviceSyncError> {
+        let provider = client.mls_provider()?;
+        let pref = StoredUserPreferences::load(provider.conn_ref())?;
+
+        let Some(key) = pref.hmac_key else {
+            tracing::warn!("Attempted to send hmac key over sync, but did not have one to sync.");
+            return Ok(());
+        };
+
+        Self::sync(vec![Self::HmacKeyUpdate { key }], client, handle, retry).await?;
 
         Ok(())
     }
@@ -191,16 +209,16 @@ mod tests {
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {
         let amal_a = Tester::new().await;
-        let amal_b = amal_a.clone().await;
         amal_a.wait_for_sync_worker_init().await;
+        let amal_b = amal_a.clone().await;
         amal_b.wait_for_sync_worker_init().await;
 
         amal_a.sync_welcomes(&amal_a.provider).await?;
-        amal_a.worker.wait(SyncMetric::HmacSent, 1).await?;
-        amal_a.worker.wait(SyncMetric::V1HmacSent, 1).await?;
+        amal_a.worker.wait(SyncMetric::HmacSent, 2).await?;
+        amal_a.worker.wait(SyncMetric::V1HmacSent, 2).await?;
 
         // Wait for a to process the new hmac key
-        amal_b.sync_group().await.sync().await?;
+        amal_b.get_sync_group(&amal_b.provider)?.sync().await?;
         amal_b.worker.wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
