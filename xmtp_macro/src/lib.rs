@@ -30,30 +30,41 @@ pub fn test(
     // Parse the function as an ItemFn
     let mut input_fn = syn::parse_macro_input!(body as syn::ItemFn);
     let is_async = input_fn.sig.asyncness.is_some();
+    let no_wasm = attributes.no_wasm();
 
     // Generate the appropriate test attributes
-    let test_attrs = if is_async {
-        let flavor = attributes
-            .flavor
-            .unwrap_or(syn::LitStr::new("current_thread", Span::call_site()));
+    let mut test_attrs = if is_async {
+        let flavor = attributes.flavor();
 
-        quote! {
-            #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
+        let mut token_stream = TokenStream::new();
+        token_stream.extend(quote! {
             #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor))]
-        }
-    } else {
-        quote! {
+        });
+        if !no_wasm {
+            token_stream.extend(quote!{
             #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
-            #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), test)]
+            });
         }
+
+        token_stream
+    } else {
+        let mut token_stream = TokenStream::new();
+        token_stream.extend(quote! {
+            #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), test)]
+        });
+        if !no_wasm {
+            token_stream.extend(quote! {
+                #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
+            });
+        }
+        token_stream
     };
+    if no_wasm {
+        test_attrs.extend(quote! {#[cfg(not(target_arch = "wasm32"))]});
+    }
 
     // Transform ? to .unwrap() on functions that return ()
-    let should_transform = attributes
-        .unwrap_try
-        .as_ref()
-        .map_or(false, |v| v.value() == "true")
-        && returns_unit(&input_fn.sig.output);
+    let should_transform = attributes.unwrap_try() && returns_unit(&input_fn.sig.output);
     if should_transform {
         let input_fn_tokens = quote!(#input_fn);
         let transformed_tokens = transform_question_marks(input_fn_tokens.into());
@@ -133,6 +144,26 @@ struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
     unwrap_try: Option<syn::LitStr>,
+    wasm: Option<syn::LitStr>,
+}
+
+impl Attributes {
+    fn flavor(&self) -> syn::LitStr {
+        self.flavor
+            .as_ref()
+            .cloned()
+            .unwrap_or(syn::LitStr::new("current_thread", Span::call_site()))
+    }
+
+    fn unwrap_try(&self) -> bool {
+        self.unwrap_try
+            .as_ref()
+            .map_or(false, |v| v.value() == "true")
+    }
+
+    fn no_wasm(&self) -> bool {
+        self.wasm.as_ref().map_or(false, |v| v.value() == "false")
+    }
 }
 
 impl Attributes {
@@ -145,6 +176,9 @@ impl Attributes {
             return Ok(());
         } else if meta.path.is_ident("unwrap_try") {
             self.unwrap_try = Some(meta.value()?.parse()?);
+            return Ok(());
+        } else if meta.path.is_ident("wasm") {
+            self.wasm = Some(meta.value()?.parse()?);
             return Ok(());
         }
 
