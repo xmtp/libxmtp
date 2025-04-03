@@ -1,8 +1,7 @@
 use super::{export_stream::BatchExportStream, OptionsToSave, BACKUP_VERSION};
-use crate::{
-    groups::device_sync::{DeviceSyncError, NONCE_SIZE},
-    XmtpOpenMlsProvider,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::groups::device_sync::DeviceSyncError;
+use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{pin_mut, task::Context, StreamExt};
@@ -143,7 +142,7 @@ impl AsyncRead for BackupExporter {
                 }
                 Stage::Elements => match this.stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(element)) => element
-                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
+                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?
                         .encode_to_vec(),
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(None) => {
