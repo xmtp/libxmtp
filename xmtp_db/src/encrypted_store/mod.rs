@@ -562,8 +562,8 @@ pub(crate) mod tests {
             // Setup a persistent store
             let store =
                 EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-                            .await
-                            .unwrap();
+                    .await
+                    .unwrap();
 
             StoredIdentity::new(
                 "dummy_address".to_string(),
@@ -576,8 +576,6 @@ pub(crate) mod tests {
 
         enc_key[3] = 145; // Alter the enc_key
         let res =
-           
-           
             EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key).await;
 
         // Ensure it fails

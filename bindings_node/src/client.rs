@@ -146,9 +146,11 @@ pub async fn create_client(
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
       EncryptedMessageStore::new(storage_option, key)
+        .await
         .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
     }
     None => EncryptedMessageStore::new_unencrypted(storage_option)
+      .await
       .map_err(|e| Error::from_reason(format!("{e} Error creating unencrypted message store")))?,
   };
 

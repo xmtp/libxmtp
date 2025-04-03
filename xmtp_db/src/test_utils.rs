@@ -65,7 +65,8 @@ impl EncryptedMessageStore {
     }
 
     pub async fn new_test_with_path(path: &str) -> Self {
-        EncryptedMessageStore::new(StorageOption::Persistent(path.to_string()), [0u8; 32]).await
+        EncryptedMessageStore::new(StorageOption::Persistent(path.to_string()), [0u8; 32])
+            .await
             .expect("constructing message store failed.")
     }
 }
