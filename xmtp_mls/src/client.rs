@@ -1758,6 +1758,8 @@ pub(crate) mod tests {
     async fn should_stream_consent() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
+        alix.wait_for_sync_worker_init().await;
+        bo.wait_for_sync_worker_init().await;
 
         let group = alix
             .create_group_with_inbox_ids(
