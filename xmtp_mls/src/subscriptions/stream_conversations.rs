@@ -594,8 +594,19 @@ mod test {
     #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-
+        alix.device_sync
+            .worker_handle()
+            .unwrap()
+            .wait_for_init()
+            .await
+            .unwrap();
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        bo.device_sync
+            .worker_handle()
+            .unwrap()
+            .wait_for_init()
+            .await
+            .unwrap();
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
