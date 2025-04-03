@@ -132,7 +132,7 @@ impl AsyncRead for BackupExporter {
             let element = match this.stage {
                 Stage::Nonce => {
                     // Should never get here due to the above logic. Error if it does.
-                    unreachable!()
+                    unreachable!("Nonce should not be the stage here.");
                 }
                 Stage::Metadata => {
                     this.stage = Stage::Elements;
