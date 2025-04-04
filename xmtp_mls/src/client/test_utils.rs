@@ -28,7 +28,7 @@ where
         // the group_id should be the same.
         assert_eq!(dm.group_id, other_dm.group_id);
 
-        let msg = dm.test_can_talk_with(&other_dm).await?;
+        let msg = dm.test_can_talk_with(&other_dm).await;
 
         Ok((dm, msg))
     }
