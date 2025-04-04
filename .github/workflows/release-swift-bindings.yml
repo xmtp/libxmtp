@@ -210,7 +210,7 @@ jobs:
         run: |
           cd libxmtp-swift
           git add -A
-          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}}}"
+          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}"
           git push origin update-to-${{ steps.version_info.outputs.release_tag }}
       
       - name: Create PR
