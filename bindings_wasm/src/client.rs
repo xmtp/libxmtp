@@ -137,6 +137,7 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 }
 
 #[wasm_bindgen(js_name = createClient)]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_client(
   host: String,
   inbox_id: String,
