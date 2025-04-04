@@ -536,7 +536,7 @@ impl Conversations {
     Ok(num_groups_synced)
   }
 
-  #[wasm_bindgen(js_name = syncAllConversations)]
+  #[wasm_bindgen(js_name = syncDeviceSync)]
   pub async fn sync_device_sync(&self) -> Result<(), JsError> {
     let provider = self
       .inner_client
