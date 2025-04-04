@@ -60,6 +60,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -68,6 +69,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -78,6 +80,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
