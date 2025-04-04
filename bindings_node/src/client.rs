@@ -15,6 +15,7 @@ pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::Retry;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
+use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
@@ -49,6 +50,23 @@ pub enum LogLevel {
   info,
   debug,
   trace,
+}
+
+#[napi(string_enum)]
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+pub enum SyncWorkerMode {
+  enabled,
+  disabled,
+}
+
+impl From<SyncWorkerMode> for XmtpSyncWorkerMode {
+  fn from(value: SyncWorkerMode) -> Self {
+    match value {
+      SyncWorkerMode::enabled => Self::Enabled,
+      SyncWorkerMode::disabled => Self::Disabled,
+    }
+  }
 }
 
 impl std::fmt::Display for LogLevel {
@@ -125,6 +143,7 @@ pub async fn create_client(
   account_identifier: Identifier,
   encryption_key: Option<Uint8Array>,
   device_sync_server_url: Option<String>,
+  device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
@@ -163,26 +182,26 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match device_sync_server_url {
+  let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store)
-      .device_sync_server_url(&url)
-      .build()
-      .await
-      .map_err(ErrorWrapper::from)?,
+      .device_sync_server_url(&url),
 
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
-      .store(store)
-      .build()
-      .await
-      .map_err(ErrorWrapper::from)?,
+      .store(store),
   };
+
+  if let Some(device_sync_worker_mode) = device_sync_worker_mode {
+    builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  };
+
+  let xmtp_client = builder.build().await.map_err(ErrorWrapper::from)?;
 
   Ok(Client {
     inner_client: Arc::new(xmtp_client),

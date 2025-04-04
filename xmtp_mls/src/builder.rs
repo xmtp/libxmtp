@@ -181,9 +181,9 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         }
     }
 
-    pub fn disable_sync_worker(self) -> Self {
+    pub fn device_sync_worker_mode(self, mode: SyncWorkerMode) -> Self {
         Self {
-            device_sync_worker_mode: SyncWorkerMode::Disabled,
+            device_sync_worker_mode: mode,
             ..self
         }
     }

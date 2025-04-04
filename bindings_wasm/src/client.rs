@@ -12,6 +12,7 @@ use xmtp_common::Retry;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
 
@@ -51,6 +52,23 @@ pub enum LogLevel {
   Info = "info",
   Debug = "debug",
   Trace = "trace",
+}
+
+#[wasm_bindgen]
+#[derive(Copy, Clone, Debug)]
+pub enum DeviceSyncWorkerMode {
+  Enabled = "enabled",
+  Disabled = "disabled",
+}
+
+impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
+  fn from(value: DeviceSyncWorkerMode) -> Self {
+    match value {
+      DeviceSyncWorkerMode::Enabled => Self::Enabled,
+      DeviceSyncWorkerMode::Disabled => Self::Disabled,
+      DeviceSyncWorkerMode::__Invalid => unreachable!("DeviceSyncWorkerMode is invalid."),
+    }
+  }
 }
 
 /// Specify options for the logger
@@ -126,6 +144,7 @@ pub async fn create_client(
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   device_sync_server_url: Option<String>,
+  device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
@@ -159,23 +178,26 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match device_sync_server_url {
+  let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
-      .device_sync_server_url(&url)
-      .build()
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
+      .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
-      .store(store)
-      .build()
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
+      .store(store),
   };
+
+  if let Some(device_sync_worker_mode) = device_sync_worker_mode {
+    builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  }
+
+  let xmtp_client = builder
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
   Ok(Client {
     account_identifier,
