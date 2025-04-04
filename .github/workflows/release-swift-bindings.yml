@@ -147,7 +147,7 @@ jobs:
           # Get the original version from cargo metadata
           ORIG_VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
           
-          # Extract the major version and add 3 to it see https://github.com/xmtp/libxmtp-swift/tags
+          # Extract the major version and add 3 to it
           MAJOR_VERSION=$(echo $ORIG_VERSION | cut -d. -f1)
           NEW_MAJOR=$((MAJOR_VERSION + 3))
           
@@ -156,6 +156,12 @@ jobs:
           
           # SHA7=$(echo ${GITHUB_SHA} | cut -c1-7)
           SHA7="da2c7a3"
+          
+          # If version contains "dev", append the git commit SHA
+          if [[ "$VERSION" == *"dev"* ]]; then
+            VERSION="${VERSION}.${SHA7}"
+          fi
+          
           # RELEASE_TAG="swift-bindings-${VERSION}.${SHA7}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
