@@ -145,7 +145,7 @@ where
                 client,
                 provider,
                 Some(&save.id),
-                GroupMembershipState::Pending,
+                GroupMembershipState::Restored,
                 PolicySet::default(),
                 GroupMetadataOptions {
                     name: attributes.get("group_name").cloned(),

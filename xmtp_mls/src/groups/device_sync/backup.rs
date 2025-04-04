@@ -251,15 +251,18 @@ mod tests {
         let _groups = alix2.find_groups(GroupQueryArgs::default())?;
         // Can fetch the group name no problem
         alix2_group.group_name(&alix2.provider)?;
+        assert!(!alix2_group.is_active(&alix2.provider)?);
 
-        // Add the new inbox to the group
+        // Add the new inbox to the groups
         alix_group
             .add_members_by_inbox_id(&[alix2.inbox_id()])
             .await?;
+        tracing::error!("Syncing welcomes");
         alix2.sync_welcomes(&alix2.provider).await?;
 
-        // The group restores to being fully functional!
+        // The group restores to being fully functional
         let alix2_group = alix2.group(&old_group.id)?;
+        assert!(alix2_group.is_active(&alix2.provider)?);
 
         // The old messages should be stitched in
         let msgs = alix2_group.find_messages(&MsgQueryArgs::default())?;

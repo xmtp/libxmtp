@@ -30,6 +30,7 @@ pub type ID = Vec<u8>;
 #[diesel(table_name = groups)]
 #[diesel(primary_key(id))]
 #[builder(setter(into), build_fn(error = "StorageError"))]
+#[derive(AsChangeset)]
 /// A Unique group chat
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
@@ -436,7 +437,18 @@ impl DbConnection {
                 .optional()?;
 
             if maybe_inserted_group.is_none() {
-                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn)?;
+                let existing_group: StoredGroup = dsl::groups.find(&group.id).first(conn)?;
+
+                // A restored group should be overwritten
+                if matches!(
+                    existing_group.membership_state,
+                    GroupMembershipState::Restored
+                ) {
+                    diesel::update(dsl::groups.find(&group.id))
+                        .set(&group)
+                        .execute(conn)?;
+                }
+
                 if existing_group.welcome_id == group.welcome_id {
                     tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
@@ -487,6 +499,8 @@ pub enum GroupMembershipState {
     Rejected = 2,
     /// User is Pending acceptance to the Group
     Pending = 3,
+    /// Group has been restored from an archive, but is not active yet.
+    Restored = 4,
 }
 
 impl ToSql<Integer, Sqlite> for GroupMembershipState
@@ -508,6 +522,7 @@ where
             1 => Ok(GroupMembershipState::Allowed),
             2 => Ok(GroupMembershipState::Rejected),
             3 => Ok(GroupMembershipState::Pending),
+            4 => Ok(GroupMembershipState::Restored),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

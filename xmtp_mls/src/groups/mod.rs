@@ -1656,11 +1656,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self, provider: &XmtpOpenMlsProvider) -> Result<bool, GroupError> {
-        let result = self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()));
-
-        if let Err(GroupError::NotFound(_)) = result {
+        // Restored groups that are not yet added are inactive
+        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
+            return Err(GroupError::NotFound(NotFound::GroupById(
+                self.group_id.clone(),
+            )));
+        };
+        if matches!(
+            stored_group.membership_state,
+            GroupMembershipState::Restored
+        ) {
             return Ok(false);
         }
+
+        let result = self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()));
 
         result
     }
