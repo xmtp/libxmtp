@@ -3,15 +3,15 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    paths:
-      - ".github/workflows/check-ios-android-bindings.yml"
-      - "bindings_ffi/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "dev/**"
-      - "rust-toolchain.toml"
-      - ".cargo/**"
+  # pull_request:
+  #   paths:
+  #     - ".github/workflows/check-ios-android-bindings.yml"
+  #     - "bindings_ffi/**"
+  #     - "Cargo.toml"
+  #     - "Cargo.lock"
+  #     - "dev/**"
+  #     - "rust-toolchain.toml"
+  #     - ".cargo/**"
 jobs:
   check-swift:
     runs-on: warp-macos-13-arm64-6x

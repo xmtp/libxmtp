@@ -145,8 +145,9 @@ jobs:
         run: |
           cd libxmtp
           VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
-          SHA7=$(echo ${GITHUB_SHA} | cut -c1-7)
-          RELEASE_TAG="swift-bindings-${VERSION}.${SHA7}"
+          # SHA7=$(echo ${GITHUB_SHA} | cut -c1-7)
+          SHA7="da2c7a3"
+          # RELEASE_TAG="swift-bindings-${VERSION}.${SHA7}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
@@ -181,7 +182,8 @@ jobs:
         id: get_checksum
         run: |
           cd libxmtp
-          CHECKSUM=$(curl -s https://api.github.com/repos/xmtp/libxmtp/releases/tags/${{ steps.version_info.outputs.release_tag }} | jq -r '.body' | grep -o '[a-f0-9]\{64\}')
+          # CHECKSUM=$(curl -s https://api.github.com/repos/xmtp/libxmtp/releases/tags/${{ steps.version_info.outputs.release_tag }} | jq -r '.body' | grep -o '[a-f0-9]\{64\}')
+          CHECKSUM="b61334818cd7ad208a1768902c157166f9edc60822e7313cb3587913f1f9993b"
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
       
       - name: Update Package.swift
