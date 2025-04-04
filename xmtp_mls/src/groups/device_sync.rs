@@ -382,8 +382,8 @@ where
 
                     self.send_sync_payload(
                         Some(request),
-                        || async { self.acknowledge_sync_request(&provider, retry).await },
-                        &handle,
+                        || async { self.acknowledge_sync_request(provider, retry).await },
+                        handle,
                         retry,
                     )
                     .await?;
@@ -489,12 +489,9 @@ where
             };
 
             match content {
-                DeviceSyncContent::Acknowledge(kind) => match kind {
-                    AcknowledgeKind::Request { request_id } => {
-                        acknowledged.insert(request_id, message.sender_installation_id.clone());
-                    }
-                    _ => {}
-                },
+                DeviceSyncContent::Acknowledge(AcknowledgeKind::Request { request_id }) => {
+                    acknowledged.insert(request_id, message.sender_installation_id.clone());
+                }
                 DeviceSyncContent::Request(req) => {
                     if let Some(installation_id) = acknowledged.get(&req.request_id) {
                         if installation_id != self.installation_id() {
@@ -674,7 +671,7 @@ where
         provider: &XmtpOpenMlsProvider,
         reply: &DeviceSyncReplyProto,
     ) -> Result<bool, DeviceSyncError> {
-        let sync_group = self.get_sync_group(&provider)?;
+        let sync_group = self.get_sync_group(provider)?;
         let stored_group = provider.conn_ref().find_group(&sync_group.group_id)?;
         let Some(stored_group) = stored_group else {
             return Err(DeviceSyncError::MissingSyncGroup);
@@ -762,9 +759,9 @@ where
         provider: &XmtpOpenMlsProvider,
         content: DeviceSyncContent,
         retry: &Retry,
-    ) -> Result<Vec<u8>, GroupError> {
+    ) -> Result<Vec<u8>, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
-        let content_bytes = serde_json::to_vec(&content).unwrap();
+        let content_bytes = serde_json::to_vec(&content)?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {

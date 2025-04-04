@@ -2,13 +2,7 @@ use crate::utils::test::TestClient as TestApiClient;
 use crate::{client::Client, configuration::DeviceSyncUrls, identity::IdentityStrategy};
 use ethers::signers::LocalWallet;
 use xmtp_id::associations::test_utils::WalletTestExt;
-use xmtp_id::{
-    associations::{
-        builder::SignatureRequest,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    },
-    InboxOwner,
-};
+use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 pub type BenchClient = Client<TestApiClient>;

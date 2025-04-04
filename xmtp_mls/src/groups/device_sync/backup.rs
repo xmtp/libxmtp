@@ -46,7 +46,7 @@ impl OptionsToSave for BackupMetadataSave {
         Self {
             end_ns: options.end_ns,
             start_ns: options.start_ns,
-            elements: options.elements.iter().map(|&e| e as i32).collect(),
+            elements: options.elements.iter().map(|&e| e).collect(),
             exported_at_ns: now_ns(),
         }
     }
@@ -145,7 +145,7 @@ mod tests {
         let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
 
         // wait for user preference update
-        wait_for_min_intents(&alix.provider.conn_ref(), 1).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 1).await;
 
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
@@ -154,13 +154,13 @@ mod tests {
         let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
-        wait_for_min_intents(&alix.provider.conn_ref(), 2).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 2).await;
 
         alix_group.send_message(b"hello there").await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(&alix.provider.conn_ref(), 4).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 4).await;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .provider

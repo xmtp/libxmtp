@@ -346,7 +346,7 @@ impl HmacKeyExt for HmacKey {
         conn: &DbConnection,
         local_events: &Sender<LocalEvents>,
     ) -> Result<(), StorageError> {
-        StoredUserPreferences::store_hmac_key(&conn, self)?;
+        StoredUserPreferences::store_hmac_key(conn, self)?;
         self.sync_to_other_devices(local_events);
         Ok(())
     }
@@ -1669,9 +1669,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             return Ok(false);
         }
 
-        let result = self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()));
-
-        result
+        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
     }
 
     /// Get the `GroupMetadata` of the group.
