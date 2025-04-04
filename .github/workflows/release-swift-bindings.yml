@@ -119,7 +119,7 @@ jobs:
   #         asset_content_type: application/zip
       
   update-swift-repo:
-    needs: [package-swift]
+    # needs: [package-swift]
     runs-on: warp-macos-13-arm64-6x
     env:
       RELEASE_URL: "https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.2.0-dev.da2c7a3/LibXMTPSwiftFFI.zip"
