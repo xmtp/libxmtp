@@ -64,8 +64,8 @@ async fn only_one_payload_sent() {
     // Wait for one of the workers to send a payload
     let wait1 = alix1.worker.wait(SyncMetric::PayloadSent, 1);
     let wait2 = alix2.worker.wait(SyncMetric::PayloadSent, 1);
-    let timeout1 = tokio::time::timeout(Duration::from_secs(1), wait1).await;
-    let timeout2 = tokio::time::timeout(Duration::from_secs(1), wait2).await;
+    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(1), wait1).await;
+    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(1), wait2).await;
 
     // We want one of them to timeout (only one payload sent)
     assert_ne!(timeout1.is_ok(), timeout2.is_ok());
