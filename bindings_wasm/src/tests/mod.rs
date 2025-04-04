@@ -28,6 +28,7 @@ async fn create_test_client() -> Client {
       performance: true,
       level: Some(LogLevel::Debug),
     }),
+    None,
   )
   .await
   .unwrap()
