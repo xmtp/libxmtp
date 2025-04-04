@@ -265,10 +265,20 @@ public final class Client {
 		} else {
 			directoryURL = URL.documentsDirectory
 		}
-
+		
 		let alias = "xmtp-\(options.api.env.rawValue)-\(inboxId).db3"
-		let dbURL = directoryURL.appendingPathComponent(alias).path
+		var dbURL = directoryURL.appendingPathComponent(alias).path
+		var fileExists = FileManager.default.fileExists(atPath: dbURL)
 
+		if !fileExists {
+			let legacyAlias = "xmtp-\(options.api.env.legacyRawValue)-\(inboxId).db3"
+			let legacyDbURL = directoryURL.appendingPathComponent(legacyAlias).path
+			let legacyFileExists = FileManager.default.fileExists(atPath: legacyDbURL)
+
+			if legacyFileExists {
+				dbURL = legacyDbURL
+			}
+		}
 		let ffiClient = try await LibXMTP.createClient(
 			api: connectToApiBackend(api: options.api),
 			db: dbURL,

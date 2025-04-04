@@ -24,6 +24,17 @@ public enum XMTPEnvironment: String, Sendable {
 			return rawValue
 		}
 	}
+	
+	var legacyRawValue: String {
+		switch self {
+		case .local:
+			return "localhost:5556"
+		case .dev:
+			return "grpc.dev.xmtp.network:443"
+		case .production:
+			return "grpc.production.xmtp.network:443"
+		}
+	}
 
 	var url: String {
 		switch self {

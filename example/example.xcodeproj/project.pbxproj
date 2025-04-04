@@ -73,7 +73,7 @@
 			name = example;
 			packageProductDependencies = (
 				0286B7F32D97E5C100984C0A /* XMTPiOS */,
- 				0286B7F92D9A840C00984C0A /* BigInt */,
+				0286B7F92D9A840C00984C0A /* BigInt */,
 			);
 			productName = example;
 			productReference = 02DE6ECE2D7BD2E7002FE4CD /* example.app */;
@@ -105,7 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0286B7F22D97E5C100984C0A /* XCLocalSwiftPackageReference "../../xmtp-ios" */,
- 				0286B7F82D9A840C00984C0A /* XCRemoteSwiftPackageReference "BigInt" */,
+				0286B7F82D9A840C00984C0A /* XCRemoteSwiftPackageReference "BigInt" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 02DE6ECF2D7BD2E7002FE4CD /* Products */;
@@ -265,7 +265,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7EDMX855UW;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -294,7 +294,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7EDMX855UW;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -364,7 +364,7 @@
 		0286B7F92D9A840C00984C0A /* BigInt */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 0286B7F82D9A840C00984C0A /* XCRemoteSwiftPackageReference "BigInt" */;
-      productName = BigInt;
+			productName = BigInt;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
