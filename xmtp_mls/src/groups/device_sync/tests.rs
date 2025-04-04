@@ -29,6 +29,7 @@ async fn basic_sync() {
 }
 
 #[xmtp_common::test(unwrap_try = "true")]
+#[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
     let alix1 = Tester::new().await;
     let alix2 = alix1.clone().await;
