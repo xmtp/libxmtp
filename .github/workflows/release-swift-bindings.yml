@@ -125,7 +125,7 @@ jobs:
       RELEASE_URL: "https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.2.0-dev.da2c7a3/LibXMTPSwiftFFI.zip"
       CRATE_VERSION: "1.2.0-dev"
       COMMIT_SHA: "da2c7a3"
-      RELEASE_TAG: "swift-bindings-1.2.0-dev.da2c7a3
+      RELEASE_TAG: "swift-bindings-1.2.0-dev.da2c7a3"
     steps:
       - name: Checkout libxmtp
         uses: actions/checkout@v4
