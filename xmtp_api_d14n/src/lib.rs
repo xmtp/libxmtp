@@ -4,8 +4,10 @@ pub use endpoints::*;
 mod proto_cache;
 pub(crate) use proto_cache::*;
 
-pub mod compat;
-pub use compat::*;
+pub mod queries;
+pub use queries::*;
+
+pub mod protocol;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
