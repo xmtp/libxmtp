@@ -3,6 +3,17 @@ on:
   push:
     tags:
       - 'swift-bindings-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to use (without swift-bindings- prefix)'
+        required: true
+      sha7:
+        description: 'Short SHA (7 characters) of the commit'
+        required: true
+      checksum:
+        description: 'Checksum of the release zip file'
+        required: true
 
 jobs:
   update-swift-repo:
@@ -111,4 +122,3 @@ jobs:
           - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
           - Updated binary URLs to point to the new release
           - Updated checksum in Package.swift"
-gs
