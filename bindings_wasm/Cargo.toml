@@ -30,6 +30,7 @@ xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls = { workspace = true, features = ["test-utils", "http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true

@@ -42,7 +42,7 @@ pub use native::RawDbConnection;
 #[cfg(not(target_arch = "wasm32"))]
 pub use sqlcipher_connection::EncryptedConnection;
 #[cfg(target_arch = "wasm32")]
-pub use wasm::{OpfsSAHError, OpfsSAHPoolUtil, SQLITE, init_sqlite};
+pub use wasm::{OPFS, OpfsSAHError, OpfsSAHPoolUtil, init_opfs};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProviderPrivate};
 use crate::Store;
