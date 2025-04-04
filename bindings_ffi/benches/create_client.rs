@@ -11,11 +11,12 @@ use xmtp_common::{
     tmp_path,
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
-use xmtp_mls::utils::test::HISTORY_SYNC_URL;
 use xmtpv3::identity::FfiIdentifier;
 
 #[macro_use]
 extern crate tracing;
+
+const HISTORY_SYNC_URL: &str = xmtp_mls::configuration::DeviceSyncUrls::LOCAL_ADDRESS;
 
 fn setup() -> Runtime {
     Builder::new_multi_thread()
