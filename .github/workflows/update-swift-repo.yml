@@ -111,4 +111,3 @@ jobs:
           - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
           - Updated binary URLs to point to the new release
           - Updated checksum in Package.swift"
-gs
