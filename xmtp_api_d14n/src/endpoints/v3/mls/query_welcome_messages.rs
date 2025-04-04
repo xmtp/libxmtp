@@ -1,6 +1,6 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::mls::api::v1::FILE_DESCRIPTOR_SET;
@@ -49,7 +49,7 @@ mod test {
     use crate::v3::QueryWelcomeMessages;
     use xmtp_proto::prelude::*;
     use xmtp_proto::xmtp::mls::api::v1::{
-        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, FILE_DESCRIPTOR_SET,
+        FILE_DESCRIPTOR_SET, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
     };
 
     #[xmtp_common::test]

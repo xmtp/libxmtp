@@ -3,13 +3,12 @@ use crate::time::Expired;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rand::{
+    Rng,
     distributions::{Alphanumeric, DistString},
     seq::IteratorRandom,
-    Rng,
 };
 use std::collections::HashMap;
 use std::{future::Future, sync::OnceLock};
-use xmtp_cryptography::utils as crypto_utils;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod traced_test;
@@ -49,9 +48,9 @@ impl Drop for InboxIdReplace {
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tracing_subscriber::{
+    EnvFilter, Layer,
     fmt::{self, format},
     registry::LookupSpan,
-    EnvFilter, Layer,
 };
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -129,9 +128,9 @@ pub fn logger() {
 /// A simple test logger that defaults to the INFO level
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub fn logger() {
+    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::EnvFilter;
 
     INIT.get_or_init(|| {
         let filter = EnvFilter::builder().parse("debug").unwrap();
@@ -148,7 +147,7 @@ pub fn logger() {
 }
 
 pub fn rand_hexstring() -> String {
-    let mut rng = crypto_utils::rng();
+    let mut rng = crate::rng();
     let hex_chars = "0123456789abcdef";
     let v: String = (0..40)
         .map(|_| hex_chars.chars().choose(&mut rng).unwrap())
@@ -158,15 +157,15 @@ pub fn rand_hexstring() -> String {
 }
 
 pub fn rand_account_address() -> String {
-    Alphanumeric.sample_string(&mut crypto_utils::rng(), 42)
+    Alphanumeric.sample_string(&mut crate::rng(), 42)
 }
 
 pub fn rand_u64() -> u64 {
-    crypto_utils::rng().gen()
+    crate::rng().r#gen()
 }
 
 pub fn rand_i64() -> i64 {
-    crypto_utils::rng().gen()
+    crate::rng().r#gen()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

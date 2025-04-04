@@ -22,10 +22,19 @@ pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
-#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
+#[cfg(all(
+    any(feature = "http-api", target_arch = "wasm32"),
+    not(feature = "d14n")
+))]
 use xmtp_api_http::XmtpHttpApiClient;
-#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
+#[cfg(all(
+    any(feature = "http-api", target_arch = "wasm32"),
+    not(feature = "d14n")
+))]
 pub type TestClient = XmtpHttpApiClient;
+
+#[cfg(feature = "d14n")]
+pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
 impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {

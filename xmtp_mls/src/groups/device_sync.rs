@@ -178,8 +178,9 @@ where
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
-            match event {
-                LocalEvents::SyncEvent(msg) => match msg {
+
+            if let LocalEvents::SyncEvent(msg) = event {
+                match msg {
                     SyncEvent::NewSyncGroupFromWelcome => {
                         // A new sync group from a welcome indicates a new installation.
                         // We need to add that installation to the groups.
@@ -262,9 +263,8 @@ where
                             }
                         }
                     }
-                },
-                _ => {}
-            }
+                }
+            };
         }
         Ok(())
     }
