@@ -1270,7 +1270,7 @@ where
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
         };
-        let msg = msg.store_or_ignore(conn)?;
+        msg.store_or_ignore(conn)?;
         Ok(Some(msg))
     }
 

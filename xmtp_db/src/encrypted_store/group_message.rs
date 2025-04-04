@@ -230,8 +230,8 @@ where
 }
 
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
-impl_store!(StoredGroupMessage, group_messages, StoredGroupMessage);
-impl_store_or_ignore!(StoredGroupMessage, group_messages, StoredGroupMessage);
+impl_store!(StoredGroupMessage, group_messages);
+impl_store_or_ignore!(StoredGroupMessage, group_messages);
 
 #[derive(Default, Clone, Builder)]
 #[builder(setter(into))]
