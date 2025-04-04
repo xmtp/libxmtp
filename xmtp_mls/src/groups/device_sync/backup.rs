@@ -249,7 +249,7 @@ mod tests {
         let alix2_group = alix2.group(&old_group.id)?;
         // Loading all the groups works fine
         let _groups = alix2.find_groups(GroupQueryArgs::default())?;
-        // assert!(!alix2_group.is_active(&alix2.provider)?);
+        // Can fetch the group name no problem
         alix2_group.group_name(&alix2.provider)?;
 
         // Add the new inbox to the group
