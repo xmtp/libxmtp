@@ -29,7 +29,6 @@ bench = [
   "test-utils",
   "indicatif",
   "tracing-subscriber",
-  "anyhow",
   "dep:xmtp_api_grpc",
   "criterion",
   "dep:fdlimit",
@@ -89,7 +88,6 @@ xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 # Test/Bench Utils
-anyhow = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
@@ -128,7 +126,6 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 [dev-dependencies]
-anyhow.workspace = true
 const_format.workspace = true
 openmls_basic_credential.workspace = true
 wasm-bindgen-test.workspace = true
