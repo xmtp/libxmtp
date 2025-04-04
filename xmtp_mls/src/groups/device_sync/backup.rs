@@ -257,7 +257,6 @@ mod tests {
         alix_group
             .add_members_by_inbox_id(&[alix2.inbox_id()])
             .await?;
-        tracing::error!("Syncing welcomes");
         alix2.sync_welcomes(&alix2.provider).await?;
 
         // The group restores to being fully functional

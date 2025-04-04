@@ -134,7 +134,10 @@ where
             ignore_unique_constraints(consent.store(provider.conn_ref()))?;
         }
         Element::Group(save) => {
-            tracing::error!("{:?}", save.mutable_metadata);
+            if let Ok(Some(_)) = provider.conn_ref().find_group(&save.id) {
+                // Do not restore groups that already exist.
+                return Ok(());
+            }
 
             let attributes = save
                 .mutable_metadata
