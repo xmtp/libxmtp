@@ -5,20 +5,15 @@ name = "xmtp_api_grpc"
 version.workspace = true
 
 [dependencies]
-async-stream.workspace = true
 async-trait.workspace = true
-base64.workspace = true
 futures = { workspace = true, features = ["alloc"] }
-hex.workspace = true
 http = "1.2"
 prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
 tracing.workspace = true
 xmtp_common.workspace = true
-xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
-zeroize.workspace = true
 
 # Anything but iOS and Android will use either webpki or native.
 # If native certs are not found, it will fallback to webpki

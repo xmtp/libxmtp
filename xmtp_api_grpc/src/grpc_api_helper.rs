@@ -1,13 +1,9 @@
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use std::time::Duration;
 
-use futures::stream::{AbortHandle, Abortable};
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
-use tokio::sync::oneshot;
+use futures::{Stream, StreamExt};
 use tonic::transport::ClientTlsConfig;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tracing::Instrument;
 use xmtp_proto::traits::ApiClientError;
 
@@ -15,12 +11,8 @@ use crate::{GrpcBuilderError, GrpcError};
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
-    api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+    api_client::XmtpMlsClient,
     xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
-    xmtp::message_api::v1::{
-        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
-    },
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
         FetchKeyPackagesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
@@ -69,7 +61,6 @@ pub async fn create_tls_channel(address: String) -> Result<Channel, GrpcBuilderE
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    pub(crate) client: MessageApiClient<Channel>,
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
     pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
     pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
@@ -90,12 +81,10 @@ impl Client {
             false => Channel::from_shared(host)?.connect().await?,
         };
 
-        let client = MessageApiClient::new(channel.clone());
         let mls_client = ProtoMlsApiClient::new(channel.clone());
         let identity_client = ProtoIdentityApiClient::new(channel);
 
         Ok(Self {
-            client,
             mls_client,
             app_version,
             libxmtp_version,
@@ -164,12 +153,10 @@ impl ApiBuilder for ClientBuilder {
             false => Channel::from_shared(host)?.connect().await?,
         };
 
-        let client = MessageApiClient::new(channel.clone());
         let mls_client = ProtoMlsApiClient::new(channel.clone());
         let identity_client = ProtoIdentityApiClient::new(channel);
 
         Ok(Client {
-            client,
             mls_client,
             identity_client,
             app_version: self
@@ -182,205 +169,6 @@ impl ApiBuilder for ClientBuilder {
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
         })
-    }
-}
-
-#[async_trait::async_trait]
-impl XmtpApiClient for Client {
-    type Subscription = Subscription;
-    type MutableSubscription = GrpcMutableSubscription;
-    type Error = crate::GrpcError;
-
-    async fn publish(
-        &self,
-        token: String,
-        request: PublishRequest,
-    ) -> Result<PublishResponse, Self::Error> {
-        let auth_token_string = format!("Bearer {}", token);
-        let token: MetadataValue<_> = auth_token_string.parse()?;
-
-        let mut tonic_request = self.build_request(request);
-        tonic_request.metadata_mut().insert("authorization", token);
-        let client = &mut self.client.clone();
-
-        Ok(client
-            .publish(tonic_request)
-            .await
-            .map(|r| r.into_inner())?)
-    }
-
-    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Self::Error> {
-        let client = &mut self.client.clone();
-        let stream = client
-            .subscribe(self.build_request(request))
-            .await?
-            .into_inner();
-
-        Ok(Subscription::start(stream).await)
-    }
-
-    async fn subscribe2(
-        &self,
-        request: SubscribeRequest,
-    ) -> Result<GrpcMutableSubscription, Self::Error> {
-        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<SubscribeRequest>();
-
-        let input_stream = async_stream::stream! {
-            yield request;
-            // Wait for the receiver to send a new request.
-            // This happens in the update method of the Subscription
-            while let Some(result) = receiver.next().await {
-                yield result;
-            }
-        };
-
-        let client = &mut self.client.clone();
-
-        let stream = client
-            .subscribe2(self.build_request(input_stream))
-            .await?
-            .into_inner()
-            .map_err(GrpcError::from);
-
-        Ok(GrpcMutableSubscription::new(Box::pin(stream), sender))
-    }
-
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
-        let client = &mut self.client.clone();
-
-        Ok(client
-            .query(self.build_request(request))
-            .await?
-            .into_inner())
-    }
-
-    async fn batch_query(
-        &self,
-        request: BatchQueryRequest,
-    ) -> Result<BatchQueryResponse, Self::Error> {
-        let client = &mut self.client.clone();
-        Ok(client
-            .batch_query(self.build_request(request))
-            .await?
-            .into_inner())
-    }
-}
-
-pub struct Subscription {
-    pending: Arc<Mutex<Vec<Envelope>>>,
-    close_sender: Option<oneshot::Sender<()>>,
-    closed: Arc<AtomicBool>,
-}
-
-impl Subscription {
-    pub async fn start(stream: Streaming<Envelope>) -> Self {
-        let pending = Arc::new(Mutex::new(Vec::new()));
-        let pending_clone = pending.clone();
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let closed = Arc::new(AtomicBool::new(false));
-        let closed_clone = closed.clone();
-        tokio::spawn(async move {
-            let mut stream = Box::pin(stream);
-            let mut close_receiver = Box::pin(close_receiver);
-
-            loop {
-                tokio::select! {
-                    item = stream.message() => {
-                        match item {
-                            Ok(Some(envelope)) => {
-                                let mut pending = pending_clone.lock().unwrap();
-                                pending.push(envelope);
-                            }
-                            _ => break,
-                        }
-                    },
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-
-            closed_clone.store(true, Ordering::SeqCst);
-        });
-
-        Subscription {
-            pending,
-            closed,
-            close_sender: Some(close_sender),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl XmtpApiSubscription for Subscription {
-    fn is_closed(&self) -> bool {
-        self.closed.load(Ordering::SeqCst)
-    }
-
-    fn get_messages(&self) -> Vec<Envelope> {
-        let mut pending = self.pending.lock().unwrap();
-        let items = pending.drain(..).collect::<Vec<Envelope>>();
-        items
-    }
-
-    fn close_stream(&mut self) {
-        // Set this value here, even if it will be eventually set again when the loop exits
-        // This makes the `closed` status immediately correct
-        self.closed.store(true, Ordering::SeqCst);
-        if let Some(close_tx) = self.close_sender.take() {
-            let _ = close_tx.send(());
-        }
-    }
-}
-
-type EnvelopeStream = Pin<Box<dyn Stream<Item = Result<Envelope, crate::GrpcError>> + Send>>;
-
-pub struct GrpcMutableSubscription {
-    envelope_stream: Abortable<EnvelopeStream>,
-    update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
-    abort_handle: AbortHandle,
-}
-
-impl GrpcMutableSubscription {
-    pub fn new(
-        envelope_stream: EnvelopeStream,
-        update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
-    ) -> Self {
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        Self {
-            envelope_stream: Abortable::new(envelope_stream, abort_registration),
-            update_channel,
-            abort_handle,
-        }
-    }
-}
-
-impl Stream for GrpcMutableSubscription {
-    type Item = Result<Envelope, GrpcError>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.envelope_stream.poll_next_unpin(cx)
-    }
-}
-
-#[async_trait::async_trait]
-impl MutableApiSubscription for GrpcMutableSubscription {
-    type Error = GrpcError;
-    async fn update(&mut self, req: SubscribeRequest) -> Result<(), GrpcError> {
-        self.update_channel
-            .send(req)
-            .await
-            .map_err(|_| GrpcError::UnexpectedPayload)?;
-
-        Ok(())
-    }
-
-    fn close(&self) {
-        self.abort_handle.abort();
-        self.update_channel.close_channel();
     }
 }
 

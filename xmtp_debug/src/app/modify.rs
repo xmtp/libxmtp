@@ -1,5 +1,5 @@
-use color_eyre::eyre::{bail, eyre, Result};
-use rand::{rngs::SmallRng, seq::IteratorRandom, SeedableRng as _};
+use color_eyre::eyre::{Result, bail, eyre};
+use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom};
 use std::sync::Arc;
 
 use crate::{

@@ -23,7 +23,7 @@ impl Info {
     }
 
     pub async fn run(self) -> Result<()> {
-        let Info { ref opts, .. } = &self;
+        let Info { opts, .. } = &self;
         // if we didn't give any options
         if (opts.app as u8) + (opts.random as u8) == 0 {
             self.app()?;

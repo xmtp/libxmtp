@@ -20,7 +20,6 @@ serde = { workspace = true }
 thiserror.workspace = true
 tonic = { workspace = true, default-features = false }
 tracing.workspace = true
-trait-variant = "0.1"
 xmtp_common.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
