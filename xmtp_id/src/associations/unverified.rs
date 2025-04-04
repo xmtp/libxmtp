@@ -378,10 +378,10 @@ impl UnverifiedInstallationKeySignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnverifiedPasskeySignature {
     // This json string contains the challenge we sent out
-    pub(crate) public_key: Vec<u8>,
-    pub(crate) signature: Vec<u8>,
-    pub(crate) authenticator_data: Vec<u8>,
-    pub(crate) client_data_json: Vec<u8>,
+    pub public_key: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub authenticator_data: Vec<u8>,
+    pub client_data_json: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -392,6 +392,9 @@ pub struct UnverifiedRecoverableEcdsaSignature {
 impl UnverifiedRecoverableEcdsaSignature {
     pub fn new(signature_bytes: Vec<u8>) -> Self {
         Self { signature_bytes }
+    }
+    pub fn signature_bytes(&self) -> &[u8] {
+        &self.signature_bytes
     }
 }
 

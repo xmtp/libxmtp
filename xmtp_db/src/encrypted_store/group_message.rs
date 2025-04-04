@@ -313,7 +313,7 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn group_messages_paged(
@@ -450,6 +450,19 @@ impl DbConnection {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub fn sync_messages(
+        &self,
+        group_id: &[u8],
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        let query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .offset(offset)
+            .order(dsl::sent_at_ns.asc());
+
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(

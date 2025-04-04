@@ -48,8 +48,11 @@ async fn it_gets_messages() {
 
         message.store(conn).unwrap();
 
-        let stored_message = conn.get_group_message(id);
-        assert_eq!(stored_message.unwrap(), Some(message));
+        let stored_message = conn.get_group_message(id).unwrap().unwrap();
+        assert_eq!(
+            stored_message.decrypted_message_bytes,
+            message.decrypted_message_bytes
+        );
     })
     .await
 }

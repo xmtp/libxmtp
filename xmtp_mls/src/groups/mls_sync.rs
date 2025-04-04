@@ -6,12 +6,12 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
-    GroupError, HmacKey, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, HmacKeyExt, MlsGroup, ScopedGroupClient,
 };
-use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
+use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncEvent};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -25,20 +25,9 @@ use crate::{
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    subscriptions::{LocalEvents, SyncMessage},
+    subscriptions::LocalEvents,
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use xmtp_db::{
-    db_connection::DbConnection,
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
-};
-
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -68,6 +57,17 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{
+    db_connection::DbConnection,
+    group::{ConversationType, StoredGroup},
+    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -706,7 +706,7 @@ where
                 );
                 let message_bytes = application_message.into_bytes();
 
-                let mut bytes = Bytes::from(message_bytes.clone());
+                let mut bytes = Bytes::from(message_bytes);
                 let envelope = PlaintextEnvelope::decode(&mut bytes)?;
 
                 match envelope.content {
@@ -718,14 +718,15 @@ where
                             calculate_message_id(&self.group_id, &content, &idempotency_key);
                         let queryable_content_fields =
                             Self::extract_queryable_content_fields(&content);
+
                         StoredGroupMessage {
-                            id: message_id,
+                            id: message_id.clone(),
                             group_id: self.group_id.clone(),
                             decrypted_message_bytes: content,
                             sent_at_ns: envelope_timestamp_ns as i64,
                             kind: GroupMessageKind::Application,
                             sender_installation_id,
-                            sender_inbox_id,
+                            sender_inbox_id: sender_inbox_id.clone(),
                             delivery_status: DeliveryStatus::Published,
                             content_type: queryable_content_fields.content_type,
                             version_major: queryable_content_fields.version_major,
@@ -733,7 +734,23 @@ where
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
                         }
-                        .store_or_ignore(provider.conn_ref())?
+                        .store_or_ignore(provider.conn_ref())?;
+
+                        // If this message was sent by us on another installation, check if it
+                        // belongs to a sync group, and if it is - notify the worker.
+
+                        if sender_inbox_id == self.client.inbox_id() {
+                            if let Some(StoredGroup {
+                                conversation_type: ConversationType::Sync,
+                                ..
+                            }) = provider.conn_ref().find_group(&self.group_id)?
+                            {
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                            }
+                        }
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -769,14 +786,14 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Request { message_id },
+                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                                    SyncEvent::Request { message_id },
                                 ));
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
                                 let content: DeviceSyncContent =
-                                    DeviceSyncContent::Reply(history_reply);
+                                    DeviceSyncContent::Payload(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -803,9 +820,10 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncMessage(
-                                    SyncMessage::Reply { message_id },
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
@@ -816,10 +834,9 @@ where
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::IncomingPreferenceUpdate(updates));
+                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
+                                    SyncEvent::PreferencesChanged(updates),
+                                ));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -1532,7 +1549,7 @@ where
             .conn_ref()
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed_ns = now_ns - last_ns;
-        if elapsed_ns > interval_ns {
+        if elapsed_ns > interval_ns && self.is_active(provider)? {
             self.add_missing_installations(provider).await?;
             provider
                 .conn_ref()
@@ -1744,15 +1761,9 @@ where
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
-                let local_events = self.client.local_events();
-                let hmac_key = StoredUserPreferences::new_hmac_key(&conn)?;
-                // Sync the new key to other devices
-                let _ = local_events.send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                    UserPreferenceUpdate::HmacKeyUpdate {
-                        key: hmac_key.clone(),
-                    },
-                ]));
-                hmac_key
+                let hmac_key = HmacKey::new();
+                hmac_key.save_and_sync_to_other_devices(&conn, self.client.local_events())?;
+                hmac_key.key.to_vec()
             }
         };
         ikm.extend(&self.group_id);
@@ -2062,17 +2073,31 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        let wallet = generate_local_wallet();
-        let amal_a = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
+        let amal_a = Tester::new().await;
+
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
+        amal_a
+            .device_sync
+            .worker_handle()
+            .unwrap()
+            .wait_for_init()
+            .await
+            .unwrap();
+
+        amal_a
+            .worker
+            .wait(SyncMetric::ConsentSent, 1)
+            .await
+            .unwrap();
 
         let conn = amal_a.context().store().conn().unwrap();
         let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 1);
+        assert_eq!(provider.conn_ref().intents_deleted(), 5);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
@@ -2093,9 +2118,9 @@ pub(crate) mod tests {
         });
 
         let published = provider.conn_ref().intents_published();
-        assert_eq!(published, 101);
+        assert_eq!(published, 106);
         let created = provider.conn_ref().intents_created();
-        assert_eq!(created, 101);
+        assert_eq!(created, 106);
         if !errs.is_empty() {
             panic!("Errors during publish");
         }

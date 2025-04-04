@@ -2,13 +2,7 @@ use crate::tracing::Instrument;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use tokio::runtime::{Builder, Runtime};
 use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
-use xmtp_id::{
-    associations::{
-        builder::SignatureRequest,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    },
-    InboxOwner,
-};
+use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
 use xmtp_mls::utils::bench::{clients, BenchClient};
 
 #[macro_use]
@@ -26,9 +20,7 @@ fn setup() -> Runtime {
 async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
     let mut signature_request = client.context().signature_request().unwrap();
     let signature_text = signature_request.signature_text();
-    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
-    );
+    let unverified_signature = owner.sign(&signature_text).unwrap();
     signature_request
         .add_signature(unverified_signature, client.scw_verifier())
         .await

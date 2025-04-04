@@ -35,33 +35,29 @@ use xmtp_api::ApiIdentifier;
 use xmtp_api_d14n::compat::D14nClient;
 use xmtp_api_grpc::grpc_client::GrpcClient;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
-use xmtp_proto::traits::ApiClientError;
-
 use xmtp_common::time::now_ns;
+use xmtp_common::Retry;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_cryptography::{
-    signature::{RecoverableSignature, SignatureError},
-    utils::rng,
-};
+use xmtp_cryptography::{signature::SignatureError, utils::rng};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
     StorageOption,
 };
-use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
+use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
+use xmtp_mls::configuration::DeviceSyncUrls;
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
-use xmtp_mls::groups::{device_sync::MessageHistoryUrls, GroupMetadataOptions};
+use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
-
 use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+use xmtp_proto::traits::ApiClientError;
 
 #[macro_use]
 extern crate tracing;
@@ -197,7 +193,7 @@ impl InboxOwner for Wallet {
         }
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         match self {
             Wallet::LocalWallet(w) => w.sign(text),
         }
@@ -445,7 +441,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::GroupInfo { group_id } => {
             let group = &client
-                .group(hex::decode(group_id).expect("bad group id"))
+                .group(&hex::decode(group_id).expect("bad group id"))
                 .expect("group not found");
             group.sync().await.unwrap();
             let serializable = SerializableGroup::from(group).await;
@@ -462,7 +458,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             client.sync_welcomes(&provider).await.unwrap();
             client.start_sync_worker();
             client
-                .send_sync_request(&provider, DeviceSyncKind::MessageHistory)
+                .send_sync_request(&provider, &Retry::default())
                 .await
                 .unwrap();
             info!("Sent history sync request in sync group.")
@@ -470,7 +466,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::ListHistorySyncMessages {} => {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
-            let group = client.get_sync_group(provider.conn_ref())?;
+            let group = client.get_sync_group(&provider)?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group.find_messages(&MsgQueryArgs {
@@ -490,7 +486,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(DeviceSyncContent::Reply(ref reply)) => {
+                    Ok(DeviceSyncContent::Payload(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {
@@ -527,8 +523,8 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
     let mut builder = builder.api_client(grpc);
 
     builder = match (cli.testnet, &cli.env) {
-        (false, Env::Local) => builder.history_sync_url(MessageHistoryUrls::LOCAL_ADDRESS),
-        (false, Env::Dev) => builder.history_sync_url(MessageHistoryUrls::DEV_ADDRESS),
+        (false, Env::Local) => builder.device_sync_server_url(DeviceSyncUrls::LOCAL_ADDRESS),
+        (false, Env::Dev) => builder.device_sync_server_url(DeviceSyncUrls::DEV_ADDRESS),
         _ => builder,
     };
 
@@ -570,12 +566,7 @@ where
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();
-    let sig_bytes: Vec<u8> = w
-        .sign(signature_request.signature_text().as_str())
-        .unwrap()
-        .into();
-    let signature =
-        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
+    let signature = w.sign(&signature_request.signature_text()).unwrap();
     signature_request
         .add_signature(signature, client.scw_verifier())
         .await
@@ -598,7 +589,7 @@ where
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
     let provider = client.mls_provider().unwrap();
     client.sync_welcomes(&provider).await?;
-    let group = client.group(group_id)?;
+    let group = client.group(&group_id)?;
     group
         .sync()
         .await

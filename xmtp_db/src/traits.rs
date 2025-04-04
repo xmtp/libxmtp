@@ -2,12 +2,14 @@ use crate::StorageError;
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
-    fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
+    type Output;
+    fn store(&self, into: &StorageConnection) -> Result<Self::Output, StorageError>;
 }
 
 /// Inserts a model to the underlying data store, silent no-op on unique constraint violations
 pub trait StoreOrIgnore<StorageConnection> {
-    fn store_or_ignore(&self, into: &StorageConnection) -> Result<(), StorageError>;
+    type Output;
+    fn store_or_ignore(&self, into: &StorageConnection) -> Result<Self::Output, StorageError>;
 }
 
 /// Fetches a model from the underlying data store, returning None if it does not exist

@@ -273,32 +273,37 @@ macro_rules! impl_fetch_list {
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
         impl $crate::Store<$crate::encrypted_store::db_connection::DbConnection> for $model {
+            type Output = ();
+
             fn store(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
-                })?;
-                Ok(())
+                        .map_err(Into::into)
+                        .map(|_| ())
+                })
             }
         }
     };
 }
 
-// Inserts the model into the database by primary key, silently skipping on unique constraints
 #[macro_export]
 macro_rules! impl_store_or_ignore {
+    // Original variant without return type parameter (defaults to returning ())
     ($model:ty, $table:ident) => {
         impl $crate::StoreOrIgnore<$crate::encrypted_store::db_connection::DbConnection>
             for $model
         {
+            type Output = ();
+
             fn store_or_ignore(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
@@ -315,7 +320,8 @@ impl<T> Store<DbConnection> for Vec<T>
 where
     T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
+    type Output = ();
+    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }

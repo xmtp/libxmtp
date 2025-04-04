@@ -53,8 +53,16 @@ pub struct ClientBuilder<ApiClient, V> {
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
     identity_strategy: IdentityStrategy,
-    history_sync_url: Option<String>,
     scw_verifier: Option<V>,
+
+    device_sync_server_url: Option<String>,
+    device_sync_worker_mode: SyncWorkerMode,
+}
+
+#[derive(Clone)]
+pub enum SyncWorkerMode {
+    Disabled,
+    Enabled,
 }
 
 impl Client<(), ()> {
@@ -72,8 +80,9 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity: None,
             store: None,
             identity_strategy: strategy,
-            history_sync_url: None,
             scw_verifier: None,
+            device_sync_server_url: None,
+            device_sync_worker_mode: SyncWorkerMode::Enabled,
         }
     }
 }
@@ -88,9 +97,10 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             identity,
             mut store,
             identity_strategy,
-            history_sync_url,
             mut scw_verifier,
-            ..
+
+            device_sync_server_url,
+            device_sync_worker_mode,
         } = self;
 
         let api = api_client
@@ -132,10 +142,17 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         )
         .await?;
 
-        let client = Client::new(api, identity, store, scw_verifier, history_sync_url.clone());
+        let client = Client::new(
+            api,
+            identity,
+            store,
+            scw_verifier,
+            device_sync_server_url.clone(),
+            device_sync_worker_mode.clone(),
+        );
 
         // start workers
-        if history_sync_url.is_some() {
+        if !matches!(device_sync_worker_mode, SyncWorkerMode::Disabled) {
             client.start_sync_worker();
         }
         client.start_disappearing_messages_cleaner_worker();
@@ -143,19 +160,32 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         Ok(client)
     }
 
-    pub fn identity(mut self, identity: Identity) -> Self {
-        self.identity = Some(identity);
-        self
+    pub fn identity(self, identity: Identity) -> Self {
+        Self {
+            identity: Some(identity),
+            ..self
+        }
     }
 
-    pub fn store(mut self, store: EncryptedMessageStore) -> Self {
-        self.store = Some(store);
-        self
+    pub fn store(self, store: EncryptedMessageStore) -> Self {
+        Self {
+            store: Some(store),
+            ..self
+        }
     }
 
-    pub fn history_sync_url(mut self, url: &str) -> Self {
-        self.history_sync_url = Some(url.into());
-        self
+    pub fn device_sync_server_url(self, url: &str) -> Self {
+        Self {
+            device_sync_server_url: Some(url.into()),
+            ..self
+        }
+    }
+
+    pub fn device_sync_worker_mode(self, mode: SyncWorkerMode) -> Self {
+        Self {
+            device_sync_worker_mode: mode,
+            ..self
+        }
     }
 
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, V> {
@@ -171,21 +201,25 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         ClientBuilder {
             api_client: Some(wrapper),
             identity: self.identity,
-            store: self.store,
             identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
             scw_verifier: self.scw_verifier,
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         }
     }
 
     pub fn with_scw_verifier<V2>(self, verifier: V2) -> ClientBuilder<ApiClient, V2> {
         ClientBuilder {
-            scw_verifier: Some(verifier),
             api_client: self.api_client,
             identity: self.identity,
-            store: self.store,
             identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
+            scw_verifier: Some(verifier),
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         }
     }
 
@@ -206,12 +240,14 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         let remote_verifier = RemoteSignatureVerifier::new(api);
 
         Ok(ClientBuilder {
-            scw_verifier: Some(remote_verifier),
             api_client: self.api_client,
             identity: self.identity,
-            store: self.store,
             identity_strategy: self.identity_strategy,
-            history_sync_url: self.history_sync_url,
+            scw_verifier: Some(remote_verifier),
+            store: self.store,
+
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
         })
     }
 }
@@ -238,9 +274,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::{generate_local_wallet, rng};
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
-    use xmtp_id::associations::unverified::{
-        UnverifiedRecoverableEcdsaSignature, UnverifiedSignature,
-    };
+    use xmtp_id::associations::unverified::UnverifiedSignature;
     use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
     use xmtp_proto::api_client::ApiBuilder;
@@ -268,12 +302,7 @@ pub(crate) mod tests {
         let signature_text = signature_request.signature_text();
         let scw_verifier = MockSmartContractSignatureVerifier::new(true);
         signature_request
-            .add_signature(
-                UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(
-                    owner.sign(&signature_text).unwrap().into(),
-                )),
-                &scw_verifier,
-            )
+            .add_signature(owner.sign(&signature_text).unwrap(), &scw_verifier)
             .await
             .unwrap();
 
@@ -306,7 +335,10 @@ pub(crate) mod tests {
         .encode(&mut public_key_buf)
         .unwrap();
         let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
-        let signed_public_key: Vec<u8> = wallet.sign(&message).unwrap().into();
+        let signed_public_key = match wallet.sign(&message).unwrap() {
+            UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
+            _ => unreachable!("Wallets only provide ecdsa signatures."),
+        };
         let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
         let recovery_id = recovery_id[0];
         let signed_private_key: SignedPrivateKey = SignedPrivateKey {

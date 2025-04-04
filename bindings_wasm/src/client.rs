@@ -8,12 +8,13 @@ use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_common::Retry;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
 use crate::identity::Identifier;
@@ -51,6 +52,23 @@ pub enum LogLevel {
   Info = "info",
   Debug = "debug",
   Trace = "trace",
+}
+
+#[wasm_bindgen]
+#[derive(Copy, Clone, Debug)]
+pub enum DeviceSyncWorkerMode {
+  Enabled = "enabled",
+  Disabled = "disabled",
+}
+
+impl From<DeviceSyncWorkerMode> for SyncWorkerMode {
+  fn from(value: DeviceSyncWorkerMode) -> Self {
+    match value {
+      DeviceSyncWorkerMode::Enabled => Self::Enabled,
+      DeviceSyncWorkerMode::Disabled => Self::Disabled,
+      DeviceSyncWorkerMode::__Invalid => unreachable!("DeviceSyncWorkerMode is invalid."),
+    }
+  }
 }
 
 /// Specify options for the logger
@@ -119,13 +137,15 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
 }
 
 #[wasm_bindgen(js_name = createClient)]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_client(
   host: String,
   inbox_id: String,
   account_identifier: Identifier,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
-  history_sync_url: Option<String>,
+  device_sync_server_url: Option<String>,
+  device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
@@ -159,23 +179,26 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match history_sync_url {
+  let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
       .store(store)
-      .history_sync_url(&url)
-      .build()
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
+      .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()?
-      .store(store)
-      .build()
-      .await
-      .map_err(|e| JsError::new(&e.to_string()))?,
+      .store(store),
   };
+
+  if let Some(device_sync_worker_mode) = device_sync_worker_mode {
+    builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+  }
+
+  let xmtp_client = builder
+    .build()
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
   Ok(Client {
     account_identifier,
@@ -264,24 +287,15 @@ impl Client {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = sendHistorySyncRequest)]
-  pub async fn send_history_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::MessageHistory).await
-  }
-
-  #[wasm_bindgen(js_name = sendConsentSyncRequest)]
-  pub async fn send_consent_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::Consent).await
-  }
-
-  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
+  #[wasm_bindgen(js_name = sendSyncRequest)]
+  pub async fn send_sync_request(&self) -> Result<(), JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider, kind)
+      .send_sync_request(&provider, &Retry::default())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

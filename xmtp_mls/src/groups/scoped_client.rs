@@ -35,7 +35,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
-    fn history_sync_url(&self) -> &Option<String>;
+    fn device_sync_server_url(&self) -> &Option<String>;
 
     fn version_info(&self) -> &Arc<VersionInfo>;
 
@@ -106,7 +106,7 @@ pub trait ScopedGroupClient: Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
-    fn history_sync_url(&self) -> &Option<String>;
+    fn device_sync_server_url(&self) -> &Option<String>;
 
     fn version_info(&self) -> &Arc<VersionInfo>;
 
@@ -183,8 +183,8 @@ where
         Client::<ApiClient, Verifier>::context(self)
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        &self.history_sync_url
+    fn device_sync_server_url(&self) -> &Option<String> {
+        &self.device_sync.server_url
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -269,8 +269,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn device_sync_server_url(&self) -> &Option<String> {
+        (**self).device_sync_server_url()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -370,8 +370,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn device_sync_server_url(&self) -> &Option<String> {
+        (**self).device_sync_server_url()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -468,8 +468,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn device_sync_server_url(&self) -> &Option<String> {
+        (**self).device_sync_server_url()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {

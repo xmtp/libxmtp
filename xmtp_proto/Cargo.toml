@@ -87,7 +87,7 @@ proto_full = [
 "xmtp-message_contents" = []
 "xmtp-mls-api-v1" = ["xmtp-message_contents"]
 "xmtp-mls-database" = []
-"xmtp-mls-message_contents" = []
+"xmtp-mls-message_contents" = ["xmtp-device_sync"]
 "xmtp-mls-message_contents-content_types" = ["xmtp-mls-message_contents"]
 "xmtp-mls_validation-v1" = [
   "xmtp-identity-api-v1",
