@@ -657,12 +657,12 @@ async fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageSto
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s)).await
         }
 
         None => {
             info!("Using ephemeral store");
-            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
+            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key()).await
         }
     };
 

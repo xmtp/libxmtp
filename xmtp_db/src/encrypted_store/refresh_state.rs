@@ -142,6 +142,7 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -157,6 +158,7 @@ pub(crate) mod tests {
             entry.store(conn).unwrap();
             assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -174,6 +176,7 @@ pub(crate) mod tests {
             let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -193,6 +196,7 @@ pub(crate) mod tests {
                 conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
         })
+        .await
     }
 
     #[xmtp_common::test]
@@ -225,5 +229,6 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(group_state_retrieved.cursor, 456);
         })
+        .await
     }
 }

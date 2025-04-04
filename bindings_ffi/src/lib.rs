@@ -6,6 +6,7 @@ pub mod logger;
 pub mod mls;
 
 pub use crate::inbox_owner::SigningError;
+pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use mls::*;
 use std::error::Error;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -61,6 +62,12 @@ pub enum GenericError {
     Grpc(#[from] xmtp_api_grpc::GrpcError),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    #[error("Error initializing rolling log file")]
+    LogInit(#[from] tracing_appender::rolling::InitError),
+    #[error(transparent)]
+    ReloadLog(#[from] tracing_subscriber::reload::Error),
+    #[error("Error initializing debug log file")]
+    Log(String),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]
@@ -117,7 +124,7 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]
     fn _setup() {
-        xmtp_common::logger();
+        crate::logger::init_logger();
         let _ = fdlimit::raise_fd_limit();
     }
 }

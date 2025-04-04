@@ -1,11 +1,11 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::{
-    VerifySmartContractWalletSignatureRequestSignature, VerifySmartContractWalletSignaturesRequest,
-    VerifySmartContractWalletSignaturesResponse, FILE_DESCRIPTOR_SET,
+    FILE_DESCRIPTOR_SET, VerifySmartContractWalletSignatureRequestSignature,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 
 #[derive(Debug, Builder, Default)]

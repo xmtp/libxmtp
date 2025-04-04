@@ -1,11 +1,11 @@
 use derive_builder::Builder;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use std::borrow::Cow;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request::Request;
 use xmtp_proto::xmtp::identity::api::v1::{
-    GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, FILE_DESCRIPTOR_SET,
+    FILE_DESCRIPTOR_SET, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
 };
 
 #[derive(Debug, Builder, Default)]
