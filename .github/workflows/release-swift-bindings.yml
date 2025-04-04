@@ -215,7 +215,7 @@ jobs:
         run: |
           cd libxmtp-swift
           git add -A
-          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+          git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}}}"
           git push origin update-to-${{ steps.version_info.outputs.release_tag }}
       
       - name: Create PR
@@ -225,8 +225,8 @@ jobs:
           gh pr create --repo xmtp/libxmtp-swift \
             --base main \
             --head update-to-${{ steps.version_info.outputs.release_tag }} \
-            --title "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}" \
-            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}. 
+            --title "Update to libxmtp ${{ steps.version_info.outputs.version }} \
+            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }} }}. 
             
           Changes:
           - Updated Sources directory with latest Swift bindings
