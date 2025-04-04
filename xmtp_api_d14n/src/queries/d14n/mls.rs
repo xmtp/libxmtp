@@ -1,14 +1,12 @@
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
+use crate::protocol::TopicKind;
 use xmtp_common::RetryableError;
 use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
-use xmtp_proto::v4_utils::{
-    build_group_message_topic, build_key_package_topic, build_welcome_message_topic,
-};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
@@ -51,7 +49,7 @@ where
         let topics = request
             .installation_keys
             .iter()
-            .map(|key| build_key_package_topic(key))
+            .map(|key| TopicKind::KeyPackagesV1.build(key))
             .collect();
 
         let result: QueryEnvelopesResponse = QueryEnvelope::builder()
@@ -112,7 +110,7 @@ where
         request: mls_v1::QueryGroupMessagesRequest,
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(build_group_message_topic(request.group_id.as_slice()))
+            .topic(TopicKind::GroupMessagesV1.build(request.group_id.as_slice()))
             .build()?
             .query(&self.message_client)
             .await?;
@@ -134,9 +132,7 @@ where
         request: mls_v1::QueryWelcomeMessagesRequest,
     ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
         let response = QueryEnvelope::builder()
-            .topic(build_welcome_message_topic(
-                request.installation_key.as_slice(),
-            ))
+            .topic(TopicKind::WelcomeMessagesV1.build(request.installation_key.as_slice()))
             .build()?
             .query(&self.message_client)
             .await?;
