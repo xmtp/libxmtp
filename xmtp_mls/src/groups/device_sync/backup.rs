@@ -46,7 +46,7 @@ impl OptionsToSave for BackupMetadataSave {
         Self {
             end_ns: options.end_ns,
             start_ns: options.start_ns,
-            elements: options.elements.iter().map(|&e| e).collect(),
+            elements: options.elements.iter().copied().collect(),
             exported_at_ns: now_ns(),
         }
     }

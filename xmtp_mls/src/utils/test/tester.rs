@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::{
     builder::ClientBuilder,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
