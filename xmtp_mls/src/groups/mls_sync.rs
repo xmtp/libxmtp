@@ -2073,7 +2073,7 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::utils::Tester;
+        use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
         let amal_a = Tester::new().await;
 
         let amal_group_a: Arc<MlsGroup<_>> =
@@ -2086,12 +2086,18 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
+        amal_a
+            .worker
+            .wait(SyncMetric::ConsentSent, 1)
+            .await
+            .unwrap();
+
         let conn = amal_a.context().store().conn().unwrap();
         let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 3);
+        assert_eq!(provider.conn_ref().intents_deleted(), 5);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
