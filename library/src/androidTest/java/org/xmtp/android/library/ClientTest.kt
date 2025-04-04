@@ -463,6 +463,70 @@ class ClientTest {
     }
 
     @Test
+    fun testsCanSeeKeyPackageStatus() {
+        val fixtures = fixtures()
+        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.LOCAL, true)) }
+        val inboxState = runBlocking {
+            Client.inboxStatesForInboxIds(
+                listOf(fixtures.alixClient.inboxId),
+                ClientOptions.Api(XMTPEnvironment.LOCAL, true)
+            ).first()
+        }
+        val installationIds = inboxState.installations.map { it.installationId }
+        val keyPackageStatus = runBlocking {
+            Client.keyPackageStatusesForInstallationIds(
+                installationIds,
+                ClientOptions.Api(XMTPEnvironment.LOCAL, true)
+            )
+        }
+        for (installationId: String in keyPackageStatus.keys) {
+            val thisKPStatus = keyPackageStatus.get(installationId)!!
+            val notBeforeDate = thisKPStatus.lifetime?.notBefore?.let {
+                java.time.Instant.ofEpochSecond(it.toLong()).toString()
+            } ?: "null"
+            val notAfterDate = thisKPStatus.lifetime?.notAfter?.let {
+                java.time.Instant.ofEpochSecond(it.toLong()).toString()
+            } ?: "null"
+            println("inst: " + installationId + " - valid from: " + notBeforeDate + " to: " + notAfterDate)
+            println("error code: " + thisKPStatus.validationError)
+            val notBefore = thisKPStatus.lifetime?.notBefore
+            val notAfter = thisKPStatus.lifetime?.notAfter
+            if (notBefore != null && notAfter != null) {
+                assertEquals((3600 * 24 * 28 * 3 + 3600).toULong(), notAfter - notBefore)
+            }
+        }
+    }
+
+//    @Test
+//    fun testsCanSeeInvalidKeyPackageStatusOnDev() {
+//        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
+//        val inboxState = runBlocking {
+//            Client.inboxStatesForInboxIds(
+//                listOf("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b"),
+//                ClientOptions.Api(XMTPEnvironment.DEV, true)
+//            ).first()
+//        }
+//        val installationIds = inboxState.installations.map{ it.installationId }
+//        val keyPackageStatus = runBlocking {
+//            Client.keyPackageStatusesForInstallationIds(
+//                installationIds,
+//                ClientOptions.Api(XMTPEnvironment.DEV, true)
+//            )
+//        }
+//        for (installationId: String in keyPackageStatus.keys) {
+//            val thisKPStatus = keyPackageStatus.get(installationId)!!
+//            val notBeforeDate = thisKPStatus.lifetime?.notBefore?.let {
+//                java.time.Instant.ofEpochSecond(it.toLong()).toString()
+//            } ?: "null"
+//            val notAfterDate = thisKPStatus.lifetime?.notAfter?.let {
+//                java.time.Instant.ofEpochSecond(it.toLong()).toString()
+//            } ?: "null"
+//            println("inst: " + installationId + " - valid from: " + notBeforeDate + " to: " + notAfterDate)
+//            println("error code: " + thisKPStatus.validationError)
+//        }
+//    }
+
+    @Test
     fun testsSignatures() {
         val fixtures = fixtures()
         val signature = fixtures.alixClient.signWithInstallationKey("Testing")

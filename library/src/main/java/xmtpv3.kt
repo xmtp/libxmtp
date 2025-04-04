@@ -1135,6 +1135,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1362,6 +1366,8 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_backup_to_file(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message(
 ): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier(
+): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations(
@@ -1373,6 +1379,8 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation(
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state(
 ): Short
@@ -1718,6 +1726,8 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_backup_to_file(`ptr`: Pointer,`path`: 
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_can_message(`ptr`: Pointer,`accountIdentifiers`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_change_recovery_identifier(`ptr`: Pointer,`newRecoveryIdentifier`: RustBuffer.ByValue,
+): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_conversation(`ptr`: Pointer,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_conversations(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1729,6 +1739,8 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_dm_conversation(`ptr`: Pointer,`target
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_find_inbox_id(`ptr`: Pointer,`identifier`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_consent_state(`ptr`: Pointer,`entityType`: RustBuffer.ByValue,`entity`: RustBuffer.ByValue,
+): Long
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_key_package_statuses_for_installation_ids(`ptr`: Pointer,`installationIds`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(`ptr`: Pointer,`inboxId`: RustBuffer.ByValue,
 ): Long
@@ -2230,6 +2242,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 32993.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 39513.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 60290.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2246,6 +2261,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 58208.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids() != 60893.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 3165.toShort()) {
@@ -7508,6 +7526,11 @@ public interface FfiXmtpClientInterface {
     
     suspend fun `canMessage`(`accountIdentifiers`: List<FfiIdentifier>): Map<FfiIdentifier, kotlin.Boolean>
     
+    /**
+     * * Change the recovery identifier for your inboxId
+     */
+    suspend fun `changeRecoveryIdentifier`(`newRecoveryIdentifier`: FfiIdentifier): FfiSignatureRequest
+    
     fun `conversation`(`conversationId`: kotlin.ByteArray): FfiConversation
     
     fun `conversations`(): FfiConversations
@@ -7519,6 +7542,8 @@ public interface FfiXmtpClientInterface {
     suspend fun `findInboxId`(`identifier`: FfiIdentifier): kotlin.String?
     
     suspend fun `getConsentState`(`entityType`: FfiConsentEntityType, `entity`: kotlin.String): FfiConsentState
+    
+    suspend fun `getKeyPackageStatusesForInstallationIds`(`installationIds`: List<kotlin.ByteArray>): Map<kotlin.ByteArray, FfiKeyPackageStatus>
     
     suspend fun `getLatestInboxState`(`inboxId`: kotlin.String): FfiInboxState
     
@@ -7815,6 +7840,30 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
     }
 
     
+    /**
+     * * Change the recovery identifier for your inboxId
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `changeRecoveryIdentifier`(`newRecoveryIdentifier`: FfiIdentifier) : FfiSignatureRequest {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_change_recovery_identifier(
+                thisPtr,
+                FfiConverterTypeFfiIdentifier.lower(`newRecoveryIdentifier`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+        // lift function
+        { FfiConverterTypeFfiSignatureRequest.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
+    
     @Throws(GenericException::class)override fun `conversation`(`conversationId`: kotlin.ByteArray): FfiConversation {
             return FfiConverterTypeFfiConversation.lift(
     callWithPointer {
@@ -7911,6 +7960,27 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
         { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeFfiConsentState.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
+    
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `getKeyPackageStatusesForInstallationIds`(`installationIds`: List<kotlin.ByteArray>) : Map<kotlin.ByteArray, FfiKeyPackageStatus> {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_get_key_package_statuses_for_installation_ids(
+                thisPtr,
+                FfiConverterSequenceByteArray.lower(`installationIds`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterMapByteArrayTypeFfiKeyPackageStatus.lift(it) },
         // Error FFI converter
         GenericException.ErrorHandler,
     )
@@ -8865,6 +8935,70 @@ public object FfiConverterTypeFfiInstallation: FfiConverterRustBuffer<FfiInstall
     override fun write(value: FfiInstallation, buf: ByteBuffer) {
             FfiConverterByteArray.write(value.`id`, buf)
             FfiConverterOptionalULong.write(value.`clientTimestampNs`, buf)
+    }
+}
+
+
+
+data class FfiKeyPackageStatus (
+    var `lifetime`: FfiLifetime?, 
+    var `validationError`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiKeyPackageStatus: FfiConverterRustBuffer<FfiKeyPackageStatus> {
+    override fun read(buf: ByteBuffer): FfiKeyPackageStatus {
+        return FfiKeyPackageStatus(
+            FfiConverterOptionalTypeFfiLifetime.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiKeyPackageStatus) = (
+            FfiConverterOptionalTypeFfiLifetime.allocationSize(value.`lifetime`) +
+            FfiConverterOptionalString.allocationSize(value.`validationError`)
+    )
+
+    override fun write(value: FfiKeyPackageStatus, buf: ByteBuffer) {
+            FfiConverterOptionalTypeFfiLifetime.write(value.`lifetime`, buf)
+            FfiConverterOptionalString.write(value.`validationError`, buf)
+    }
+}
+
+
+
+data class FfiLifetime (
+    var `notBefore`: kotlin.ULong, 
+    var `notAfter`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiLifetime: FfiConverterRustBuffer<FfiLifetime> {
+    override fun read(buf: ByteBuffer): FfiLifetime {
+        return FfiLifetime(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiLifetime) = (
+            FfiConverterULong.allocationSize(value.`notBefore`) +
+            FfiConverterULong.allocationSize(value.`notAfter`)
+    )
+
+    override fun write(value: FfiLifetime, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`notBefore`, buf)
+            FfiConverterULong.write(value.`notAfter`, buf)
     }
 }
 
@@ -10469,6 +10603,38 @@ public object FfiConverterOptionalTypeFfiSignatureRequest: FfiConverterRustBuffe
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeFfiLifetime: FfiConverterRustBuffer<FfiLifetime?> {
+    override fun read(buf: ByteBuffer): FfiLifetime? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiLifetime.read(buf)
+    }
+
+    override fun allocationSize(value: FfiLifetime?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiLifetime.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiLifetime?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiLifetime.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeFfiMessage: FfiConverterRustBuffer<FfiMessage?> {
     override fun read(buf: ByteBuffer): FfiMessage? {
         if (buf.get().toInt() == 0) {
@@ -11266,6 +11432,45 @@ public object FfiConverterMapStringULong: FfiConverterRustBuffer<Map<kotlin.Stri
         value.iterator().forEach { (k, v) ->
             FfiConverterString.write(k, buf)
             FfiConverterULong.write(v, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapByteArrayTypeFfiKeyPackageStatus: FfiConverterRustBuffer<Map<kotlin.ByteArray, FfiKeyPackageStatus>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.ByteArray, FfiKeyPackageStatus> {
+        val len = buf.getInt()
+        return buildMap<kotlin.ByteArray, FfiKeyPackageStatus>(len) {
+            repeat(len) {
+                val k = FfiConverterByteArray.read(buf)
+                val v = FfiConverterTypeFfiKeyPackageStatus.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.ByteArray, FfiKeyPackageStatus>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterByteArray.allocationSize(k) +
+            FfiConverterTypeFfiKeyPackageStatus.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.ByteArray, FfiKeyPackageStatus>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.iterator().forEach { (k, v) ->
+            FfiConverterByteArray.write(k, buf)
+            FfiConverterTypeFfiKeyPackageStatus.write(v, buf)
         }
     }
 }
