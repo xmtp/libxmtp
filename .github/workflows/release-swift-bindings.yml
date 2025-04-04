@@ -89,22 +89,22 @@ jobs:
         id: checksum
         working-directory: bindings_ffi
         run: |
-          echo "::set-output name=checksum::$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')"
+          echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> $GITHUB_OUTPUT
       - name: Get short SHA
         id: slug
-        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
       - name: Get crate version
         id: version
         run: |
-          echo "::set-output name=value::$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')"
+          echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
       - name: Create release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: swift-bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
-          release_name: Swift-Bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
+          tag_name: swift-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
           body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
           draft: false
           prerelease: true

@@ -77,8 +77,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: kotlin-bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
-          release_name: Kotlin-Bindings-${{ steps.version.outputs.value }}-${{ steps.slug.outputs.sha7 }}
+          tag_name: kotlin-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          release_name: Kotlin-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
       - name: Upload release asset
