@@ -34,6 +34,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::DMMetadataOptions;
@@ -124,6 +125,7 @@ pub async fn create_client(
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     device_sync_server_url: Option<String>,
+    device_sync_worker_mode: Option<FfiSyncWorkerMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -162,6 +164,10 @@ pub async fn create_client(
         .with_remote_verifier()?
         .store(store);
 
+    if let Some(device_sync_worker_mode) = device_sync_worker_mode {
+        builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
+    }
+
     if let Some(url) = &device_sync_server_url {
         builder = builder.device_sync_server_url(url);
     }
@@ -195,6 +201,21 @@ pub async fn get_inbox_id_for_identifier(
         .map_err(GenericError::from_error)?;
 
     Ok(results.get(&api_identifier).cloned())
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiSyncWorkerMode {
+    Enabled,
+    Disabled,
+}
+
+impl From<FfiSyncWorkerMode> for SyncWorkerMode {
+    fn from(value: FfiSyncWorkerMode) -> Self {
+        match value {
+            FfiSyncWorkerMode::Enabled => Self::Enabled,
+            FfiSyncWorkerMode::Disabled => Self::Disabled,
+        }
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -3060,6 +3081,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -3090,6 +3112,7 @@ mod tests {
             nonce,
             None,
             device_sync_server_url,
+            None,
         )
         .await?;
 
@@ -3159,6 +3182,7 @@ mod tests {
             nonce,
             Some(legacy_keys),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3186,6 +3210,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3203,6 +3228,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3240,6 +3266,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3258,6 +3285,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3350,6 +3378,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3466,6 +3495,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3555,6 +3585,7 @@ mod tests {
             nonce,
             None, // v2_signed_private_key_proto
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3584,6 +3615,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3624,6 +3656,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -6765,6 +6798,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6804,6 +6838,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6868,6 +6903,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
@@ -6903,6 +6939,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6925,6 +6962,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6944,6 +6982,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -6974,6 +7013,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
