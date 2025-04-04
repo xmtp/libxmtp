@@ -3,22 +3,22 @@ on:
   push:
     branches:
       - main
-  # pull_request:
-  #   # only run tests when related changes are made
-  #   paths:
-  #     - ".github/workflows/test-ffi-bindings.yml"
-  #     - "bindings_ffi/**"
-  #     - "dev/**"
-  #     - "mls_validation_service/**"
-  #     - "xmtp_api_grpc/**"
-  #     - "xmtp_cryptography/**"
-  #     - "xmtp_id/**"
-  #     - "xmtp_mls/**"
-  #     - "xmtp_proto/**"
-  #     - "Cargo.toml"
-  #     - "Cargo.lock"
-  #     - ".cargo/**"
-  #     - "rust-toolchain.toml"
+  pull_request:
+    # only run tests when related changes are made
+    paths:
+      - ".github/workflows/test-ffi-bindings.yml"
+      - "bindings_ffi/**"
+      - "dev/**"
+      - "mls_validation_service/**"
+      - "xmtp_api_grpc/**"
+      - "xmtp_cryptography/**"
+      - "xmtp_id/**"
+      - "xmtp_mls/**"
+      - "xmtp_proto/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "rust-toolchain.toml"
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
