@@ -1,5 +1,4 @@
 use super::*;
-use anyhow::Result;
 
 // Please ensure that all public functions defined in this module
 // start with `test_`
@@ -13,7 +12,7 @@ where
     pub(crate) async fn test_talk_in_dm_with(
         &self,
         other: &Self,
-    ) -> Result<(MlsGroup<Self>, String)> {
+    ) -> Result<(MlsGroup<Self>, String), GroupError> {
         self.sync_welcomes(&self.mls_provider()?).await?;
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), DMMetadataOptions::default())
@@ -28,7 +27,7 @@ where
         // the group_id should be the same.
         assert_eq!(dm.group_id, other_dm.group_id);
 
-        let msg = dm.test_can_talk_with(&other_dm).await;
+        let msg = dm.test_can_talk_with(&other_dm).await?;
 
         Ok((dm, msg))
     }
