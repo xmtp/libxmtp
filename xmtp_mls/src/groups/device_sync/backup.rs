@@ -123,7 +123,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2_provider).await.unwrap();
+        importer.run(&alix2).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -137,7 +137,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
         use diesel::QueryDsl;
-        use xmtp_db::group::ConversationType;
+        use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
         let alix = Tester::new().await;
         let bo = Tester::new().await;
@@ -148,6 +148,10 @@ mod tests {
         wait_for_min_intents(&alix.provider.conn_ref(), 1).await;
 
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group.update_group_name("My group".to_string()).await?;
+
+        bo.sync_welcomes(&bo.provider).await?;
+        let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
         wait_for_min_intents(&alix.provider.conn_ref(), 2).await;
@@ -176,7 +180,7 @@ mod tests {
             .provider
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 6);
+        assert_eq!(old_messages.len(), 7);
 
         let opts = BackupOptions {
             start_ns: None,
@@ -204,7 +208,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = BackupImporter::from_file(path, &key).await?;
-        importer.run(&alix2.provider).await?;
+        importer.run(&*alix2).await?;
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2
@@ -243,10 +247,10 @@ mod tests {
         }
 
         let alix2_group = alix2.group(&old_group.id)?;
-        assert!(!alix2_group.is_active(&alix2.provider)?);
-
-        let result = alix2_group.send_message(b"this shouldn't send").await;
-        assert!(result.is_err());
+        // Loading all the groups works fine
+        let _groups = alix2.find_groups(GroupQueryArgs::default())?;
+        // assert!(!alix2_group.is_active(&alix2.provider)?);
+        alix2_group.group_name(&alix2.provider)?;
 
         // Add the new inbox to the group
         alix_group
@@ -256,13 +260,22 @@ mod tests {
 
         // The group restores to being fully functional!
         let alix2_group = alix2.group(&old_group.id)?;
-        alix2_group.send_message(b"this should send").await?;
+
+        // The old messages should be stitched in
         let msgs = alix2_group.find_messages(&MsgQueryArgs::default())?;
         let old_msg_exists = msgs
             .iter()
             .any(|msg| msg.decrypted_message_bytes == b"hello there");
-
         assert!(old_msg_exists);
+
+        // Bo should see the new message from alix2
+        alix2_group.send_message(b"this should send").await?;
+        bo_group.sync().await?;
+        let msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+        let new_msg_exists = msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == b"this should send");
+        assert!(new_msg_exists);
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;

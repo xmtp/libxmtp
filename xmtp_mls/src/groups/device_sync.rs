@@ -752,7 +752,7 @@ where
 
         tracing::info!("Importing the sync payload.");
         // Run the import.
-        importer.run(&provider).await?;
+        importer.run(self).await?;
 
         Ok(())
     }

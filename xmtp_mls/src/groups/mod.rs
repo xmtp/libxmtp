@@ -542,6 +542,31 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
+        let stored_group = Self::insert(
+            &client,
+            provider,
+            None,
+            membership_state,
+            permissions_policy_set,
+            opts,
+        )?;
+        let new_group =
+            Self::new_from_arc(client.clone(), stored_group.id, stored_group.created_at_ns);
+
+        // Consent state defaults to allowed when the user creates the group
+        new_group.update_consent_state(ConsentState::Allowed)?;
+        Ok(new_group)
+    }
+
+    // Save a new group to the db
+    pub(crate) fn insert(
+        client: &ScopedClient,
+        provider: &XmtpOpenMlsProvider,
+        group_id: Option<&[u8]>,
+        membership_state: GroupMembershipState,
+        permissions_policy_set: PolicySet,
+        opts: GroupMetadataOptions,
+    ) -> Result<StoredGroup, GroupError> {
         let context = client.context();
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
@@ -557,15 +582,28 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             mutable_permissions,
         )?;
 
-        let mls_group = OpenMlsGroup::new(
-            provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
+        let mls_group = if let Some(group_id) = group_id {
+            OpenMlsGroup::new_with_group_id(
+                provider,
+                &context.identity.installation_keys,
+                &group_config,
+                GroupId::from_slice(group_id),
+                CredentialWithKey {
+                    credential: context.identity.credential(),
+                    signature_key: context.identity.installation_keys.public_slice().into(),
+                },
+            )?
+        } else {
+            OpenMlsGroup::new(
+                provider,
+                &context.identity.installation_keys,
+                &group_config,
+                CredentialWithKey {
+                    credential: context.identity.credential(),
+                    signature_key: context.identity.installation_keys.public_slice().into(),
+                },
+            )?
+        };
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -582,11 +620,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .build()?;
 
         stored_group.store(provider.conn_ref())?;
-        let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
 
-        // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
-        Ok(new_group)
+        Ok(stored_group)
     }
 
     // Create a new DM and save it to the DB

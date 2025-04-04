@@ -1,6 +1,11 @@
 use super::{BackupError, BackupMetadata};
 use crate::{
-    groups::device_sync::{DeviceSyncError, NONCE_SIZE},
+    groups::{
+        device_sync::{DeviceSyncError, NONCE_SIZE},
+        group_permissions::PolicySet,
+        scoped_client::ScopedGroupClient,
+        GroupError, GroupMetadataOptions, MlsGroup,
+    },
     XmtpOpenMlsProvider,
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
@@ -10,8 +15,8 @@ use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::StoredGroup, group_message::StoredGroupMessage,
-    DbConnection, StorageError, Store,
+    consent_record::StoredConsentRecord, group::GroupMembershipState,
+    group_message::StoredGroupMessage, StorageError, Store,
 };
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
@@ -88,11 +93,13 @@ impl BackupImporter {
         Ok(None)
     }
 
-    pub async fn run(&mut self, provider: &XmtpOpenMlsProvider) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
-
+    pub async fn run<Client>(&mut self, client: &Client) -> Result<(), DeviceSyncError>
+    where
+        Client: ScopedGroupClient,
+    {
+        let provider = client.mls_provider()?;
         while let Some(element) = self.next_element().await? {
-            match insert(element, conn) {
+            match insert(element, client, &provider) {
                 Err(DeviceSyncError::Deserialization(err)) => {
                     tracing::warn!("Unable to insert record: {err:?}");
                 }
@@ -109,7 +116,14 @@ impl BackupImporter {
     }
 }
 
-fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncError> {
+fn insert<Client>(
+    element: BackupElement,
+    client: &Client,
+    provider: &XmtpOpenMlsProvider,
+) -> Result<(), DeviceSyncError>
+where
+    Client: ScopedGroupClient,
+{
     let Some(element) = element.element else {
         return Ok(());
     };
@@ -117,15 +131,39 @@ fn insert(element: BackupElement, conn: &DbConnection) -> Result<(), DeviceSyncE
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            ignore_unique_constraints(consent.store(conn))?;
+            ignore_unique_constraints(consent.store(provider.conn_ref()))?;
         }
-        Element::Group(group) => {
-            let group: StoredGroup = group.try_into()?;
-            ignore_unique_constraints(group.store(conn))?;
+        Element::Group(save) => {
+            tracing::error!("{:?}", save.mutable_metadata);
+
+            let attributes = save
+                .mutable_metadata
+                .map(|m| m.attributes)
+                .unwrap_or_default();
+
+            let result = MlsGroup::insert(
+                client,
+                provider,
+                Some(&save.id),
+                GroupMembershipState::Pending,
+                PolicySet::default(),
+                GroupMetadataOptions {
+                    name: attributes.get("group_name").cloned(),
+                    image_url_square: attributes.get("group_image_url_square").cloned(),
+                    description: attributes.get("description").cloned(),
+                    ..Default::default()
+                },
+            );
+
+            if let Err(GroupError::Storage(storage_error)) = result {
+                ignore_unique_constraints::<()>(Err(storage_error))?;
+            } else {
+                result?;
+            }
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            ignore_unique_constraints(message.store(conn))?;
+            ignore_unique_constraints(message.store(provider.conn_ref()))?;
         }
         _ => {}
     }
