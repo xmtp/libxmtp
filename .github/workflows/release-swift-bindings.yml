@@ -203,20 +203,20 @@ jobs:
           git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
           git push origin update-to-${{ steps.version_info.outputs.release_tag }}
       
-      - name: Create PR
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
-          path: libxmtp-swift
-          commit-message: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
-          branch: update-to-${{ steps.version_info.outputs.release_tag }}
-          base: main
-          title: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
-          body: |
-            This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}.
+      # - name: Create PR
+      #   uses: peter-evans/create-pull-request@v5
+      #   with:
+      #     token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
+      #     path: libxmtp-swift
+      #     commit-message: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+      #     branch: update-to-${{ steps.version_info.outputs.release_tag }}
+      #     base: main
+      #     title: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
+      #     body: |
+      #       This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}.
             
-            Changes:
-            - Updated Sources directory with latest Swift bindings
-            - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
-            - Updated binary URLs to point to the new release
-            - Updated checksum in Package.swift
+      #       Changes:
+      #       - Updated Sources directory with latest Swift bindings
+      #       - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
+      #       - Updated binary URLs to point to the new release
+      #       - Updated checksum in Package.swift
