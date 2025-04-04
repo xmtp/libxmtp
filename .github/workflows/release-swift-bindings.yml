@@ -2,130 +2,125 @@ name: Release Swift Bindings
 on:
   workflow_dispatch:
 jobs:
-  # build-macos:
-  #   runs-on: warp-macos-13-arm64-6x
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       target:
-  #         - aarch64-apple-ios
-  #         - x86_64-apple-ios
-  #         - aarch64-apple-ios-sim
-  #         - x86_64-apple-darwin
-  #         - aarch64-apple-darwin
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #     - name: Update rust toolchains, add target
-  #       run: |
-  #         rustup update
-  #         rustup target add ${{ matrix.target }}
-  #     - name: Cache
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         workspaces: |
-  #           .
-  #           bindings_ffi
-  #     - name: Install Cross
-  #       uses: taiki-e/install-action@cross
-  #     - name: Build target
-  #       env:
-  #         CROSS_NO_WARNINGS: "0"
-  #         IPHONEOS_DEPLOYMENT_TARGET: 10
-  #       run: |
-  #         cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
-  #     - name: Upload binary
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: ${{ matrix.target }}
-  #         path: target/${{ matrix.target }}/release/libxmtpv3.a
-  #         retention-days: 1
-  # swift:
-  #   runs-on: warp-macos-13-arm64-6x
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #     - name: Update rust toolchains, add target
-  #       run: |
-  #         rustup update
-  #         rustup target add x86_64-apple-darwin
-  #     - name: Cache
-  #       uses: Swatinem/rust-cache@v2
-  #       with:
-  #         workspaces: |
-  #           .
-  #           bindings_ffi
-  #     - name: Install swift
-  #       run: brew install swiftformat
-  #     - name: Generate bindings
-  #       working-directory: bindings_ffi
-  #       run: |
-  #         make swift
-  #     - name: Upload artifact
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: swift
-  #         path: bindings_ffi/build/swift/
-  #         retention-days: 1
-  # package-swift:
-  #   needs: [build-macos, swift]
-  #   runs-on: warp-macos-13-arm64-6x
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #     - name: Download artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: bindings_ffi/build
-  #     - name: Build archive
-  #       working-directory: bindings_ffi
-  #       run: |
-  #         mkdir -p Sources/LibXMTP
-  #         mv build/swift/xmtpv3.swift Sources/LibXMTP/
-  #         make framework
-  #         cp ../LICENSE ./LICENSE
-  #         zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
-  #     - name: Calculate checksum
-  #       id: checksum
-  #       working-directory: bindings_ffi
-  #       run: |
-  #         echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> $GITHUB_OUTPUT
-  #     - name: Get short SHA
-  #       id: slug
-  #       run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
-  #     - name: Get crate version
-  #       id: version
-  #       run: |
-  #         echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
-  #     - name: Create release
-  #       id: create_release
-  #       uses: actions/create-release@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         tag_name: swift-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
-  #         release_name: Swift-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
-  #         body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
-  #         draft: false
-  #         prerelease: true
-  #     - name: Upload release asset
-  #       uses: actions/upload-release-asset@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         upload_url: ${{ steps.create_release.outputs.upload_url }}
-  #         asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
-  #         asset_name: LibXMTPSwiftFFI.zip
-  #         asset_content_type: application/zip
+  build-macos:
+    runs-on: warp-macos-13-arm64-6x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-ios
+          - x86_64-apple-ios
+          - aarch64-apple-ios-sim
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add ${{ matrix.target }}
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+      - name: Install Cross
+        uses: taiki-e/install-action@cross
+      - name: Build target
+        env:
+          CROSS_NO_WARNINGS: "0"
+          IPHONEOS_DEPLOYMENT_TARGET: 10
+        run: |
+          cross build --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/libxmtpv3.a
+          retention-days: 1
+  swift:
+    runs-on: warp-macos-13-arm64-6x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add x86_64-apple-darwin
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+      - name: Install swift
+        run: brew install swiftformat
+      - name: Generate bindings
+        working-directory: bindings_ffi
+        run: |
+          make swift
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift
+          path: bindings_ffi/build/swift/
+          retention-days: 1
+  package-swift:
+    needs: [build-macos, swift]
+    runs-on: warp-macos-13-arm64-6x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bindings_ffi/build
+      - name: Build archive
+        working-directory: bindings_ffi
+        run: |
+          mkdir -p Sources/LibXMTP
+          mv build/swift/xmtpv3.swift Sources/LibXMTP/
+          make framework
+          cp ../LICENSE ./LICENSE
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
+      - name: Calculate checksum
+        id: checksum
+        working-directory: bindings_ffi
+        run: |
+          echo "checksum=$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')" >> $GITHUB_OUTPUT
+      - name: Get short SHA
+        id: slug
+        run: echo "sha7=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+      - name: Get crate version
+        id: version
+        run: |
+          echo "value=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')" >> $GITHUB_OUTPUT
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: swift-bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-${{ steps.version.outputs.value }}.${{ steps.slug.outputs.sha7 }}
+          body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
+          draft: false
+          prerelease: true
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
+          asset_name: LibXMTPSwiftFFI.zip
+          asset_content_type: application/zip
       
   update-swift-repo:
-    # needs: [package-swift]
+    needs: [package-swift]
     runs-on: warp-macos-13-arm64-6x
-    env:
-      RELEASE_URL: "https://github.com/xmtp/libxmtp/releases/download/swift-bindings-1.2.0-dev.da2c7a3/LibXMTPSwiftFFI.zip"
-      CRATE_VERSION: "1.2.0-dev"
-      COMMIT_SHA: "da2c7a3"
-      RELEASE_TAG: "swift-bindings-1.2.0-dev.da2c7a3"
     steps:
       - name: Checkout libxmtp
         uses: actions/checkout@v4
@@ -233,20 +228,3 @@ jobs:
           - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
           - Updated binary URLs to point to the new release
           - Updated checksum in Package.swift"
-      # - name: Create PR
-      #   uses: peter-evans/create-pull-request@v5
-      #   with:
-      #     token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
-      #     path: libxmtp-swift
-      #     commit-message: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
-      #     branch: update-to-${{ steps.version_info.outputs.release_tag }}
-      #     base: main
-      #     title: "Update to libxmtp ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}"
-      #     body: |
-      #       This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}.${{ steps.version_info.outputs.sha7 }}.
-            
-      #       Changes:
-      #       - Updated Sources directory with latest Swift bindings
-      #       - Updated LibXMTP.podspec version to ${{ steps.version_info.outputs.version }}
-      #       - Updated binary URLs to point to the new release
-      #       - Updated checksum in Package.swift
