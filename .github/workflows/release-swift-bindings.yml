@@ -220,8 +220,8 @@ jobs:
           gh pr create --repo xmtp/libxmtp-swift \
             --base main \
             --head update-to-${{ steps.version_info.outputs.release_tag }} \
-            --title "Update to libxmtp ${{ steps.version_info.outputs.version }} \
-            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }} }}. 
+            --title "Update to libxmtp ${{ steps.version_info.outputs.version }}" \
+            --body "This PR updates the Swift bindings to libxmtp version ${{ steps.version_info.outputs.version }}. 
             
           Changes:
           - Updated Sources directory with latest Swift bindings
