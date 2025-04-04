@@ -1,8 +1,7 @@
+pub use importer::BackupImporter;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
-
-pub use importer::BackupImporter;
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
@@ -46,7 +45,7 @@ impl OptionsToSave for BackupMetadataSave {
         Self {
             end_ns: options.end_ns,
             start_ns: options.start_ns,
-            elements: options.elements.iter().copied().collect(),
+            elements: options.elements,
             exported_at_ns: now_ns(),
         }
     }

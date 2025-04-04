@@ -536,6 +536,24 @@ impl Conversations {
     Ok(num_groups_synced)
   }
 
+  #[wasm_bindgen(js_name = syncAllConversations)]
+  pub async fn sync_device_sync(&self) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .sync()
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
   #[wasm_bindgen]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self

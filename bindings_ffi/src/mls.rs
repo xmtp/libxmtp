@@ -1315,7 +1315,7 @@ impl FfiConversations {
         Ok(num_groups_synced)
     }
 
-    pub async fn sync_device_sync_group(&self) -> Result<(), GenericError> {
+    pub async fn sync_device_sync(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         self.inner_client.sync_device_sync_group(&provider).await?;
 
@@ -6454,11 +6454,7 @@ mod tests {
         assert!(result.is_ok());
 
         wait_for_ok(|| async {
-            alix_b
-                .conversations()
-                .sync_device_sync_group()
-                .await
-                .unwrap();
+            alix_b.conversations().sync_device_sync().await.unwrap();
 
             stream_b_callback.wait_for_delivery(Some(1)).await
         })
