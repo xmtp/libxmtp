@@ -23,12 +23,12 @@ async fn create_test_client() -> Client {
     Some(db),
     None,
     None,
+    None,
     Some(LogOptions {
       structured: false,
       performance: true,
       level: Some(LogLevel::Debug),
     }),
-    None,
   )
   .await
   .unwrap()
