@@ -7,7 +7,7 @@ use crate::{
 };
 use backup::BackupImporter;
 use backup::{exporter::BackupExporter, BackupError};
-use futures::{future::join_all, StreamExt};
+use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
@@ -412,7 +412,7 @@ where
         };
         #[cfg(target_arch = "wasm32")]
         let body = {
-            use futures::AsyncReadExt;
+            use futures::{AsyncReadExt, StreamExt};
             // Make exporter mutable
             let mut exporter = exporter;
 
