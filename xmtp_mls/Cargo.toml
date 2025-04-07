@@ -46,7 +46,7 @@ default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
 http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
 d14n = ["dep:xmtp_api_d14n"]
-update-schema = ["toml"]
+update-schema = ["toml", "anyhow"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
@@ -98,6 +98,7 @@ futures-executor = { version = "0.3", optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 toml = { version = "0.8.4", optional = true }
+anyhow = { workspace = true, optional = true}
 url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }

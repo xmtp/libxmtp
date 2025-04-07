@@ -92,7 +92,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
-use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
+use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences, SyncCursor};
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -819,7 +819,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 }
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
-                    // sync group that came in from a welcome.
+                    // sync group that came in from a welcome.3
+                    SyncCursor::reset(mls_group.group_id().as_slice(), provider.conn_ref())?;
                     let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
 
                     group

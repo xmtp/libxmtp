@@ -7823,6 +7823,7 @@ name = "xmtp_mls"
 version = "1.2.0-dev"
 dependencies = [
  "aes-gcm",
+ "anyhow",
  "async-compression",
  "async-trait",
  "bincode",

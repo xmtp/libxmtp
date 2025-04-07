@@ -166,10 +166,12 @@ where
         retry: &Retry,
     ) -> Result<usize, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
-        let mut cursor =
-            StoredUserPreferences::sync_cursor(provider.conn_ref(), &sync_group.group_id)?;
+        let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
+            tracing::warn!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
+            return Ok(0);
+        };
 
-        let messages = sync_group.sync_messages(cursor.cursor)?;
+        let messages = sync_group.sync_messages(cursor.offset)?;
         let mut num_processed = 0;
 
         for (msg, content) in messages.iter_with_content() {
@@ -209,7 +211,7 @@ where
             }
 
             // Move the cursor
-            cursor.cursor += 1;
+            cursor.offset += 1;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
             num_processed += 1;
         }

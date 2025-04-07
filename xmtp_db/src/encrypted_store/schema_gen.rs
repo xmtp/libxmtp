@@ -131,7 +131,8 @@ diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
-        sync_cursor -> Nullable<Text>,
+        sync_cursor_group_id -> Nullable<Binary>,
+        sync_cursor_offset -> Integer,
     }
 }
 

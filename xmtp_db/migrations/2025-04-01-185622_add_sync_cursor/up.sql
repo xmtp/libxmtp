@@ -4,7 +4,8 @@ RENAME TO user_preferences_old;
 CREATE TABLE user_preferences (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0),
     hmac_key BLOB,
-    sync_cursor TEXT
+    sync_cursor_group_id BLOB,
+    sync_cursor_offset INT NOT NULL DEFAULT 0
 );
 
 INSERT INTO
