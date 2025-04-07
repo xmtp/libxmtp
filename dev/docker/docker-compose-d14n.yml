@@ -13,7 +13,7 @@ services:
 
   chain:
     platform: linux/amd64
-    image: ghcr.io/xmtp/contracts:sha-cff29fc
+    image: ghcr.io/xmtp/contracts:sha-85dc71a
 
   register-node:
     platform: linux/amd64
