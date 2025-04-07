@@ -109,7 +109,9 @@ impl UserPreferenceUpdate {
     ) -> Result<(), StorageError> {
         match self {
             Self::ConsentUpdate(consent_record) => {
-                let _ = consent_record.store(provider.conn_ref());
+                provider
+                    .conn_ref()
+                    .insert_or_replace_consent_records(&[consent_record])?;
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
             Self::HmacKeyUpdate { key } => {

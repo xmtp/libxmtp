@@ -1,3 +1,5 @@
+use xmtp_db::consent_record::ConsentState;
+
 use super::*;
 use crate::{groups::DMMetadataOptions, utils::Tester};
 
@@ -129,4 +131,13 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
+
+    dm.update_consent_state(ConsentState::Denied)?;
+    alix1.worker.wait(SyncMetric::ConsentSent, 2).await?;
+
+    alix2.sync_device_sync_group(&alix2.provider).await?;
+    alix2.worker.wait(SyncMetric::ConsentReceived, 1).await?;
+
+    let alix2_dm = alix2.group(&dm.group_id)?;
+    assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
 }
