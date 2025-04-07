@@ -19,6 +19,7 @@ use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::retry_async;
 use xmtp_common::{Retry, RetryableError};
+use xmtp_db::group_message::GroupMessageKind;
 use xmtp_db::{
     group::GroupQueryArgs,
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -666,6 +667,10 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
+            if msg.kind != GroupMessageKind::Application {
+                return None;
+            }
+
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)
                 .inspect_err(|_| {
                     tracing::warn!("Unable to deserialize device sync message.");
