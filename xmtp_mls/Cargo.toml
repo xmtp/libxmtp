@@ -90,6 +90,7 @@ xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
+anyhow = { workspace = true, optional = true }
 const_format = { workspace = true, optional = true }
 coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
@@ -98,7 +99,6 @@ futures-executor = { version = "0.3", optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 toml = { version = "0.8.4", optional = true }
-anyhow = { workspace = true, optional = true}
 url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
