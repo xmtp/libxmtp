@@ -20,9 +20,6 @@ services:
     image: ghcr.io/xmtp/xmtpd-cli:main
     env_file:
       - local.env
-    environment:
-      XMTPD_CONTRACTS_RPC_URL: http://chain:8545
-      REGISTER_NODE_HTTP_ADDRESS: http://repnode:5050
     command: [
       "register-node",
       "--http-address=${REGISTER_NODE_HTTP_ADDRESS}",
@@ -40,8 +37,6 @@ services:
     image: ghcr.io/xmtp/xmtpd-cli:main
     env_file:
       - local.env
-    environment:
-      XMTPD_CONTRACTS_RPC_URL: http://chain:8545
     command: [
       "add-node-to-network",
       "--private-key=${REGISTER_NODE_ADMIN_KEY}",
@@ -59,10 +54,6 @@ services:
     image: ghcr.io/xmtp/xmtpd:sha-69011f9
     env_file:
       - local.env
-    environment:
-      XMTPD_DB_WRITER_CONNECTION_STRING: postgres://postgres:xmtp@replicationdb:5432/postgres?sslmode=disable
-      XMTPD_CONTRACTS_RPC_URL: http://chain:8545
-      XMTPD_MLS_VALIDATION_GRPC_ADDRESS: http://validation:50051
     depends_on:
       enable-node:
         condition: service_completed_successfully
