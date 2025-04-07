@@ -12,15 +12,19 @@ pub static XMTP_LOCAL: LazyLock<Url> =
 
 pub static XMTP_PRODUCTION_D14N: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://grpc.testnet.xmtp.network:443").unwrap());
-pub static XMTP_DEV_D14N: LazyLock<Url> =
+pub static XMTP_STAGING_D14N: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://grpc.testnet-staging.xmtp.network:443").unwrap());
+pub static XMTP_DEV_D14N: LazyLock<Url> =
+    LazyLock::new(|| Url::parse("https://grpc.testnet-dev.xmtp.network:443").unwrap());
 pub static XMTP_LOCAL_D14N: LazyLock<Url> =
     LazyLock::new(|| Url::parse("http://localhost:5050").unwrap());
 
 pub static XMTP_PRODUCTION_PAYER: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet.xmtp.network:443").unwrap());
-pub static XMTP_DEV_PAYER: LazyLock<Url> =
+pub static XMTP_STAGING_PAYER: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet-staging.xmtp.network:443").unwrap());
+pub static XMTP_DEV_PAYER: LazyLock<Url> =
+    LazyLock::new(|| Url::parse("https://payer.testnet-dev.xmtp.network:443").unwrap());
 pub static XMTP_LOCAL_PAYER: LazyLock<Url> =
     LazyLock::new(|| Url::parse("http://localhost:5050").unwrap());
 
