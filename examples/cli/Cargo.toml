@@ -36,7 +36,6 @@ tracing-subscriber = { workspace = true, features = [
   "chrono",
 ] }
 valuable = { version = "0.1", features = ["derive"] }
-valuable-serde = "0.1"
 xmtp_api = { path = "../../xmtp_api" }
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }

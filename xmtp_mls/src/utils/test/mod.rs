@@ -31,13 +31,22 @@ const HISTORY_SERVER_PORT: u16 = 5558;
 pub const HISTORY_SYNC_URL: &str =
     const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
 
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
-#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
+#[cfg(all(
+    any(feature = "http-api", target_arch = "wasm32"),
+    not(feature = "d14n")
+))]
 use xmtp_api_http::XmtpHttpApiClient;
-#[cfg(any(feature = "http-api", target_arch = "wasm32"))]
+#[cfg(all(
+    any(feature = "http-api", target_arch = "wasm32"),
+    not(feature = "d14n")
+))]
 pub type TestClient = XmtpHttpApiClient;
+
+#[cfg(feature = "d14n")]
+pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
 impl<A, V> ClientBuilder<A, V> {
     pub async fn temp_store(self) -> Self {
@@ -47,6 +56,7 @@ impl<A, V> ClientBuilder<A, V> {
                 StorageOption::Persistent(tmpdb),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap(),
         )
     }

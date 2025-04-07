@@ -47,8 +47,15 @@ cp $BINDINGS_PATH/src/uniffi/xmtpv3/libxmtp-version.txt $XMTP_ANDROID/library/sr
 # Read the version number from libxmtp-version file
 VERSION=$(head -n 1 libxmtp-version.txt | cut -d' ' -f2 | cut -c1-7)
 
-# Construct the download URL using the version
-DOWNLOAD_URL="https://github.com/xmtp/libxmtp/releases/download/kotlin-bindings-${VERSION}/LibXMTPKotlinFFI.zip"
+# Get the crate version from bindings_ffi Cargo.toml using cargo metadata
+echo "BINDINGS_MANIFEST for crate version command: $BINDINGS_MANIFEST"
+CRATE_VERSION=$(cargo metadata --manifest-path $BINDINGS_MANIFEST --format-version 1 | 
+                jq -r '.packages[] | select(.name == "xmtpv3") | .version')
+echo "CRATE_VERSION: $CRATE_VERSION"
+
+# Construct the download URL using both versions
+DOWNLOAD_URL="https://github.com/xmtp/libxmtp/releases/download/kotlin-bindings-${CRATE_VERSION}.${VERSION}/LibXMTPKotlinFFI.zip"
+echo "DOWNLOAD_URL: $DOWNLOAD_URL"
 
 # Remove existing zip file if it exists
 rm -f src/uniffi/$PROJECT_NAME/LibXMTPKotlinFFI.zip

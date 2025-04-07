@@ -6,7 +6,7 @@ mod logger;
 use clap::Parser;
 use color_eyre::eyre::Result;
 
-use xmtp_api_grpc::{grpc_api_helper::Client as GrpcClient, GrpcError};
+use xmtp_api_grpc::{GrpcError, grpc_api_helper::Client as GrpcClient};
 use xmtp_proto::traits::ApiClientError;
 
 type DbgClientApi = xmtp_proto::api_client::ArcedXmtpApi<ApiClientError<GrpcError>>;

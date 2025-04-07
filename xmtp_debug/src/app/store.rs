@@ -5,7 +5,7 @@ mod metadata;
 use std::{borrow::Borrow, sync::Arc};
 
 use color_eyre::eyre::{self, Result};
-use rand::{seq::IteratorRandom, Rng};
+use rand::{Rng, seq::IteratorRandom};
 use redb::{AccessGuard, ReadTransaction, WriteTransaction};
 use speedy::{Readable, Writable};
 
@@ -65,10 +65,7 @@ impl<C: speedy::Context, const N: usize> Writable<C> for NetworkKey<N> {
         &self,
         writer: &mut T,
     ) -> std::result::Result<(), <C as speedy::Context>::Error> {
-        let NetworkKey {
-            ref network,
-            ref key,
-        } = self;
+        let NetworkKey { network, key } = self;
         writer.write_value(network)?;
         if N > 0 {
             writer.write_value(key)?;

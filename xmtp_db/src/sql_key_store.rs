@@ -1052,6 +1052,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
 
         let conn = store.conn().unwrap();
@@ -1107,6 +1108,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);
@@ -1189,6 +1191,7 @@ pub(crate) mod tests {
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),
         )
+        .await
         .unwrap();
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(conn);

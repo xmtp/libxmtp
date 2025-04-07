@@ -234,15 +234,20 @@ impl EncryptedConnection {
         opts: &StorageOption,
         conn: Option<&mut SqliteConnection>,
     ) -> Result<CipherVersion, NativeStorageError> {
-        if let Some(path) = opts.path() {
-            let exists = std::path::Path::new(path).exists();
-            tracing::debug!("db @ [{}] exists? [{}]", path, exists);
-        }
         let conn = if let Some(c) = conn {
             c
         } else {
             &mut opts.conn()?
         };
+
+        if cfg!(any(test, feature = "test-utils")) {
+            conn.batch_execute("pragma cipher_log = stdout; pragma cipher_log_level = NONE;")?;
+        }
+
+        if let Some(path) = opts.path() {
+            let exists = std::path::Path::new(path).exists();
+            tracing::debug!("db @ [{}] exists? [{}]", path, exists);
+        }
         let mut cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
         if cipher_version.is_empty() {
             return Err(NativeStorageError::SqlCipherNotLoaded);
@@ -276,6 +281,7 @@ impl super::native::ValidatedConnection for EncryptedConnection {
         );
         let log = std::env::var("SQLCIPHER_LOG");
         let is_sqlcipher_log_enabled = matches!(log, Ok(s) if s == "true" || s == "1");
+        //TODO: Can log to logcat/oslog for ios/android
         if is_sqlcipher_log_enabled {
             conn.batch_execute("PRAGMA cipher_log = stderr; PRAGMA cipher_log_level = INFO;")
                 .ok();
@@ -342,6 +348,7 @@ mod tests {
                 Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
+            .await
             .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
@@ -386,7 +393,9 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key).unwrap();
+            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
+                .await
+                .unwrap();
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();

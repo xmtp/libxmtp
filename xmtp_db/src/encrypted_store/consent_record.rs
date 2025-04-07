@@ -303,5 +303,6 @@ mod tests {
             // ensure the db matches the state of what was returned
             assert_eq!(db_cr.state, existing.state);
         })
+        .await
     }
 }

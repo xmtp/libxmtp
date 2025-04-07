@@ -163,6 +163,7 @@ pub(crate) mod tests {
                 "Duplicated wallet stored without error, expected failure"
             );
         })
+        .await
     }
 
     // Test storing and fetching multiple wallet addresses with multiple keys
@@ -193,5 +194,6 @@ pub(crate) mod tests {
                 "Expected no wallets, found some"
             );
         })
+        .await
     }
 }

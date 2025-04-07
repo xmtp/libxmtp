@@ -8,7 +8,7 @@ use openmls::{credentials::BasicCredential, prelude::Credential};
 use prost::Message;
 use speedy::{Readable, Writable};
 
-use xmtp_cryptography::{utils::LocalWallet, XmtpInstallationCredential};
+use xmtp_cryptography::{XmtpInstallationCredential, utils::LocalWallet};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_proto::xmtp::identity::MlsCredential;
 

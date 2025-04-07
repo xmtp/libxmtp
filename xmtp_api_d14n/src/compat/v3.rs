@@ -1,6 +1,7 @@
 use crate::v3::*;
 use futures::stream;
 use xmtp_common::RetryableError;
+use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
@@ -9,7 +10,6 @@ use xmtp_proto::mls_v1;
 use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::traits::{ApiClientError, Client, Query};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::XmtpApiError;
 
 #[derive(Clone)]
 pub struct V3Client<C> {

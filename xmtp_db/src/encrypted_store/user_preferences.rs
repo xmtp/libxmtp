@@ -95,5 +95,6 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         })
+        .await
     }
 }

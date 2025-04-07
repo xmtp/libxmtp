@@ -29,7 +29,6 @@ bench = [
   "test-utils",
   "indicatif",
   "tracing-subscriber",
-  "anyhow",
   "dep:xmtp_api_grpc",
   "criterion",
   "dep:fdlimit",
@@ -38,8 +37,9 @@ bench = [
   "xmtp_common/bench",
 ]
 default = ["grpc-api"]
-grpc-api = ["dep:xmtp_api_grpc"]
-http-api = ["dep:xmtp_api_http"]
+grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
+http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
+d14n = ["dep:xmtp_api_d14n"]
 update-schema = ["toml"]
 
 [dependencies]
@@ -84,10 +84,10 @@ const_format = { workspace = true, optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 toml = { version = "0.8.4", optional = true }
+xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
 # Test/Bench Utils
-anyhow = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
@@ -126,7 +126,6 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 [dev-dependencies]
-anyhow.workspace = true
 const_format.workspace = true
 openmls_basic_credential.workspace = true
 wasm-bindgen-test.workspace = true
@@ -138,6 +137,8 @@ fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
