@@ -33,6 +33,7 @@ use xmtp_common::types::InstallationId;
 use xmtp_common::{retry_async, retryable, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
+use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::Fetch;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
@@ -626,6 +627,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+        SyncCursor::reset(&group.group_id, provider.conn_ref())?;
         group.update_installations().await?;
         Ok(group)
     }
