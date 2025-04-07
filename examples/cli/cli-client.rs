@@ -76,6 +76,7 @@ enum Env {
     #[default]
     Local,
     Dev,
+    Staging,
     Production,
 }
 
@@ -259,7 +260,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let payer = payer.build().await?;
             Arc::new(D14nClient::new(message, payer))
         }
-        (true, Env::Dev) => {
+        (true, Env::Staging) => {
             let mut message = GrpcClient::builder();
             message.set_host("https://grpc.testnet-staging.xmtp.network:443".into());
             message.set_tls(false);
@@ -270,8 +271,22 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let payer = payer.build().await?;
             Arc::new(D14nClient::new(message, payer))
         }
+        (true, Env::Dev) => {
+            let mut message = GrpcClient::builder();
+            message.set_host("https://grpc.testnet-dev.xmtp.network:443".into());
+            message.set_tls(false);
+            let message = message.build().await?;
+            let mut payer = GrpcClient::builder();
+            payer.set_host("https://payer.testnet-dev.xmtp.network:443".into());
+            payer.set_tls(true);
+            let payer = payer.build().await?;
+            Arc::new(D14nClient::new(message, payer))
+        }
         (false, Env::Local) => Arc::new(ClientV3::create("http://localhost:5556", false).await?),
         (false, Env::Dev) => {
+            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
+        }
+        (false, Env::Staging) => {
             Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
         }
         (false, Env::Production) => {
