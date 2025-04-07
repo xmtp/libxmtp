@@ -412,7 +412,7 @@ where
         };
         #[cfg(target_arch = "wasm32")]
         let body = {
-            use futures::{AsyncReadExt, StreamExt};
+            use futures::AsyncReadExt;
             // Make exporter mutable
             let mut exporter = exporter;
 
@@ -530,6 +530,7 @@ where
 
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
+            use futures::StreamExt;
             let stream = response.bytes_stream().map(|result| {
                 result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
             });
