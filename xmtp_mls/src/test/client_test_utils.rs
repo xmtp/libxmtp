@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use xmtp_api::XmtpApi;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
