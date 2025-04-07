@@ -1,4 +1,10 @@
-use super::*;
+use xmtp_api::XmtpApi;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+
+use crate::{
+    groups::{DMMetadataOptions, GroupError, MlsGroup},
+    Client,
+};
 
 // Please ensure that all public functions defined in this module
 // start with `test_`

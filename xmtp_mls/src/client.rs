@@ -56,9 +56,6 @@ use xmtp_id::{
 use xmtp_proto::api_client::{ApiStats, IdentityStats};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, GroupMessage, WelcomeMessage};
 
-#[cfg(test)]
-pub(crate) mod test_utils;
-
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {

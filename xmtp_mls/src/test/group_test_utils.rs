@@ -1,5 +1,6 @@
-use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
 use xmtp_db::group_message::MsgQueryArgs;
+
+use crate::groups::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
 
 impl<Client: ScopedGroupClient> MlsGroup<Client> {
     // Sends a mesage to other group and ensures delivery, returning sent message contents.
