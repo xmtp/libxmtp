@@ -469,6 +469,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_bytes",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "tracing-web",

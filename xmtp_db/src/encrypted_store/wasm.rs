@@ -24,23 +24,23 @@ pub struct WasmDb {
     transaction_lock: Arc<Mutex<()>>,
 }
 
-pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
+pub static OPFS: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
     tokio::sync::OnceCell::const_new();
 pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
 
-/// Initialize the SQLite WebAssembly Library
+/// Initialize OPFS
 /// Generally this should not be required to call, since it
 /// is called as part of creating a new EncryptedMessageStore.
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
-pub async fn init_sqlite() {
-    if let Err(e) = SQLITE.get_or_init(|| init_opfs()).await {
+pub async fn init_opfs() {
+    if let Err(e) = OPFS.get_or_init(|| init_opfs_inner()).await {
         tracing::error!("{e}");
     }
 }
 
 async fn maybe_resize() -> Result<(), WasmStorageError> {
-    if let Some(Ok(util)) = SQLITE.get() {
+    if let Some(Ok(util)) = OPFS.get() {
         let capacity = util.get_capacity();
         let used = util.get_file_count();
         if used >= capacity / 2 {
@@ -55,7 +55,7 @@ async fn maybe_resize() -> Result<(), WasmStorageError> {
     Ok(())
 }
 
-async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
+async fn init_opfs_inner() -> Result<OpfsSAHPoolUtil, String> {
     let cfg = OpfsSAHPoolCfg {
         vfs_name: crate::configuration::VFS_NAME.into(),
         directory: crate::configuration::VFS_DIRECTORY.into(),
@@ -107,7 +107,7 @@ impl std::fmt::Debug for WasmDb {
 impl WasmDb {
     pub async fn new(opts: &StorageOption) -> Result<Self, WasmStorageError> {
         use super::StorageOption::*;
-        init_sqlite().await;
+        init_opfs().await;
         maybe_resize().await?;
         let conn = match opts {
             Ephemeral => {
@@ -228,7 +228,7 @@ mod tests {
         use xmtp_common::tmp_path as path;
         xmtp_common::logger();
         init_sqlite().await;
-        if let Some(Ok(util)) = SQLITE.get() {
+        if let Some(Ok(util)) = OPFS.get() {
             util.wipe_files().await.unwrap();
             let current_capacity = util.get_capacity();
             if current_capacity > 6 {
@@ -240,7 +240,7 @@ mod tests {
                 with_opfs_async(&*path(), async move |_| {
                     with_opfs(&*path(), |_| {
                         // should have been resized here
-                        if let Some(Ok(util)) = SQLITE.get() {
+                        if let Some(Ok(util)) = OPFS.get() {
                             let cap = util.get_capacity();
                             assert_eq!(cap, 12);
                         } else {

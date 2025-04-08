@@ -1,27 +1,49 @@
 use futures::FutureExt;
 use std::future::Future;
 use wasm_bindgen::prelude::*;
-use xmtp_db::{init_sqlite, OpfsSAHError, OpfsSAHPoolUtil};
+use xmtp_db::{init_opfs, OpfsSAHError, OpfsSAHPoolUtil};
+static OPFS_INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
 
 #[wasm_bindgen]
 pub struct Opfs;
 
 #[wasm_bindgen]
 impl Opfs {
-  pub async fn init_sqlite_opfs() {
-    init_sqlite().await
+  #[wasm_bindgen]
+  pub async fn init() {
+    init_opfs().await
+  }
+
+  /// Deletes all files just on first initialization.
+  /// useful for tests where you want to re-use the same db,
+  /// but start all tests with a clean db
+  #[wasm_bindgen]
+  pub async fn init_opfs_clean_slate() {
+    init_opfs().await;
+    *OPFS_INIT
+      .get_or_init(async || {
+        let _ = Opfs::wipe_files().await;
+        let capacity = Opfs::get_capacity().unwrap();
+        if capacity > 6 {
+          Opfs::reduce_capacity(capacity - 6).await.unwrap_throw();
+        } else if capacity < 6 {
+          Opfs::add_capacity(6 - capacity).await.unwrap_throw();
+        }
+        assert_eq!(Opfs::get_capacity().unwrap_throw(), 6);
+      })
+      .await
   }
 
   /// Check if the global OPFS object has been initialized
   #[wasm_bindgen]
   pub fn exists() -> bool {
-    xmtp_db::SQLITE.get().is_some()
+    xmtp_db::OPFS.get().is_some()
   }
 
   /// gets the error from Opfs, if any.
   #[wasm_bindgen]
   pub fn error() -> Option<String> {
-    if let Some(Err(e)) = xmtp_db::SQLITE.get() {
+    if let Some(Err(e)) = xmtp_db::OPFS.get() {
       Some(e.to_string())
     } else {
       None
@@ -41,8 +63,8 @@ impl Opfs {
 
   /// list files in current pool
   #[wasm_bindgen(js_name = "getFileNames")]
-  pub fn ls() -> Vec<String> {
-    opfs_op(|u| Ok(u.get_file_names())).expect("get_file_names is infallible")
+  pub fn ls() -> Result<Vec<String>, JsError> {
+    opfs_op(|u| Ok(u.get_file_names()))
   }
 
   /// import a db file at 'path'
@@ -59,13 +81,13 @@ impl Opfs {
 
   /// get number of files in pool
   #[wasm_bindgen(js_name = "getFileCount")]
-  pub fn get_file_count() -> u32 {
-    opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
+  pub fn get_file_count() -> Result<u32, JsError> {
+    opfs_op(|u| Ok(u.get_file_count()))
   }
 
   #[wasm_bindgen(js_name = "getCapacity")]
-  pub fn get_capacity() -> u32 {
-    opfs_op(|u| Ok(u.get_capacity())).expect("get_capacity is infallible")
+  pub fn get_capacity() -> Result<u32, JsError> {
+    opfs_op(|u| Ok(u.get_capacity()))
   }
 
   /// Adds n entries to the current pool.
@@ -95,7 +117,7 @@ where
   F: Fn(&'a OpfsSAHPoolUtil) -> Fut,
   Fut: Future<Output = Result<T, OpfsSAHError>> + 'a,
 {
-  if let Some(pool) = xmtp_db::SQLITE.get() {
+  if let Some(pool) = xmtp_db::OPFS.get() {
     match pool {
       Ok(p) => Ok(f(p).await?),
       Err(e) => Err(JsError::new(&e.to_string())),
