@@ -6442,6 +6442,18 @@ mod tests {
             .test_has_same_sync_group_as(&alix_b.inner_client)
             .await
             .unwrap();
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::PayloadSent, 1)
+            .await
+            .unwrap();
+
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::PayloadProcessed, 1)
+            .await
+            .unwrap();
 
         // create a stream from both installations
         let stream_a_callback = Arc::new(RustStreamCallback::default());
