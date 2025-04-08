@@ -17,7 +17,7 @@ services:
 
   register-node:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd-cli:main
+    image: ghcr.io/xmtp/xmtpd-cli:sha-7e2f18f
     env_file:
       - local.env
     command: [
@@ -34,12 +34,12 @@ services:
 
   enable-node:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd-cli:main
+    image: ghcr.io/xmtp/xmtpd-cli:sha-7e2f18f
     env_file:
       - local.env
     command: [
       "add-node-to-network",
-      "--private-key=${REGISTER_NODE_ADMIN_KEY}",
+      "--admin.private-key=${REGISTER_NODE_ADMIN_KEY}",
       "--node-id=100"
     ]
     depends_on:
