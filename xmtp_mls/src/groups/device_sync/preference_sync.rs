@@ -1,5 +1,5 @@
 use super::*;
-use crate::{utils::time::hmac_epoch, Client};
+use crate::{ds_info, utils::time::hmac_epoch, Client};
 use serde::{Deserialize, Serialize};
 use xmtp_db::{
     consent_record::StoredConsentRecord,
@@ -24,7 +24,7 @@ impl UserPreferenceUpdate {
         handle: &WorkerHandle<SyncMetric>,
         retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Outgoing preference updates {updates:?}");
+        ds_info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
 
         client
@@ -58,6 +58,8 @@ impl UserPreferenceUpdate {
         handle: &WorkerHandle<SyncMetric>,
         retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
+        ds_info!("DEVICE SYNC: Sending out HMAC key via sync group.");
+
         let provider = client.mls_provider()?;
         let pref = StoredUserPreferences::load(provider.conn_ref())?;
 
@@ -109,7 +111,7 @@ impl UserPreferenceUpdate {
     ) -> Result<(), StorageError> {
         match self {
             Self::ConsentUpdate(consent_record) => {
-                tracing::info!(
+                ds_info!(
                     "Storing consent update from sync group. State: {:?}",
                     consent_record.state
                 );
@@ -123,7 +125,7 @@ impl UserPreferenceUpdate {
                     tracing::error!("Device Sync: Received HMAC key was wrong length.");
                     return Ok(());
                 };
-                tracing::info!("Storing new HMAC key from sync group");
+                ds_info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(
                     provider.conn_ref(),
                     &HmacKey {

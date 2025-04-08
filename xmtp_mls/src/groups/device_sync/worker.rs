@@ -3,6 +3,7 @@ use super::preference_sync::UserPreferenceUpdate;
 use super::{DeviceSyncContent, DeviceSyncError};
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use crate::{
+    ds_info,
     subscriptions::{LocalEvents, StreamMessages, SubscribeError},
     Client,
 };
@@ -55,7 +56,7 @@ where
             let installation_id = hex::encode(self.client.installation_public_key());
 
             while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
+                ds_info!("Running worker..");
                 if err.db_needs_connection() {
                     tracing::warn!(
                         inbox_id,
@@ -132,7 +133,7 @@ where
 
         init.get_or_try_init(|| async {
             let provider = self.client.mls_provider()?;
-            tracing::info!(
+            ds_info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
@@ -142,7 +143,7 @@ where
             // The only thing that sync init really does right now is ensures that there's a sync group.
             client.ensure_sync_group(&provider).await?;
 
-            tracing::info!(
+            ds_info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Device sync initialized."
@@ -155,6 +156,7 @@ where
     }
 
     async fn evt_new_sync_group_from_welcome(&self) -> Result<(), DeviceSyncError> {
+        ds_info!("New sync group from welcome detected.");
         // A new sync group from a welcome indicates a new installation.
         // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;

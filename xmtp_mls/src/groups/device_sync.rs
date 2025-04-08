@@ -133,6 +133,28 @@ impl From<NotFound> for DeviceSyncError {
     }
 }
 
+#[macro_export]
+macro_rules! ds_info {
+    (
+        $($field_name:ident = $field_value:expr,)*
+        $message:literal
+        $(, $($arg:tt)+)?
+    ) => {
+        tracing::info!(
+            $($field_name = $field_value,)*
+            "\x1b[32mDEVICE SYNC: \x1b[33m{}\x1b[0m",
+            format!($message $(, $($arg)+)?)
+        )
+    };
+
+    ($message:literal $(, $($arg:tt)+)?) => {
+        tracing::info!(
+            "\x1b[32mDEVICE SYNC: \x1b[33m{}\x1b[0m",
+            format!($message $(, $($arg)+)?)
+        )
+    };
+}
+
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -171,7 +193,7 @@ where
             return Ok(0);
         };
 
-        tracing::info!(
+        ds_info!(
             "Fetching sync group messages with an offset of {}",
             cursor.offset
         );
@@ -204,7 +226,7 @@ where
                     handle.increment_metric(SyncMetric::PayloadProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
-                    tracing::info!("Incoming preference updates: {preference_updates:?}");
+                    ds_info!("Incoming preference updates: {preference_updates:?}");
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                     for update in preference_updates {
                         update.store(provider, handle)?;
@@ -265,7 +287,7 @@ where
         let installation_id = self.installation_id();
         if installation_id != acknowledgement.sender_installation_id {
             // Another device acknowledged the group. They're handling it.
-            tracing::info!("Another installation already acknowledged the new sync group.");
+            ds_info!("Another installation already acknowledged the new sync group.");
             return Err(DeviceSyncError::AlreadyAcknowledged);
         }
 
@@ -335,7 +357,7 @@ where
         provider: &XmtpOpenMlsProvider,
         retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Sending a sync request.");
+        ds_info!("Sending a sync request.");
 
         let sync_group = self.get_sync_group(provider)?;
         sync_group.sync_with_conn(provider).await?;
@@ -371,7 +393,7 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
-        tracing::info!("Sending sync payload.");
+        ds_info!("Sending sync payload.");
         let provider = Arc::new(self.mls_provider()?);
 
         match acknowledge().await {
@@ -382,7 +404,7 @@ where
         }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
-            tracing::info!("Unable to send sync payload - no sync server url present.");
+            ds_info!("Unable to send sync payload - no sync server url present.");
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
 
@@ -429,9 +451,9 @@ where
 
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
-        tracing::info!("Uploading sync payload to history server...");
+        ds_info!("Uploading sync payload to history server...");
         let response = reqwest::Client::new().post(url).body(body).send().await?;
-        tracing::info!("Done uploading sync payload to history server.");
+        ds_info!("Done uploading sync payload to history server.");
 
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -506,23 +528,23 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Inspecting sync response.");
+        ds_info!("Inspecting sync response.");
         let provider = Arc::new(self.mls_provider()?);
 
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&provider, &reply)? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!("Sync response was not intended for this installation.");
+            ds_info!("Sync response was not intended for this installation.");
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!("Sync response is for this installation. Syncing welcomes.");
+        ds_info!("Sync response is for this installation. Syncing welcomes.");
         self.sync_welcomes(&provider).await?;
 
         // Get a download stream of the payload.
-        tracing::info!("Downloading sync payload.");
+        ds_info!("Downloading sync payload.");
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -555,7 +577,7 @@ where
         // Create an importer around that futures_reader.
         let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
 
-        tracing::info!("Importing the sync payload.");
+        ds_info!("Importing the sync payload.");
         // Run the import.
         importer.run(self).await?;
 
