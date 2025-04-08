@@ -6467,11 +6467,13 @@ mod tests {
             .await
             .unwrap();
 
+        // Wait for alix_a to send the consent sync out
         alix_a
             .worker
             .wait(FfiSyncMetric::ConsentSent, 1)
             .await
             .unwrap();
+        // Have alix_b sync the sync group and wait for the new consent to be processed
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
             .worker
@@ -6480,7 +6482,6 @@ mod tests {
             .unwrap();
 
         stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
-
         wait_for_ok(|| async {
             alix_b.conversations().sync_device_sync().await.unwrap();
             stream_b_callback.wait_for_delivery(Some(1)).await
@@ -6495,6 +6496,7 @@ mod tests {
             .await
             .unwrap();
 
+        // Consent should be the same
         let consent_a = alix_a
             .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
             .await
@@ -6505,6 +6507,7 @@ mod tests {
             .unwrap();
         assert_eq!(consent_a, consent_b);
 
+        // Now we'll deny Bo
         alix_a
             .set_consent_states(vec![FfiConsent {
                 entity: bo.inbox_id(),
@@ -6514,18 +6517,22 @@ mod tests {
             .await
             .unwrap();
 
+        // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker
             .wait(FfiSyncMetric::ConsentSent, 2)
             .await
             .unwrap();
+        // Have alix_b sync the sync group
         alix_b.conversations().sync_device_sync().await.unwrap();
+        // Wait for alix_b to process the new consent
         alix_b
             .worker
             .wait(FfiSyncMetric::ConsentReceived, 2)
             .await
             .unwrap();
 
+        // This consent should stream
         wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
             .await
             .unwrap();
@@ -6533,6 +6540,7 @@ mod tests {
             .await
             .unwrap();
 
+        // alix_b should now be DENIED with bo via device sync
         let consent_b = alix_b
             .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
             .await
