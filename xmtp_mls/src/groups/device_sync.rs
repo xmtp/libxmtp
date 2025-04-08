@@ -171,6 +171,10 @@ where
             return Ok(0);
         };
 
+        tracing::info!(
+            "Fetching sync group messages with an offset of {}",
+            cursor.offset
+        );
         let messages = sync_group.sync_messages(cursor.offset)?;
         let mut num_processed = 0;
 
@@ -200,6 +204,7 @@ where
                     handle.increment_metric(SyncMetric::PayloadProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
+                    tracing::info!("Incoming preference updates: {preference_updates:?}");
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                     for update in preference_updates {
                         update.store(provider, handle)?;

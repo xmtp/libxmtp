@@ -6520,7 +6520,7 @@ mod tests {
             .unwrap();
         assert_eq!(consent_a, consent_b);
 
-        // Now we'll deny Bo
+        // Now we'll allow Bo
         alix_a
             .set_consent_states(vec![FfiConsent {
                 entity: bo.inbox_id(),
