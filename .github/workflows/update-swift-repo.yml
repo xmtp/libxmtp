@@ -44,7 +44,16 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG="${{ github.event.inputs.tag }}"
           else
-            TAG="${{ github.ref_name }}"
+            # Find the swift-bindings-* tag on the current commit
+            COMMIT_SHA=$(git rev-parse HEAD)
+            SWIFT_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-" | head -n 1)
+            
+            # If no swift-bindings-* tag found, fall back to github.ref_name
+            if [[ -z "$SWIFT_TAG" ]]; then
+              TAG="${{ github.ref_name }}"
+            else
+              TAG="$SWIFT_TAG"
+            fi
           fi
           
           # Extract version and SHA from tag
