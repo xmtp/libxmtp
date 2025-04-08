@@ -109,7 +109,7 @@ impl StoredUserPreferences {
 
         Ok(Some(SyncCursor {
             group_id,
-            offset: pref.sync_cursor_offset as i64,
+            offset: pref.sync_cursor_offset,
         }))
     }
 
