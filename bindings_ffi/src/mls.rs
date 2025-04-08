@@ -6474,7 +6474,7 @@ mod tests {
             .set_consent_states(vec![FfiConsent {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
-                state: FfiConsentState::Allowed,
+                state: FfiConsentState::Denied,
             }])
             .await
             .unwrap();
@@ -6525,7 +6525,7 @@ mod tests {
             .set_consent_states(vec![FfiConsent {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
-                state: FfiConsentState::Denied,
+                state: FfiConsentState::Allowed,
             }])
             .await
             .unwrap();
@@ -6553,12 +6553,12 @@ mod tests {
             .await
             .unwrap();
 
-        // alix_b should now be DENIED with bo via device sync
+        // alix_b should now be ALLOWED with bo via device sync
         let consent_b = alix_b
             .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
             .await
             .unwrap();
-        assert_eq!(consent_b, FfiConsentState::Denied);
+        assert_eq!(consent_b, FfiConsentState::Allowed);
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();
