@@ -58,7 +58,7 @@ impl UserPreferenceUpdate {
         handle: &WorkerHandle<SyncMetric>,
         retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
-        ds_info!("DEVICE SYNC: Sending out HMAC key via sync group.");
+        ds_info!("Sending out HMAC key via sync group.");
 
         let provider = client.mls_provider()?;
         let pref = StoredUserPreferences::load(provider.conn_ref())?;
@@ -122,7 +122,7 @@ impl UserPreferenceUpdate {
             }
             Self::HmacKeyUpdate { key } => {
                 let Ok(key) = key.try_into() else {
-                    tracing::error!("Device Sync: Received HMAC key was wrong length.");
+                    tracing::error!("Received HMAC key was wrong length.");
                     return Ok(());
                 };
                 ds_info!("Storing new HMAC key from sync group");

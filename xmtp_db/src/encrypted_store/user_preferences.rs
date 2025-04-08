@@ -17,7 +17,7 @@ pub struct StoredUserPreferences {
 
     // Sync cursor
     pub sync_cursor_group_id: Option<Vec<u8>>,
-    pub sync_cursor_offset: i32,
+    pub sync_cursor_offset: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -116,7 +116,7 @@ impl StoredUserPreferences {
     pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
         let mut pref = Self::load(conn)?;
         pref.sync_cursor_group_id = Some(cursor.group_id.clone());
-        pref.sync_cursor_offset = cursor.offset as i32;
+        pref.sync_cursor_offset = cursor.offset;
         pref.store(conn)
     }
 }

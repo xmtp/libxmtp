@@ -132,7 +132,7 @@ diesel::table! {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
         sync_cursor_group_id -> Nullable<Binary>,
-        sync_cursor_offset -> Integer,
+        sync_cursor_offset -> BigInt,
     }
 }
 

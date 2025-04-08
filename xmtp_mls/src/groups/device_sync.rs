@@ -194,7 +194,7 @@ where
         };
 
         ds_info!(
-            "Fetching sync group messages with an offset of {}",
+            "Fetching sync group messages that were sent after {}",
             cursor.offset
         );
         let messages = sync_group.sync_messages(cursor.offset)?;
@@ -238,7 +238,7 @@ where
             }
 
             // Move the cursor
-            cursor.offset += 1;
+            cursor.offset = msg.sent_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
             num_processed += 1;
         }
