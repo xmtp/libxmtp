@@ -4,11 +4,13 @@ pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
+mod worker;
 
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use mls::*;
 use std::error::Error;
+use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
 
 extern crate tracing as log;
@@ -68,6 +70,8 @@ pub enum GenericError {
     ReloadLog(#[from] tracing_subscriber::reload::Error),
     #[error("Error initializing debug log file")]
     Log(String),
+    #[error(transparent)]
+    Expired(#[from] Expired),
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

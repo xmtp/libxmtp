@@ -1,6 +1,7 @@
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
+use crate::worker::FfiSyncWorker;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -178,8 +179,12 @@ pub async fn create_client(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
+    let worker = FfiSyncWorker {
+        handle: xmtp_client.worker_handle(),
+    };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
+        worker,
         account_identifier,
     }))
 }
@@ -313,6 +318,8 @@ impl FfiSignatureRequest {
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
+    #[allow(dead_code)]
+    worker: FfiSyncWorker,
     #[allow(dead_code)]
     account_identifier: FfiIdentifier,
 }
@@ -2793,6 +2800,7 @@ mod tests {
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        worker::FfiSyncMetric,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
@@ -6419,45 +6427,21 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet(wallet.clone()).await;
-        let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
-        // wait for alix_a's sync worker to create a sync group
-        let _ =
-            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
+        alix_a.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
 
         let alix_b = new_test_client_with_wallet(wallet).await;
-        wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
-            .await
-            .unwrap();
+        alix_b.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
+
+        alix_a.conversations().sync().await.unwrap();
 
         let bo = new_test_client().await;
 
-        // wait for the first installation to get invited to the new sync group
-        wait_for_eq(
-            || async {
-                assert!(alix_a.conversations().sync().await.is_ok());
-                alix_a
-                    .inner_client
-                    .store()
-                    .conn()
-                    .unwrap()
-                    .all_sync_groups()
-                    .unwrap()
-                    .len()
-            },
-            2,
-        )
-        .await
-        .unwrap();
-
         // check that they have the same sync group
-        let sync_group_a = wait_for_ok(|| async { alix_a.conversations().get_sync_group() })
+        alix_a
+            .inner_client
+            .test_has_same_sync_group_as(&alix_b.inner_client)
             .await
             .unwrap();
-        let sync_group_b = wait_for_ok(|| async { alix_b.conversations().get_sync_group() })
-            .await
-            .unwrap();
-
-        assert_eq!(sync_group_a.id(), sync_group_b.id());
 
         // create a stream from both installations
         let stream_a_callback = Arc::new(RustStreamCallback::default());
@@ -6483,21 +6467,21 @@ mod tests {
             .await
             .unwrap();
 
-        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
-        assert!(result.is_ok());
+        stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
 
         wait_for_ok(|| async {
             alix_b.conversations().sync_device_sync().await.unwrap();
-
             stream_b_callback.wait_for_delivery(Some(1)).await
         })
         .await
         .unwrap();
 
-        // two outgoing consent updates
-        assert_eq!(stream_a_callback.consent_updates_count(), 1);
-        // and two incoming consent updates
-        assert_eq!(stream_b_callback.consent_updates_count(), 1);
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 1)
+            .await
+            .unwrap();
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 1)
+            .await
+            .unwrap();
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();

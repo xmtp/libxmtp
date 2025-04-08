@@ -132,6 +132,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
     assert_eq!(alix1_keys[0].key, alix2_keys[0].key);
     assert_eq!(dm.consent_state()?, alix2_dm.consent_state()?);
 
+    // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
     alix1.worker.wait(SyncMetric::ConsentSent, 2).await?;
 

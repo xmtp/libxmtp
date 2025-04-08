@@ -165,12 +165,6 @@ pub struct DeviceSync {
     pub(crate) mode: SyncWorkerMode,
 }
 
-impl DeviceSync {
-    pub(crate) fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
-        self.worker_handle.lock().as_ref().cloned()
-    }
-}
-
 // most of these things are `Arc`'s
 impl<ApiClient, V> Clone for Client<ApiClient, V> {
     fn clone(&self) -> Self {
@@ -249,6 +243,10 @@ where
     #[cfg(test)]
     pub fn test_update_version(&mut self, version: &str) {
         Arc::make_mut(&mut self.version_info).test_update_version(version);
+    }
+
+    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.device_sync.worker_handle.lock().as_ref().cloned()
     }
 
     pub fn api_stats(&self) -> ApiStats {

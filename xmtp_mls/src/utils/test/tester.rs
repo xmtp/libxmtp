@@ -63,7 +63,7 @@ where
     pub(crate) async fn new_from_owner(owner: Owner) -> Self {
         let client = ClientBuilder::new_test_client(&owner).await;
         let provider = client.mls_provider().unwrap();
-        let worker = client.device_sync.worker_handle().unwrap();
+        let worker = client.worker_handle().unwrap();
 
         worker.wait_for_init().await.unwrap();
 

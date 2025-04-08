@@ -17,7 +17,7 @@ where
 {
     /// Creates a DM with the other client, sends a message, and ensures delivery,
     /// returning the created dm and sent message contents
-    pub(crate) async fn test_talk_in_dm_with(
+    pub async fn test_talk_in_dm_with(
         &self,
         other: &Self,
     ) -> Result<(MlsGroup<Self>, String), GroupError> {
@@ -38,5 +38,17 @@ where
         let msg = dm.test_can_talk_with(&other_dm).await?;
 
         Ok((dm, msg))
+    }
+
+    pub async fn test_has_same_sync_group_as(&self, other: &Self) -> Result<(), GroupError> {
+        self.sync_welcomes(&self.mls_provider()?).await?;
+        other.sync_welcomes(&other.mls_provider()?).await?;
+
+        let sync_group = self.get_sync_group(&self.mls_provider()?)?;
+        let other_sync_group = other.get_sync_group(&other.mls_provider()?)?;
+
+        assert_eq!(sync_group.group_id, other_sync_group.group_id);
+
+        Ok(())
     }
 }

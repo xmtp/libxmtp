@@ -2079,7 +2079,6 @@ pub(crate) mod tests {
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
         amal_a
-            .device_sync
             .worker_handle()
             .unwrap()
             .wait_for_init()
