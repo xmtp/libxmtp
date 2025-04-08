@@ -1,5 +1,6 @@
 import Foundation
 import LibXMTP
+import os
 
 public typealias PreEventCallback = () async throws -> Void
 
@@ -707,5 +708,182 @@ public final class Client {
 	{
 		try await ffiClient.registerIdentity(
 			signatureRequest: signatureRequest.ffiSignatureRequest)
+	}
+}
+
+extension Client {
+	/// Log level for XMTP logging
+	public enum LogLevel {
+		/// Error level logs only
+		case error
+		/// Warning level and above
+		case warn
+		/// Info level and above
+		case info
+		/// Debug level and above
+		case debug
+		
+		fileprivate var ffiLogLevel: FfiLogLevel {
+			switch self {
+			case .error: return .error
+			case .warn: return .warn
+			case .info: return .info
+			case .debug: return .debug
+			}
+		}
+	}
+
+	/// Activates persistent logging for LibXMTP
+	/// - Parameters:
+	///   - logLevel: The level of logging to capture
+	///   - rotationSchedule: When log files should rotate
+	///   - maxFiles: Maximum number of log files to keep
+	///   - customLogDirectory: Optional custom directory path for logs
+	public static func activatePersistentLibXMTPLogWriter(
+		logLevel: LogLevel,
+		rotationSchedule: FfiLogRotation,
+		maxFiles: Int,
+		customLogDirectory: URL? = nil
+	) {
+		
+		let fileManager = FileManager.default
+		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+		
+		// Check if directory exists and is writable before proceeding
+		if !fileManager.fileExists(atPath: logDirectory.path) {
+			do {
+				try fileManager.createDirectory(
+					at: logDirectory,
+					withIntermediateDirectories: true,
+					attributes: nil
+				)
+			} catch {
+				os_log("Failed to create log directory: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+				return
+			}
+		}
+		
+		// Verify write permissions by attempting to create a test file
+		let testFilePath = logDirectory.appendingPathComponent("write_test.tmp")
+		if !fileManager.createFile(atPath: testFilePath.path, contents: Data("test".utf8)) {
+			os_log("Directory exists but is not writable: %{public}@", log: OSLog.default, type: .error, logDirectory.path)
+			return
+		}
+		
+		// Clean up test file
+		do {
+			try fileManager.removeItem(at: testFilePath)
+		} catch {
+			// If we can't remove the test file, log but continue
+			os_log("Could not remove test file: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+		}
+		
+		// Install a signal handler to prevent app crashes on panics
+		signal(SIGABRT) { _ in
+			os_log("Caught SIGABRT from Rust panic in logging", log: OSLog.default, type: .error)
+			// Try to safely deactivate the logger
+			do {
+				try exitDebugWriter()
+			} catch {
+				// Already in a bad state, just log
+				os_log("Failed to deactivate logger after panic", log: OSLog.default, type: .error)
+			}
+		}
+		
+		do {
+			try enterDebugWriter(
+				directory: logDirectory.path,
+				logLevel: logLevel.ffiLogLevel,
+				rotation: rotationSchedule,
+				maxFiles: UInt32(maxFiles)
+			)
+		} catch {
+			os_log("Failed to activate persistent log writer: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+		}
+	}
+	
+	/// Deactivates the persistent log writer
+	public static func deactivatePersistentLibXMTPLogWriter() {
+		do {
+			try exitDebugWriter()
+		} catch {
+			os_log("Failed to deactivate persistent log writer: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+		}
+	}
+	
+	/// Returns paths to all XMTP log files
+	/// - Parameter customLogDirectory: Optional custom directory path for logs
+	/// - Returns: Array of file paths to log files
+	public static func getXMTPLogFilePaths(customLogDirectory: URL? = nil) -> [String] {
+		let fileManager = FileManager.default
+		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+		
+		if !fileManager.fileExists(atPath: logDirectory.path) {
+			return []
+		}
+		
+		do {
+			let fileURLs = try fileManager.contentsOfDirectory(
+				at: logDirectory,
+				includingPropertiesForKeys: [.isRegularFileKey],
+				options: []
+			)
+			
+			return fileURLs.compactMap { url in
+				do {
+					let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
+					return resourceValues.isRegularFile == true ? url.path : nil
+				} catch {
+					return nil
+				}
+			}
+		} catch {
+			return []
+		}
+	}
+	
+	/// Clears all XMTP log files
+	/// - Parameter customLogDirectory: Optional custom directory path for logs
+	/// - Returns: Number of files deleted
+	@discardableResult
+	public static func clearXMTPLogs(customLogDirectory: URL? = nil) -> Int {
+		let fileManager = FileManager.default
+		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+		
+		if !fileManager.fileExists(atPath: logDirectory.path) {
+			return 0
+		}
+		
+		do {
+			deactivatePersistentLibXMTPLogWriter()
+		} catch {
+			// Log writer might not be active, continue with deletion
+		}
+		
+		var deletedCount = 0
+		
+		do {
+			let fileURLs = try fileManager.contentsOfDirectory(
+				at: logDirectory,
+				includingPropertiesForKeys: [.isRegularFileKey],
+				options: []
+			)
+			
+			for fileURL in fileURLs {
+				do {
+					let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+					if resourceValues.isRegularFile == true {
+						try fileManager.removeItem(at: fileURL)
+						deletedCount += 1
+					}
+				} catch {
+					// Continue with other files if one deletion fails
+				}
+			}
+		} catch {
+			// Return current count if directory listing fails
+		}
+		
+		return deletedCount
 	}
 }
