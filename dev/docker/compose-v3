@@ -1,0 +1,8 @@
+#!/bin/bash
+set -eou pipefail
+
+docker compose \
+  -f dev/docker/docker-compose.yml \
+  --env-file dev/docker/local.env \
+  -p "libxmtp" \
+  "$@"
