@@ -6473,13 +6473,14 @@ mod tests {
             .wait(FfiSyncMetric::ConsentSent, 1)
             .await
             .unwrap();
+
         // Have alix_b sync the sync group and wait for the new consent to be processed
-        wait_for_ok(|| async {
-            alix_b.conversations().sync_device_sync().await.unwrap();
-            alix_b.worker.wait(FfiSyncMetric::ConsentReceived, 1).await
-        })
-        .await
-        .unwrap();
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::ConsentReceived, 1)
+            .await
+            .unwrap();
 
         stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
         wait_for_ok(|| async {

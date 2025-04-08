@@ -109,6 +109,10 @@ impl UserPreferenceUpdate {
     ) -> Result<(), StorageError> {
         match self {
             Self::ConsentUpdate(consent_record) => {
+                tracing::info!(
+                    "Storing consent update from sync group. State: {:?}",
+                    consent_record.state
+                );
                 provider
                     .conn_ref()
                     .insert_or_replace_consent_records(&[consent_record])?;
