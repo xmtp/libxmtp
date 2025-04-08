@@ -1005,7 +1005,7 @@ where
     }
 
     /// Sync the device sync group
-    pub async fn sync_device_sync_group(
+    pub async fn sync_device_sync(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {

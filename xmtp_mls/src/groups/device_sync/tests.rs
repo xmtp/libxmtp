@@ -136,7 +136,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
     dm.update_consent_state(ConsentState::Denied)?;
     alix1.worker.wait(SyncMetric::ConsentSent, 2).await?;
 
-    alix2.sync_device_sync_group(&alix2.provider).await?;
+    alix2.sync_device_sync(&alix2.provider).await?;
     alix2.worker.wait(SyncMetric::ConsentReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;

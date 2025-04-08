@@ -1345,7 +1345,7 @@ impl FfiConversations {
 
     pub async fn sync_device_sync(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        self.inner_client.sync_device_sync_group(&provider).await?;
+        self.inner_client.sync_device_sync(&provider).await?;
 
         Ok(())
     }
@@ -6467,6 +6467,18 @@ mod tests {
             .await
             .unwrap();
 
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::ConsentSent, 1)
+            .await
+            .unwrap();
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::ConsentReceived, 1)
+            .await
+            .unwrap();
+
         stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
 
         wait_for_ok(|| async {
@@ -6482,6 +6494,50 @@ mod tests {
         wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 1)
             .await
             .unwrap();
+
+        let consent_a = alix_a
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        let consent_b = alix_b
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        assert_eq!(consent_a, consent_b);
+
+        alix_a
+            .set_consent_states(vec![FfiConsent {
+                entity: bo.inbox_id(),
+                entity_type: FfiConsentEntityType::InboxId,
+                state: FfiConsentState::Denied,
+            }])
+            .await
+            .unwrap();
+
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::ConsentSent, 2)
+            .await
+            .unwrap();
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::ConsentReceived, 2)
+            .await
+            .unwrap();
+
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+            .await
+            .unwrap();
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+            .await
+            .unwrap();
+
+        let consent_b = alix_b
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        assert_eq!(consent_b, FfiConsentState::Denied);
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();

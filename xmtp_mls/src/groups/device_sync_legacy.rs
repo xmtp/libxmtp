@@ -628,19 +628,19 @@ mod tests {
         alix2
             .v1_send_sync_request(&alix2.provider, DeviceSyncKind::MessageHistory)
             .await?;
-        alix1.sync_device_sync_group(&alix1.provider).await?;
+        alix1.sync_device_sync(&alix1.provider).await?;
         alix1.worker.wait(SyncMetric::V1PayloadSent, 1).await?;
 
-        alix2.sync_device_sync_group(&alix2.provider).await?;
+        alix2.sync_device_sync(&alix2.provider).await?;
         alix2.worker.wait(SyncMetric::V1PayloadProcessed, 1).await?;
 
         alix2
             .v1_send_sync_request(&alix2.provider, DeviceSyncKind::Consent)
             .await?;
-        alix1.sync_device_sync_group(&alix1.provider).await?;
+        alix1.sync_device_sync(&alix1.provider).await?;
         alix1.worker.wait(SyncMetric::V1PayloadSent, 2).await?;
 
-        alix2.sync_device_sync_group(&alix2.provider).await?;
+        alix2.sync_device_sync(&alix2.provider).await?;
         alix2.worker.wait(SyncMetric::V1PayloadProcessed, 2).await?;
     }
 }
