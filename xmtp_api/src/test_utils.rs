@@ -75,10 +75,6 @@ impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         true
     }
-
-    fn needs_cooldown(&self) -> bool {
-        matches!(self, MockError::RateLimit)
-    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

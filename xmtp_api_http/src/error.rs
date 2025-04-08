@@ -40,13 +40,6 @@ impl xmtp_common::RetryableError for HttpClientError {
     fn is_retryable(&self) -> bool {
         true
     }
-
-    fn needs_cooldown(&self) -> bool {
-        match self {
-            Self::Grpc(e) => (Code::from(e.code)) == Code::ResourceExhausted,
-            _ => false,
-        }
-    }
 }
 
 impl XmtpApiError for HttpClientError {

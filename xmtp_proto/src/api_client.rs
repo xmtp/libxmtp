@@ -593,6 +593,9 @@ pub trait ApiBuilder {
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);
 
+    /// Set  the rate limit per minute for this client
+    fn rate_per_minute(&mut self, limit: u32);
+
     #[allow(async_fn_in_trait)]
     /// Build the api client
     async fn build(self) -> Result<Self::Output, Self::Error>;

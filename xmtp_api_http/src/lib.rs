@@ -14,6 +14,13 @@ use reqwest::header;
 use reqwest::header::HeaderMap;
 use util::handle_error_proto;
 
+use governor::clock::DefaultClock;
+use governor::middleware::NoOpMiddleware;
+use governor::state::{InMemoryState, NotKeyed};
+use governor::{Jitter, Quota};
+use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::Duration;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient};
 use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::xmtp::identity::api::v1::{
@@ -41,6 +48,8 @@ use crate::constants::ApiEndpoints;
 pub use crate::error::{ErrorResponse, HttpClientError};
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5555";
 
+type Limiter = governor::RateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>;
+
 #[cfg(target_arch = "wasm32")]
 fn reqwest_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
@@ -57,26 +66,16 @@ pub struct XmtpHttpApiClient {
     host_url: String,
     app_version: String,
     libxmtp_version: String,
+    limiter: Arc<Limiter>,
     stats: ApiStats,
     identity_stats: IdentityStats,
 }
 
 impl XmtpHttpApiClient {
-    pub fn new(host_url: String, app_version: String) -> Result<Self, HttpClientError> {
-        let client = reqwest_builder();
-        let libxmtp_version = env!("CARGO_PKG_VERSION").to_string();
-        let mut headers = header::HeaderMap::new();
-        headers.insert("x-libxmtp-version", libxmtp_version.parse()?);
-        let client = client.default_headers(headers).build()?;
-
-        Ok(XmtpHttpApiClient {
-            http_client: client,
-            host_url,
-            app_version,
-            libxmtp_version,
-            stats: ApiStats::default(),
-            identity_stats: IdentityStats::default(),
-        })
+    /// Wait for any rate limit
+    async fn wait_for_ready(&self) {
+        let jitter = Jitter::up_to(Duration::from_secs(5));
+        self.limiter.until_ready_with_jitter(jitter).await;
     }
 
     pub fn builder() -> XmtpHttpApiClientBuilder {
@@ -96,27 +95,6 @@ impl XmtpHttpApiClient {
     }
 }
 
-#[derive(Debug)]
-pub struct XmtpHttpApiClientBuilder {
-    host_url: String,
-    app_version: Option<String>,
-    headers: header::HeaderMap,
-    libxmtp_version: Option<String>,
-    reqwest: reqwest::ClientBuilder,
-}
-
-impl Default for XmtpHttpApiClientBuilder {
-    fn default() -> Self {
-        Self {
-            host_url: "".to_string(),
-            app_version: None,
-            libxmtp_version: None,
-            headers: header::HeaderMap::new(),
-            reqwest: reqwest_builder(),
-        }
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum HttpClientBuilderError {
     #[error("missing core libxmtp version")]
@@ -131,6 +109,31 @@ pub enum HttpClientBuilderError {
     InvalidUri(#[from] http::uri::InvalidUri),
     #[error(transparent)]
     InvalidUriParts(#[from] http::uri::InvalidUriParts),
+}
+
+#[derive(Debug)]
+pub struct XmtpHttpApiClientBuilder {
+    host_url: String,
+    app_version: Option<String>,
+    headers: header::HeaderMap,
+    libxmtp_version: Option<String>,
+    tls: bool,
+    reqwest: reqwest::ClientBuilder,
+    limiter: Option<Limiter>,
+}
+
+impl Default for XmtpHttpApiClientBuilder {
+    fn default() -> Self {
+        Self {
+            host_url: "".to_string(),
+            app_version: None,
+            libxmtp_version: None,
+            headers: header::HeaderMap::new(),
+            tls: true,
+            limiter: None,
+            reqwest: reqwest_builder(),
+        }
+    }
 }
 
 impl ApiBuilder for XmtpHttpApiClientBuilder {
@@ -154,8 +157,8 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
     }
 
     // no op for http so far
-    fn set_tls(&mut self, _tls: bool) {
-        self.reqwest = reqwest_builder();
+    fn set_tls(&mut self, tls: bool) {
+        self.tls = tls;
     }
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
@@ -167,6 +170,12 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
             .app_version
             .ok_or(HttpClientBuilderError::MissingAppVersion)?;
 
+        let limiter = self.limiter.unwrap_or_else(|| {
+            let limit = NonZeroU32::new(1900).expect("1900 is greater than 0");
+            let quota = Quota::per_minute(limit);
+            Limiter::direct(quota)
+        });
+
         Ok(XmtpHttpApiClient {
             http_client,
             host_url: self.host_url,
@@ -174,7 +183,18 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
             libxmtp_version,
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
+            limiter: limiter.into(),
         })
+    }
+
+    fn rate_per_minute(&mut self, limit: u32) {
+        let limit = if limit == 0 {
+            NonZeroU32::new(1 as u32).expect("1 is greater than 0")
+        } else {
+            NonZeroU32::new(limit as u32).expect("checked for 0")
+        };
+        let quota = Quota::per_minute(limit);
+        self.limiter = Some(Limiter::direct(quota));
     }
 }
 
@@ -195,6 +215,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
+        self.wait_for_ready().await;
         self.stats.upload_key_package.count_request();
 
         let res = self
@@ -217,6 +238,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
+        self.wait_for_ready().await;
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
@@ -237,6 +259,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.wait_for_ready().await;
         self.stats.send_group_messages.count_request();
 
         let res = self
@@ -260,6 +283,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), Self::Error> {
+        self.wait_for_ready().await;
         self.stats.send_welcome_messages.count_request();
         let res = self
             .http_client
@@ -282,6 +306,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
+        self.wait_for_ready().await;
         self.stats.query_group_messages.count_request();
         let res = self
             .http_client
@@ -304,6 +329,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
+        self.wait_for_ready().await;
         self.stats.query_welcome_messages.count_request();
         let res = self
             .http_client
@@ -353,6 +379,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+        self.wait_for_ready().await;
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
@@ -366,6 +393,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+        self.wait_for_ready().await;
         tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
@@ -385,6 +413,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         &self,
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
+        self.wait_for_ready().await;
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
@@ -406,6 +435,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         &self,
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
+        self.wait_for_ready().await;
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
@@ -427,6 +457,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
+        self.wait_for_ready().await;
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
@@ -446,6 +477,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        self.wait_for_ready().await;
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))
