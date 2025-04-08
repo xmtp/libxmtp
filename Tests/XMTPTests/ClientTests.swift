@@ -711,4 +711,87 @@ class ClientTests: XCTestCase {
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.installations.count, 1)
 	}
+
+	func testPersistentLogging() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let fakeWallet = try PrivateKey.generate()
+		
+		// Create a specific log directory for this test
+		let fileManager = FileManager.default
+		let logDirectory = fileManager.temporaryDirectory.appendingPathComponent("xmtp_test_logs")
+		
+		if fileManager.fileExists(atPath: logDirectory.path) {
+			try fileManager.removeItem(at: logDirectory)
+		}
+		try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+		
+		// Clear any existing logs in this directory
+		Client.clearXMTPLogs(customLogDirectory: logDirectory)
+		
+		// Make sure logging is deactivated at the end of the test
+		defer {
+			Client.deactivatePersistentLibXMTPLogWriter()
+		}
+		
+		// Activate persistent logging with a small number of log files and DEBUG level
+		Client.activatePersistentLibXMTPLogWriter(
+            logLevel: .debug,
+			rotationSchedule: .hourly,
+			maxFiles: 3,
+			customLogDirectory: logDirectory
+		)
+		
+		// Create a client
+		let client = try await Client.create(
+			account: fakeWallet,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key
+			)
+		)
+		
+		// Create a group with only the client as a member
+		let group = try await client.conversations.newGroup(with: [])
+		try await client.conversations.sync()
+		
+		// Verify the group was created
+		let groups = try await client.conversations.listGroups()
+		XCTAssertEqual(groups.count, 1)
+		
+		// Deactivate logging to ensure files are flushed
+		Client.deactivatePersistentLibXMTPLogWriter()
+		
+		// Verify logs were created
+		let logFiles = Client.getXMTPLogFilePaths(customLogDirectory: logDirectory)
+		XCTAssertFalse(logFiles.isEmpty, "No log files were created")
+		
+		// Print log files content to console and check for inbox ID
+		print("Found \(logFiles.count) log files:")
+		var foundInboxId = false
+		
+		for filePath in logFiles {
+			print("\n--- Log file: \(filePath) ---")
+			do {
+				let content = try String(contentsOfFile: filePath)
+				// Print first 1000 chars to avoid overwhelming the console
+				let truncatedContent = content.prefix(1000)
+				print("\(truncatedContent)\(content.count > 1000 ? "...(truncated)" : "")")
+				
+				// Check if the inbox ID appears in the logs
+				if content.contains(client.inboxID) {
+					foundInboxId = true
+					print("Found inbox ID in logs: \(client.inboxID)")
+				}
+			} catch {
+				print("Error reading log file: \(error.localizedDescription)")
+			}
+		}
+		
+		XCTAssertTrue(foundInboxId, "Inbox ID \(client.inboxID) not found in logs")
+		
+		// Test clearing logs
+		Client.clearXMTPLogs(customLogDirectory: logDirectory)
+		let logFilesAfterClear = Client.getXMTPLogFilePaths(customLogDirectory: logDirectory)
+		XCTAssertEqual(logFilesAfterClear.count, 0, "Logs were not cleared properly")
+	}
 }

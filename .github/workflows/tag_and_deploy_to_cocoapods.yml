@@ -1,0 +1,62 @@
+name: tag_and_deploy_to_cocoapods
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy from'
+        required: true
+        default: 'main'
+
+jobs:
+  build:
+    runs-on: macos-13
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.inputs.branch }}
+        fetch-depth: 0
+    
+    - name: Install Cocoapods
+      run: gem install cocoapods
+    
+    - name: Extract version from podspec
+      id: extract_version
+      run: |
+        SPEC_VERSION=$(grep -m 1 "spec.version" XMTP.podspec | sed -E "s/.*'([^']+)'.*/\1/")
+        echo "SPEC_VERSION=$SPEC_VERSION" >> $GITHUB_ENV
+        echo "Original version: $SPEC_VERSION"
+    
+    - name: Update version if dev release
+      id: update_version
+      run: |
+        SHORT_SHA=$(git rev-parse --short=7 HEAD)
+        if [[ "$SPEC_VERSION" == *"dev"* ]]; then
+          UPDATED_VERSION="${SPEC_VERSION}.$SHORT_SHA"
+        else
+          UPDATED_VERSION="$SPEC_VERSION"
+        fi
+        echo "UPDATED_VERSION=$UPDATED_VERSION" >> $GITHUB_ENV
+        echo "Updated version: $UPDATED_VERSION"
+    
+    - name: Update podspec with new version
+      run: |
+        sed -i '' "s/spec.version *= *'$SPEC_VERSION'/spec.version = '$UPDATED_VERSION'/" XMTP.podspec
+        echo "Updated podspec with version: $UPDATED_VERSION"
+    
+    - name: Create and push tag
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag -a "$UPDATED_VERSION" -m "Release $UPDATED_VERSION"
+        git push origin "$UPDATED_VERSION"
+        echo "Created and pushed tag: $UPDATED_VERSION"
+      
+    - name: Deploy to Cocoapods
+      run: |
+        set -eo pipefail
+        pod lib lint --allow-warnings
+        pod trunk push --allow-warnings
+      env:
+        COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
