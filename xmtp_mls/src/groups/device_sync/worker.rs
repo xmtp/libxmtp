@@ -3,14 +3,14 @@ use super::preference_sync::UserPreferenceUpdate;
 use super::{DeviceSyncContent, DeviceSyncError};
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use crate::{
-    ds_info,
     subscriptions::{LocalEvents, StreamMessages, SubscribeError},
     Client,
 };
 use futures::{Stream, StreamExt};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
-use tracing::instrument;
+use tracing::{info_span, instrument, Instrument};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
@@ -43,26 +43,32 @@ where
     }
 
     pub(super) fn spawn_worker(mut self) {
-        xmtp_common::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
+        let span = info_span!("\x1b[34mDEVICE SYNC");
 
-            while let Err(err) = self.run().await {
-                ds_info!("Running worker..");
-                if err.db_needs_connection() {
-                    tracing::warn!(
-                        inbox_id,
-                        installation_id,
-                        "Pool disconnected. task will restart on reconnect"
-                    );
-                    break;
-                } else {
-                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                    // Wait before restarting.
-                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+        xmtp_common::spawn(
+            None,
+            async move {
+                let inbox_id = self.client.inbox_id().to_string();
+                let installation_id = hex::encode(self.client.installation_public_key());
+
+                while let Err(err) = self.run().await {
+                    tracing::info!("Running worker..");
+                    if err.db_needs_connection() {
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
+                        break;
+                    } else {
+                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait before restarting.
+                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                    }
                 }
             }
-        });
+            .instrument(span),
+        );
     }
 }
 
@@ -125,7 +131,7 @@ where
 
         init.get_or_try_init(|| async {
             let provider = self.client.mls_provider()?;
-            ds_info!(
+            tracing::info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
@@ -135,7 +141,7 @@ where
             // The only thing that sync init really does right now is ensures that there's a sync group.
             client.ensure_sync_group(&provider).await?;
 
-            ds_info!(
+            tracing::info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Device sync initialized."
@@ -148,7 +154,7 @@ where
     }
 
     async fn evt_new_sync_group_from_welcome(&self) -> Result<(), DeviceSyncError> {
-        ds_info!("New sync group from welcome detected.");
+        tracing::info!("New sync group from welcome detected.");
         // A new sync group from a welcome indicates a new installation.
         // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;

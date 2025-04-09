@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ds_info, utils::time::hmac_epoch, Client};
+use crate::{utils::time::hmac_epoch, Client};
 use serde::{Deserialize, Serialize};
 use xmtp_db::{
     consent_record::StoredConsentRecord,
@@ -23,7 +23,7 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
-        ds_info!("Outgoing preference updates {updates:?}");
+        tracing::info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
 
         client
@@ -48,7 +48,7 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
-        ds_info!("Sending out HMAC key via sync group.");
+        tracing::info!("Sending out HMAC key via sync group.");
 
         let provider = client.mls_provider()?;
         let pref = StoredUserPreferences::load(provider.conn_ref())?;
@@ -101,7 +101,7 @@ impl UserPreferenceUpdate {
     ) -> Result<(), StorageError> {
         match self {
             Self::ConsentUpdate(consent_record) => {
-                ds_info!(
+                tracing::info!(
                     "Storing consent update from sync group. State: {:?}",
                     consent_record.state
                 );
@@ -111,9 +111,9 @@ impl UserPreferenceUpdate {
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
             Self::HmacKeyUpdate { key } => {
-                ds_info!("Storing new HMAC key from sync group");
+                tracing::info!("Storing new HMAC key from sync group");
                 let Ok(key) = key.try_into() else {
-                    ds_info!("Received HMAC key was wrong length.");
+                    tracing::info!("Received HMAC key was wrong length.");
                     return Ok(());
                 };
                 StoredUserPreferences::store_hmac_key(
@@ -213,11 +213,10 @@ mod tests {
 
         amal_a.sync_welcomes(&amal_a.provider).await?;
         amal_a.worker.wait(SyncMetric::HmacSent, 2).await?;
-        amal_a.worker.wait(SyncMetric::V1HmacSent, 2).await?;
 
         // Wait for a to process the new hmac key
         amal_b.get_sync_group(&amal_b.provider)?.sync().await?;
-        amal_b.worker.wait(SyncMetric::HmacReceived, 1).await?;
+        amal_b.worker.wait(SyncMetric::HmacReceived, 2).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
         let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref())?;

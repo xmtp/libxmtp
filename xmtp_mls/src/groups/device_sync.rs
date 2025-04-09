@@ -132,28 +132,6 @@ impl From<NotFound> for DeviceSyncError {
     }
 }
 
-#[macro_export]
-macro_rules! ds_info {
-    (
-        $($field_name:ident = $field_value:expr,)*
-        $message:literal
-        $(, $($arg:tt)+)?
-    ) => {
-        tracing::info!(
-            $($field_name = $field_value,)*
-            "\x1b[32mDEVICE SYNC: \x1b[33m{}\x1b[0m",
-            format!($message $(, $($arg)+)?)
-        )
-    };
-
-    ($message:literal $(, $($arg:tt)+)?) => {
-        tracing::info!(
-            "\x1b[32mDEVICE SYNC: \x1b[33m{}\x1b[0m",
-            format!($message $(, $($arg)+)?)
-        )
-    };
-}
-
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -184,19 +162,19 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<usize, DeviceSyncError> {
+    ) -> Result<(), DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
             tracing::warn!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
-            return Ok(0);
+            return Ok(());
         };
 
-        ds_info!(
-            "Fetching sync group messages that were sent after {}",
+        let messages = sync_group.sync_messages(cursor.offset)?;
+        tracing::info!(
+            "Found {} sync group messages that were sent after {}, processing...",
+            messages.len(),
             cursor.offset
         );
-        let messages = sync_group.sync_messages(cursor.offset)?;
-        let mut num_processed = 0;
 
         for (msg, content) in messages.iter_with_content() {
             match content {
@@ -223,7 +201,7 @@ where
                     handle.increment_metric(SyncMetric::PayloadProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
-                    ds_info!("Incoming preference updates: {preference_updates:?}");
+                    tracing::info!("Incoming preference updates: {preference_updates:?}");
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                     for update in preference_updates.clone() {
                         update.store(provider, handle)?;
@@ -241,10 +219,9 @@ where
             // Move the cursor
             cursor.offset = msg.sent_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
-            num_processed += 1;
         }
 
-        Ok(num_processed)
+        Ok(())
     }
 
     /// Blocks until the sync worker notifies that it is initialized and running.
@@ -286,7 +263,7 @@ where
         let installation_id = self.installation_id();
         if installation_id != acknowledgement.sender_installation_id {
             // Another device acknowledged the group. They're handling it.
-            ds_info!("Another installation already acknowledged the new sync group.");
+            tracing::info!("Another installation already acknowledged the new sync group.");
             return Err(DeviceSyncError::AlreadyAcknowledged);
         }
 
@@ -353,7 +330,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        ds_info!("Sending a sync request.");
+        tracing::info!("Sending a sync request.");
 
         let sync_group = self.get_sync_group(provider)?;
         sync_group.sync_with_conn(provider).await?;
@@ -387,7 +364,7 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
-        ds_info!("Sending sync payload.");
+        tracing::info!("Sending sync payload.");
         let provider = Arc::new(self.mls_provider()?);
 
         match acknowledge().await {
@@ -398,7 +375,7 @@ where
         }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
-            ds_info!("Unable to send sync payload - no sync server url present.");
+            tracing::info!("Unable to send sync payload - no sync server url present.");
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
 
@@ -445,9 +422,9 @@ where
 
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
-        ds_info!("Uploading sync payload to history server...");
+        tracing::info!("Uploading sync payload to history server...");
         let response = reqwest::Client::new().post(url).body(body).send().await?;
-        ds_info!("Done uploading sync payload to history server.");
+        tracing::info!("Done uploading sync payload to history server.");
 
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -521,23 +498,23 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        ds_info!("Inspecting sync response.");
+        tracing::info!("Inspecting sync response.");
         let provider = Arc::new(self.mls_provider()?);
 
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&provider, &reply)? {
             // This installation didn't ask for it. Ignore the reply.
-            ds_info!("Sync response was not intended for this installation.");
+            tracing::info!("Sync response was not intended for this installation.");
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        ds_info!("Sync response is for this installation. Syncing welcomes.");
+        tracing::info!("Sync response is for this installation. Syncing welcomes.");
         self.sync_welcomes(&provider).await?;
 
         // Get a download stream of the payload.
-        ds_info!("Downloading sync payload.");
+        tracing::info!("Downloading sync payload.");
         let response = reqwest::Client::new().get(reply.url).send().await?;
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
@@ -570,7 +547,7 @@ where
         // Create an importer around that futures_reader.
         let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
 
-        ds_info!("Importing the sync payload.");
+        tracing::info!("Importing the sync payload.");
         // Run the import.
         importer.run(self).await?;
 
@@ -594,13 +571,10 @@ where
 
         sync_group.publish_intents(provider).await?;
 
-        if let DeviceSyncContent::PreferenceUpdates(updates) = content {
-            let _ = self
-                .local_events
-                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
-                    updates,
-                )));
-        }
+        // Notify the worker of this client's own messages being sent out so that it can process them.
+        let _ = self
+            .local_events
+            .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
 
         Ok(message_id)
     }
