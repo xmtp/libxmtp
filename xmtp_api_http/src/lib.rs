@@ -72,6 +72,16 @@ pub struct XmtpHttpApiClient {
 }
 
 impl XmtpHttpApiClient {
+    pub async fn new(
+        host_url: String,
+        app_version: String,
+    ) -> Result<Self, HttpClientBuilderError> {
+        let mut b = Self::builder();
+        b.set_host(host_url);
+        b.set_app_version(app_version)?;
+        b.build().await
+    }
+
     /// Wait for any rate limit
     async fn wait_for_ready(&self) {
         let jitter = Jitter::up_to(Duration::from_secs(5));
