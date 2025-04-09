@@ -8,10 +8,16 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::configuration::sync_update_installations_interval_ns;
-use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
+use crate::groups::{
+    group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+    mls_ext::WrapWelcomeError,
+};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
+use crate::{
+    configuration::sync_update_installations_interval_ns,
+    groups::mls_ext::{wrap_welcome, WrapperCiphersuite},
+};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -21,7 +27,6 @@ use crate::{
         intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
-    hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
@@ -1689,21 +1694,25 @@ where
         let welcomes = action
             .installations
             .into_iter()
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+            .map(
+                |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+                    let installation_key = installation.installation_key;
+                    let wrapped_welcome = wrap_welcome(
+                        &action.welcome_message,
+                        &installation.hpke_public_key,
+                        // TODO:(nm) replace with dynamic value
+                        WrapperCiphersuite::Curve25519,
+                    )?;
+                    Ok(WelcomeMessageInput {
+                        version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                            installation_key,
+                            data: wrapped_welcome,
+                            hpke_public_key: installation.hpke_public_key,
+                        })),
+                    })
+                },
+            )
+            .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
 
         let welcome = welcomes
             .first()

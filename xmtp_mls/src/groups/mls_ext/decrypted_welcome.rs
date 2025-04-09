@@ -1,17 +1,25 @@
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
-    prelude::{BasicCredential, MlsMessageBodyIn, MlsMessageIn, Welcome},
+    prelude::{
+        BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
+    },
 };
-use tls_codec::Deserialize;
+use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+use tls_codec::{Deserialize, Serialize};
 
 use crate::{
     client::ClientError,
     configuration::MAX_PAST_EPOCHS,
     groups::{mls_ext::unwrap_welcome, GroupError},
     identity::parse_credential,
-    welcome_encryption::decrypt_welcome,
 };
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    NotFound,
+};
+
+use super::WrapperCiphersuite;
 
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
@@ -23,9 +31,14 @@ impl DecryptedWelcome {
         provider: &XmtpOpenMlsProvider,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
+        wrapper_ciphersuite: WrapperCiphersuite,
     ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
-        let welcome_bytes = unwrap_welcome(provider, hpke_public_key, encrypted_welcome_bytes)?;
+        let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
+        let hash_ref = find_key_package_hash_ref(provider, &serialized_hpke_public_key)?;
+        let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
+        let welcome_bytes =
+            unwrap_welcome(encrypted_welcome_bytes, &private_key, wrapper_ciphersuite)?;
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
@@ -51,8 +64,42 @@ impl DecryptedWelcome {
             added_by_inbox_id,
         })
     }
+}
 
-    
+fn find_key_package_hash_ref(
+    provider: &XmtpOpenMlsProvider,
+    hpke_public_key: &[u8],
+) -> Result<KeyPackageRef, GroupError> {
+    Ok(provider
+        .storage()
+        .read(KEY_PACKAGE_REFERENCES, hpke_public_key)?
+        .ok_or(NotFound::KeyPackageReference)?)
+}
+
+fn find_private_key(
+    provider: &XmtpOpenMlsProvider,
+    hash_ref: &KeyPackageRef,
+    wrapper_ciphersuite: &WrapperCiphersuite,
+) -> Result<Vec<u8>, GroupError> {
+    match wrapper_ciphersuite {
+        WrapperCiphersuite::Curve25519 => {
+            let key_package: Option<KeyPackageBundle> = provider.storage().key_package(hash_ref)?;
+            Ok(key_package
+                .map(|kp| kp.init_private_key().to_vec())
+                .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
+        }
+        WrapperCiphersuite::XWingMLKEM512 => {
+            let private_key = provider
+                .storage()
+                .read::<{ openmls_traits::storage::CURRENT_VERSION }, Vec<u8>>(
+                    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+                    hash_ref.as_slice(),
+                )?;
+
+            Ok(private_key
+                .ok_or_else(|| NotFound::PostQuantumPrivateKey(hash_ref.as_slice().to_vec()))?)
+        }
+    }
 }
 
 pub(crate) fn build_group_join_config() -> MlsGroupJoinConfig {

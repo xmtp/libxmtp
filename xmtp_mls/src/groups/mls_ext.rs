@@ -1,3 +1,5 @@
-mod mls_ext_welcome;
+mod decrypted_welcome;
+mod welcome_wrapper;
 
-pub(crate) use mls_ext_welcome::*;
+pub(crate) use decrypted_welcome::*;
+pub(crate) use welcome_wrapper::*;
