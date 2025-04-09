@@ -43,7 +43,7 @@ impl UserPreferenceUpdate {
             )));
 
         // TODO: v1 support - remove this on next hammer
-        Self::v1_sync_across_devices(updates, client, handle).await?;
+        Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
 
         updates.iter().for_each(|update| match update {
             Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
