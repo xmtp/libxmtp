@@ -78,16 +78,20 @@ async fn force_add_member(
     use openmls::prelude::tls_codec::Serialize;
     let new_member_provider = new_member_client.mls_provider();
 
-    let key_package = new_member_client
+    let key_package_result = new_member_client
         .identity()
         .new_key_package(&new_member_provider)
         .unwrap();
-    let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
+    let hpke_init_key = key_package_result
+        .key_package
+        .hpke_init_key()
+        .as_slice()
+        .to_vec();
     let (commit, welcome, _) = sender_mls_group
         .add_members(
             sender_provider,
             &sender_client.identity().installation_keys,
-            &[key_package],
+            &[key_package_result.key_package],
         )
         .unwrap();
     let serialized_commit = commit.tls_serialize_detached().unwrap();

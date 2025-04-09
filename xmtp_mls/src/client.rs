@@ -1273,8 +1273,8 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let provider = client.mls_provider();
 
-        let kp = client.identity().new_key_package(&provider).unwrap();
-        let hpke_public_key = kp.hpke_init_key().as_slice();
+        let kp_result = client.identity().new_key_package(&provider).unwrap();
+        let hpke_public_key = kp_result.key_package.hpke_init_key().as_slice();
         let to_encrypt = vec![1, 2, 3];
 
         // Encryption doesn't require any details about the sender, so we can test using one client
@@ -1352,7 +1352,6 @@ pub(crate) mod tests {
         client: &Client<ApiClient, Db>,
         installation_id: Id,
     ) -> Result<Vec<u8>, IdentityError> {
-        use openmls_traits::OpenMlsProvider;
         let kps_map = client
             .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
             .await
@@ -1368,7 +1367,7 @@ pub(crate) mod tests {
             })?
             .clone()?;
 
-        serialize_key_package_hash_ref(&kp_result.inner, client.mls_provider().crypto())
+        serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider())
     }
 
     #[xmtp_common::test]
