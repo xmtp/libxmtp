@@ -1407,11 +1407,13 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group.self_update(
+                let bundle = openmls_group.self_update(
                     &provider,
                     &self.context().identity.installation_keys,
                     LeafNodeParameters::default(),
                 )?;
+
+                let commit = bundle.commit();
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit.tls_serialize_detached()?,
