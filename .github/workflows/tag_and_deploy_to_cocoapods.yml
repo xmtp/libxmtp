@@ -2,11 +2,6 @@ name: tag_and_deploy_to_cocoapods
 
 on:
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to deploy from'
-        required: true
-        default: 'main'
 
 jobs:
   build:
@@ -15,7 +10,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        ref: ${{ github.event.inputs.branch }}
         fetch-depth: 0
     
     - name: Install Cocoapods
@@ -24,7 +18,7 @@ jobs:
     - name: Extract version from podspec
       id: extract_version
       run: |
-        SPEC_VERSION=$(grep -m 1 "spec.version" XMTP.podspec | sed -E "s/.*'([^']+)'.*/\1/")
+        SPEC_VERSION=$(grep 'spec.version' XMTP.podspec | sed -n 's/.*spec\.version *= *"\([^"]*\)".*/\1/p')
         echo "SPEC_VERSION=$SPEC_VERSION" >> $GITHUB_ENV
         echo "Original version: $SPEC_VERSION"
     
@@ -42,7 +36,7 @@ jobs:
     
     - name: Update podspec with new version
       run: |
-        sed -i '' "s/spec.version *= *'$SPEC_VERSION'/spec.version = '$UPDATED_VERSION'/" XMTP.podspec
+        sed -i '' "s/spec\.version *= *\"$SPEC_VERSION\"/spec.version = \"$UPDATED_VERSION\"/" XMTP.podspec
         echo "Updated podspec with version: $UPDATED_VERSION"
     
     - name: Create and push tag
