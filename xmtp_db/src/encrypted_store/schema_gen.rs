@@ -118,6 +118,7 @@ diesel::table! {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
+        post_quantum_public_key -> Nullable<Binary>,
     }
 }
 

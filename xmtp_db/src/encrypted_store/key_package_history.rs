@@ -10,6 +10,7 @@ use xmtp_common::time::now_ns;
 #[diesel(table_name = key_package_history)]
 pub struct NewKeyPackageHistoryEntry {
     pub key_package_hash_ref: Vec<u8>,
+    pub post_quantum_public_key: Vec<u8>,
     pub created_at_ns: i64,
 }
 
@@ -19,6 +20,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
     pub created_at_ns: i64,
+    pub post_quantum_public_key: Option<Vec<u8>>,
 }
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
@@ -27,9 +29,11 @@ impl<C: ConnectionExt> DbConnection<C> {
     pub fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
+        post_quantum_public_key: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
         let entry = NewKeyPackageHistoryEntry {
             key_package_hash_ref: key_package_hash_ref.clone(),
+            post_quantum_public_key: post_quantum_public_key.clone(),
             created_at_ns: now_ns(),
         };
         entry.store_or_ignore(self)?;
@@ -102,10 +106,15 @@ mod tests {
     async fn test_store_key_package_history_entry() {
         with_connection(|conn| {
             let hash_ref = rand_vec::<24>();
+            let post_quantum_public_key = rand_vec::<32>();
             let new_entry = conn
-                .store_key_package_history_entry(hash_ref.clone())
+                .store_key_package_history_entry(hash_ref.clone(), post_quantum_public_key.clone())
                 .unwrap();
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
+            assert_eq!(
+                new_entry.post_quantum_public_key,
+                Some(post_quantum_public_key)
+            );
             assert_eq!(new_entry.id, 1);
 
             // Now delete it
@@ -121,16 +130,23 @@ mod tests {
     #[xmtp_common::test]
     async fn test_store_multiple() {
         with_connection(|conn| {
+            let post_quantum_public_key = rand_vec::<32>();
             let hash_ref1 = rand_vec::<24>();
             let hash_ref2 = rand_vec::<24>();
             let hash_ref3 = rand_vec::<24>();
 
-            conn.store_key_package_history_entry(hash_ref1.clone())
-                .unwrap();
-            conn.store_key_package_history_entry(hash_ref2.clone())
-                .unwrap();
+            conn.store_key_package_history_entry(
+                hash_ref1.clone(),
+                post_quantum_public_key.clone(),
+            )
+            .unwrap();
+            conn.store_key_package_history_entry(
+                hash_ref2.clone(),
+                post_quantum_public_key.clone(),
+            )
+            .unwrap();
             let entry_3 = conn
-                .store_key_package_history_entry(hash_ref3.clone())
+                .store_key_package_history_entry(hash_ref3.clone(), post_quantum_public_key.clone())
                 .unwrap();
 
             let all_entries = conn
