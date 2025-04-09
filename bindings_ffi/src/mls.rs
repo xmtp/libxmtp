@@ -6452,6 +6452,11 @@ mod tests {
             .wait(FfiSyncMetric::PayloadProcessed, 1)
             .await
             .unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::HmacReceived, 1)
+            .await
+            .unwrap();
 
         // create a stream from both installations
         let stream_a_callback = Arc::new(RustStreamCallback::default());
@@ -6466,6 +6471,7 @@ mod tests {
             .await;
         a_stream.wait_for_ready().await;
         b_stream.wait_for_ready().await;
+        alix_b.conversations().sync_device_sync().await.unwrap();
 
         // consent with bo
         alix_a

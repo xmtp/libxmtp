@@ -214,11 +214,11 @@ mod tests {
         amal_b.wait_for_sync_worker_init().await;
 
         amal_a.sync_welcomes(&amal_a.provider).await?;
-        amal_a.worker.wait(SyncMetric::HmacSent, 2).await?;
+        amal_a.worker.wait(SyncMetric::HmacSent, 1).await?;
 
         // Wait for a to process the new hmac key
         amal_b.get_sync_group(&amal_b.provider)?.sync().await?;
-        amal_b.worker.wait(SyncMetric::HmacReceived, 2).await?;
+        amal_b.worker.wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
         let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref())?;
