@@ -109,7 +109,7 @@ impl StoredGroup {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct GroupQueryArgs {
     pub allowed_states: Option<Vec<GroupMembershipState>>,
     pub created_after_ns: Option<i64>,

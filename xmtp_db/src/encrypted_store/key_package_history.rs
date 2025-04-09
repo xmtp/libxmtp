@@ -8,7 +8,7 @@ use xmtp_common::time::now_ns;
 #[diesel(table_name = key_package_history)]
 pub struct NewKeyPackageHistoryEntry {
     pub key_package_hash_ref: Vec<u8>,
-    pub post_quantum_public_key: Vec<u8>,
+    pub post_quantum_public_key: Option<Vec<u8>>,
     pub created_at_ns: i64,
 }
 
@@ -27,7 +27,7 @@ impl DbConnection {
     pub fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
-        post_quantum_public_key: Vec<u8>,
+        post_quantum_public_key: Option<Vec<u8>>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
         let entry = NewKeyPackageHistoryEntry {
             key_package_hash_ref: key_package_hash_ref.clone(),
@@ -106,7 +106,10 @@ mod tests {
             let hash_ref = rand_vec::<24>();
             let post_quantum_public_key = rand_vec::<32>();
             let new_entry = conn
-                .store_key_package_history_entry(hash_ref.clone(), post_quantum_public_key.clone())
+                .store_key_package_history_entry(
+                    hash_ref.clone(),
+                    Some(post_quantum_public_key.clone()),
+                )
                 .unwrap();
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
             assert_eq!(
@@ -135,16 +138,16 @@ mod tests {
 
             conn.store_key_package_history_entry(
                 hash_ref1.clone(),
-                post_quantum_public_key.clone(),
+                Some(post_quantum_public_key.clone()),
             )
             .unwrap();
             conn.store_key_package_history_entry(
                 hash_ref2.clone(),
-                post_quantum_public_key.clone(),
+                Some(post_quantum_public_key.clone()),
             )
             .unwrap();
             let entry_3 = conn
-                .store_key_package_history_entry(hash_ref3.clone(), post_quantum_public_key.clone())
+                .store_key_package_history_entry(hash_ref3.clone(), None)
                 .unwrap();
 
             let all_entries = conn
