@@ -2,6 +2,7 @@ use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
+    future::Future,
     hash::Hash,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -89,6 +90,26 @@ where
         }
 
         result
+    }
+
+    pub async fn do_while<F, Fut>(
+        &self,
+        metric: Metric,
+        count: usize,
+        f: F,
+    ) -> Result<(), xmtp_common::time::Expired>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = ()>,
+    {
+        let metric = self.metrics.lock().entry(metric).or_default().clone();
+        xmtp_common::time::timeout(Duration::from_secs(20), async {
+            while metric.load(Ordering::SeqCst) < count {
+                f().await;
+                xmtp_common::yield_().await;
+            }
+        })
+        .await
     }
 
     pub fn clear_metric(&self, metric: Metric) {

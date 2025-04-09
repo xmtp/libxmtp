@@ -121,11 +121,11 @@ impl UserPreferenceUpdate {
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
             Self::HmacKeyUpdate { key } => {
+                ds_info!("Storing new HMAC key from sync group");
                 let Ok(key) = key.try_into() else {
-                    tracing::error!("Received HMAC key was wrong length.");
+                    ds_info!("Received HMAC key was wrong length.");
                     return Ok(());
                 };
-                ds_info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(
                     provider.conn_ref(),
                     &HmacKey {

@@ -2835,7 +2835,9 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{scoped_client::LocalScopedGroupClient, GroupError},
+        groups::{
+            device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
+        },
         utils::PasskeyUser,
         InboxOwner,
     };
@@ -6487,7 +6489,18 @@ mod tests {
             .unwrap();
 
         // Have alix_b sync the sync group and wait for the new consent to be processed
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .handle
+            .as_ref()
+            .cloned()
+            .unwrap()
+            .do_while(SyncMetric::ConsentReceived, 1, || async {
+                alix_b.conversations().sync_device_sync().await.unwrap();
+            })
+            .await
+            .unwrap();
+
         alix_b
             .worker
             .wait(FfiSyncMetric::ConsentReceived, 1)
