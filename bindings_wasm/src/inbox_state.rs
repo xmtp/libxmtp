@@ -84,6 +84,7 @@ pub struct KeyPackageStatus {
   #[wasm_bindgen(js_name = lifetime)]
   pub lifetime: Option<Lifetime>,
   #[wasm_bindgen(js_name = validationError)]
+  #[serde(rename = "validationError")]
   pub validation_error: Option<String>,
 }
 
