@@ -3969,7 +3969,7 @@ mod tests {
 
         // alix published + processed group creation and name update
         assert_eq!(alix_provider.conn_ref().intents_published(), 4);
-        assert_eq!(alix_provider.conn_ref().intents_deleted(), 3);
+        assert_eq!(alix_provider.conn_ref().intents_deleted(), 4);
 
         bo_group
             .conversation
