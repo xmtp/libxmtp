@@ -300,6 +300,9 @@ fn enable_debug_file_inner(
     max_files: u32,
     log_level: FfiLogLevel,
 ) -> Result<(), GenericError> {
+    // First, ensure any previous logger is properly shut down
+    let _ = exit_debug_writer();
+
     let version = env!("CARGO_PKG_VERSION");
     let file_appender = RollingFileAppender::builder()
         .filename_prefix(format!("libxmtp-v{}.log", version))
@@ -310,7 +313,17 @@ fn enable_debug_file_inner(
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
         .finish(file_appender);
-    let _ = WORKER.set(Arc::new(Mutex::new(Some(worker))));
+
+    // Initialize the worker container if needed
+    if WORKER.get().is_none() {
+        let _ = WORKER.set(Arc::new(Mutex::new(None)));
+    }
+
+    // Now we can safely update the worker
+    if let Some(worker_container) = WORKER.get() {
+        *worker_container.lock() = Some(worker);
+    }
+
     let handle = LOGGER.lock();
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
