@@ -10,7 +10,7 @@ use diesel::{
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_common::RetryableError;
+use xmtp_common::{RetryableError, retryable};
 
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
@@ -124,6 +124,9 @@ impl RetryableError for NativeStorageError {
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
+            Self::DieselResult(result) => retryable!(result),
+            Self::Io(_) => true,
+            Self::DieselConnect(_) => true,
 
             _ => false,
         }

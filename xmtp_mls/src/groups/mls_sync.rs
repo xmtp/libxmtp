@@ -1471,11 +1471,13 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group.self_update(
+                let bundle = openmls_group.self_update(
                     &provider,
                     &self.context().identity.installation_keys,
                     LeafNodeParameters::default(),
                 )?;
+
+                let commit = bundle.commit();
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit.tls_serialize_detached()?,
@@ -2046,6 +2048,11 @@ async fn apply_update_group_membership_intent(
     .await?;
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
         get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
+
+    if leaf_nodes_to_remove.contains(&openmls_group.own_leaf_index()) {
+        tracing::info!("Cannot remove own leaf node");
+        return Ok(None);
+    }
 
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()

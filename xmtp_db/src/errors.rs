@@ -174,6 +174,7 @@ impl RetryableError<Mls> for openmls::group::AddMembersError<sql_key_store::SqlK
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::CommitBuilderStageError(commit_builder_stage) => retryable!(commit_builder_stage),
             Self::StorageError(storage) => retryable!(storage),
             Self::GroupStateError(group_state) => retryable!(group_state),
             _ => false,
@@ -181,13 +182,9 @@ impl RetryableError<Mls> for openmls::group::AddMembersError<sql_key_store::SqlK
     }
 }
 
-impl RetryableError<Mls> for openmls::group::CreateCommitError<sql_key_store::SqlKeyStoreError> {
+impl RetryableError<Mls> for openmls::group::CreateCommitError {
     fn is_retryable(&self) -> bool {
-        match self {
-            Self::KeyStoreError(storage) => retryable!(storage),
-            Self::LeafNodeUpdateError(leaf_node_update) => retryable!(leaf_node_update),
-            _ => false,
-        }
+        false
     }
 }
 
@@ -212,6 +209,7 @@ impl RetryableError<Mls> for openmls::group::RemoveMembersError<sql_key_store::S
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::CommitBuilderStageError(commit_builder_stage) => retryable!(commit_builder_stage),
             Self::GroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
@@ -236,7 +234,7 @@ impl RetryableError<Mls>
             Self::CreateCommitError(create_commit) => retryable!(create_commit),
             Self::GroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
-            _ => false,
+            Self::CommitBuilderError(commit_builder) => retryable!(commit_builder),
         }
     }
 }
@@ -263,9 +261,21 @@ impl RetryableError<Mls> for openmls::group::SelfUpdateError<sql_key_store::SqlK
     fn is_retryable(&self) -> bool {
         match self {
             Self::CreateCommitError(commit) => retryable!(commit),
+            Self::CommitBuilderStageError(commit_builder_stage) => retryable!(commit_builder_stage),
             Self::GroupStateError(group_state) => retryable!(group_state),
             Self::StorageError(storage) => retryable!(storage),
             _ => false,
+        }
+    }
+}
+
+impl RetryableError<Mls>
+    for openmls::group::CommitBuilderStageError<sql_key_store::SqlKeyStoreError>
+{
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::KeyStoreError(storage) => retryable!(storage),
+            Self::LibraryError(_) => false,
         }
     }
 }
@@ -295,7 +305,7 @@ impl RetryableError<Mls> for openmls::group::MergeCommitError<sql_key_store::Sql
     fn is_retryable(&self) -> bool {
         match self {
             Self::StorageError(storage) => retryable!(storage),
-            _ => false,
+            Self::LibraryError(_) => false,
         }
     }
 }
