@@ -103,7 +103,7 @@ impl<S, E> SubscriptionStream<S, E> {
 impl<S, E> Stream for SubscriptionStream<S, E>
 where
     S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
-    E: xmtp_proto::XmtpApiError + 'static,
+    E: xmtp_common::RetryableError + Send + Sync + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 
@@ -113,9 +113,7 @@ where
 
         match this.inner.poll_next(cx) {
             Ready(Some(welcome)) => {
-                let welcome = welcome
-                    .map_err(xmtp_proto::ApiError::from)
-                    .map_err(SubscribeError::from)?;
+                let welcome = welcome.map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
                 Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
             }
             Pending => Pending,

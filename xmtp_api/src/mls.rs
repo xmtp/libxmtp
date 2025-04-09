@@ -12,7 +12,6 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
-use xmtp_proto::ApiError;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -97,7 +96,7 @@ where
                         .await
                 })
             )
-            .map_err(ApiError::from)?;
+            .map_err(crate::dyn_err)?;
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
 
@@ -141,7 +140,7 @@ where
                     .await
             })
         )
-        .map_err(ApiError::from)?;
+        .map_err(crate::dyn_err)?;
 
         Ok(result.messages.into_iter().next())
     }
@@ -177,7 +176,7 @@ where
                         .await
                 })
             )
-            .map_err(ApiError::from)?;
+            .map_err(crate::dyn_err)?;
 
             let num_messages = result.messages.len();
             out.append(&mut result.messages);
@@ -221,7 +220,7 @@ where
                     .await
             })
         )
-        .map_err(ApiError::from)?;
+        .map_err(crate::dyn_err)?;
 
         Ok(())
     }
@@ -242,10 +241,10 @@ where
                     .await
             })
         )
-        .map_err(ApiError::from)?;
+        .map_err(crate::dyn_err)?;
 
         if res.key_packages.len() != installation_keys.len() {
-            return Err(crate::Error::MismatchedKeyPackages {
+            return Err(crate::ApiError::MismatchedKeyPackages {
                 key_packages: res.key_packages.len(),
                 installation_keys: installation_keys.len(),
             });
@@ -279,7 +278,7 @@ where
                     .await
             })
         )
-        .map_err(ApiError::from)?;
+        .map_err(crate::dyn_err)?;
 
         Ok(())
     }
@@ -302,7 +301,7 @@ where
                     .await
             })
         )
-        .map_err(ApiError::from)?;
+        .map_err(crate::dyn_err)?;
 
         Ok(())
     }
@@ -320,8 +319,7 @@ where
                 filters: filters.into_iter().map(|f| f.into()).collect(),
             })
             .await
-            .map_err(ApiError::from)
-            .map_err(crate::Error::from)
+            .map_err(crate::dyn_err)
     }
 
     pub async fn subscribe_welcome_messages(
@@ -344,8 +342,7 @@ where
                 }],
             })
             .await
-            .map_err(ApiError::from)
-            .map_err(crate::Error::from)
+            .map_err(crate::dyn_err)
     }
 }
 

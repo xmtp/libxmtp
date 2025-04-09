@@ -7,14 +7,13 @@ pub mod test_utils;
 
 use std::sync::Arc;
 
-use xmtp_common::{ExponentialBackoff, Retry, RetryableError};
+use xmtp_common::{retryable, ExponentialBackoff, Retry, RetryableError};
 pub use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::ApiError;
 
 pub use identity::*;
 pub use mls::*;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, ApiError>;
 
 pub mod strategies {
     use super::*;
@@ -23,10 +22,15 @@ pub mod strategies {
     }
 }
 
+// Erases Api Error type (which may be Http or Grpc)
+fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
+    ApiError::Api(Box::new(e))
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("API client error: {0}")]
-    Api(#[from] ApiError),
+pub enum ApiError {
+    #[error("api client error {0}")]
+    Api(Box<dyn RetryableError + Send + Sync>),
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,
@@ -40,9 +44,12 @@ pub enum Error {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
 }
 
-impl RetryableError for Error {
+impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
-        matches!(self, Self::Api(_))
+        match self {
+            Self::Api(e) => retryable!(e),
+            _ => false,
+        }
     }
 }
 

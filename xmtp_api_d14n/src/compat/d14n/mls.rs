@@ -1,7 +1,6 @@
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
 use xmtp_common::RetryableError;
-use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
@@ -18,7 +17,7 @@ use super::D14nClient;
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpMlsClient for D14nClient<C, P>
 where
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client,
     C: Send + Sync + Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<P as Client>::Error>>

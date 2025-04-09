@@ -59,18 +59,6 @@ pub enum MockError {
     RateLimit,
 }
 
-impl xmtp_proto::XmtpApiError for MockError {
-    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
-        None
-    }
-    fn code(&self) -> Option<xmtp_proto::Code> {
-        None
-    }
-    fn grpc_message(&self) -> Option<&str> {
-        None
-    }
-}
-
 impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         true
