@@ -1,13 +1,18 @@
 use crate::identity::IdentityError;
 use crate::worker::{Worker, WorkerKind};
 use crate::Client;
-use crate::{client::ClientError, worker::NeedsDbReconnect};
+use crate::{
+    client::ClientError, identity::pq_key_package_references_key, worker::NeedsDbReconnect,
+};
 use futures::StreamExt;
 use openmls_traits::storage::StorageProvider;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_db::{MlsProviderExt, StorageError, XmtpDb};
+use xmtp_db::{
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
+    MlsProviderExt, StorageError, XmtpDb,
+};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
@@ -81,12 +86,27 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     /// Delete a key package from the local database.
-    pub(crate) fn delete_key_package(&self, hash_ref: Vec<u8>) -> Result<(), IdentityError> {
+    pub(crate) fn delete_key_package(
+        &self,
+        hash_ref: Vec<u8>,
+        pq_pub_key: Option<Vec<u8>>,
+    ) -> Result<(), IdentityError> {
         let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;
-        self.client
-            .mls_provider()
-            .key_store()
-            .delete_key_package(&openmls_hash_ref)?;
+        let mls_provider = self.client.mls_provider();
+        let key_store = mls_provider.key_store();
+
+        key_store.delete_key_package(&openmls_hash_ref)?;
+
+        if let Some(pq_pub_key) = pq_pub_key {
+            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                KEY_PACKAGE_REFERENCES,
+                pq_key_package_references_key(&pq_pub_key)?.as_slice(),
+            )?;
+            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+                &hash_ref,
+            )?;
+        }
 
         Ok(())
     }
@@ -100,7 +120,10 @@ where
             Ok(expired_kps) if !expired_kps.is_empty() => {
                 // Delete from local db
                 for kp in &expired_kps {
-                    if let Err(err) = self.delete_key_package(kp.key_package_hash_ref.clone()) {
+                    if let Err(err) = self.delete_key_package(
+                        kp.key_package_hash_ref.clone(),
+                        kp.post_quantum_public_key.clone(),
+                    ) {
                         tracing::error!("Couldn't delete KeyPackage: {:?}", err);
                     }
                 }
