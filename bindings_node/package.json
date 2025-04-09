@@ -40,7 +40,7 @@
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.4.1",
     "@napi-rs/cli": "^3.0.0-alpha.64",
-    "@types/node": "^22.13.0",
+    "@types/node": "^22.14.0",
     "@types/uuid": "^10.0.0",
     "fast-glob": "^3.3.3",
     "prettier": "^3.5.0",
@@ -48,11 +48,11 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "uuid": "^11.1.0",
-    "viem": "^2.24.2",
+    "viem": "^2.26.0",
     "vite": "^6.2.0",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.0.4",
-    "zx": "^8.4.0"
+    "vitest": "^3.1.1",
+    "zx": "^8.5.0"
   },
   "packageManager": "yarn@4.6.0",
   "engines": {

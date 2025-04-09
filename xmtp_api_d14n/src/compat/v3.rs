@@ -57,6 +57,10 @@ where
         <Builder as ApiBuilder>::set_tls(&mut self.client, tls)
     }
 
+    fn rate_per_minute(&mut self, limit: u32) {
+        <Builder as ApiBuilder>::rate_per_minute(&mut self.client, limit)
+    }
+
     async fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(V3Client::new(
             <Builder as ApiBuilder>::build(self.client).await?,

@@ -10,7 +10,9 @@ pub async fn get_inbox_id_for_identifier(
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
   let api_client = ApiClientWrapper::new(
-    XmtpHttpApiClient::new(host.clone(), "0.0.0".into())?.into(),
+    XmtpHttpApiClient::new(host.clone(), "0.0.0".into())
+      .await?
+      .into(),
     strategies::exponential_cooldown(),
   );
 
