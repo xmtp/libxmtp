@@ -6445,6 +6445,11 @@ mod tests {
             .wait(FfiSyncMetric::PayloadSent, 1)
             .await
             .unwrap();
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::HmacSent, 1)
+            .await
+            .unwrap();
 
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
@@ -6489,8 +6494,6 @@ mod tests {
             .wait(FfiSyncMetric::ConsentSent, 1)
             .await
             .unwrap();
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
 
         // Have alix_b sync the sync group and wait for the new consent to be processed
         alix_b.conversations().sync_device_sync().await.unwrap();
@@ -6577,13 +6580,14 @@ mod tests {
         alix_a.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
 
         let alix_b = new_test_client_with_wallet(wallet).await;
-        alix_b.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
 
         let stream_b_callback = Arc::new(RustStreamCallback::default());
         let b_stream = alix_b
             .conversations()
             .stream_preferences(stream_b_callback.clone())
             .await;
+
+        alix_b.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
 
         alix_a.conversations().sync().await.unwrap();
         alix_a
