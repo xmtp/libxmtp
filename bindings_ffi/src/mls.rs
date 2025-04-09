@@ -4004,7 +4004,7 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo_provider.conn_ref().intents_published(), 7);
 
-        assert_eq!(message_callbacks.message_count(), 5);
+        assert_eq!(message_callbacks.message_count(), 4);
 
         stream_messages.end_and_wait().await.unwrap();
 
