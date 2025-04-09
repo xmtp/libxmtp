@@ -64,7 +64,7 @@ impl UserPreferenceUpdate {
     }
 
     /// Send a preference update through the sync group for other devices to consume
-    async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    async fn _v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
