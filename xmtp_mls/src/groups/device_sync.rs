@@ -582,7 +582,7 @@ where
                 })),
             })?;
 
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
 
         // Notify the worker of this client's own messages being sent out so that it can process them.
         let _ = self
