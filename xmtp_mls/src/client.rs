@@ -1,4 +1,5 @@
 use crate::builder::SyncWorkerMode;
+use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
@@ -814,7 +815,11 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
         self.identity()
-            .rotate_and_upload_key_package(provider, &self.api_client)
+            .rotate_and_upload_key_package(
+                provider,
+                &self.api_client,
+                CREATE_PQ_KEY_PACKAGE_EXTENSION,
+            )
             .await?;
 
         Ok(())
@@ -1110,12 +1115,8 @@ pub(crate) mod tests {
     use crate::groups::DMMetadataOptions;
     use crate::identity::IdentityError;
     use crate::{
-        builder::ClientBuilder,
-        groups::GroupMetadataOptions,
-        hpke::{decrypt_welcome, encrypt_welcome},
-        identity::serialize_key_package_hash_ref,
-        utils::test::HISTORY_SYNC_URL,
-        XmtpApi,
+        builder::ClientBuilder, groups::GroupMetadataOptions,
+        identity::serialize_key_package_hash_ref, utils::test::HISTORY_SYNC_URL, XmtpApi,
     };
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
@@ -1513,27 +1514,6 @@ pub(crate) mod tests {
 
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 2);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
-    async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider().unwrap();
-
-        let kp_result = client.identity().new_key_package(&provider).unwrap();
-        let hpke_public_key = kp_result.key_package.hpke_init_key().as_slice();
-        let to_encrypt = vec![1, 2, 3];
-
-        // Encryption doesn't require any details about the sender, so we can test using one client
-        let encrypted = encrypt_welcome(to_encrypt.as_slice(), hpke_public_key).unwrap();
-
-        let decrypted = decrypt_welcome(&provider, hpke_public_key, encrypted.as_slice()).unwrap();
-
-        assert_eq!(decrypted, to_encrypt);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
