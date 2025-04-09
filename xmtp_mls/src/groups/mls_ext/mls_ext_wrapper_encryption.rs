@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     WelcomeWrapperEncryption as WelcomeWrapperEncryptionProto,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum WrapperAlgorithm {
     Curve25519,
     XWingMLKEM768Draft6,
@@ -100,5 +100,31 @@ impl TryFrom<Vec<u8>> for WrapperEncryptionExtension {
             algorithm,
             pub_key_bytes: proto.pub_key,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn test_serialization() {
+        let algorithm = WrapperAlgorithm::XWingMLKEM768Draft6;
+        let pub_key_bytes = vec![0; 32];
+
+        let extension = WrapperEncryptionExtension::new(algorithm.clone(), pub_key_bytes.clone());
+
+        let mls_extension: Extension = extension.try_into().unwrap();
+
+        let Extension::Unknown(id, unknown_extension) = mls_extension else {
+            panic!("Expected unknown extension");
+        };
+
+        assert_eq!(id, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID);
+
+        let deserialized: WrapperEncryptionExtension = unknown_extension.try_into().unwrap();
+
+        assert_eq!(deserialized.algorithm, algorithm);
+        assert_eq!(deserialized.pub_key_bytes, pub_key_bytes);
     }
 }

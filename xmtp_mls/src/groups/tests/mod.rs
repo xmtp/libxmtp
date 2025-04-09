@@ -74,13 +74,15 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &XmtpOpenMlsProvider,
 ) {
+    use crate::groups::mls_ext::WrapperAlgorithm;
+
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;
     let new_member_provider = new_member_client.mls_provider();
 
     let key_package_result = new_member_client
         .identity()
-        .new_key_package(&new_member_provider)
+        .new_key_package(&new_member_provider, false)
         .unwrap();
     let hpke_init_key = key_package_result
         .key_package
@@ -100,6 +102,7 @@ async fn force_add_member(
         vec![Installation {
             installation_key: new_member_client.installation_public_key().into(),
             hpke_public_key: hpke_init_key,
+            welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
         }],
         serialized_welcome,
     );
