@@ -1,5 +1,6 @@
 use crate::{
     builder::SyncWorkerMode,
+    configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
@@ -766,7 +767,11 @@ where
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         let provider = self.mls_provider();
         self.identity()
-            .rotate_and_upload_key_package(&provider, self.context.api())
+            .rotate_and_upload_key_package(
+                &provider,
+                self.context.api(),
+                CREATE_PQ_KEY_PACKAGE_EXTENSION,
+            )
             .await?;
 
         Ok(())
@@ -901,12 +906,7 @@ pub(crate) mod tests {
     use crate::subscriptions::StreamMessages;
     use crate::tester;
     use crate::utils::{LocalTesterBuilder, Tester};
-    use crate::{
-        builder::ClientBuilder,
-        hpke::{decrypt_welcome, encrypt_welcome},
-        identity::serialize_key_package_hash_ref,
-        XmtpApi,
-    };
+    use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use std::time::Duration;
