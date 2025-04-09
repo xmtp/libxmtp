@@ -177,9 +177,10 @@ where
             .count();
 
         tracing::info!(
-            "Processing {} sync group messages that were sent after {}. ({external_count} external)",
+            "Processing {} sync group messages that were sent after {}. ({external_count} external, group_id {:?})",
             messages.len(),
-            cursor.offset
+            cursor.offset,
+            &sync_group.group_id
         );
 
         for (msg, content) in messages.iter_with_content() {
@@ -570,6 +571,8 @@ where
         content: DeviceSyncContent,
     ) -> Result<Vec<u8>, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
+        tracing::info!("Sending sync message to group {:?}", &sync_group.group_id);
+
         let content_bytes = serde_json::to_vec(&content)?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {

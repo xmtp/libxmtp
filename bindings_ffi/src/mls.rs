@@ -6484,6 +6484,8 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
         // Have alix_b sync the sync group and wait for the new consent to be processed
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
