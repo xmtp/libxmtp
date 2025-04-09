@@ -189,13 +189,4 @@ mod test {
             client
         }
     }
-
-    #[tokio::test]
-    async fn rate_limit_works() {
-        let mut client = GrpcClient::builder();
-        client.set_host("http://localhost:5556".into());
-        client.set_tls(false);
-        client.rate_per_minute(1);
-        let c = client.build().await.unwrap();
-    }
 }

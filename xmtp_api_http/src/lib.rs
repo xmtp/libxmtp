@@ -189,9 +189,9 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
 
     fn rate_per_minute(&mut self, limit: u32) {
         let limit = if limit == 0 {
-            NonZeroU32::new(1 as u32).expect("1 is greater than 0")
+            NonZeroU32::new(1_u32).expect("1 is greater than 0")
         } else {
-            NonZeroU32::new(limit as u32).expect("checked for 0")
+            NonZeroU32::new(limit).expect("checked for 0")
         };
         let quota = Quota::per_minute(limit);
         self.limiter = Some(Limiter::direct(quota));

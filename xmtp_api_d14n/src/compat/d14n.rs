@@ -72,4 +72,9 @@ where
             <Builder2 as ApiBuilder>::build(self.payer_client).await?,
         ))
     }
+
+    fn rate_per_minute(&mut self, limit: u32) {
+        <Builder1 as ApiBuilder>::rate_per_minute(&mut self.message_client, limit);
+        <Builder2 as ApiBuilder>::rate_per_minute(&mut self.payer_client, limit)
+    }
 }

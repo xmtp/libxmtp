@@ -32,6 +32,13 @@ pub struct Client {
 }
 
 impl Client {
+    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+        let mut b = Self::builder();
+        b.set_tls(is_secure);
+        b.set_host(host.to_string());
+        b.build().await
+    }
+
     pub fn build_request<RequestType>(&self, request: RequestType) -> Request<RequestType> {
         let mut req = Request::new(request);
         req.metadata_mut()

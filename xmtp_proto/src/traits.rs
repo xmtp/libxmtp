@@ -262,7 +262,7 @@ pub mod mock {
             Ok(MockClient)
         }
 
-        fn rate_per_minute(&mut self, limit: u32) {}
+        fn rate_per_minute(&mut self, _limit: u32) {}
     }
 
     #[derive(thiserror::Error, Debug)]

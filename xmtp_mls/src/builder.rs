@@ -273,9 +273,8 @@ pub(crate) mod tests {
         client.register_identity(signature_request).await.unwrap();
     }
 
-    fn retry() -> Retry<ExponentialBackoff, ExponentialBackoff> {
-        let strategy = ExponentialBackoff::default();
-        Retry::builder().with_cooldown(strategy).build()
+    fn retry() -> Retry<ExponentialBackoff> {
+        Retry::default()
     }
 
     /// Generate a random legacy key proto bytes and corresponding account address.
