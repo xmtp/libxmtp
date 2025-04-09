@@ -1,11 +1,10 @@
-use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use crate::configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
 };
+use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, POST_QUANTUM_PUBLIC_KEY_EXTENSION_ID};
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch, StorageError, Store};
-
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::{HpkeKeyPair, UnknownExtension};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -15,22 +14,29 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
 };
-use openmls_traits::storage::StorageProvider;
-use openmls_traits::types::CryptoError;
-use openmls_traits::OpenMlsProvider;
+use openmls_libcrux_crypto::Provider as LibcruxProvider;
+use openmls_traits::{
+    crypto::OpenMlsCrypto, random::OpenMlsRand, storage::StorageProvider, types::CryptoError,
+    OpenMlsProvider,
+};
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
+use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
+use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
-use xmtp_db::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use xmtp_db::sql_key_store::{
+    SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+};
 use xmtp_db::ProviderTransactions;
+use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch, StorageError, Store};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -221,6 +227,12 @@ pub enum IdentityError {
     ApiClient(#[from] xmtp_api::Error),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    #[error(transparent)]
+    GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
+    #[error(transparent)]
+    InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    #[error("Missing post quantum public key")]
+    MissingPostQuantumPublicKey,
 }
 
 impl RetryableError for IdentityError {
@@ -498,7 +510,10 @@ impl Identity {
         provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let key_package_extensions = Extensions::single(last_resort);
+        let post_quantum_keypair = generate_post_quantum_key()?;
+        let post_quantum_pub_key =
+            build_post_quantum_public_key_extension(&post_quantum_keypair.public);
+        let key_package_extensions = Extensions::from_vec(vec![last_resort, post_quantum_pub_key])?;
 
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(self.inbox_id().as_bytes()));
@@ -513,6 +528,7 @@ impl Identity {
                 ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
                 ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+                ExtensionType::Unknown(POST_QUANTUM_PUBLIC_KEY_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
@@ -531,19 +547,8 @@ impl Identity {
                     signature_key: self.installation_keys.public_slice().into(),
                 },
             )?;
-        // Store the hash reference, keyed with the public init key.
-        // This is needed to get to the private key when decrypting welcome messages.
-        let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
 
-        let hash_ref = serialize_key_package_hash_ref(kp.key_package(), &provider)?;
-        // Store the hash reference, keyed with the public init key
-        provider
-            .storage()
-            .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
-                KEY_PACKAGE_REFERENCES,
-                &public_init_key,
-                &hash_ref,
-            )?;
+        store_key_package_references(&provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(kp.key_package().clone())
     }
 
@@ -572,8 +577,11 @@ impl Identity {
 
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
+        let pq_pub_key = get_post_quantum_public_key_from_extensions(&kp)?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider)?;
-        let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
+        let history_id = conn
+            .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone())?
+            .id;
 
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
@@ -584,7 +592,11 @@ impl Identity {
                         .conn_ref()
                         .find_key_package_history_entries_before_id(old_id)?;
                     for kp in old_key_packages {
-                        self.delete_key_package(provider, kp.key_package_hash_ref)?;
+                        self.delete_key_package(
+                            provider,
+                            kp.key_package_hash_ref,
+                            kp.post_quantum_public_key,
+                        )?;
                     }
                     conn.delete_key_package_history_entries_before_id(old_id)?;
 
@@ -595,7 +607,7 @@ impl Identity {
             }
             Err(err) => {
                 // Did not upload. Delete the newly created KP.
-                self.delete_key_package(provider, hash_ref)?;
+                self.delete_key_package(provider, hash_ref, Some(pq_pub_key))?;
                 conn.delete_key_package_entry_with_id(history_id)?;
 
                 Err(IdentityError::ApiClient(err))
@@ -608,9 +620,18 @@ impl Identity {
         &self,
         provider: &XmtpOpenMlsProvider,
         hash_ref: Vec<u8>,
+        pq_pub_key: Option<Vec<u8>>,
     ) -> Result<(), IdentityError> {
         let openmls_hash_ref = deserialize_key_package_hash_ref(&hash_ref)?;
         provider.storage().delete_key_package(&openmls_hash_ref)?;
+        if let Some(pq_pub_key) = pq_pub_key {
+            provider
+                .storage()
+                .delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
+                    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+                    &pq_pub_key,
+                )?;
+        }
 
         Ok(())
     }
@@ -647,4 +668,75 @@ fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityErr
 pub fn parse_credential(credential_bytes: &[u8]) -> Result<InboxId, IdentityError> {
     let cred = MlsCredential::decode(credential_bytes)?;
     Ok(cred.inbox_id)
+}
+
+pub fn build_post_quantum_public_key_extension(public_key: &[u8]) -> Extension {
+    let unknown_extension = UnknownExtension(public_key.to_vec());
+
+    Extension::Unknown(POST_QUANTUM_PUBLIC_KEY_EXTENSION_ID, unknown_extension)
+}
+#[derive(Debug, Error)]
+pub enum GeneratePostQuantumKeyError {
+    #[error(transparent)]
+    Crypto(#[from] openmls_traits::types::CryptoError),
+    #[error(transparent)]
+    Rand(#[from] openmls_libcrux_crypto::RandError),
+}
+
+pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQuantumKeyError> {
+    let provider = LibcruxProvider::default();
+    let rand = provider.rand();
+
+    let ikm: SecretVLBytes = rand
+        .random_vec(POST_QUANTUM_CIPHERSUITE.hash_length())?
+        .into();
+
+    Ok(provider
+        .crypto()
+        .derive_hpke_keypair(POST_QUANTUM_CIPHERSUITE.hpke_config(), ikm.as_slice())?)
+}
+
+// Store the hash reference, keyed with both the public init key and the post quantum init key.
+// This is needed to get to the private key when decrypting welcome messages.
+fn store_key_package_references(
+    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
+    kp: &KeyPackage,
+    // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
+    post_quantum_keypair: &HpkeKeyPair,
+) -> Result<(), IdentityError> {
+    let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
+
+    let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
+
+    let storage = provider.storage();
+    // Write the normal init key to the key package references
+    storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+        KEY_PACKAGE_REFERENCES,
+        &public_init_key,
+        &hash_ref,
+    )?;
+
+    // Write the post quantum wrapper encryption public key to the key package references
+    storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+        KEY_PACKAGE_REFERENCES,
+        &post_quantum_keypair.public,
+        &hash_ref,
+    )?;
+
+    let private_key_bytes: Vec<u8> = post_quantum_keypair.private.tls_serialize_detached()?;
+
+    storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+        KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+        &hash_ref,
+        &private_key_bytes,
+    )?;
+
+    Ok(())
+}
+
+fn get_post_quantum_public_key_from_extensions(kp: &KeyPackage) -> Result<Vec<u8>, IdentityError> {
+    kp.extensions()
+        .unknown(POST_QUANTUM_PUBLIC_KEY_EXTENSION_ID)
+        .map(|ext| ext.0.clone())
+        .ok_or(IdentityError::MissingPostQuantumPublicKey)
 }
