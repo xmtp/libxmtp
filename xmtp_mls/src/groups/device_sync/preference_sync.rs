@@ -35,11 +35,6 @@ impl UserPreferenceUpdate {
             )
             .await?;
 
-        updates.iter().for_each(|update| match update {
-            Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
-            Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
-        });
-
         // Dispatch the updates to the streams
         let _ = client
             .local_events
@@ -49,6 +44,11 @@ impl UserPreferenceUpdate {
 
         // TODO: v1 support - remove this on next hammer
         Self::v1_sync_across_devices(updates, client, handle).await?;
+
+        updates.iter().for_each(|update| match update {
+            Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
+            Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
+        });
 
         Ok(())
     }
