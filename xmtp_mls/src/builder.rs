@@ -189,14 +189,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
     }
 
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, V> {
-        let cooldown = xmtp_common::ExponentialBackoff::builder()
-            .duration(std::time::Duration::from_secs(3))
-            .multiplier(3)
-            .max_jitter(std::time::Duration::from_millis(100))
-            .total_wait_max(std::time::Duration::from_secs(120))
-            .build();
-
-        let api_retry = Retry::builder().with_cooldown(cooldown).build();
+        let api_retry = Retry::builder().build();
         let wrapper = ApiClientWrapper::new(Arc::new(api_client), api_retry);
         ClientBuilder {
             api_client: Some(wrapper),
@@ -309,9 +302,8 @@ pub(crate) mod tests {
         client.register_identity(signature_request).await.unwrap();
     }
 
-    fn retry() -> Retry<ExponentialBackoff, ExponentialBackoff> {
-        let strategy = ExponentialBackoff::default();
-        Retry::builder().with_cooldown(strategy).build()
+    fn retry() -> Retry<ExponentialBackoff> {
+        Retry::default()
     }
 
     /// Generate a random legacy key proto bytes and corresponding account address.

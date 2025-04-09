@@ -10,11 +10,14 @@ futures = { workspace = true }
 hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
 xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 mockall = { workspace = true, optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
 
 # test utils
 [dev-dependencies]
@@ -32,12 +35,12 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 ctor.workspace = true
 
 [features]
-default = []
+default = ["grpc-api"]
 test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
   "dep:mockall",
 ]
-http-api = []
-grpc-api = []
+http-api = ["dep:xmtp_api_http"]
+grpc-api = ["dep:xmtp_api_grpc"]

@@ -261,6 +261,8 @@ pub mod mock {
         async fn build(self) -> Result<Self::Output, Self::Error> {
             Ok(MockClient)
         }
+
+        fn rate_per_minute(&mut self, _limit: u32) {}
     }
 
     #[derive(thiserror::Error, Debug)]

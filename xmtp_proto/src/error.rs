@@ -22,14 +22,6 @@ impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
         self.inner.is_retryable()
     }
-
-    fn needs_cooldown(&self) -> bool {
-        if let Some(code) = self.inner.code() {
-            code == Code::ResourceExhausted
-        } else {
-            false
-        }
-    }
 }
 
 impl std::fmt::Display for ApiError {

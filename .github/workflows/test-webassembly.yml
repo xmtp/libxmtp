@@ -18,7 +18,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics
   CARGO_PROFILE_TEST_DEBUG: 0
   WASM_BINDGEN_TEST_TIMEOUT: 480
   WASM_BINDGEN_TEST_ONLY_WEB: 1
@@ -37,7 +36,7 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: dev/up
+        run: dev/docker/up-v3
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -45,10 +44,14 @@ jobs:
           ./emsdk install latest
           ./emsdk activate latest
       - name: Build WebAssembly Packages
+        env:
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
         run: |
           source ./emsdk/emsdk_env.sh
           cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
       - name: test with chrome
+        env:
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
             --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \

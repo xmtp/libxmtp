@@ -8,6 +8,11 @@ version.workspace = true
 async-trait.workspace = true
 bytes = "1.9"
 futures = { workspace = true, default-features = false }
+governor = { version = "0.10", default-features = false, features = [
+  "std",
+  "quanta",
+  "jitter",
+] }
 http = "1.2"
 pin-project-lite = "0.2.15"
 prost.workspace = true
