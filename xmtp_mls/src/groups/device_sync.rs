@@ -602,7 +602,7 @@ where
 
         retry_async!(
             retry,
-            (async { sync_group.publish_intents(provider).await })
+            (async { sync_group.sync_until_last_intent_resolved(provider).await })
         )?;
 
         Ok(message_id)

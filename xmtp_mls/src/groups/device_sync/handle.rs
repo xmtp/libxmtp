@@ -92,7 +92,7 @@ where
         result
     }
 
-    pub async fn do_while<F, Fut>(
+    pub async fn do_until<F, Fut>(
         &self,
         metric: Metric,
         count: usize,
