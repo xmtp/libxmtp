@@ -8,7 +8,7 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_common::{AbortHandle, GenericStreamHandle, Retry, StreamHandle};
+use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
@@ -580,9 +580,7 @@ impl FfiXmtpClient {
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .send_sync_request(&provider, &Retry::default())
-            .await?;
+        self.inner_client.send_sync_request(&provider).await?;
 
         Ok(())
     }

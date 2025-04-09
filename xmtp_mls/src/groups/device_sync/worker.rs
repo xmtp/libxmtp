@@ -11,8 +11,6 @@ use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 use tracing::instrument;
-use xmtp_common::Retry;
-use xmtp_common::{time::Duration, ExponentialBackoff};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
@@ -22,7 +20,6 @@ pub struct SyncWorker<ApiClient, V> {
     #[allow(clippy::type_complexity)]
     stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
     init: OnceCell<()>,
-    retry: Retry,
 
     handle: Arc<WorkerHandle<SyncMetric>>,
 }
@@ -33,11 +30,6 @@ where
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
 {
     pub(super) fn new(client: Client<ApiClient, V>) -> Self {
-        let strategy = ExponentialBackoff::builder()
-            .duration(Duration::from_millis(20))
-            .build();
-        let retry = Retry::builder().retries(5).with_strategy(strategy).build();
-
         let receiver = client.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
 
@@ -45,7 +37,7 @@ where
             client,
             stream,
             init: OnceCell::new(),
-            retry,
+
             handle: Arc::new(WorkerHandle::new()),
         }
     }
@@ -162,7 +154,7 @@ where
         let provider = self.client.mls_provider()?;
         if self
             .client
-            .acknowledge_new_sync_group(&provider, &self.retry)
+            .acknowledge_new_sync_group(&provider)
             .await
             .is_err()
         {
@@ -178,18 +170,13 @@ where
         self.client
             .send_sync_payload(
                 None,
-                || async {
-                    self.client
-                        .acknowledge_new_sync_group(&provider, &self.retry)
-                        .await
-                },
+                || async { self.client.acknowledge_new_sync_group(&provider).await },
                 &self.handle,
-                &self.retry,
             )
             .await?;
 
         // Send the HMAC as well
-        UserPreferenceUpdate::sync_hmac(&self.client, &self.handle, &self.retry).await?;
+        UserPreferenceUpdate::sync_hmac(&self.client, &self.handle).await?;
 
         Ok(())
     }
@@ -197,7 +184,7 @@ where
     async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         self.client
-            .process_new_sync_group_messages(&provider, &self.handle, &self.retry)
+            .process_new_sync_group_messages(&provider, &self.handle)
             .await?;
         Ok(())
     }
@@ -206,8 +193,7 @@ where
         &self,
         preference_updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        UserPreferenceUpdate::sync(preference_updates, &self.client, &self.handle, &self.retry)
-            .await?;
+        UserPreferenceUpdate::sync(preference_updates, &self.client, &self.handle).await?;
         Ok(())
     }
 

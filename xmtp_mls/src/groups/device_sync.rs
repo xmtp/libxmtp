@@ -17,8 +17,7 @@ use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use worker::SyncWorker;
-use xmtp_common::retry_async;
-use xmtp_common::{Retry, RetryableError};
+use xmtp_common::RetryableError;
 use xmtp_db::{
     group::GroupQueryArgs,
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -185,7 +184,6 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-        retry: &Retry,
     ) -> Result<usize, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
@@ -210,9 +208,8 @@ where
 
                     self.send_sync_payload(
                         Some(request),
-                        || async { self.acknowledge_sync_request(provider, retry).await },
+                        || async { self.acknowledge_sync_request(provider).await },
                         handle,
-                        retry,
                     )
                     .await?;
                 }
@@ -259,7 +256,6 @@ where
     pub async fn acknowledge_new_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         // Pull down any new messages
@@ -278,7 +274,6 @@ where
             self.send_device_sync_message(
                 provider,
                 DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence),
-                retry,
             )
             .await?;
             return Ok(());
@@ -300,7 +295,6 @@ where
     pub async fn acknowledge_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         // Pull down any new messages
@@ -339,7 +333,6 @@ where
                         DeviceSyncContent::Acknowledge(AcknowledgeKind::Request {
                             request_id: req.request_id,
                         }),
-                        retry,
                     )
                     .await?;
 
@@ -355,7 +348,6 @@ where
     pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         ds_info!("Sending a sync request.");
 
@@ -376,8 +368,7 @@ where
             ..Default::default()
         };
         let content = DeviceSyncContent::Request(request);
-        self.send_device_sync_message(provider, content, retry)
-            .await?;
+        self.send_device_sync_message(provider, content).await?;
 
         Ok(())
     }
@@ -387,7 +378,6 @@ where
         request: Option<DeviceSyncRequestProto>,
         acknowledge: F,
         handle: &WorkerHandle<SyncMetric>,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError>
     where
         F: Fn() -> Fut,
@@ -487,8 +477,7 @@ where
 
         // Send the message out over the network
         let content = DeviceSyncContent::Payload(reply);
-        self.send_device_sync_message(&provider, content, retry)
-            .await?;
+        self.send_device_sync_message(&provider, content).await?;
 
         handle.increment_metric(SyncMetric::PayloadSent);
 
@@ -588,7 +577,6 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         content: DeviceSyncContent,
-        retry: &Retry,
     ) -> Result<Vec<u8>, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider)?;
         let content_bytes = serde_json::to_vec(&content)?;
@@ -600,10 +588,7 @@ where
                 })),
             })?;
 
-        retry_async!(
-            retry,
-            (async { sync_group.sync_until_last_intent_resolved(provider).await })
-        )?;
+        sync_group.publish_intents(provider).await?;
 
         Ok(message_id)
     }

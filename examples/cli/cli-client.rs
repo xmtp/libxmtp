@@ -36,7 +36,6 @@ use xmtp_api_d14n::compat::D14nClient;
 use xmtp_api_grpc::grpc_client::GrpcClient;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
 use xmtp_common::time::now_ns;
-use xmtp_common::Retry;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{signature::SignatureError, utils::rng};
@@ -472,10 +471,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let provider = client.mls_provider().unwrap();
             client.sync_welcomes(&provider).await.unwrap();
             client.start_sync_worker();
-            client
-                .send_sync_request(&provider, &Retry::default())
-                .await
-                .unwrap();
+            client.send_sync_request(&provider).await.unwrap();
             info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {

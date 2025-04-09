@@ -22,7 +22,6 @@ impl UserPreferenceUpdate {
         updates: Vec<Self>,
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         ds_info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
@@ -31,7 +30,6 @@ impl UserPreferenceUpdate {
             .send_device_sync_message(
                 &provider,
                 DeviceSyncContent::PreferenceUpdates(updates.clone()),
-                retry,
             )
             .await?;
 
@@ -56,7 +54,6 @@ impl UserPreferenceUpdate {
     pub(super) async fn sync_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
-        retry: &Retry,
     ) -> Result<(), DeviceSyncError> {
         ds_info!("Sending out HMAC key via sync group.");
 
@@ -68,7 +65,7 @@ impl UserPreferenceUpdate {
             return Ok(());
         };
 
-        Self::sync(vec![Self::HmacKeyUpdate { key }], client, handle, retry).await?;
+        Self::sync(vec![Self::HmacKeyUpdate { key }], client, handle).await?;
 
         Ok(())
     }

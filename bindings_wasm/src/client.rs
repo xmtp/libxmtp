@@ -295,7 +295,7 @@ impl Client {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider, &Retry::default())
+      .send_sync_request(&provider)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
