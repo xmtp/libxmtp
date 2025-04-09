@@ -42,6 +42,9 @@ pub const MAX_PAST_EPOCHS: usize = 3;
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
 
+// Whether or not to default to creating key packages with the post quantum extension
+pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = false;
+
 /// MLS Extension Types
 ///
 /// Copied from draft-ietf-mls-protocol-16:
