@@ -7,10 +7,9 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing_subscriber::{fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
@@ -81,11 +80,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(&f.to_string())
+        xmtp_common::filter_directive(&f.to_string())
       } else {
-        Ok(tracing_subscriber::filter::LevelFilter::INFO)
-      }
-      .map_err(ErrorWrapper::from)?;
+        EnvFilter::builder().parse_lossy("info")
+      };
 
       if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()

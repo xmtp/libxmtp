@@ -73,7 +73,7 @@ ctor.workspace = true
 parking_lot = { workspace = true }
 
 [features]
-features = []
+logging = ["dep:tracing-subscriber"]
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",
