@@ -91,10 +91,10 @@ js-sys = "0.3"
 mockall = { version = "0.13" }
 color-eyre = "0.6"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "a9076caf34be11ba5970351203a848786494be39", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "a9076caf34be11ba5970351203a848786494be39" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "a9076caf34be11ba5970351203a848786494be39" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "a9076caf34be11ba5970351203a848786494be39" }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 parking_lot = "0.12.3"
