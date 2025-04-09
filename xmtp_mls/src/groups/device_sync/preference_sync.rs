@@ -34,7 +34,7 @@ impl UserPreferenceUpdate {
             .await?;
 
         // TODO: v1 support - remove this on next hammer
-        // Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
+        Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
 
         updates.iter().for_each(|update| match update {
             Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
@@ -53,20 +53,16 @@ impl UserPreferenceUpdate {
         let hmac = HmacKey::new();
         // We don't save the key here, since it will be saved after it's been sent out.
 
-        Self::sync(
-            vec![Self::HmacKeyUpdate {
-                key: hmac.key.to_vec(),
-            }],
-            client,
-            handle,
-        )
-        .await?;
+        let updates = vec![Self::HmacKeyUpdate {
+            key: hmac.key.to_vec(),
+        }];
+        Self::sync(updates.clone(), client, handle).await?;
 
         Ok(())
     }
 
     /// Send a preference update through the sync group for other devices to consume
-    async fn _v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,

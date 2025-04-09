@@ -6574,20 +6574,46 @@ mod tests {
     async fn test_stream_preferences() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet(wallet.clone()).await;
-        let stream_a_callback = Arc::new(RustStreamCallback::default());
+        alix_a.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
 
-        let a_stream = alix_a
+        let alix_b = new_test_client_with_wallet(wallet).await;
+        alix_b.worker.wait(FfiSyncMetric::Init, 1).await.unwrap();
+
+        let stream_b_callback = Arc::new(RustStreamCallback::default());
+        let b_stream = alix_b
             .conversations()
-            .stream_preferences(stream_a_callback.clone())
+            .stream_preferences(stream_b_callback.clone())
             .await;
 
-        let _alix_b = new_test_client_with_wallet(wallet).await;
+        alix_a.conversations().sync().await.unwrap();
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::PayloadSent, 1)
+            .await
+            .unwrap();
+        alix_a
+            .worker
+            .wait(FfiSyncMetric::HmacSent, 1)
+            .await
+            .unwrap();
 
-        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::PayloadProcessed, 1)
+            .await
+            .unwrap();
+        alix_b
+            .worker
+            .wait(FfiSyncMetric::HmacReceived, 1)
+            .await
+            .unwrap();
+
+        let result = stream_b_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
         let update = {
-            let mut a_updates = stream_a_callback.preference_updates.lock().unwrap();
+            let mut a_updates = stream_b_callback.preference_updates.lock().unwrap();
             assert_eq!(a_updates.len(), 1);
 
             a_updates.pop().unwrap()
@@ -6596,7 +6622,7 @@ mod tests {
         // We got the HMAC update
         assert!(matches!(update, FfiPreferenceUpdate::HMAC { .. }));
 
-        a_stream.end_and_wait().await.unwrap();
+        b_stream.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
