@@ -44,21 +44,23 @@ impl UserPreferenceUpdate {
         Ok(())
     }
 
-    pub(super) async fn sync_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(super) async fn cycle_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Sending out HMAC key via sync group.");
+        tracing::info!("Creating new HMAC key for new sync group.");
 
-        let provider = client.mls_provider()?;
-        let pref = StoredUserPreferences::load(provider.conn_ref())?;
+        let hmac = HmacKey::new();
+        // We don't save the key here, since it will be saved after it's been sent out.
 
-        let Some(key) = pref.hmac_key else {
-            tracing::warn!("Attempted to send hmac key over sync, but did not have one to sync.");
-            return Ok(());
-        };
-
-        Self::sync(vec![Self::HmacKeyUpdate { key }], client, handle).await?;
+        Self::sync(
+            vec![Self::HmacKeyUpdate {
+                key: hmac.key.to_vec(),
+            }],
+            client,
+            handle,
+        )
+        .await?;
 
         Ok(())
     }

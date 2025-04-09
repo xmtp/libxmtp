@@ -6,7 +6,7 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
-    GroupError, HmacKey, HmacKeyExt, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
@@ -1761,7 +1761,7 @@ where
             Some(ikm) => ikm,
             None => {
                 let hmac_key = HmacKey::new();
-                hmac_key.save_and_sync_to_other_devices(&conn, self.client.local_events())?;
+                StoredUserPreferences::store_hmac_key(&conn, &hmac_key)?;
                 hmac_key.key.to_vec()
             }
         };

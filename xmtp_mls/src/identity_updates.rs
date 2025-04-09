@@ -1,9 +1,6 @@
 use crate::{
     client::ClientError,
-    groups::{
-        group_membership::{GroupMembership, MembershipDiff},
-        HmacKeyExt,
-    },
+    groups::group_membership::{GroupMembership, MembershipDiff},
     Client, XmtpApi,
 };
 use futures::future::try_join_all;
@@ -11,7 +8,10 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::{association_state::StoredAssociationState, user_preferences::HmacKey};
+use xmtp_db::{
+    association_state::StoredAssociationState,
+    user_preferences::{HmacKey, StoredUserPreferences},
+};
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
@@ -330,7 +330,7 @@ where
         // Cycle the HMAC key
         let conn = self.store().conn()?;
         let hmac_key = HmacKey::new();
-        hmac_key.save_and_sync_to_other_devices(&conn, &self.local_events)?;
+        StoredUserPreferences::store_hmac_key(&conn, &hmac_key)?;
 
         Ok(builder.build())
     }

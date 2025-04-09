@@ -80,7 +80,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
-use tokio::sync::broadcast::Sender;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_common::retry::RetryableError;
@@ -89,7 +88,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
-use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences, SyncCursor};
+use xmtp_db::user_preferences::{HmacKey, SyncCursor};
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -325,35 +324,6 @@ impl<C> Clone for MlsGroup<C> {
             mutex: self.mutex.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
-    }
-}
-
-pub trait HmacKeyExt {
-    fn save_and_sync_to_other_devices(
-        &self,
-        conn: &DbConnection,
-        local_events: &Sender<LocalEvents>,
-    ) -> Result<(), StorageError>;
-    fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>);
-}
-
-impl HmacKeyExt for HmacKey {
-    fn save_and_sync_to_other_devices(
-        &self,
-        conn: &DbConnection,
-        local_events: &Sender<LocalEvents>,
-    ) -> Result<(), StorageError> {
-        StoredUserPreferences::store_hmac_key(conn, self)?;
-        self.sync_to_other_devices(local_events);
-        Ok(())
-    }
-
-    fn sync_to_other_devices(&self, local_events: &Sender<LocalEvents>) {
-        let _ = local_events.send(LocalEvents::SyncEvent(SyncEvent::PreferencesOutgoing(
-            vec![UserPreferenceUpdate::HmacKeyUpdate {
-                key: self.key.to_vec(),
-            }],
-        )));
     }
 }
 

@@ -179,8 +179,8 @@ where
             )
             .await?;
 
-        // Send the HMAC as well
-        UserPreferenceUpdate::sync_hmac(&self.client, &self.handle).await?;
+        // Cycle the HMAC
+        UserPreferenceUpdate::cycle_hmac(&self.client, &self.handle).await?;
 
         Ok(())
     }
