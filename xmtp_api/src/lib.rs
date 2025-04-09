@@ -18,17 +18,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub mod strategies {
     use super::*;
-    pub fn exponential_cooldown() -> Retry<ExponentialBackoff, ExponentialBackoff> {
-        let cooldown = ExponentialBackoff::builder()
-            .duration(std::time::Duration::from_secs(3))
-            .multiplier(3)
-            .max_jitter(std::time::Duration::from_millis(100))
-            .total_wait_max(std::time::Duration::from_secs(120))
-            .build();
-
-        xmtp_common::Retry::builder()
-            .with_cooldown(cooldown)
-            .build()
+    pub fn exponential_cooldown() -> Retry<ExponentialBackoff> {
+        xmtp_common::Retry::builder().build()
     }
 }
 
@@ -53,28 +44,18 @@ impl RetryableError for Error {
     fn is_retryable(&self) -> bool {
         matches!(self, Self::Api(_))
     }
-
-    fn needs_cooldown(&self) -> bool {
-        match self {
-            Self::Api(e) => e.needs_cooldown(),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
 pub struct ApiClientWrapper<ApiClient> {
     // todo: this should be private to impl
     pub api_client: Arc<ApiClient>,
-    pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff, ExponentialBackoff>>,
+    pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient> {
-    pub fn new(
-        api_client: Arc<ApiClient>,
-        retry_strategy: Retry<ExponentialBackoff, ExponentialBackoff>,
-    ) -> Self {
+    pub fn new(api_client: Arc<ApiClient>, retry_strategy: Retry<ExponentialBackoff>) -> Self {
         Self {
             api_client,
             retry_strategy: retry_strategy.into(),
@@ -91,6 +72,16 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    #[cfg(all(
+        not(any(target_arch = "wasm32", feature = "http-api")),
+        feature = "grpc-api"
+    ))]
+    pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
+
+    #[cfg(any(feature = "http-api", target_arch = "wasm32",))]
+    pub type TestClient = xmtp_api_http::XmtpHttpApiClient;
+
     // Execute once before any tests are run
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]
