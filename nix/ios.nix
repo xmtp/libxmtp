@@ -3,6 +3,7 @@
 , darwin
 , lib
 , fenix
+, rust-toolchain
 , pkg-config
 , mkShell
 , openssl
@@ -25,9 +26,9 @@ let
   ];
 
   # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
+  rust-ios-toolchain = fenix.combine [
+    rust-toolchain.rust.cargo
+    rust-toolchain.rust.rustc
     (lib.forEach
       iosTargets
       (target: fenix.targets."${target}".stable.rust-std))
@@ -49,7 +50,7 @@ mkShell {
   nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
-      rust-toolchain
+      rust-ios-toolchain
 
       # native libs
       zstd

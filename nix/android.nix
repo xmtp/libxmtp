@@ -12,6 +12,7 @@
 , lib
 , fenix
 , gnused
+, rust-toolchain
 }:
 let
   frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
@@ -31,9 +32,9 @@ let
   ];
 
   # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
+  rust-android-toolchain = fenix.combine [
+    rust-toolchain.rust.cargo
+    rust-toolchain.rust.rustc
     (lib.forEach
       androidTargets
       (target: fenix.targets."${target}".stable.rust-std))
@@ -73,7 +74,7 @@ mkShell {
   nativeBuildInputs = [ pkg-config ];
 
   buildInputs = [
-    rust-toolchain
+    rust-android-toolchain
     kotlin
     ktlint
     androidsdk

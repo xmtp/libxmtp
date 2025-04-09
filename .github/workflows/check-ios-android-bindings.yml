@@ -31,11 +31,6 @@ jobs:
         with:
           determinate: true
       - uses: DeterminateSystems/flakehub-cache-action@main
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
       - name: Build target
         run: |
           nix develop . --command \
@@ -65,11 +60,6 @@ jobs:
         with:
           name: xmtp
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-      - name: cache rust artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
       - name: check target
         run: |
           nix develop .#android --command \

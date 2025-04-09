@@ -12,9 +12,6 @@
     foundry.url = "github:shazow/foundry.nix/monthly";
     crane = {
       url = "github:ipetkov/crane";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-      };
     };
   };
 
@@ -40,6 +37,15 @@
               allowUnfree = true;
             };
           };
+          rust-toolchain-drv = pkgs.fenix.fromToolchainFile {
+            file = ./rust-toolchain.toml;
+            sha256 = "sha256-X/4ZBHO3iW0fOenQ3foEvscgAPJYl2abspaBThDOukI=";
+          };
+          rust-toolchain = pkgs.makeRustPlatform
+            {
+              rustc = rust-toolchain-drv;
+              cargo = rust-toolchain-drv;
+            };
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };
         in
@@ -47,11 +53,11 @@
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
-            default = callPackage pkgs ./nix/libxmtp.nix { };
+            default = callPackage pkgs ./nix/libxmtp.nix { inherit rust-toolchain; };
             # Shell for android builds
-            android = callPackage pkgs ./nix/android.nix { };
+            android = callPackage pkgs ./nix/android.nix { inherit rust-toolchain; };
             # Shell for iOS builds
-            ios = callPackage pkgs ./nix/ios.nix { };
+            ios = callPackage pkgs ./nix/ios.nix { inherit rust-toolchain; };
             js = callPackage pkgs ./nix/js.nix { };
             # the environment bindings_wasm is built in
             wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
