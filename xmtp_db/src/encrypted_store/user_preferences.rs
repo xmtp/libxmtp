@@ -58,17 +58,8 @@ pub struct HmacKey {
 }
 
 impl HmacKey {
-    pub fn new() -> Self {
-        Self {
-            key: xmtp_common::rand_array::<42>(),
-            epoch: 0,
-        }
-    }
-}
-
-impl Default for HmacKey {
-    fn default() -> Self {
-        Self::new()
+    pub fn random_key() -> Vec<u8> {
+        xmtp_common::rand_vec::<42>()
     }
 }
 
@@ -91,9 +82,15 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_hmac_key(conn: &DbConnection, key: &HmacKey) -> Result<(), StorageError> {
+    pub fn store_hmac_key(conn: &DbConnection, key: &[u8]) -> Result<(), StorageError> {
+        if key.len() != 42 {
+            return Err(StorageError::Generic(
+                "HMAC key needs to be 42 bytes".to_string(),
+            ));
+        }
+
         let mut preferences = Self::load(conn)?;
-        preferences.hmac_key = Some(key.key.to_vec());
+        preferences.hmac_key = Some(key.to_vec());
         preferences.store(conn)?;
 
         Ok(())
@@ -140,11 +137,11 @@ mod tests {
             assert!(pref.hmac_key.is_none());
 
             // set an hmac key
-            let hmac_key = HmacKey::new();
+            let hmac_key = HmacKey::random_key();
             StoredUserPreferences::store_hmac_key(conn, &hmac_key).unwrap();
             let pref = StoredUserPreferences::load(conn).unwrap();
             // Make sure it saved
-            assert_eq!(hmac_key.key.to_vec(), pref.hmac_key.unwrap());
+            assert_eq!(hmac_key, pref.hmac_key.unwrap());
 
             // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());

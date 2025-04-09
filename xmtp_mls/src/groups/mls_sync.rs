@@ -17,7 +17,7 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
+        device_sync::{preference_sync::UserPreferenceUpdate, OldDeviceSyncContent},
         intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
@@ -757,8 +757,8 @@ where
                     })) => {
                         match message_type {
                             Some(MessageType::DeviceSyncRequest(history_request)) => {
-                                let content: DeviceSyncContent =
-                                    DeviceSyncContent::Request(history_request);
+                                let content: OldDeviceSyncContent =
+                                    OldDeviceSyncContent::Request(history_request);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -791,8 +791,8 @@ where
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content: DeviceSyncContent =
-                                    DeviceSyncContent::Payload(history_reply);
+                                let content: OldDeviceSyncContent =
+                                    OldDeviceSyncContent::Payload(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -1760,9 +1760,9 @@ where
         let mut ikm = match preferences.hmac_key {
             Some(ikm) => ikm,
             None => {
-                let hmac_key = HmacKey::new();
-                StoredUserPreferences::store_hmac_key(&conn, &hmac_key)?;
-                hmac_key.key.to_vec()
+                let key = HmacKey::random_key();
+                StoredUserPreferences::store_hmac_key(&conn, &key)?;
+                key
             }
         };
         ikm.extend(&self.group_id);

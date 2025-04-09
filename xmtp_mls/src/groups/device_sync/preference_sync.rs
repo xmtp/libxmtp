@@ -7,56 +7,100 @@ use xmtp_db::{
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
-    xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
+    xmtp::{
+        device_sync::sync_content::{
+            device_sync_user_preference_update::Update, DeviceSyncHmacKeyUpdate,
+            DeviceSyncUserPreferenceUpdate,
+        },
+        mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
+    },
+    ConversionError,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[repr(i32)]
 pub enum UserPreferenceUpdate {
-    ConsentUpdate(StoredConsentRecord) = 1,
-    HmacKeyUpdate { key: Vec<u8> } = 2,
+    ConsentUpdate(StoredConsentRecord) = 4,
+    HmacKeyUpdate { key: Vec<u8> } = 5,
+}
+
+impl TryFrom<DeviceSyncUserPreferenceUpdate> for UserPreferenceUpdate {
+    type Error = ConversionError;
+    fn try_from(value: DeviceSyncUserPreferenceUpdate) -> Result<Self, Self::Error> {
+        let Some(update) = value.update else {
+            return Err(ConversionError::Missing {
+                item: "update",
+                r#type: "Update",
+            });
+        };
+        let update = match update {
+            Update::ConsentUpdate(consent_save) => {
+                UserPreferenceUpdate::ConsentUpdate(consent_save.try_into()?)
+            }
+            Update::HmacKeyUpdate(key_update) => UserPreferenceUpdate::HmacKeyUpdate {
+                key: key_update.key,
+            },
+        };
+        Ok(update)
+    }
+}
+
+impl From<UserPreferenceUpdate> for DeviceSyncUserPreferenceUpdate {
+    fn from(value: UserPreferenceUpdate) -> Self {
+        match value {
+            UserPreferenceUpdate::ConsentUpdate(consent) => Self {
+                update: Some(Update::ConsentUpdate(consent.into())),
+            },
+            UserPreferenceUpdate::HmacKeyUpdate { key } => Self {
+                update: Some(Update::HmacKeyUpdate(DeviceSyncHmacKeyUpdate { key })),
+            },
+        }
+    }
 }
 
 impl UserPreferenceUpdate {
     pub(super) async fn sync<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
-        handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<(), ClientError> {
         tracing::info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
 
         client
             .send_device_sync_message(
                 &provider,
-                DeviceSyncContent::PreferenceUpdates(updates.clone()),
+                DeviceSyncContent {
+                    content: Some(device_sync_content::Content::PreferenceUpdates(
+                        DeviceSyncPreferenceUpdates {
+                            updates: updates.clone().into_iter().map(Into::into).collect(),
+                        },
+                    )),
+                },
             )
             .await?;
 
         // TODO: v1 support - remove this on next hammer
-        Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
+        // Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
 
-        updates.iter().for_each(|update| match update {
-            Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
-            Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
-        });
+        if let Some(handle) = client.worker_handle() {
+            updates.iter().for_each(|update| match update {
+                Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
+                Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
+            });
+        }
 
         Ok(())
     }
 
-    pub(super) async fn cycle_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(crate) async fn cycle_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
-        handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Creating new HMAC key for new sync group.");
-
-        let hmac = HmacKey::new();
-        // We don't save the key here, since it will be saved after it's been sent out.
+    ) -> Result<(), ClientError> {
+        tracing::info!("Sending new HMAC key to new sync group.");
 
         let updates = vec![Self::HmacKeyUpdate {
-            key: hmac.key.to_vec(),
+            key: HmacKey::random_key(),
         }];
-        Self::sync(updates.clone(), client, handle).await?;
+        Self::sync(updates.clone(), client).await?;
 
         Ok(())
     }
@@ -110,17 +154,7 @@ impl UserPreferenceUpdate {
             }
             Self::HmacKeyUpdate { key } => {
                 tracing::info!("Storing new HMAC key from sync group");
-                let Ok(key) = key.try_into() else {
-                    tracing::info!("Received HMAC key was wrong length.");
-                    return Ok(());
-                };
-                StoredUserPreferences::store_hmac_key(
-                    provider.conn_ref(),
-                    &HmacKey {
-                        key,
-                        epoch: hmac_epoch(),
-                    },
-                )?;
+                StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
