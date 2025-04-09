@@ -7,7 +7,6 @@ use crate::{
     Client,
 };
 use futures::{Stream, StreamExt};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 use tracing::{info_span, instrument, Instrument};
@@ -37,7 +36,6 @@ where
             client,
             stream,
             init: OnceCell::new(),
-
             handle: Arc::new(WorkerHandle::new()),
         }
     }

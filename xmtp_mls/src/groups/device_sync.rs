@@ -170,13 +170,20 @@ where
         };
 
         let messages = sync_group.sync_messages(cursor.offset)?;
+        let installation_id = self.installation_id();
+        let external_count = messages
+            .iter()
+            .filter(|msg| msg.sender_installation_id != installation_id)
+            .count();
+
         tracing::info!(
-            "Found {} sync group messages that were sent after {}, processing...",
+            "Processing {} sync group messages that were sent after {}. ({external_count} external)",
             messages.len(),
             cursor.offset
         );
 
         for (msg, content) in messages.iter_with_content() {
+            let is_external = msg.sender_installation_id != installation_id;
             match content {
                 DeviceSyncContent::Request(request) => {
                     if msg.sender_installation_id == self.installation_id() {
@@ -201,7 +208,10 @@ where
                     handle.increment_metric(SyncMetric::PayloadProcessed);
                 }
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
-                    tracing::info!("Incoming preference updates: {preference_updates:?}");
+                    if is_external {
+                        tracing::info!("Incoming preference updates: {preference_updates:?}");
+                    }
+
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                     for update in preference_updates.clone() {
                         update.store(provider, handle)?;
