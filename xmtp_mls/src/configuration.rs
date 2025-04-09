@@ -1,6 +1,6 @@
 use openmls::versions::ProtocolVersion;
 
-pub use xmtp_cryptography::configuration::CIPHERSUITE;
+pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 /// Duration to wait before restarting workers in case of an error.
 pub const WORKER_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
@@ -50,6 +50,7 @@ pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
 pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
 pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
 pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
+pub const WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID: u16 = 0xff03;
 
 pub const DEFAULT_GROUP_NAME: &str = "";
 pub const DEFAULT_GROUP_DESCRIPTION: &str = "";
