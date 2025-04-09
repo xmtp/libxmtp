@@ -225,9 +225,13 @@ where
                 DeviceSyncContent::PreferenceUpdates(preference_updates) => {
                     ds_info!("Incoming preference updates: {preference_updates:?}");
                     // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                    for update in preference_updates {
+                    for update in preference_updates.clone() {
                         update.store(provider, handle)?;
                     }
+
+                    let _ = self.local_events.send(LocalEvents::SyncEvent(
+                        SyncEvent::PreferencesChanged(preference_updates),
+                    ));
                 }
                 DeviceSyncContent::Acknowledge(_) => {
                     continue;
@@ -589,6 +593,14 @@ where
             })?;
 
         sync_group.publish_intents(provider).await?;
+
+        if let DeviceSyncContent::PreferenceUpdates(updates) = content {
+            let _ = self
+                .local_events
+                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
+                    updates,
+                )));
+        }
 
         Ok(message_id)
     }
