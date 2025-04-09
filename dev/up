@@ -1,6 +1,7 @@
 #!/bin/bash
 set -eou pipefail
 
+
 if [[ "${OSTYPE}" == "darwin"* ]]; then
     if ! which buf &>/dev/null; then brew install buf; fi
     if ! which shellcheck &>/dev/null; then brew install shellcheck; fi
@@ -22,7 +23,11 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     if ! wasm-pack --version &>/dev/null; then cargo install wasm-pack; fi
 fi
 
-rustup update
+if command -v rustup >/dev/null 2>&1; then
+  rustup update
+else
+    echo "rustup is not installed, rust may not be up to date"
+fi
 
 dev/build_validation_service_local
 dev/docker/up
