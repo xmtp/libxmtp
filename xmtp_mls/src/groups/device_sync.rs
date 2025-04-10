@@ -10,7 +10,6 @@ use backup::{exporter::BackupExporter, BackupError};
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -26,7 +25,6 @@ use xmtp_db::{
     NotFound, StorageError,
 };
 use xmtp_db::{user_preferences::StoredUserPreferences, Store};
-use xmtp_id::associations::try_map_vec;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -36,6 +34,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+    UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
@@ -182,7 +181,7 @@ where
             "Processing {} sync group messages that were sent after {}. ({external_count} external, group_id {:?})",
             messages.len(),
             cursor.offset,
-            &sync_group.group_id
+            &sync_group.group_id[..4]
         );
 
         for (msg, content) in messages.iter_with_content() {
@@ -230,7 +229,13 @@ where
                 self.process_sync_payload(payload).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            DeviceSyncContent::PreferenceUpdates(updates) => {
+            DeviceSyncContent::PreferenceUpdates(update) => {
+                let updates: Vec<UserPreferenceUpdate> = update
+                    .contents
+                    .iter()
+                    .map(|u| bincode::deserialize(&*u))
+                    .collect::<Result<Vec<_>, _>>()?;
+
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
@@ -686,7 +691,7 @@ pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto) = 0,
     Payload(DeviceSyncReplyProto) = 1,
     Acknowledge(AcknowledgeKind) = 2,
-    PreferenceUpdates(Vec<UserPreferenceUpdate>) = 3,
+    PreferenceUpdates(UserPreferenceUpdateProto) = 3,
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {
