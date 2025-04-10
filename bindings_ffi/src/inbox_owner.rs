@@ -1,8 +1,9 @@
 use crate::identity::FfiIdentifier;
-use xmtp_cryptography::signature::{
-    IdentifierValidationError, RecoverableSignature, SignatureError,
+use xmtp_cryptography::signature::{IdentifierValidationError, SignatureError};
+use xmtp_id::associations::{
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    Identifier,
 };
-use xmtp_id::associations::Identifier;
 
 // TODO proper error handling
 #[derive(uniffi::Error, Debug, thiserror::Error)]
@@ -49,11 +50,13 @@ impl xmtp_mls::InboxOwner for RustInboxOwner {
         ident.try_into()
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         let bytes = self
             .ffi_inbox_owner
             .sign(text.to_string())
             .map_err(|_flat_err| SignatureError::Unknown)?;
-        Ok(RecoverableSignature::Eip191Signature(bytes))
+        Ok(UnverifiedSignature::RecoverableEcdsa(
+            UnverifiedRecoverableEcdsaSignature::new(bytes),
+        ))
     }
 }

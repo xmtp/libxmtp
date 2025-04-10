@@ -40,17 +40,14 @@ use xmtp_proto::traits::ApiClientError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_cryptography::{
-    signature::{RecoverableSignature, SignatureError},
-    utils::rng,
-};
+use xmtp_cryptography::{signature::SignatureError, utils::rng};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
     StorageOption,
 };
-use xmtp_id::associations::unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature};
+use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
@@ -198,7 +195,7 @@ impl InboxOwner for Wallet {
         }
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         match self {
             Wallet::LocalWallet(w) => w.sign(text),
         }
@@ -585,12 +582,7 @@ where
     )
     .await?;
     let mut signature_request = client.identity().signature_request().unwrap();
-    let sig_bytes: Vec<u8> = w
-        .sign(signature_request.signature_text().as_str())
-        .unwrap()
-        .into();
-    let signature =
-        UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig_bytes));
+    let signature = w.sign(signature_request.signature_text().as_str()).unwrap();
     signature_request
         .add_signature(signature, client.scw_verifier())
         .await

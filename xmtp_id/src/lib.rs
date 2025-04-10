@@ -5,7 +5,10 @@ pub mod constants;
 pub mod scw_verifier;
 pub mod utils;
 
-use associations::Identifier;
+use associations::{
+    unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
+    Identifier,
+};
 use ethers::{
     middleware::Middleware,
     providers::{Http, Provider},
@@ -14,9 +17,7 @@ use ethers::{
 };
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{
-    h160addr_to_string, IdentifierValidationError, RecoverableSignature, SignatureError,
-};
+use xmtp_cryptography::signature::{h160addr_to_string, IdentifierValidationError, SignatureError};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -80,6 +81,11 @@ impl AsIdRef for InboxId {
         self
     }
 }
+impl AsIdRef for &InboxId {
+    fn as_ref(&self) -> InboxIdRef<'_> {
+        self
+    }
+}
 impl AsIdRef for InboxIdRef<'_> {
     fn as_ref(&self) -> InboxIdRef<'_> {
         self
@@ -102,7 +108,7 @@ pub trait InboxOwner {
     fn get_identifier(&self) -> Result<Identifier, IdentifierValidationError>;
 
     /// Sign text with the wallet.
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError>;
 }
 
 impl InboxOwner for LocalWallet {
@@ -110,9 +116,12 @@ impl InboxOwner for LocalWallet {
         Identifier::eth(h160addr_to_string(self.address()))
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         let message_hash = ethers::core::utils::hash_message(text);
-        Ok(self.sign_hash(message_hash)?.to_vec().into())
+        let sig = UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature {
+            signature_bytes: self.sign_hash(message_hash)?.to_vec(),
+        });
+        Ok(sig)
     }
 }
 
@@ -124,7 +133,7 @@ where
         (**self).get_identifier()
     }
 
-    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<UnverifiedSignature, SignatureError> {
         (**self).sign(text)
     }
 }
