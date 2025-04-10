@@ -184,7 +184,7 @@ where
     }
 
     fn history_sync_url(&self) -> &Option<String> {
-        &self.history_sync_url
+        &self.device_sync.server_url
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {

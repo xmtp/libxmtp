@@ -153,6 +153,10 @@ where
 {
     #[instrument(level = "trace", skip_all)]
     pub fn start_sync_worker(&self) {
+        if !self.device_sync_worker_enabled() {
+            return;
+        }
+
         let client = self.clone();
         tracing::debug!(
             inbox_id = client.inbox_id(),
@@ -321,7 +325,7 @@ where
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
-                client.history_sync_url
+                client.device_sync.server_url
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
                 client.ensure_sync_group(&provider).await?;
@@ -466,7 +470,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         request: DeviceSyncRequestProto,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
         let conn = provider.conn_ref();
 
         let records = match request.kind() {
@@ -480,7 +484,10 @@ where
         let reply = self
             .create_sync_reply(&request.request_id, &records, request.kind())
             .await?;
-        self.send_sync_reply(provider, reply.clone()).await?;
+
+        if let Some(reply) = reply.clone() {
+            self.send_sync_reply(provider, reply).await?;
+        }
 
         Ok(reply)
     }
@@ -653,12 +660,12 @@ where
         request_id: &str,
         syncables: &[Vec<Syncable>],
         kind: DeviceSyncKind,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.history_sync_url else {
-            return Err(DeviceSyncError::MissingHistorySyncUrl);
+        let Some(url) = &self.device_sync.server_url else {
+            return Ok(None);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
@@ -695,7 +702,7 @@ where
             kind: kind as i32,
         };
 
-        Ok(sync_reply)
+        Ok(Some(sync_reply))
     }
 
     async fn insert_encrypted_syncables(

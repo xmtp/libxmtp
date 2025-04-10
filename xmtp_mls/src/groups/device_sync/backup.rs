@@ -253,9 +253,9 @@ mod tests {
             .conn_ref()
             .raw_query_read(|conn| groups::table.load(conn))
             .unwrap();
-        assert_eq!(groups.len(), 1);
+        assert_eq!(groups.len(), 2);
         // It's the same group
-        assert_eq!(groups[0].id, old_group.id);
+        assert_eq!(groups[1].id, old_group.id);
 
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()

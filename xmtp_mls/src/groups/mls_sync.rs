@@ -2063,7 +2063,7 @@ pub(crate) mod tests {
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
         let wallet = generate_local_wallet();
-        let amal_a = Arc::new(ClientBuilder::new_test_client(&wallet).await);
+        let amal_a = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 
