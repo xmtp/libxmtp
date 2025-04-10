@@ -459,8 +459,8 @@ impl DbConnection {
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
-            .offset(offset)
-            .order(dsl::sent_at_ns.asc());
+            .order(dsl::sent_at_ns.asc())
+            .offset(offset);
 
         Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
