@@ -186,7 +186,7 @@ where
             .zip(payload)
             .map(|(topic, payload)| ClientEnvelope {
                 aad: Some(AuthenticatedData::with_topic(topic)),
-                payload: Some(payload.into()),
+                payload: Some(payload),
             })
             .collect::<Vec<ClientEnvelope>>())
     }

@@ -230,6 +230,9 @@ where
         &self,
         installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap> {
+        if installation_keys.is_empty() {
+            return Ok(KeyPackageMap::default());
+        }
         tracing::debug!(
             inbox_id = self.inbox_id,
             "fetch key packages with {} installation keys",

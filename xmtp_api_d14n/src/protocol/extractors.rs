@@ -287,7 +287,7 @@ impl From<PayloadExtractionError> for EnvelopeError {
 // from the Envelope and return it, but probably requires an entirely new
 // 'accept_borrowed' path as well as some work to deal with the ::decode
 // returning a newly allocated type. Not worth the effort yet.
-impl<'env> EnvelopeVisitor<'env> for PayloadExtractor {
+impl EnvelopeVisitor<'_> for PayloadExtractor {
     type Error = PayloadExtractionError; // mostly is infallible
 
     fn visit_group_message_input(
