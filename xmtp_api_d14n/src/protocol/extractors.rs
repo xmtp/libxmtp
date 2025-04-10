@@ -289,11 +289,11 @@ impl From<PayloadExtractionError> for EnvelopeError {
 // returning a newly allocated type. Not worth the effort yet.
 impl EnvelopeVisitor<'_> for PayloadExtractor {
     type Error = PayloadExtractionError; // mostly is infallible
-
     fn visit_group_message_input(
         &mut self,
         message: &GroupMessageInput,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("Group Message Input");
         self.push(Payload::GroupMessage(message.clone()));
         Ok(())
     }

@@ -38,6 +38,7 @@ pub trait EnvelopeVisitor<'env> {
 
     /// Visit the OriginatorEnvelope Type
     fn visit_originator(&mut self, _e: &OriginatorEnvelope) -> Result<(), Self::Error> {
+        tracing::debug!("visit_originator");
         Ok(())
     }
     /// Visit the UnsignedOriginatorEnvelope type
@@ -45,27 +46,33 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _e: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_unsigned_originator");
         Ok(())
     }
     /// Visit the Payer Envelope Type
     fn visit_payer(&mut self, _e: &PayerEnvelope) -> Result<(), Self::Error> {
+        tracing::debug!("visit_payer");
         Ok(())
     }
     /// Visit the ClientEnvelope type
     fn visit_client(&mut self, _e: &ClientEnvelope) -> Result<(), Self::Error> {
+        tracing::debug!("visit_client");
         Ok(())
     }
     /// Visit the GroupMessageInput type
     fn visit_group_message_version(&mut self, _m: &GroupMessageVersion) -> Result<(), Self::Error> {
+        tracing::debug!("visit_group_message_version");
         Ok(())
     }
     /// Visit the WelcomeMessageInput containing the welcome message version
     fn visit_group_message_input(&mut self, _m: &GroupMessageInput) -> Result<(), Self::Error> {
+        tracing::debug!("visit_group_message_input");
         Ok(())
     }
 
     /// Visit a V1 Group Message
     fn visit_group_message_v1(&mut self, _m: &GroupMessageV1) -> Result<(), Self::Error> {
+        tracing::debug!("visit_group_message_v1");
         Ok(())
     }
     /// Visit the WelcomeMessageInput containing the welcome message version
@@ -73,15 +80,18 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _m: &WelcomeMessageVersion,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_group_message_version");
         Ok(())
     }
     /// Visit the WelcomeMessageInput containing the welcome message version
     fn visit_welcome_message_input(&mut self, _m: &WelcomeMessageInput) -> Result<(), Self::Error> {
+        tracing::debug!("visit_welcome_message_input");
         Ok(())
     }
 
     /// Visit a V1 Welcome Message
     fn visit_welcome_message_v1(&mut self, _m: &WelcomeMessageV1) -> Result<(), Self::Error> {
+        tracing::debug!("visit_welcome_message_v1");
         Ok(())
     }
     /// Visit the Upload Key Package
@@ -89,11 +99,13 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _p: &UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_upload_key_package");
         Ok(())
     }
 
     /// Visit the Identity Update Type
     fn visit_identity_update(&mut self, _u: &IdentityUpdate) -> Result<(), Self::Error> {
+        tracing::debug!("visit_identity_update");
         Ok(())
     }
 
@@ -101,6 +113,7 @@ pub trait EnvelopeVisitor<'env> {
         &mut self,
         _u: &get_identity_updates_request::Request,
     ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_identity_updates_request");
         Ok(())
     }
 }
@@ -157,7 +170,7 @@ pub trait Envelope<'env> {
 /// parsing/matching first.
 impl<'env, T> Envelope<'env> for T
 where
-    T: ProtocolEnvelope<'env>,
+    T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
     fn topic(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
         let mut extractor = TopicExtractor::new();
@@ -174,7 +187,9 @@ where
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
         // ensures we only recurse the proto data structure once.
         let mut extractor = (TopicExtractor::new(), PayloadExtractor::new());
+        tracing::debug!("Extracting payload for {:?}", self);
         self.accept(&mut extractor)?;
+        tracing::debug!("Extracted {:?}", extractor);
         let topic = extractor.0.get().map_err(ExtractionError::from)?;
         let payload = extractor.1.get().map_err(ExtractionError::from)?;
         // this should never happen since Self is the same type, but the error is defensive

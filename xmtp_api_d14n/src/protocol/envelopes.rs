@@ -105,7 +105,7 @@ impl<'env> ProtocolEnvelope<'env> for GroupMessageInput {
     where
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
-        // we dont visit GroupMessageInput because it is purely an intermediary type
+        visitor.visit_group_message_input(self)?;
         if let Some(versioned) = self.get_nested()? {
             versioned.accept(visitor)?;
         }
@@ -146,7 +146,6 @@ impl<'env> ProtocolEnvelope<'env> for WelcomeMessageInput {
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_welcome_message_input(self)?;
-        // we dont visit welcome message input b/c it is purely an intermediary type
         if let Some(versioned) = self.get_nested()? {
             versioned.accept(visitor)?;
         }
