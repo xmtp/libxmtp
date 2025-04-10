@@ -1,4 +1,4 @@
-name: tag_and_deploy_to_cocoapods
+name: Tag and deploy to Cocoapods
 
 on:
   workflow_dispatch:
