@@ -192,9 +192,9 @@ pub enum SubscribeError {
     #[error(transparent)]
     ConversationStream(#[from] stream_conversations::ConversationStreamError),
     #[error(transparent)]
-    Api(#[from] xmtp_proto::ApiError),
-    #[error(transparent)]
-    ApiClient(#[from] xmtp_api::Error),
+    ApiClient(#[from] xmtp_api::ApiError),
+    #[error("{0}")]
+    BoxError(Box<dyn RetryableError + Send + Sync>),
 }
 
 impl RetryableError for SubscribeError {
@@ -209,8 +209,8 @@ impl RetryableError for SubscribeError {
             NotFound(e) => retryable!(e),
             MessageStream(e) => retryable!(e),
             ConversationStream(e) => retryable!(e),
-            Api(e) => retryable!(e),
             ApiClient(e) => retryable!(e),
+            BoxError(e) => retryable!(e),
         }
     }
 }

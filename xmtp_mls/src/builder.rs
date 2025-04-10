@@ -39,11 +39,9 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     Identity(#[from] crate::identity::IdentityError),
     #[error(transparent)]
-    WrappedApiError(#[from] xmtp_api::Error),
+    WrappedApiError(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     GroupError(#[from] crate::groups::GroupError),
-    #[error(transparent)]
-    Api(#[from] xmtp_proto::ApiError),
     #[error(transparent)]
     DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
 }

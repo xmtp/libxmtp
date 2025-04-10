@@ -1,7 +1,6 @@
 use super::D14nClient;
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
-use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
 use xmtp_proto::traits::Client;
@@ -20,7 +19,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpIdentityClient for D14nClient<C, P>
 where
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<P as Client>::Error>>

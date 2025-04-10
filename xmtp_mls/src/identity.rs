@@ -218,7 +218,7 @@ pub enum IdentityError {
     #[error(transparent)]
     Signer(#[from] xmtp_cryptography::SignerError),
     #[error(transparent)]
-    ApiClient(#[from] xmtp_api::Error),
+    ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
 }

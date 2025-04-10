@@ -71,7 +71,7 @@ pub enum ClientError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("API error: {0}")]
-    Api(#[from] xmtp_api::Error),
+    Api(#[from] xmtp_api::ApiError),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
