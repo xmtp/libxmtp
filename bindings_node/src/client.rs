@@ -107,7 +107,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
 }
 
 /**
- * Create a client
+ * Create a client.
  *
  * Optionally specify a filter for the log level as a string.
  * It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
@@ -122,7 +122,7 @@ pub async fn create_client(
   inbox_id: String,
   account_identifier: Identifier,
   encryption_key: Option<Uint8Array>,
-  history_sync_url: Option<String>,
+  device_sync_server_url: Option<String>,
   log_options: Option<LogOptions>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
@@ -161,13 +161,13 @@ pub async fn create_client(
     None,
   );
 
-  let xmtp_client = match history_sync_url {
+  let xmtp_client = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store)
-      .history_sync_url(&url)
+      .device_sync_server_url(&url)
       .build()
       .await
       .map_err(ErrorWrapper::from)?,

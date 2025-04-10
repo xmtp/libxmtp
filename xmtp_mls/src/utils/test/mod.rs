@@ -216,7 +216,7 @@ where
         .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
-        builder = builder.history_sync_url(history_sync_url);
+        builder = builder.device_sync_server_url(history_sync_url);
     }
 
     let client = builder.build().await.unwrap();
@@ -323,11 +323,11 @@ impl WorkerHandle {
 
 impl<ApiClient, V> Client<ApiClient, V> {
     pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
-        self.sync_worker_handle.lock().clone()
+        self.device_sync.worker_handle.lock().clone()
     }
 
     pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
-        *self.sync_worker_handle.lock() = Some(handle);
+        *self.device_sync.worker_handle.lock() = Some(handle);
     }
 }
 

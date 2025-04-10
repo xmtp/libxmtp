@@ -160,7 +160,7 @@ pub async fn create_client(
         .store(store);
 
     if let Some(url) = &history_sync_url {
-        builder = builder.history_sync_url(url);
+        builder = builder.device_sync_server_url(url);
     }
 
     let xmtp_client = builder.build().await?;

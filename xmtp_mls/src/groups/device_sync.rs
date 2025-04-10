@@ -153,6 +153,10 @@ where
 {
     #[instrument(level = "trace", skip_all)]
     pub fn start_sync_worker(&self) {
+        if !self.device_sync_worker_enabled() {
+            return;
+        }
+
         let client = self.clone();
         tracing::debug!(
             inbox_id = client.inbox_id(),
@@ -321,7 +325,7 @@ where
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.installation_public_key()),
                 "Initializing device sync... url: {:?}",
-                client.history_sync_url
+                client.device_sync.server_url
             );
             if client.get_sync_group(provider.conn_ref()).is_err() {
                 client.ensure_sync_group(&provider).await?;
@@ -657,7 +661,7 @@ where
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.history_sync_url else {
+        let Some(url) = &self.device_sync.server_url else {
             return Err(DeviceSyncError::MissingHistorySyncUrl);
         };
         let upload_url = format!("{url}/upload");
