@@ -33,7 +33,7 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Build target
         run: |
-          nix develop . --command \
+          nix develop .#ios --command \
             cargo check --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml
   check-android:
     runs-on: warp-ubuntu-latest-x64-16x

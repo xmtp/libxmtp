@@ -10,9 +10,8 @@
 , sqlite
 , openssl
 , lib
-, fenix
 , gnused
-, rust-toolchain
+, mkToolchain
 }:
 let
   frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
@@ -32,14 +31,7 @@ let
   ];
 
   # Pinned Rust Version
-  rust-android-toolchain = fenix.combine [
-    rust-toolchain.rust.cargo
-    rust-toolchain.rust.rustc
-    (lib.forEach
-      androidTargets
-      (target: fenix.targets."${target}".stable.rust-std))
-  ];
-
+  rust-android-toolchain = mkToolchain androidTargets [ "clippy-preview" "rustfmt-preview" ];
   sdkArgs = {
     platformVersions = android.platforms;
     platformToolsVersion = android.platformTools;
