@@ -1,0 +1,61 @@
+name: Development Release XMTP Android Package
+on:
+  workflow_dispatch:
+    inputs:
+      dev_tag:
+        description: 'Development tag (must be in format MAJOR.MINOR.PATCH-dev)'
+        required: true
+        type: string
+
+jobs:
+  validate_and_release:
+    name: Validate and Release Dev Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Validate tag format
+        run: |
+          if [[ ! "${{ github.event.inputs.dev_tag }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev$ ]]; then
+            echo "Error: Tag must be in format MAJOR.MINOR.PATCH-dev"
+            exit 1
+          fi
+          echo "Tag format is valid"
+          
+      - name: Generate full tag with commit SHA
+        id: generate_tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          FULL_TAG="${{ github.event.inputs.dev_tag }}.$SHORT_SHA"
+          echo "FULL_TAG=$FULL_TAG" >> $GITHUB_ENV
+          echo "Generated tag: $FULL_TAG"
+          
+      - name: Configure JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'adopt'
+          java-version: '17'
+          
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        
+      - name: Run build with Gradle Wrapper
+        run: ./gradlew build
+        
+      - name: Tag version
+        run: |
+          git tag ${{ env.FULL_TAG }}
+          git push origin ${{ env.FULL_TAG }}
+          
+      - name: Gradle Publish
+        env:
+          RELEASE_VERSION: "${{ env.FULL_TAG }}"
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          SIGN_KEY: ${{ secrets.OSSRH_GPG_SECRET_KEY }}
+          SIGN_PASSWORD: ${{ secrets.OSSRH_GPG_SECRET_KEY_PASSWORD }}
+          MAVEN_PROFILE_ID: ${{ secrets.MAVEN_PROFILE_ID }}
+        run: ./gradlew publishToSonatype -Pdry-run=true
