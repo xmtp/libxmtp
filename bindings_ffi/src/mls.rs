@@ -6457,6 +6457,11 @@ mod tests {
             .wait(FfiSyncMetric::PayloadProcessed, 1)
             .await
             .unwrap();
+        alix_a
+            .inner_client
+            .test_has_same_sync_group_as(&alix_b.inner_client)
+            .await
+            .unwrap();
         alix_b
             .worker
             .wait(FfiSyncMetric::HmacReceived, 1)

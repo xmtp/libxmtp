@@ -47,7 +47,16 @@ where
         let sync_group = self.get_sync_group(&self.mls_provider()?)?;
         let other_sync_group = other.get_sync_group(&other.mls_provider()?)?;
 
+        // sync_group.sync().await?;
+        // other_sync_group.sync().await?;
+
         assert_eq!(sync_group.group_id, other_sync_group.group_id);
+
+        let ratchet_tree = sync_group
+            .load_mls_group_with_lock(&self.mls_provider()?, |g| Ok(g.export_ratchet_tree()))?;
+        let other_ratchet_tree = other_sync_group
+            .load_mls_group_with_lock(&self.mls_provider()?, |g| Ok(g.export_ratchet_tree()))?;
+        assert_eq!(ratchet_tree, other_ratchet_tree);
 
         Ok(())
     }
