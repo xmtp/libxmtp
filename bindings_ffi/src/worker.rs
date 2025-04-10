@@ -1,0 +1,16 @@
+use xmtp_mls::builder::SyncWorkerMode;
+
+#[derive(uniffi::Enum)]
+pub enum FfiSyncWorkerMode {
+    Enabled,
+    Disabled,
+}
+
+impl From<FfiSyncWorkerMode> for SyncWorkerMode {
+    fn from(value: FfiSyncWorkerMode) -> Self {
+        match value {
+            FfiSyncWorkerMode::Enabled => Self::Enabled,
+            FfiSyncWorkerMode::Disabled => Self::Disabled,
+        }
+    }
+}
