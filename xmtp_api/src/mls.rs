@@ -230,7 +230,11 @@ where
         &self,
         installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap> {
-        tracing::debug!(inbox_id = self.inbox_id, "fetch key packages");
+        tracing::debug!(
+            inbox_id = self.inbox_id,
+            "fetch key packages with {} installation keys",
+            installation_keys.len()
+        );
         let res = retry_async!(
             self.retry_strategy,
             (async {

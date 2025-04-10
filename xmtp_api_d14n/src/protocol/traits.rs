@@ -4,7 +4,6 @@
 use super::ExtractionError;
 use super::PayloadExtractor;
 use super::TopicExtractor;
-use crate::protocol::PayloadRef;
 use xmtp_common::RetryableError;
 use xmtp_common::retryable;
 use xmtp_proto::ConversionError;
@@ -18,6 +17,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     welcome_message_input::{V1 as WelcomeMessageV1, Version as WelcomeMessageVersion},
 };
 use xmtp_proto::xmtp::xmtpv4::envelopes::AuthenticatedData;
+use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
@@ -64,14 +64,6 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
-    /// Visit the group message input, borrowing the input from the envelope
-    fn visit_group_message_input_borrowed(
-        &mut self,
-        _m: &'env GroupMessageInput,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
     /// Visit a V1 Group Message
     fn visit_group_message_v1(&mut self, _m: &GroupMessageV1) -> Result<(), Self::Error> {
         Ok(())
@@ -88,14 +80,6 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
-    /// Visit the welcome message input, borrowing the input from the envelope
-    fn visit_welcome_message_input_borrowed(
-        &mut self,
-        _m: &'env WelcomeMessageInput,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
     /// Visit a V1 Welcome Message
     fn visit_welcome_message_v1(&mut self, _m: &WelcomeMessageV1) -> Result<(), Self::Error> {
         Ok(())
@@ -108,24 +92,8 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
-    /// Visit the Upload Key Package, borrowing the input from the envelope
-    fn visit_upload_key_package_borrowed(
-        &mut self,
-        _p: &'env UploadKeyPackageRequest,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
     /// Visit the Identity Update Type
     fn visit_identity_update(&mut self, _u: &IdentityUpdate) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Visit the Identity Update Type, borrowing the input from the Envelope
-    fn visit_identity_update_borrowed(
-        &mut self,
-        _u: &'env IdentityUpdate,
-    ) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -180,7 +148,7 @@ pub trait Envelope<'env> {
     /// Get the topic for an envelope
     fn topic(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
     /// Get the payload for an envelope
-    fn payload(&self) -> Result<Vec<PayloadRef<'env>>, EnvelopeError>;
+    fn payload(&self) -> Result<Vec<Payload>, EnvelopeError>;
     /// Build the ClientEnvelope
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError>;
 }
@@ -197,7 +165,7 @@ where
         Ok(extractor.get()?)
     }
 
-    fn payload(&self) -> Result<Vec<PayloadRef<'env>>, EnvelopeError> {
+    fn payload(&self) -> Result<Vec<Payload>, EnvelopeError> {
         let mut extractor = PayloadExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)

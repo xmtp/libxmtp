@@ -61,14 +61,6 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
         Ok(())
     }
 
-    fn visit_group_message_input_borrowed(
-        &mut self,
-        m: &'a GroupMessageInput,
-    ) -> Result<(), Self::Error> {
-        for_tuples!( #( Tuple.visit_group_message_input_borrowed(m)?; )* );
-        Ok(())
-    }
-
     fn visit_group_message_v1(&mut self, m: &GroupMessageV1) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_group_message_v1(m)?; )* );
         Ok(())
@@ -87,14 +79,6 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
         Ok(())
     }
 
-    fn visit_welcome_message_input_borrowed(
-        &mut self,
-        m: &'a WelcomeMessageInput,
-    ) -> Result<(), Self::Error> {
-        for_tuples!( #( Tuple.visit_welcome_message_input_borrowed(m)?; )* );
-        Ok(())
-    }
-
     fn visit_welcome_message_v1(&mut self, m: &WelcomeMessageV1) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_welcome_message_v1(m)?; )* );
         Ok(())
@@ -105,23 +89,10 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
         Ok(())
     }
 
-    fn visit_upload_key_package_borrowed(
-        &mut self,
-        p: &'a UploadKeyPackageRequest,
-    ) -> Result<(), Self::Error> {
-        for_tuples!( #( Tuple.visit_upload_key_package_borrowed(p)?; )* );
-        Ok(())
-    }
-
     fn visit_identity_update(&mut self, u: &IdentityUpdate) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_identity_update(u)?; )* );
         Ok(())
     }
-
-    fn visit_identity_update_borrowed(&mut self, u: &'a IdentityUpdate) -> Result<(), Self::Error> {
-        for_tuples!( #( Tuple.visit_identity_update_borrowed(u)?; )* );
-        Ok(())
-    } //error types must be the same
 }
 
 impl<'a, T> EnvelopeVisitor<'a> for Vec<T>

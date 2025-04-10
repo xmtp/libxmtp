@@ -49,6 +49,7 @@ let
   rust-dev-toolchain = fenix.combine [
     rust-toolchain.rust.cargo
     rust-toolchain.rust.rustc
+    fenix.stable.clippy
   ];
 in
 mkShell {

@@ -3,7 +3,7 @@ use openmls::framing::errors::ProtocolMessageError;
 use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{ConversionError, mls_v1};
 
-use super::{EnvelopeError, PayloadRef};
+use super::EnvelopeError;
 use super::{TopicKind, traits::EnvelopeVisitor};
 use openmls::prelude::KeyPackageVerifyError;
 use openmls::{
@@ -20,7 +20,9 @@ use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, WelcomeMessageInput};
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::V1 as GroupMessageV1, welcome_message_input::V1 as WelcomeMessageV1,
 };
+use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
+use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ExtractionError {
@@ -116,6 +118,11 @@ impl KeyPackageExtractor {
 
 impl EnvelopeVisitor<'_> for KeyPackageExtractor {
     type Error = ConversionError;
+
+    fn visit_client(&mut self, e: &ClientEnvelope) -> Result<(), Self::Error> {
+        tracing::debug!("client: {:?}", e);
+        Ok(())
+    }
 
     fn visit_upload_key_package(
         &mut self,
@@ -236,20 +243,20 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
 
 /// Extract Topics from Envelopes
 #[derive(Default, Clone, Debug)]
-pub struct PayloadExtractor<'a> {
-    payloads: Option<Vec<PayloadRef<'a>>>,
+pub struct PayloadExtractor {
+    payloads: Option<Vec<Payload>>,
 }
 
-impl<'env> PayloadExtractor<'env> {
+impl PayloadExtractor {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn get(self) -> Result<Vec<PayloadRef<'env>>, PayloadExtractionError> {
+    pub fn get(self) -> Result<Vec<Payload>, PayloadExtractionError> {
         self.payloads.ok_or(PayloadExtractionError::Failed)
     }
 
-    pub fn push(&mut self, p: PayloadRef<'env>) {
+    pub fn push(&mut self, p: Payload) {
         if let Some(payloads) = &mut self.payloads {
             payloads.push(p);
         } else {
@@ -276,38 +283,39 @@ impl From<PayloadExtractionError> for EnvelopeError {
     }
 }
 
-impl<'env> EnvelopeVisitor<'env> for PayloadExtractor<'env> {
+// TODO: at some point its possible to figure out how to borrow input
+// from the Envelope and return it, but probably requires an entirely new
+// 'accept_borrowed' path as well as some work to deal with the ::decode
+// returning a newly allocated type. Not worth the effort yet.
+impl<'env> EnvelopeVisitor<'env> for PayloadExtractor {
     type Error = PayloadExtractionError; // mostly is infallible
 
-    fn visit_group_message_input_borrowed(
+    fn visit_group_message_input(
         &mut self,
-        message: &'env GroupMessageInput,
+        message: &GroupMessageInput,
     ) -> Result<(), Self::Error> {
-        self.push(PayloadRef::GroupMessage(message));
+        self.push(Payload::GroupMessage(message.clone()));
         Ok(())
     }
 
-    fn visit_welcome_message_input_borrowed(
+    fn visit_welcome_message_input(
         &mut self,
-        message: &'env WelcomeMessageInput,
+        message: &WelcomeMessageInput,
     ) -> Result<(), Self::Error> {
-        self.push(PayloadRef::WelcomeMessage(message));
+        self.push(Payload::WelcomeMessage(message.clone()));
         Ok(())
     }
 
-    fn visit_upload_key_package_borrowed(
+    fn visit_upload_key_package(
         &mut self,
-        kp: &'env UploadKeyPackageRequest,
+        kp: &UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        self.push(PayloadRef::UploadKeyPackage(kp));
+        self.push(Payload::UploadKeyPackage(kp.clone()));
         Ok(())
     }
 
-    fn visit_identity_update_borrowed(
-        &mut self,
-        update: &'env IdentityUpdate,
-    ) -> Result<(), Self::Error> {
-        self.push(PayloadRef::IdentityUpdate(update));
+    fn visit_identity_update(&mut self, update: &IdentityUpdate) -> Result<(), Self::Error> {
+        self.push(Payload::IdentityUpdate(update.clone()));
         Ok(())
     }
 }

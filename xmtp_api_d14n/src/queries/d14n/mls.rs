@@ -55,7 +55,6 @@ where
 
         let mut extractor = KeyPackageExtractor::new();
         result.envelopes.accept(&mut extractor)?;
-
         Ok(mls_v1::FetchKeyPackagesResponse {
             key_packages: extractor.get(),
         })
