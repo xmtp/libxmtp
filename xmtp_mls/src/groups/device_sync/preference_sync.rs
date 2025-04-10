@@ -25,16 +25,10 @@ impl UserPreferenceUpdate {
         tracing::info!("Outgoing preference updates {updates:?}");
         let provider = client.mls_provider()?;
 
-        let contents = updates
-            .iter()
-            .map(bincode::serialize)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| ClientError::Generic(e.to_string()))?;
-
         client
             .send_device_sync_message(
                 &provider,
-                DeviceSyncContent::PreferenceUpdates(UserPreferenceUpdateProto { contents }),
+                DeviceSyncContent::PreferenceUpdates(updates.clone()),
             )
             .await?;
 

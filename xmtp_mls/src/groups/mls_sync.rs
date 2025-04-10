@@ -1277,10 +1277,6 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), GroupError> {
         self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
-
-            let r = mls_group.export_ratchet_tree();
-            tracing::info!("{r:?}");
-
             let intents = provider.conn_ref().find_group_intents(
                 self.group_id.clone(),
                 Some(vec![IntentState::ToPublish]),

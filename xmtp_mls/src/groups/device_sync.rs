@@ -229,13 +229,7 @@ where
                 self.process_sync_payload(payload).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            DeviceSyncContent::PreferenceUpdates(update) => {
-                let updates: Vec<UserPreferenceUpdate> = update
-                    .contents
-                    .iter()
-                    .map(|u| bincode::deserialize(&*u))
-                    .collect::<Result<Vec<_>, _>>()?;
-
+            DeviceSyncContent::PreferenceUpdates(updates) => {
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
@@ -691,7 +685,7 @@ pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto) = 0,
     Payload(DeviceSyncReplyProto) = 1,
     Acknowledge(AcknowledgeKind) = 2,
-    PreferenceUpdates(UserPreferenceUpdateProto) = 3,
+    PreferenceUpdates(Vec<UserPreferenceUpdate>) = 3,
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {
