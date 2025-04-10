@@ -6478,6 +6478,7 @@ mod tests {
         b_stream.wait_for_ready().await;
         alix_b.conversations().sync_device_sync().await.unwrap();
 
+        tracing::error!("============ SETTING STATE TO DENIED.");
         // consent with bo
         alix_a
             .set_consent_states(vec![FfiConsent {
@@ -6487,6 +6488,7 @@ mod tests {
             }])
             .await
             .unwrap();
+        tracing::error!("============ DONE SETTING STATE TO DENIED.");
 
         // Wait for alix_a to send the consent sync out
         alix_a
