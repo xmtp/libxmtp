@@ -1,9 +1,9 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
@@ -81,11 +81,12 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
       console_error_panic_hook::set_once();
+
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(f.to_str())
+        xmtp_common::filter_directive(f.to_str())
       } else {
-        Ok(tracing_subscriber::filter::LevelFilter::INFO)
-      }?;
+        EnvFilter::builder().parse_lossy("info")
+      };
 
       if options.structured {
         let fmt = tracing_subscriber::fmt::layer()
