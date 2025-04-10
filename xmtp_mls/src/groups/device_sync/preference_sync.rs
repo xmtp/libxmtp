@@ -69,13 +69,7 @@ impl UserPreferenceUpdate {
         client
             .send_device_sync_message(
                 &provider,
-                DeviceSyncContent {
-                    content: Some(device_sync_content::Content::PreferenceUpdates(
-                        DeviceSyncPreferenceUpdates {
-                            updates: updates.clone().into_iter().map(Into::into).collect(),
-                        },
-                    )),
-                },
+                DeviceSyncContent::PreferenceUpdates(updates.clone()),
             )
             .await?;
 

@@ -23,12 +23,6 @@ pub mod xmtp {
             include!("xmtp.device_sync.message_backup.rs");
             // @@protoc_insertion_point(xmtp.device_sync.message_backup)
         }
-        #[cfg(feature = "xmtp-device_sync-sync_content")]
-        // @@protoc_insertion_point(attribute:xmtp.device_sync.sync_content)
-        pub mod sync_content {
-            include!("xmtp.device_sync.sync_content.rs");
-            // @@protoc_insertion_point(xmtp.device_sync.sync_content)
-        }
     }
     #[cfg(feature = "xmtp-identity")]
     // @@protoc_insertion_point(attribute:xmtp.identity)

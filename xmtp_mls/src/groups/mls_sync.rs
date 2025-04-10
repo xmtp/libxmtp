@@ -17,7 +17,7 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, OldDeviceSyncContent},
+        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
         intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
@@ -757,8 +757,7 @@ where
                     })) => {
                         match message_type {
                             Some(MessageType::DeviceSyncRequest(history_request)) => {
-                                let content: OldDeviceSyncContent =
-                                    OldDeviceSyncContent::Request(history_request);
+                                let content = DeviceSyncContent::Request(history_request);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -791,8 +790,7 @@ where
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content: OldDeviceSyncContent =
-                                    OldDeviceSyncContent::Payload(history_reply);
+                                let content = DeviceSyncContent::Payload(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,

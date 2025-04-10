@@ -1,6 +1,6 @@
 use super::handle::{SyncMetric, WorkerHandle};
 use super::preference_sync::UserPreferenceUpdate;
-use super::{DeviceSyncError, OldDeviceSyncContent};
+use super::{DeviceSyncContent, DeviceSyncError};
 use crate::{configuration::WORKER_RESTART_DELAY, subscriptions::SyncEvent};
 use crate::{
     subscriptions::{LocalEvents, StreamMessages, SubscribeError},
@@ -204,9 +204,8 @@ where
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: OldDeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let OldDeviceSyncContent::Payload(reply) = content {
+            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            if let DeviceSyncContent::Payload(reply) = content {
                 self.client
                     .v1_process_sync_reply(&provider, reply, &self.handle)
                     .await?;
@@ -218,9 +217,8 @@ where
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: OldDeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let OldDeviceSyncContent::Request(request) = content {
+            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            if let DeviceSyncContent::Request(request) = content {
                 self.client
                     .v1_reply_to_sync_request(&provider, request, &self.handle)
                     .await?;

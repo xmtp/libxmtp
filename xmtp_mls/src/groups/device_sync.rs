@@ -28,10 +28,6 @@ use xmtp_db::{
 use xmtp_db::{user_preferences::StoredUserPreferences, Store};
 use xmtp_id::associations::try_map_vec;
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
-use xmtp_proto::xmtp::device_sync::sync_content::{
-    device_sync_acknowledge_kind, device_sync_content, DeviceSyncAcknowledgeKind,
-    DeviceSyncContent, DeviceSyncPreferenceUpdates, DeviceSyncRequestAcknowledge,
-};
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
     plaintext_envelope::v2::MessageType,
@@ -190,10 +186,8 @@ where
         );
 
         for (msg, content) in messages.iter_with_content() {
-            if let Some(content) = content.content {
-                if let Err(err) = self.process_message(provider, handle, &msg, content).await {
-                    tracing::error!("Message processing: {err:?}");
-                };
+            if let Err(err) = self.process_message(provider, handle, &msg, content).await {
+                tracing::error!("Message processing: {err:?}");
             };
 
             // Move the cursor
@@ -209,12 +203,12 @@ where
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
         msg: &StoredGroupMessage,
-        content: device_sync_content::Content,
+        content: DeviceSyncContent,
     ) -> Result<(), DeviceSyncError> {
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
         match content {
-            device_sync_content::Content::Request(request) => {
+            DeviceSyncContent::Request(request) => {
                 if msg.sender_installation_id == self.installation_id() {
                     // Ignore our own messages
                     return Ok(());
@@ -227,7 +221,7 @@ where
                 )
                 .await?;
             }
-            device_sync_content::Content::Payload(payload) => {
+            DeviceSyncContent::Payload(payload) => {
                 if msg.sender_installation_id == self.installation_id() {
                     // Ignore our own messages
                     return Ok(());
@@ -236,16 +230,12 @@ where
                 self.process_sync_payload(payload).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            device_sync_content::Content::PreferenceUpdates(DeviceSyncPreferenceUpdates {
-                updates,
-            }) => {
+            DeviceSyncContent::PreferenceUpdates(updates) => {
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
 
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-
-                let updates: Vec<UserPreferenceUpdate> = try_map_vec(updates)?;
                 for update in updates.clone() {
                     update.store(provider, handle)?;
                 }
@@ -256,7 +246,7 @@ where
                             updates,
                         )));
             }
-            device_sync_content::Content::Acknowledge(_) => {
+            DeviceSyncContent::Acknowledge(_) => {
                 return Ok(());
             }
         }
@@ -287,26 +277,14 @@ where
         let acknowledgement = messages.iter_with_content().find(|(_msg, content)| {
             matches!(
                 content,
-                DeviceSyncContent {
-                    content: Some(device_sync_content::Content::Acknowledge(
-                        DeviceSyncAcknowledgeKind {
-                            kind: Some(device_sync_acknowledge_kind::Kind::SyncGroupPresence(true))
-                        }
-                    ))
-                }
+                DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence)
             )
         });
         let Some((acknowledgement, _content)) = acknowledgement else {
             // Send an acknowledgement if there is none.
             self.send_device_sync_message(
                 provider,
-                DeviceSyncContent {
-                    content: Some(device_sync_content::Content::Acknowledge(
-                        DeviceSyncAcknowledgeKind {
-                            kind: Some(device_sync_acknowledge_kind::Kind::SyncGroupPresence(true)),
-                        },
-                    )),
-                },
+                DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence),
             )
             .await?;
             return Ok(());
@@ -338,23 +316,17 @@ where
         let mut acknowledged = HashMap::new();
         // Look in reverse for a request, and ensure it was not acknowledged by someone else.
         for message in messages.iter().rev() {
-            let Ok(DeviceSyncContent {
-                content: Some(content),
-            }) = DeviceSyncContent::decode(&*message.decrypted_message_bytes)
+            let Some(content) =
+                serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes).ok()
             else {
                 continue;
             };
 
             match content {
-                device_sync_content::Content::Acknowledge(DeviceSyncAcknowledgeKind {
-                    kind:
-                        Some(device_sync_acknowledge_kind::Kind::Request(
-                            DeviceSyncRequestAcknowledge { request_id },
-                        )),
-                }) => {
+                DeviceSyncContent::Acknowledge(AcknowledgeKind::Request { request_id }) => {
                     acknowledged.insert(request_id, message.sender_installation_id.clone());
                 }
-                device_sync_content::Content::Request(req) => {
+                DeviceSyncContent::Request(req) => {
                     if let Some(installation_id) = acknowledged.get(&req.request_id) {
                         if installation_id != self.installation_id() {
                             // Request has already been acknowledged by another installation.
@@ -369,17 +341,9 @@ where
                     // Acknowledge and break.
                     self.send_device_sync_message(
                         provider,
-                        DeviceSyncContent {
-                            content: Some(device_sync_content::Content::Acknowledge(
-                                DeviceSyncAcknowledgeKind {
-                                    kind: Some(device_sync_acknowledge_kind::Kind::Request(
-                                        DeviceSyncRequestAcknowledge {
-                                            request_id: req.request_id,
-                                        },
-                                    )),
-                                },
-                            )),
-                        },
+                        DeviceSyncContent::Acknowledge(AcknowledgeKind::Request {
+                            request_id: req.request_id,
+                        }),
                     )
                     .await?;
 
@@ -414,10 +378,9 @@ where
             // Deprecated fields
             ..Default::default()
         };
-        let content = DeviceSyncContent {
-            content: Some(device_sync_content::Content::Request(request)),
-        };
-        self.send_device_sync_message(provider, content).await?;
+
+        self.send_device_sync_message(provider, DeviceSyncContent::Request(request))
+            .await?;
 
         Ok(())
     }
@@ -525,10 +488,8 @@ where
         }
 
         // Send the message out over the network
-        let content = DeviceSyncContent {
-            content: Some(device_sync_content::Content::Payload(reply)),
-        };
-        self.send_device_sync_message(&provider, content).await?;
+        self.send_device_sync_message(&provider, DeviceSyncContent::Payload(reply))
+            .await?;
 
         handle.increment_metric(SyncMetric::PayloadSent);
 
@@ -553,11 +514,7 @@ where
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
-            if let Some(device_sync_content::Content::Request(DeviceSyncRequestProto {
-                request_id,
-                ..
-            })) = content.content
-            {
+            if let DeviceSyncContent::Request(DeviceSyncRequestProto { request_id, .. }) = content {
                 if *request_id == reply.request_id
                     && msg.sender_installation_id == self.installation_id()
                 {
@@ -639,7 +596,8 @@ where
             &sync_group.group_id[..4]
         );
 
-        let content_bytes = content.encode_to_vec();
+        let content_bytes =
+            serde_json::to_vec(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
@@ -724,7 +682,7 @@ fn default_backup_options() -> BackupOptions {
 // These are the messages that get sent out to the sync group
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[repr(i32)]
-pub enum OldDeviceSyncContent {
+pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto) = 0,
     Payload(DeviceSyncReplyProto) = 1,
     Acknowledge(AcknowledgeKind) = 2,
@@ -743,7 +701,9 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
-            let content = DeviceSyncContent::decode(&*msg.decrypted_message_bytes).ok()?;
+            let content: DeviceSyncContent =
+                serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
+
             Some((msg, content))
         })
     }
