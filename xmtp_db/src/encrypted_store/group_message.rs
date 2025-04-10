@@ -455,11 +455,11 @@ impl DbConnection {
     pub fn sync_messages(
         &self,
         group_id: &[u8],
-        sent_after_ns: i64,
+        offset: i64,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
-            .filter(dsl::sent_at_ns.gt(sent_after_ns))
+            .offset(offset)
             .order(dsl::sent_at_ns.asc());
 
         Ok(self.raw_query_read(|conn| query.load(conn))?)

@@ -197,7 +197,7 @@ where
             };
 
             // Move the cursor
-            cursor.offset = msg.sent_at_ns;
+            cursor.offset += 1;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
         }
 
