@@ -192,7 +192,7 @@ where
         for (msg, content) in messages.iter_with_content() {
             if let Some(content) = content.content {
                 if let Err(err) = self.process_message(provider, handle, &msg, content).await {
-                    tracing::error!("Message processing error: {err:?}");
+                    tracing::error!("Message processing: {err:?}");
                 };
             };
 
@@ -634,7 +634,8 @@ where
         content: DeviceSyncContent,
     ) -> Result<Vec<u8>, ClientError> {
         let sync_group = self.get_sync_group(provider)?;
-        tracing::error!(
+        sync_group.sync().await?;
+        tracing::info!(
             "Sending sync message to group {:?}: {content:?}",
             &sync_group.group_id[..4]
         );

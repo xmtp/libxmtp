@@ -6555,10 +6555,7 @@ mod tests {
             .unwrap();
 
         // This consent should stream
-        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
-            .await
-            .unwrap();
-        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 3)
             .await
             .unwrap();
 

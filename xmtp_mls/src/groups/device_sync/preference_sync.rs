@@ -1,5 +1,5 @@
 use super::*;
-use crate::{utils::time::hmac_epoch, Client};
+use crate::Client;
 use serde::{Deserialize, Serialize};
 use xmtp_db::{
     consent_record::StoredConsentRecord,
