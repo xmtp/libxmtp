@@ -634,7 +634,6 @@ where
         content: DeviceSyncContent,
     ) -> Result<Vec<u8>, ClientError> {
         let sync_group = self.get_sync_group(provider)?;
-        sync_group.sync().await?;
         tracing::info!(
             "Sending sync message to group {:?}: {content:?}",
             &sync_group.group_id[..4]
