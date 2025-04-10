@@ -1066,9 +1066,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -7882,11 +7882,14 @@ name = "xmtp_mls"
 version = "1.2.0-dev"
 dependencies = [
  "aes-gcm",
+ "anyhow",
  "async-compression",
+ "async-trait",
  "bincode",
  "bytes",
  "chrono",
  "const_format",
+ "coset",
  "criterion",
  "ctor",
  "diesel",
@@ -7894,6 +7897,7 @@ dependencies = [
  "ethers",
  "fdlimit",
  "futures",
+ "futures-executor",
  "futures-util",
  "getrandom 0.2.15",
  "gloo-timers 0.3.0",
@@ -7910,8 +7914,10 @@ dependencies = [
  "openssl",
  "openssl-sys",
  "parking_lot 0.12.3",
+ "passkey",
  "pin-project-lite",
  "prost",
+ "public-suffix",
  "rand 0.8.5",
  "reqwest 0.12.15",
  "rstest",
@@ -7929,6 +7935,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trait-variant",
+ "url",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",

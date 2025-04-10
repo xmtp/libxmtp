@@ -2818,12 +2818,9 @@ mod tests {
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
-    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_cryptography::utils::rng;
     use xmtp_db::EncryptionKey;
-    use xmtp_id::associations::{
-        test_utils::WalletTestExt,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    };
+    use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         InboxOwner,
@@ -2869,9 +2866,12 @@ mod tests {
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
             let recoverable_signature =
                 self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
-            match recoverable_signature {
-                RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
-            }
+
+            let bytes = match recoverable_signature {
+                UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
+                _ => unreachable!("Eth wallets only provide ecdsa signatures"),
+            };
+            Ok(bytes)
         }
     }
 
@@ -3402,17 +3402,11 @@ mod tests {
     impl SignWithWallet for FfiSignatureRequest {
         async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
             let signature_text = self.inner.lock().await.signature_text();
-            let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
             self.inner
                 .lock()
                 .await
-                .add_signature(
-                    UnverifiedSignature::RecoverableEcdsa(
-                        UnverifiedRecoverableEcdsaSignature::new(wallet_signature),
-                    ),
-                    &self.scw_verifier,
-                )
+                .add_signature(wallet.sign(&signature_text).unwrap(), &self.scw_verifier)
                 .await
                 .unwrap();
         }

@@ -24,6 +24,12 @@ test-utils = [
   "xmtp_api_grpc/test-utils",
   "dep:const_format",
   "xmtp_common/test-utils",
+  "dep:ethers",
+  "dep:passkey",
+  "dep:coset",
+  "dep:url",
+  "dep:public-suffix",
+  "dep:futures-executor",
 ]
 bench = [
   "test-utils",
@@ -40,11 +46,12 @@ default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
 http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
 d14n = ["dep:xmtp_api_d14n"]
-update-schema = ["toml"]
+update-schema = ["toml", "anyhow"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 async-compression.workspace = true
+async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
@@ -57,7 +64,7 @@ parking_lot.workspace = true
 pin-project-lite.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true }
 serde_json.workspace = true
 sha2.workspace = true
@@ -65,6 +72,9 @@ thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
+] }
+tokio-util = { version = "0.7", default-features = false, features = [
+  "compat",
 ] }
 tracing.workspace = true
 trait-variant.workspace = true
@@ -80,10 +90,16 @@ xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
+anyhow = { workspace = true, optional = true }
 const_format = { workspace = true, optional = true }
+coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
+futures-executor = { version = "0.3", optional = true }
+passkey = { version = "0.4", optional = true }
+public-suffix = { version = "0.1.2", optional = true }
 toml = { version = "0.8.4", optional = true }
+url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 
@@ -111,9 +127,6 @@ dyn-clone.workspace = true
 openmls.workspace = true
 openssl.workspace = true
 openssl-sys.workspace = true
-tokio-util = { version = "0.7", default-features = false, features = [
-  "compat",
-] }
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
@@ -137,6 +150,11 @@ fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
+passkey = { version = "0.4" }
+coset = { version = "0.3" }
+url = { workspace = true }
+public-suffix = { version = "0.1.2" }
+futures-executor = { version = "0.3" }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 
 

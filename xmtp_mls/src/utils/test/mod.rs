@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tester;
+
 use std::{
     future::Future,
     sync::{
@@ -11,11 +14,7 @@ use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
-    associations::{
-        test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-        Identifier,
-    },
+    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
@@ -338,9 +337,8 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 ) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
-    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
-    );
+    let unverified_signature = owner.sign(&signature_text).unwrap();
+
     signature_request
         .add_signature(unverified_signature, client.scw_verifier())
         .await
