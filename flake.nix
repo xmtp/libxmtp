@@ -13,6 +13,10 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    rust-manifest = {
+      url = "https://static.rust-lang.org/dist/channel-rust-stable.toml";
+      flake = false;
+    };
   };
 
   nixConfig = {
@@ -20,7 +24,7 @@
     extra-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, crane, foundry, ... }:
+  outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       perSystem = { pkgs, system, ... }:
@@ -37,15 +41,11 @@
               allowUnfree = true;
             };
           };
-          rust-toolchain-drv = pkgs.fenix.fromToolchainFile {
-            file = ./rust-toolchain.toml;
-            sha256 = "sha256-X/4ZBHO3iW0fOenQ3foEvscgAPJYl2abspaBThDOukI=";
-          };
-          rust-toolchain = pkgs.makeRustPlatform
-            {
-              rustc = rust-toolchain-drv;
-              cargo = rust-toolchain-drv;
-            };
+          mkToolchain = targets: components: pkgs.fenix.combine [
+            ((pkgs.fenix.fromManifestFile rust-manifest).minimalToolchain)
+            (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
+            (pkgs.lib.forEach components (c: (pkgs.fenix.fromManifestFile rust-manifest)."${c}"))
+          ];
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };
         in
@@ -53,11 +53,11 @@
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
-            default = callPackage pkgs ./nix/libxmtp.nix { inherit rust-toolchain; };
+            default = callPackage pkgs ./nix/libxmtp.nix { inherit mkToolchain; };
             # Shell for android builds
-            android = callPackage pkgs ./nix/android.nix { inherit rust-toolchain; };
+            android = callPackage pkgs ./nix/android.nix { inherit mkToolchain; };
             # Shell for iOS builds
-            ios = callPackage pkgs ./nix/ios.nix { inherit rust-toolchain; };
+            ios = callPackage pkgs ./nix/ios.nix { inherit mkToolchain; };
             js = callPackage pkgs ./nix/js.nix { };
             # the environment bindings_wasm is built in
             wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;

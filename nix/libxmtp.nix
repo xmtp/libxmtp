@@ -3,7 +3,7 @@
 , darwin
 , lib
 , fenix
-, rust-toolchain
+, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -46,11 +46,7 @@ let
             ];
           extraInputs = top;
         });
-  rust-dev-toolchain = fenix.combine [
-    rust-toolchain.rust.cargo
-    rust-toolchain.rust.rustc
-    fenix.stable.clippy
-  ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -68,8 +64,8 @@ mkShell {
   nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
-      rust-dev-toolchain
       wasm-bindgen-cli
+      rust-toolchain
       fenix.rust-analyzer
       zstd
       foundry-bin

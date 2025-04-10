@@ -135,11 +135,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1744096231,
-        "narHash": "sha256-kUfx3FKU1Etnua3EaKvpeuXs7zoFiAcli1gBwkPvGSs=",
+        "lastModified": 1744157173,
+        "narHash": "sha256-bWSjxDwq7iVePrhmA7tY2dyMWHuNJo8knkO4y+q4ZkY=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b2b0718004cc9a5bca610326de0a82e6ea75920b",
+        "rev": "6a39c6e495eefabc935d8ddf66aa45d85b85fa3f",
         "type": "github"
       },
       "original": {
@@ -157,6 +157,7 @@
         "foundry": "foundry",
         "mkshell-util": "mkshell-util",
         "nixpkgs": "nixpkgs_2",
+        "rust-manifest": "rust-manifest",
         "systems": "systems"
       }
     },
@@ -175,6 +176,18 @@
         "ref": "nightly",
         "repo": "rust-analyzer",
         "type": "github"
+      }
+    },
+    "rust-manifest": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-MnExpHCcKv4vc2gwfNF7RAv6WPf11ingHvlw5o08wyE=",
+        "type": "file",
+        "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml"
       }
     },
     "systems": {
