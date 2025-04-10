@@ -1,14 +1,16 @@
 use super::*;
 use crate::Client;
-use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
-
 use serde::{Deserialize, Serialize};
+use xmtp_db::{
+    consent_record::StoredConsentRecord,
+    user_preferences::{HmacKey, StoredUserPreferences},
+};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[repr(i32)]
 pub enum UserPreferenceUpdate {
     ConsentUpdate(StoredConsentRecord) = 1,
@@ -16,19 +18,65 @@ pub enum UserPreferenceUpdate {
 }
 
 impl UserPreferenceUpdate {
-    /// Send a preference update through the sync group for other devices to consume
-    pub(crate) async fn sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(crate) async fn sync<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
+    ) -> Result<(), ClientError> {
+        tracing::info!("Outgoing preference updates {updates:?}");
+        let provider = client.mls_provider()?;
+
+        client
+            .send_device_sync_message(
+                &provider,
+                DeviceSyncContent::PreferenceUpdates(updates.clone()),
+            )
+            .await?;
+
+        // TODO: v1 support - remove this on next hammer
+        // Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
+
+        if let Some(handle) = client.worker_handle() {
+            updates.iter().for_each(|update| match update {
+                Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
+                Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
+            });
+        } else {
+            tracing::warn!("Worker handle not found. Sync metric not tracked.");
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn cycle_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
+        client: &Client<C, V>,
+    ) -> Result<(), ClientError> {
+        tracing::info!("Sending HMAC key to sync group.");
+
+        Self::sync(
+            vec![Self::HmacKeyUpdate {
+                key: HmacKey::random_key(),
+            }],
+            client,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// Send a preference update through the sync group for other devices to consume
+    async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+        updates: Vec<Self>,
+        client: &Client<C, V>,
+        handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
         let provider = client.mls_provider()?;
         let sync_group = client.ensure_sync_group(&provider).await?;
 
-        let updates = updates
+        let contents = updates
             .iter()
             .map(bincode::serialize)
             .collect::<Result<Vec<_>, _>>()?;
-        let update_proto = UserPreferenceUpdateProto { contents: updates };
+        let update_proto = UserPreferenceUpdateProto { contents };
         let content_bytes = serde_json::to_vec(&update_proto)?;
         sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
@@ -36,8 +84,38 @@ impl UserPreferenceUpdate {
                 idempotency_key: now.to_string(),
             })),
         })?;
-
         sync_group.publish_intents(&provider).await?;
+
+        updates.iter().for_each(|u| match u {
+            Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::V1ConsentSent),
+            Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::V1HmacSent),
+        });
+
+        Ok(())
+    }
+
+    pub(super) fn store(
+        self,
+        provider: &XmtpOpenMlsProvider,
+        handle: &WorkerHandle<SyncMetric>,
+    ) -> Result<(), StorageError> {
+        match self {
+            Self::ConsentUpdate(consent_record) => {
+                tracing::info!(
+                    "Storing consent update from sync group. State: {:?}",
+                    consent_record.state
+                );
+                provider
+                    .conn_ref()
+                    .insert_or_replace_consent_records(&[consent_record])?;
+                handle.increment_metric(SyncMetric::ConsentReceived);
+            }
+            Self::HmacKeyUpdate { key } => {
+                tracing::info!("Storing new HMAC key from sync group");
+                StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
+                handle.increment_metric(SyncMetric::HmacReceived);
+            }
+        }
 
         Ok(())
     }
@@ -90,10 +168,8 @@ impl UserPreferenceUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::ClientBuilder, groups::scoped_client::ScopedGroupClient};
+    use crate::{groups::scoped_client::ScopedGroupClient, utils::Tester};
     use xmtp_db::consent_record::{ConsentState, ConsentType};
-
-    use crypto_utils::generate_local_wallet;
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -118,48 +194,32 @@ mod tests {
         assert_eq!(update.state, ConsentState::Allowed);
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {
-        let wallet = generate_local_wallet();
-        let amal_a =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
-        let amal_a_worker = amal_a.sync_worker_handle().unwrap();
+        let amal_a = Tester::new().await;
+        amal_a.wait_for_sync_worker_init().await;
+        let amal_b = amal_a.clone().await;
+        amal_b.wait_for_sync_worker_init().await;
 
-        let amal_b =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
-        let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
-        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
-
-        // wait for the new sync group
-        amal_a_worker.wait_for_processed_count(1).await.unwrap();
-        amal_b_worker.wait_for_processed_count(1).await.unwrap();
-
-        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
-
-        let sync_group_a = amal_a.get_sync_group(amal_a_conn).unwrap();
-        let sync_group_b = amal_b.get_sync_group(amal_b_conn).unwrap();
-        assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
-
-        sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
-        sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
+        amal_a.sync_welcomes(&amal_a.provider).await?;
+        amal_a.worker.wait(SyncMetric::HmacSent, 1).await?;
 
         // Wait for a to process the new hmac key
-        amal_a_worker.wait_for_processed_count(2).await.unwrap();
+        amal_b.get_sync_group(&amal_b.provider)?.sync().await?;
+        amal_b.worker.wait(SyncMetric::HmacReceived, 1).await?;
 
-        let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
-        let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();
+        let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
+        let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref())?;
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
         amal_a
             .revoke_installations(vec![amal_b.installation_id().to_vec()])
-            .await
-            .unwrap();
+            .await?;
 
-        let new_pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
+        amal_a.sync_device_sync(&amal_a.provider).await?;
+
+        let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

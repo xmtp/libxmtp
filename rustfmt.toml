@@ -1,1 +1,2 @@
 reorder_imports = true
+edition = "2021"

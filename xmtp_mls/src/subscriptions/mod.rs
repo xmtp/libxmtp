@@ -48,13 +48,17 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncMessage(SyncMessage),
-    OutgoingPreferenceUpdates(Vec<UserPreferenceUpdate>),
-    IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
+    SyncEvent(SyncEvent),
 }
 
 #[derive(Debug, Clone)]
-pub enum SyncMessage {
+pub enum SyncEvent {
+    NewSyncGroupFromWelcome,
+    NewSyncGroupMsg,
+    PreferencesOutgoing(Vec<UserPreferenceUpdate>),
+    PreferencesChanged(Vec<UserPreferenceUpdate>),
+
+    // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
 }
@@ -73,18 +77,14 @@ impl LocalEvents {
         use LocalEvents::*;
 
         match &self {
-            SyncMessage(_) => Some(self),
-            OutgoingPreferenceUpdates(_) => Some(self),
-            IncomingPreferenceUpdate(_) => Some(self),
+            SyncEvent(_) => Some(self),
             _ => None,
         }
     }
 
     fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
-        use LocalEvents::*;
-
         match self {
-            OutgoingPreferenceUpdates(updates) => {
+            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
@@ -94,35 +94,14 @@ impl LocalEvents {
                     .collect();
                 Some(updates)
             }
-            IncomingPreferenceUpdate(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                        _ => None,
-                    })
-                    .collect();
-                Some(updates)
-            }
+
             _ => None,
         }
     }
 
     fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
-        use LocalEvents::*;
-
         match self {
-            OutgoingPreferenceUpdates(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
-            IncomingPreferenceUpdate(updates) => {
+            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {

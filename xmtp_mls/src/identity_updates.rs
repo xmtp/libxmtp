@@ -1,8 +1,9 @@
-use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use crate::{
     client::ClientError,
-    groups::group_membership::{GroupMembership, MembershipDiff},
-    subscriptions::LocalEvents,
+    groups::{
+        device_sync::preference_sync::UserPreferenceUpdate,
+        group_membership::{GroupMembership, MembershipDiff},
+    },
     Client, XmtpApi,
 };
 use futures::future::try_join_all;
@@ -10,7 +11,10 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::{association_state::StoredAssociationState, user_preferences::StoredUserPreferences};
+use xmtp_db::{
+    association_state::StoredAssociationState,
+    user_preferences::{HmacKey, StoredUserPreferences},
+};
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
@@ -327,16 +331,7 @@ where
         }
 
         // Cycle the HMAC key
-        let conn = self.store().conn()?;
-        let hmac_key = StoredUserPreferences::new_hmac_key(&conn)?;
-        // Sync the new key to other devices
-        let _ = self
-            .local_events
-            .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                UserPreferenceUpdate::HmacKeyUpdate {
-                    key: hmac_key.clone(),
-                },
-            ]));
+        UserPreferenceUpdate::cycle_hmac(self).await?;
 
         Ok(builder.build())
     }
@@ -590,8 +585,13 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::{
+        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
+        utils::Tester, Client, XmtpApi,
+    };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
     use xmtp_id::{
         associations::{
             builder::{SignatureRequest, SignatureRequestError},
@@ -601,12 +601,6 @@ pub(crate) mod tests {
         },
         scw_verifier::SmartContractSignatureVerifier,
     };
-
-    use crate::{
-        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
-        Client, XmtpApi,
-    };
-    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 
     use xmtp_common::rand_vec;
 
@@ -742,15 +736,17 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
         use xmtp_common::assert_logged;
+
         xmtp_common::traced_test!(async {
-            let wallet = generate_local_wallet();
-            let wallet_2 = generate_local_wallet();
-            let client = ClientBuilder::new_test_client(&wallet).await;
+            let client = Tester::new().await;
             let inbox_id = client.inbox_id();
+            client.wait_for_sync_worker_init().await;
+
+            let wallet_2 = generate_local_wallet();
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 0);
+            assert_logged!("Loaded association", 4);
             // TODO: Verify state is actually in db instead of just checking logs
             assert_logged!("Wrote association", 1);
 
@@ -759,11 +755,13 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.owner.identifier()
             );
-            assert!(association_state.get(&wallet.identifier().into()).is_some());
+            assert!(association_state
+                .get(&client.owner.identifier().into())
+                .is_some());
 
-            assert_logged!("Loaded association", 1);
+            assert_logged!("Loaded association", 5);
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
@@ -780,18 +778,18 @@ pub(crate) mod tests {
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 1);
+            assert_logged!("Loaded association", 5);
             assert_logged!("Wrote association", 2);
 
             let association_state = get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 2);
+            assert_logged!("Loaded association", 6);
             assert_logged!("Wrote association", 2);
 
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.owner.identifier()
             );
             assert!(association_state
                 .get(&wallet_2.member_identifier())

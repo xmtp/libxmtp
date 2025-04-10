@@ -1,4 +1,6 @@
-use super::{export_stream::BatchExportStream, BackupOptions, BACKUP_VERSION};
+use super::{export_stream::BatchExportStream, OptionsToSave, BACKUP_VERSION};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::groups::device_sync::DeviceSyncError;
 use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::write::ZstdEncoder;
@@ -7,12 +9,14 @@ use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement, BackupMetadataSave};
+use xmtp_proto::xmtp::device_sync::{
+    backup_element::Element, BackupElement, BackupMetadataSave, BackupOptions,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pub(super) struct BackupExporter {
+pub struct BackupExporter {
     stage: Stage,
     metadata: BackupMetadataSave,
     stream: BatchExportStream,
@@ -36,8 +40,22 @@ pub(super) enum Stage {
 }
 
 impl BackupExporter {
-    pub(super) fn new(
-        opts: BackupOptions,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn export_to_file(
+        options: BackupOptions,
+        provider: XmtpOpenMlsProvider,
+        path: impl AsRef<std::path::Path>,
+        key: &[u8],
+    ) -> Result<(), DeviceSyncError> {
+        let provider = Arc::new(provider);
+        let mut exporter = Self::new(options, &provider, key);
+        exporter.write_to_file(path).await?;
+
+        Ok(())
+    }
+
+    pub(crate) fn new(
+        options: BackupOptions,
         provider: &Arc<XmtpOpenMlsProvider>,
         key: &[u8],
     ) -> Self {
@@ -48,8 +66,8 @@ impl BackupExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            stream: BatchExportStream::new(&opts, provider),
-            metadata: opts.into(),
+            stream: BatchExportStream::new(&options, provider),
+            metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,
 
@@ -58,8 +76,18 @@ impl BackupExporter {
             nonce_buffer,
         }
     }
+
+    pub(crate) fn metadata(&self) -> &BackupMetadataSave {
+        &self.metadata
+    }
 }
 
+// The reason this is future_util's AsyncRead and not tokio's AsyncRead
+// is because we need this to work on WASM, and tokio's AsyncRead makes
+// some assumptions about having access to std::fs, which WASM does not have.
+//
+// To get around this, we implement AsyncRead using future_util, and use a
+// compat layer from tokio_util to be able to interact with it in tokio.
 impl AsyncRead for BackupExporter {
     /// This function encrypts first, and compresses second.
     fn poll_read(
@@ -103,7 +131,7 @@ impl AsyncRead for BackupExporter {
             let element = match this.stage {
                 Stage::Nonce => {
                     // Should never get here due to the above logic. Error if it does.
-                    unreachable!()
+                    unreachable!("Nonce should not be the stage here.");
                 }
                 Stage::Metadata => {
                     this.stage = Stage::Elements;
@@ -113,7 +141,9 @@ impl AsyncRead for BackupExporter {
                     .encode_to_vec()
                 }
                 Stage::Elements => match this.stream.poll_next_unpin(cx) {
-                    Poll::Ready(Some(element)) => element.encode_to_vec(),
+                    Poll::Ready(Some(element)) => element
+                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?
+                        .encode_to_vec(),
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(None) => {
                         if !this.encoder_finished {
