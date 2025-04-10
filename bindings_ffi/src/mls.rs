@@ -3443,7 +3443,7 @@ mod tests {
         // Why is this 2?
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        assert_eq!(stats.send_group_messages.get_count(), 6);
 
         // Sleep for 2 seconds and make sure nothing else has sent
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -3452,7 +3452,7 @@ mod tests {
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        assert_eq!(stats.send_group_messages.get_count(), 6);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

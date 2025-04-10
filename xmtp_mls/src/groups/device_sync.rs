@@ -470,7 +470,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         request: DeviceSyncRequestProto,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
         let conn = provider.conn_ref();
 
         let records = match request.kind() {
@@ -484,7 +484,10 @@ where
         let reply = self
             .create_sync_reply(&request.request_id, &records, request.kind())
             .await?;
-        self.send_sync_reply(provider, reply.clone()).await?;
+
+        if let Some(reply) = reply.clone() {
+            self.send_sync_reply(provider, reply).await?;
+        }
 
         Ok(reply)
     }
@@ -657,12 +660,12 @@ where
         request_id: &str,
         syncables: &[Vec<Syncable>],
         kind: DeviceSyncKind,
-    ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
+    ) -> Result<Option<DeviceSyncReplyProto>, DeviceSyncError> {
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
         let Some(url) = &self.device_sync.server_url else {
-            return Err(DeviceSyncError::MissingHistorySyncUrl);
+            return Ok(None);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
@@ -699,7 +702,7 @@ where
             kind: kind as i32,
         };
 
-        Ok(sync_reply)
+        Ok(Some(sync_reply))
     }
 
     async fn insert_encrypted_syncables(
