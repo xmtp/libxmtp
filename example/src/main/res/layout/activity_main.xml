@@ -56,6 +56,18 @@
         app:layout_constraintBottom_toTopOf="@id/fab"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/logs_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="@dimen/padding"
+        android:contentDescription="@string/view_logs"
+        android:src="@drawable/ic_description_24"
+        android:tint="@android:color/white"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/group_fab"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <ProgressBar
         android:id="@+id/progress"
         style="@style/Widget.AppCompat.ProgressBar"

@@ -9,4 +9,12 @@
         android:id="@+id/copy_address"
         android:title="@string/copy_address"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/activate_logs"
+        android:title="@string/activate_logs"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/deactivate_logs"
+        android:title="@string/deactivate_logs"
+        app:showAsAction="never" />
 </menu>

@@ -10,11 +10,15 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
+import uniffi.xmtpv3.FfiLogLevel
+import uniffi.xmtpv3.FfiLogRotation
 import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
 import uniffi.xmtpv3.connectToBackend
 import uniffi.xmtpv3.createClient
+import uniffi.xmtpv3.enterDebugWriter
+import uniffi.xmtpv3.exitDebugWriter
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForIdentifier
 import uniffi.xmtpv3.getVersionInfo
@@ -71,6 +75,55 @@ class Client(
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
+
+        fun activatePersistentLibXMTPLogWriter(appContext: Context, logLevel: FfiLogLevel, rotationSchedule: FfiLogRotation, maxFiles: Int) {
+            val logDirectory = File(appContext.filesDir, "xmtp_logs")
+            if (!logDirectory.exists()) {
+                logDirectory.mkdirs()
+            }
+            enterDebugWriter(
+                logDirectory.toString(), logLevel, rotationSchedule,
+                maxFiles.toUInt()
+            )
+        }
+
+        fun deactivatePersistentLibXMTPLogWriter() {
+            exitDebugWriter()
+        }
+
+        fun getXMTPLogFilePaths(appContext: Context): List<String> {
+            val logDirectory = File(appContext.filesDir, "xmtp_logs")
+            if (!logDirectory.exists()) {
+                return emptyList()
+            }
+
+            return logDirectory.listFiles()
+                ?.filter { it.isFile }
+                ?.map { it.absolutePath }
+                ?: emptyList()
+        }
+
+        fun clearXMTPLogs(appContext: Context): Int {
+            val logDirectory = File(appContext.filesDir, "xmtp_logs")
+            if (!logDirectory.exists()) {
+                return 0
+            }
+
+            try {
+                deactivatePersistentLibXMTPLogWriter()
+            } catch (e: Exception) {
+                // Log writer might not be active, continue with deletion
+            }
+
+            var deletedCount = 0
+            logDirectory.listFiles()?.forEach { file ->
+                if (file.isFile && file.delete()) {
+                    deletedCount++
+                }
+            }
+
+            return deletedCount
+        }
 
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
             val cacheKey = api.env.getUrl()

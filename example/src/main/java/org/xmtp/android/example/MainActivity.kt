@@ -31,7 +31,11 @@ import org.xmtp.android.example.conversation.NewGroupBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
+import org.xmtp.android.library.Client
 import org.xmtp.android.library.Conversation
+import org.xmtp.android.example.logs.LogViewerBottomSheet
+import uniffi.xmtpv3.FfiLogLevel
+import uniffi.xmtpv3.FfiLogRotation
 
 
 class MainActivity : AppCompatActivity(),
@@ -43,7 +47,14 @@ class MainActivity : AppCompatActivity(),
     private lateinit var adapter: ConversationsAdapter
     private var bottomSheet: NewConversationBottomSheet? = null
     private var groupBottomSheet: NewGroupBottomSheet? = null
+    private var logsBottomSheet: LogViewerBottomSheet? = null
     private val REQUEST_CODE_POST_NOTIFICATIONS = 101
+    
+    // Add constant for SharedPreferences
+    companion object {
+        private const val PREFS_NAME = "XMTPPreferences"
+        private const val KEY_LOGS_ACTIVATED = "logs_activated"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,6 +92,10 @@ class MainActivity : AppCompatActivity(),
             openGroupDetail()
         }
 
+        binding.logsFab.setOnClickListener {
+            openLogsViewer()
+        }
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 ClientManager.clientState.collect(::ensureClientState)
@@ -98,9 +113,18 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Check if logs were previously activated and reactivate if needed
+        if (isLogsActivated()) {
+            Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
+        }
+    }
+
     override fun onDestroy() {
         bottomSheet?.dismiss()
         groupBottomSheet?.dismiss()
+        logsBottomSheet?.dismiss()
         super.onDestroy()
     }
 
@@ -117,6 +141,18 @@ class MainActivity : AppCompatActivity(),
             }
             R.id.copy_address -> {
                 copyWalletAddress()
+                true
+            }
+            R.id.activate_logs -> {
+                Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
+                setLogsActivated(true)
+                Toast.makeText(this, "Persistent logs activated", Toast.LENGTH_SHORT).show()
+                true
+            }
+            R.id.deactivate_logs -> {
+                Client.deactivatePersistentLibXMTPLogWriter()
+                setLogsActivated(false)
+                Toast.makeText(this, "Persistent logs deactivated", Toast.LENGTH_SHORT).show()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -143,6 +179,7 @@ class MainActivity : AppCompatActivity(),
                 viewModel.fetchConversations()
                 binding.fab.visibility = View.VISIBLE
                 binding.groupFab.visibility = View.VISIBLE
+                binding.logsFab.visibility = View.VISIBLE
             }
             is ClientManager.ClientState.Error -> showError(clientState.message)
             is ClientManager.ClientState.Unknown -> Unit
@@ -218,6 +255,14 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    private fun openLogsViewer() {
+        logsBottomSheet = LogViewerBottomSheet.newInstance()
+        logsBottomSheet?.show(
+            supportFragmentManager,
+            LogViewerBottomSheet.TAG
+        )
+    }
+
     private fun checkAndRequestPermissions() {
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -230,5 +275,16 @@ class MainActivity : AppCompatActivity(),
                 REQUEST_CODE_POST_NOTIFICATIONS
             )
         }
+    }
+
+    // Add helper methods to manage log activation state
+    private fun isLogsActivated(): Boolean {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_LOGS_ACTIVATED, false)
+    }
+    
+    private fun setLogsActivated(activated: Boolean) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_LOGS_ACTIVATED, activated).apply()
     }
 }

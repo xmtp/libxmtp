@@ -1139,6 +1139,12 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1165,6 +1171,12 @@ fun uniffi_xmtpv3_checksum_func_decode_reaction(
 fun uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_reaction(
+): Short
+fun uniffi_xmtpv3_checksum_func_enter_debug_writer(
+): Short
+fun uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level(
+): Short
+fun uniffi_xmtpv3_checksum_func_exit_debug_writer(
 ): Short
 fun uniffi_xmtpv3_checksum_func_generate_inbox_id(
 ): Short
@@ -1792,6 +1804,12 @@ fun uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(`ffiMultiRemoteAttachme
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_reaction(`reaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_enter_debug_writer(`directory`: RustBuffer.ByValue,`logLevel`: RustBuffer.ByValue,`rotation`: RustBuffer.ByValue,`maxFiles`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(`directory`: RustBuffer.ByValue,`rotation`: RustBuffer.ByValue,`maxFiles`: Int,`logLevel`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+fun uniffi_xmtpv3_fn_func_exit_debug_writer(uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 fun uniffi_xmtpv3_fn_func_generate_inbox_id(`accountIdentifier`: RustBuffer.ByValue,`nonce`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_get_inbox_id_for_identifier(`api`: Pointer,`accountIdentifier`: RustBuffer.ByValue,
@@ -1940,6 +1958,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_reaction() != 6548.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer() != 7266.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer_with_level() != 7232.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_exit_debug_writer() != 31716.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_generate_inbox_id() != 35602.toShort()) {
@@ -2383,8 +2410,33 @@ interface Disposable {
     fun destroy()
     companion object {
         fun destroy(vararg args: Any?) {
-            args.filterIsInstance<Disposable>()
-                .forEach(Disposable::destroy)
+            for (arg in args) {
+                when (arg) {
+                    is Disposable -> arg.destroy()
+                    is ArrayList<*> -> {
+                        for (idx in arg.indices) {
+                            val element = arg[idx]
+                            if (element is Disposable) {
+                                element.destroy()
+                            }
+                        }
+                    }
+                    is Map<*, *> -> {
+                        for (element in arg.values) {
+                            if (element is Disposable) {
+                                element.destroy()
+                            }
+                        }
+                    }
+                    is Iterable<*> -> {
+                        for (element in arg) {
+                            if (element is Disposable) {
+                                element.destroy()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -9822,6 +9874,104 @@ public object FfiConverterTypeFfiIdentifierKind: FfiConverterRustBuffer<FfiIdent
 
 
 
+/**
+ * Enum representing log levels
+ */
+
+enum class FfiLogLevel {
+    
+    /**
+     * Error level logs only
+     */
+    ERROR,
+    /**
+     * Warning level and above
+     */
+    WARN,
+    /**
+     * Info level and above
+     */
+    INFO,
+    /**
+     * Debug level and above
+     */
+    DEBUG,
+    /**
+     * Trace level and all logs
+     */
+    TRACE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiLogLevel: FfiConverterRustBuffer<FfiLogLevel> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiLogLevel.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiLogLevel) = 4UL
+
+    override fun write(value: FfiLogLevel, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Enum representing log file rotation options
+ */
+
+enum class FfiLogRotation {
+    
+    /**
+     * Rotate log files every minute
+     */
+    MINUTELY,
+    /**
+     * Rotate log files every hour
+     */
+    HOURLY,
+    /**
+     * Rotate log files every day
+     */
+    DAILY,
+    /**
+     * Never rotate log files
+     */
+    NEVER;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiLogRotation: FfiConverterRustBuffer<FfiLogRotation> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiLogRotation.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiLogRotation) = 4UL
+
+    override fun write(value: FfiLogRotation, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 enum class FfiMetadataField {
     
@@ -10159,6 +10309,12 @@ sealed class GenericException(message: String): kotlin.Exception(message) {
         
         class AddressValidation(message: String) : GenericException(message)
         
+        class LogInit(message: String) : GenericException(message)
+        
+        class ReloadLog(message: String) : GenericException(message)
+        
+        class Log(message: String) : GenericException(message)
+        
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<GenericException> {
         override fun lift(error_buf: RustBuffer.ByValue): GenericException = FfiConverterTypeGenericError.lift(error_buf)
@@ -10193,6 +10349,9 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             19 -> GenericException.ApiClientBuild(FfiConverterString.read(buf))
             20 -> GenericException.Grpc(FfiConverterString.read(buf))
             21 -> GenericException.AddressValidation(FfiConverterString.read(buf))
+            22 -> GenericException.LogInit(FfiConverterString.read(buf))
+            23 -> GenericException.ReloadLog(FfiConverterString.read(buf))
+            24 -> GenericException.Log(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
@@ -10286,6 +10445,18 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             }
             is GenericException.AddressValidation -> {
                 buf.putInt(21)
+                Unit
+            }
+            is GenericException.LogInit -> {
+                buf.putInt(22)
+                Unit
+            }
+            is GenericException.ReloadLog -> {
+                buf.putInt(23)
+                Unit
+            }
+            is GenericException.Log -> {
+                buf.putInt(24)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -11649,6 +11820,50 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
 }
     )
     }
+    
+
+        /**
+         * turns on logging to a file on-disk in the directory specified.
+         * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
+         * i.e "libxmtp.log.2025-04-02"
+         * A maximum of 'max_files' log files are kept.
+         */
+    @Throws(GenericException::class) fun `enterDebugWriter`(`directory`: kotlin.String, `logLevel`: FfiLogLevel, `rotation`: FfiLogRotation, `maxFiles`: kotlin.UInt)
+        = 
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_enter_debug_writer(
+        FfiConverterString.lower(`directory`),FfiConverterTypeFfiLogLevel.lower(`logLevel`),FfiConverterTypeFfiLogRotation.lower(`rotation`),FfiConverterUInt.lower(`maxFiles`),_status)
+}
+    
+    
+
+        /**
+         * turns on logging to a file on-disk with a specified log level.
+         * files will be prefixed with 'libxmtp.log' and suffixed with the timestamp,
+         * i.e "libxmtp.log.2025-04-02"
+         * A maximum of 'max_files' log files are kept.
+         */
+    @Throws(GenericException::class) fun `enterDebugWriterWithLevel`(`directory`: kotlin.String, `rotation`: FfiLogRotation, `maxFiles`: kotlin.UInt, `logLevel`: FfiLogLevel)
+        = 
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_enter_debug_writer_with_level(
+        FfiConverterString.lower(`directory`),FfiConverterTypeFfiLogRotation.lower(`rotation`),FfiConverterUInt.lower(`maxFiles`),FfiConverterTypeFfiLogLevel.lower(`logLevel`),_status)
+}
+    
+    
+
+        /**
+         * Flush loglines from libxmtp log writer to the file, ensuring logs are written.
+         * This should be called before the program exits, to ensure all the logs in memory have been
+         * written. this ends the writer thread.
+         */
+    @Throws(GenericException::class) fun `exitDebugWriter`()
+        = 
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_exit_debug_writer(
+        _status)
+}
+    
     
 
     @Throws(GenericException::class) fun `generateInboxId`(`accountIdentifier`: FfiIdentifier, `nonce`: kotlin.ULong): kotlin.String {

@@ -21,4 +21,12 @@
 
     <!-- Messages -->
     <string name="message_composer_hint">Type a message…</string>
+
+    <!-- Logs -->
+    <string name="view_logs">View Logs</string>
+    <string name="share_log">Share Log</string>
+    <string name="no_logs_found">No log files found</string>
+    <string name="activate_logs">Activate Persistent Logs</string>
+    <string name="deactivate_logs">Deactivate Persistent Logs</string>
+    
 </resources>

@@ -12,6 +12,8 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.FfiLogLevel
+import uniffi.xmtpv3.FfiLogRotation
 import uniffi.xmtpv3.GenericException
 import java.io.File
 import java.security.SecureRandom
@@ -891,5 +893,78 @@ class ClientTest {
 
         inboxState = alix.inboxState(true)
         assertEquals(1, inboxState.installations.size)
+    }
+
+    @Test
+    fun testPersistentLogging() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        Client.clearXMTPLogs(context)
+        val fakeWallet = PrivateKeyBuilder()
+
+        // Create a specific log directory for this test
+        val logDirectory = File(context.filesDir, "xmtp_test_logs")
+        if (logDirectory.exists()) {
+            logDirectory.deleteRecursively()
+        }
+        logDirectory.mkdirs()
+
+        try {
+            // Activate persistent logging with a small number of log files
+            Client.activatePersistentLibXMTPLogWriter(context, FfiLogLevel.TRACE, FfiLogRotation.HOURLY, 3)
+
+            // Log the actual log directory path
+            val actualLogDir = File(context.filesDir, "xmtp_logs")
+            println("Log directory path: ${actualLogDir.absolutePath}")
+
+            // Create a client
+            val client = runBlocking {
+                Client.create(
+                    account = fakeWallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = key
+                    )
+                )
+            }
+
+            // Create a group with only the client as a member
+            runBlocking {
+                client.conversations.newGroup(emptyList())
+                client.conversations.sync()
+            }
+
+            // Verify the group was created
+            val groups = runBlocking { client.conversations.listGroups() }
+            assertEquals(1, groups.size)
+
+            // Deactivate logging
+            Client.deactivatePersistentLibXMTPLogWriter()
+
+            // Print log files content to console
+            val logFiles = File(context.filesDir, "xmtp_logs").listFiles()
+            println("Found ${logFiles?.size ?: 0} log files:")
+
+            logFiles?.forEach { file ->
+                println("\n--- Log file: ${file.absolutePath} (${file.length()} bytes) ---")
+                try {
+                    val content = file.readText()
+                    // Print first 1000 chars to avoid overwhelming the console
+                    println(content.take(1000) + (if (content.length > 1000) "...(truncated)" else ""))
+                } catch (e: Exception) {
+                    println("Error reading log file: ${e.message}")
+                }
+            }
+        } finally {
+            // Make sure logging is deactivated
+            Client.deactivatePersistentLibXMTPLogWriter()
+        }
+        val logFiles = Client.getXMTPLogFilePaths(context)
+        assertEquals(logFiles.size, 1)
+        println(logFiles.get(0))
+        Client.clearXMTPLogs(context)
+        val logFiles2 = Client.getXMTPLogFilePaths(context)
+        assertEquals(logFiles2.size, 0)
     }
 }
