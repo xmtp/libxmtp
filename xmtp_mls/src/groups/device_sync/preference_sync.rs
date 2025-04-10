@@ -13,8 +13,8 @@ use xmtp_proto::{
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[repr(i32)]
 pub enum UserPreferenceUpdate {
-    ConsentUpdate(StoredConsentRecord) = 4,
-    HmacKeyUpdate { key: Vec<u8> } = 5,
+    ConsentUpdate(StoredConsentRecord) = 1,
+    HmacKeyUpdate { key: Vec<u8> } = 2,
 }
 
 impl UserPreferenceUpdate {
@@ -46,6 +46,8 @@ impl UserPreferenceUpdate {
                 Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
                 Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
             });
+        } else {
+            tracing::warn!("Worker handle not found. Sync metric not tracked.");
         }
 
         Ok(())

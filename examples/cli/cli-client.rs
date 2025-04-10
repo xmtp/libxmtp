@@ -48,7 +48,7 @@ use xmtp_db::{
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::configuration::DeviceSyncUrls;
-use xmtp_mls::groups::device_sync::OldDeviceSyncContent;
+use xmtp_mls::groups::device_sync::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::groups::GroupMetadataOptions;
@@ -490,15 +490,14 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 "Listing history sync messages"
             );
             for message in messages {
-                let message_history_content = serde_json::from_slice::<OldDeviceSyncContent>(
-                    &message.decrypted_message_bytes,
-                );
+                let message_history_content =
+                    serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes);
 
                 match message_history_content {
-                    Ok(OldDeviceSyncContent::Request(ref request)) => {
+                    Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(OldDeviceSyncContent::Payload(ref reply)) => {
+                    Ok(DeviceSyncContent::Payload(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {
