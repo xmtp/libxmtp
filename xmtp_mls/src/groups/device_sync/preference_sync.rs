@@ -59,7 +59,7 @@ impl From<UserPreferenceUpdate> for DeviceSyncUserPreferenceUpdate {
 }
 
 impl UserPreferenceUpdate {
-    pub(super) async fn sync<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(crate) async fn sync<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
     ) -> Result<(), ClientError> {
@@ -258,6 +258,8 @@ mod tests {
         amal_a
             .revoke_installations(vec![amal_b.installation_id().to_vec()])
             .await?;
+
+        amal_a.sync_device_sync(&amal_a.provider).await?;
 
         let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);

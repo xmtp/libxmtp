@@ -443,15 +443,11 @@ where
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
         if !changed_records.is_empty() {
-            let records = changed_records
+            let updates = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
-            let _ = self
-                .local_events
-                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesOutgoing(
-                    records,
-                )));
+            UserPreferenceUpdate::sync(updates, self).await?;
         }
 
         Ok(())
