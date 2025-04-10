@@ -5,12 +5,13 @@ use super::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
+    validated_commit::{CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
 use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
+use crate::groups::mls_ext::GroupIntent;
+use crate::groups::mls_ext::MlsExtensionsExt;
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::{
@@ -28,18 +29,10 @@ use crate::{
     subscriptions::{LocalEvents, SyncMessage},
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use xmtp_db::{
-    db_connection::DbConnection,
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-    Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+use crate::{
+    groups::mls_ext::MlsGroupExt,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
-use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
-
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -70,6 +63,16 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{
+    db_connection::DbConnection,
+    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -178,11 +181,11 @@ impl RetryableError for GroupMessageProcessingError {
 }
 
 #[derive(Debug)]
-struct PublishIntentData {
-    staged_commit: Option<Vec<u8>>,
-    post_commit_action: Option<Vec<u8>>,
-    payload_to_publish: Vec<u8>,
-    should_send_push_notification: bool,
+pub(super) struct PublishIntentData {
+    pub(super) staged_commit: Option<Vec<u8>>,
+    pub(super) post_commit_action: Option<Vec<u8>>,
+    pub(super) payload_to_publish: Vec<u8>,
+    pub(super) should_send_push_notification: bool,
 }
 
 impl<ScopedClient> MlsGroup<ScopedClient>
@@ -1535,17 +1538,15 @@ where
     ) -> Result<Option<PublishIntentData>, GroupError> {
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
-                let intent_data =
-                    UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
-                let signer = &self.context().identity.installation_keys;
-                apply_update_group_membership_intent(
-                    self.client.as_ref(),
-                    provider,
-                    openmls_group,
-                    intent_data,
-                    signer,
-                )
-                .await
+                let intent = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
+                intent
+                    .publish_data(
+                        provider,
+                        self.client.as_ref(),
+                        &self.context(),
+                        openmls_group,
+                    )
+                    .await
             }
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
@@ -1758,7 +1759,7 @@ where
         inbox_ids_to_remove: &[InboxIdRef<'_>],
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         self.load_mls_group_with_lock_async(provider, |mls_group| async move {
-            let existing_group_membership = extract_group_membership(mls_group.extensions())?;
+            let existing_group_membership = mls_group.extensions().group_membership()?;
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
@@ -1801,7 +1802,7 @@ where
                         Ok(updates)
                     })?;
             let extensions: Extensions = mls_group.extensions().clone();
-            let old_group_membership = extract_group_membership(&extensions)?;
+            let old_group_membership = extensions.group_membership()?;
             let mut new_membership = old_group_membership.clone();
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
                 new_membership.add(inbox_id.clone(), *sequence_id);
@@ -1994,7 +1995,7 @@ fn extract_message_sender(
     })
 }
 
-async fn calculate_membership_changes_with_keypackages<'a>(
+pub(super) async fn calculate_membership_changes_with_keypackages<'a>(
     client: impl ScopedGroupClient,
     provider: &'a XmtpOpenMlsProvider,
     new_group_membership: &'a GroupMembership,
@@ -2063,6 +2064,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
         failed_installations,
     ))
 }
+
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
 async fn get_keypackages_for_installation_ids(
@@ -2127,7 +2129,7 @@ async fn apply_update_group_membership_intent(
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions: Extensions = openmls_group.extensions().clone();
-    let old_group_membership = extract_group_membership(&extensions)?;
+    let old_group_membership = extensions.group_membership()?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
@@ -2139,7 +2141,7 @@ async fn apply_update_group_membership_intent(
     )
     .await?;
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
-        get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
+        openmls_group.removed_leaf_nodes(&changes_with_kps.removed_installations);
 
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
@@ -2179,17 +2181,6 @@ async fn apply_update_group_membership_intent(
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
     }))
-}
-
-fn get_removed_leaf_nodes(
-    openmls_group: &mut OpenMlsGroup,
-    removed_installations: &HashSet<Vec<u8>>,
-) -> Vec<LeafNodeIndex> {
-    openmls_group
-        .members()
-        .filter(|member| removed_installations.contains(&member.signature_key))
-        .map(|member| member.index)
-        .collect()
 }
 
 fn get_and_clear_pending_commit(
