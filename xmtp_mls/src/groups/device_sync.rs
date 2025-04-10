@@ -41,7 +41,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
 };
-use xmtp_proto::ConversionError;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::device_sync::{BackupElementSelection, BackupOptions},
@@ -191,59 +190,75 @@ where
         );
 
         for (msg, content) in messages.iter_with_content() {
-            let Some(content) = content.content else {
-                continue;
+            if let Some(content) = content.content {
+                if let Err(err) = self.process_message(provider, handle, &msg, content).await {
+                    tracing::error!("Message processing error: {err:?}");
+                };
             };
-            let is_external = msg.sender_installation_id != installation_id;
-            match content {
-                device_sync_content::Content::Request(request) => {
-                    if msg.sender_installation_id == self.installation_id() {
-                        // Ignore our own messages
-                        continue;
-                    }
-
-                    self.send_sync_payload(
-                        Some(request),
-                        || async { self.acknowledge_sync_request(provider).await },
-                        handle,
-                    )
-                    .await?;
-                }
-                device_sync_content::Content::Payload(payload) => {
-                    if msg.sender_installation_id == self.installation_id() {
-                        // Ignore our own messages
-                        continue;
-                    }
-
-                    self.process_sync_payload(payload).await?;
-                    handle.increment_metric(SyncMetric::PayloadProcessed);
-                }
-                device_sync_content::Content::PreferenceUpdates(DeviceSyncPreferenceUpdates {
-                    updates,
-                }) => {
-                    if is_external {
-                        tracing::info!("Incoming preference updates: {updates:?}");
-                    }
-
-                    // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-
-                    let updates: Vec<UserPreferenceUpdate> = try_map_vec(updates)?;
-                    for update in updates.clone() {
-                        update.store(provider, handle)?;
-                    }
-
-                    let _ = self.local_events.send(LocalEvents::SyncEvent(
-                        SyncEvent::PreferencesChanged(updates),
-                    ));
-                }
-                device_sync_content::Content::Acknowledge(_) => {
-                    continue;
-                }
-            }
 
             // Move the cursor
             cursor.offset = msg.sent_at_ns;
             StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
+        }
+
+        Ok(())
+    }
+
+    async fn process_message(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        handle: &WorkerHandle<SyncMetric>,
+        msg: &StoredGroupMessage,
+        content: device_sync_content::Content,
+    ) -> Result<(), DeviceSyncError> {
+        let installation_id = self.installation_id();
+        let is_external = msg.sender_installation_id != installation_id;
+        match content {
+            device_sync_content::Content::Request(request) => {
+                if msg.sender_installation_id == self.installation_id() {
+                    // Ignore our own messages
+                    return Ok(());
+                }
+
+                self.send_sync_payload(
+                    Some(request),
+                    || async { self.acknowledge_sync_request(provider).await },
+                    handle,
+                )
+                .await?;
+            }
+            device_sync_content::Content::Payload(payload) => {
+                if msg.sender_installation_id == self.installation_id() {
+                    // Ignore our own messages
+                    return Ok(());
+                }
+
+                self.process_sync_payload(payload).await?;
+                handle.increment_metric(SyncMetric::PayloadProcessed);
+            }
+            device_sync_content::Content::PreferenceUpdates(DeviceSyncPreferenceUpdates {
+                updates,
+            }) => {
+                if is_external {
+                    tracing::info!("Incoming preference updates: {updates:?}");
+                }
+
+                // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
+
+                let updates: Vec<UserPreferenceUpdate> = try_map_vec(updates)?;
+                for update in updates.clone() {
+                    update.store(provider, handle)?;
+                }
+
+                let _ =
+                    self.local_events
+                        .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
+                            updates,
+                        )));
+            }
+            device_sync_content::Content::Acknowledge(_) => {
+                return Ok(());
+            }
         }
 
         Ok(())
