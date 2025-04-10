@@ -7,14 +7,7 @@ use xmtp_db::{
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
-    xmtp::{
-        device_sync::sync_content::{
-            device_sync_user_preference_update::Update, DeviceSyncHmacKeyUpdate,
-            DeviceSyncUserPreferenceUpdate,
-        },
-        mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
-    },
-    ConversionError,
+    xmtp::mls::message_contents::UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -22,40 +15,6 @@ use xmtp_proto::{
 pub enum UserPreferenceUpdate {
     ConsentUpdate(StoredConsentRecord) = 4,
     HmacKeyUpdate { key: Vec<u8> } = 5,
-}
-
-impl TryFrom<DeviceSyncUserPreferenceUpdate> for UserPreferenceUpdate {
-    type Error = ConversionError;
-    fn try_from(value: DeviceSyncUserPreferenceUpdate) -> Result<Self, Self::Error> {
-        let Some(update) = value.update else {
-            return Err(ConversionError::Missing {
-                item: "update",
-                r#type: "Update",
-            });
-        };
-        let update = match update {
-            Update::ConsentUpdate(consent_save) => {
-                UserPreferenceUpdate::ConsentUpdate(consent_save.try_into()?)
-            }
-            Update::HmacKeyUpdate(key_update) => UserPreferenceUpdate::HmacKeyUpdate {
-                key: key_update.key,
-            },
-        };
-        Ok(update)
-    }
-}
-
-impl From<UserPreferenceUpdate> for DeviceSyncUserPreferenceUpdate {
-    fn from(value: UserPreferenceUpdate) -> Self {
-        match value {
-            UserPreferenceUpdate::ConsentUpdate(consent) => Self {
-                update: Some(Update::ConsentUpdate(consent.into())),
-            },
-            UserPreferenceUpdate::HmacKeyUpdate { key } => Self {
-                update: Some(Update::HmacKeyUpdate(DeviceSyncHmacKeyUpdate { key })),
-            },
-        }
-    }
 }
 
 impl UserPreferenceUpdate {
