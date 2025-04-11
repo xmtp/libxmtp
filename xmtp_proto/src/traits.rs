@@ -167,6 +167,8 @@ pub enum ApiClientError<E: std::error::Error> {
     ProtoError(#[from] ProtoError),
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
+    #[error("{0}")]
+    Other(Box<dyn RetryableError + Send + Sync>),
 }
 
 impl<E> RetryableError for ApiClientError<E>
@@ -184,6 +186,7 @@ where
             Conversion(_) => false,
             ProtoError(_) => false,
             InvalidUri(_) => false,
+            Other(r) => retryable!(r),
         }
     }
 }

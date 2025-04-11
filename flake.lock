@@ -2,11 +2,11 @@
   "nodes": {
     "crane": {
       "locked": {
-        "lastModified": 1743649204,
-        "narHash": "sha256-uourC72krB5YdGzpHaXOUBXaORkcabPNF+H7sMvZKsw=",
+        "lastModified": 1743908961,
+        "narHash": "sha256-e1idZdpnnHWuosI3KsBgAgrhMR05T2oqskXCmNzGPq0=",
         "owner": "ipetkov",
         "repo": "crane",
-        "rev": "8b9ee4e59a737b1dbefbd398caae8595ecffcf6a",
+        "rev": "80ceeec0dc94ef967c371dcdc56adb280328f591",
         "type": "github"
       },
       "original": {
@@ -23,11 +23,11 @@
         "rust-analyzer-src": "rust-analyzer-src"
       },
       "locked": {
-        "lastModified": 1742452566,
-        "narHash": "sha256-sVuLDQ2UIWfXUBbctzrZrXM2X05YjX08K7XHMztt36E=",
+        "lastModified": 1744231114,
+        "narHash": "sha256-60gLl2rJFt6SRwqWimsTAeHgfsIE1iV0zChdJFOvx8w=",
         "owner": "nix-community",
         "repo": "fenix",
-        "rev": "7d9ba794daf5e8cc7ee728859bc688d8e26d5f06",
+        "rev": "0ccfe532b1433da8e5a23cd513ff6847e0f6a8c2",
         "type": "github"
       },
       "original": {
@@ -135,11 +135,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1743568003,
-        "narHash": "sha256-ZID5T65E8ruHqWRcdvZLsczWDOAWIE7om+vQOREwiX0=",
+        "lastModified": 1744157173,
+        "narHash": "sha256-bWSjxDwq7iVePrhmA7tY2dyMWHuNJo8knkO4y+q4ZkY=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b7ba7f9f45c5cd0d8625e9e217c28f8eb6a19a76",
+        "rev": "6a39c6e495eefabc935d8ddf66aa45d85b85fa3f",
         "type": "github"
       },
       "original": {
@@ -157,6 +157,7 @@
         "foundry": "foundry",
         "mkshell-util": "mkshell-util",
         "nixpkgs": "nixpkgs_2",
+        "rust-manifest": "rust-manifest",
         "systems": "systems"
       }
     },
@@ -175,6 +176,18 @@
         "ref": "nightly",
         "repo": "rust-analyzer",
         "type": "github"
+      }
+    },
+    "rust-manifest": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-MnExpHCcKv4vc2gwfNF7RAv6WPf11ingHvlw5o08wyE=",
+        "type": "file",
+        "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml"
+      },
+      "original": {
+        "type": "file",
+        "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml"
       }
     },
     "systems": {
