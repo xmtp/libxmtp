@@ -12,6 +12,7 @@ use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPack
 use crate::groups::mls_ext::MlsExtensionsExt;
 use crate::groups::mls_ext::MlsGroupExt;
 use crate::groups::mls_ext::PublishIntentData;
+use crate::groups::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
@@ -35,6 +36,8 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use openmls::framing::WireFormat;
 use openmls::group::ValidationError;
+use openmls::prelude::BasicCredentialError;
+use openmls::prelude::ProcessMessageError;
 use openmls::{
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
@@ -57,6 +60,7 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::group::ConversationType;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{
     db_connection::DbConnection,
@@ -65,7 +69,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+    Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
 };
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::InboxIdRef;
