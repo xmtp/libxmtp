@@ -4666,7 +4666,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_1, 30);
+        assert_eq!(num_groups_synced_1, 31);
 
         // Remove bo from all groups and sync
         for group in alix
