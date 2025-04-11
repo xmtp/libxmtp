@@ -1,0 +1,10 @@
+[profile.default]
+default-filter = "all()"
+retries = 0
+
+[profile.ci]
+default-filter = "all()"
+retries = 0
+status-level = "skip"
+failure-output = "immediate-final"
+fail-fast = false
