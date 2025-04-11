@@ -1,4 +1,5 @@
 use crate::groups::{mls_ext::GroupIntent, mls_ext::PublishIntentData};
+use openmls::{group::MlsGroup, prelude::Extensions};
 use prost::Message;
 use tls_codec::Serialize;
 
@@ -46,7 +47,7 @@ impl GroupIntent for SendMessageIntentData {
         self: Box<Self>,
         provider: &xmtp_db::XmtpOpenMlsProvider,
         context: &crate::client::XmtpMlsLocalContext,
-        group: &mut openmls::prelude::MlsGroup,
+        group: &mut MlsGroup,
         should_push: bool,
     ) -> Result<Option<PublishIntentData>, crate::groups::GroupError> {
         let msg = group.create_message(
@@ -62,10 +63,29 @@ impl GroupIntent for SendMessageIntentData {
             .map_err(GroupError::from)
             .map(Option::Some)
     }
+
+    fn build_extensions(&self, _group: &MlsGroup) -> Result<Extensions, GroupError> {
+        Ok(Extensions::empty())
+    }
 }
 
 impl From<SendMessageIntentData> for Vec<u8> {
     fn from(intent: SendMessageIntentData) -> Self {
         intent.to_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn test_serialize_send_message() {
+        let message = vec![1, 2, 3];
+        let intent = SendMessageIntentData::new(message.clone());
+        let as_bytes: Vec<u8> = intent.into();
+        let restored_intent = SendMessageIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+
+        assert_eq!(restored_intent.message, message);
     }
 }

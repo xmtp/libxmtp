@@ -1,9 +1,13 @@
-use crate::groups::{build_extensions_for_admin_lists_update, mls_ext::GroupIntent};
+use crate::configuration::MUTABLE_METADATA_EXTENSION_ID;
+use crate::groups::group_mutable_metadata::GroupMutableMetadata;
+use crate::groups::mls_ext::GroupIntent;
 
 use super::IntentError;
 use crate::groups::mls_ext::MlsGroupExt;
 use crate::groups::mls_ext::PublishIntentData;
 use crate::GroupError;
+use openmls::group::MlsGroup;
+use openmls::prelude::{Extension, Extensions, UnknownExtension};
 use prost::{bytes::Bytes, Message};
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
@@ -95,10 +99,10 @@ impl GroupIntent for UpdateAdminListIntentData {
         self: Box<Self>,
         provider: &xmtp_db::XmtpOpenMlsProvider,
         context: &crate::client::XmtpMlsLocalContext,
-        group: &mut openmls::prelude::MlsGroup,
+        group: &mut MlsGroup,
         should_push: bool,
     ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
-        let mutable_metadata_extensions = build_extensions_for_admin_lists_update(group, *self)?;
+        let mutable_metadata_extensions = self.build_extensions(group)?;
 
         let (commit, _, _) = group.update_group_context_extensions(
             provider,
@@ -114,5 +118,33 @@ impl GroupIntent for UpdateAdminListIntentData {
             .build()
             .map_err(GroupError::from)
             .map(Option::Some)
+    }
+
+    fn build_extensions(&self, group: &MlsGroup) -> Result<Extensions, GroupError> {
+        let existing_metadata: GroupMutableMetadata = group.try_into()?;
+        let attributes = existing_metadata.attributes.clone();
+        let mut admin_list = existing_metadata.admin_list;
+        let mut super_admin_list = existing_metadata.super_admin_list;
+        match self.action_type {
+            AdminListActionType::Add => {
+                if !admin_list.contains(&self.inbox_id) {
+                    admin_list.push(self.inbox_id.clone());
+                }
+            }
+            AdminListActionType::Remove => admin_list.retain(|x| x != &self.inbox_id),
+            AdminListActionType::AddSuper => {
+                if !super_admin_list.contains(&self.inbox_id) {
+                    super_admin_list.push(self.inbox_id.clone());
+                }
+            }
+            AdminListActionType::RemoveSuper => super_admin_list.retain(|x| x != &self.inbox_id),
+        }
+        let new_mutable_metadata: Vec<u8> =
+            GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
+        let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+        let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+        let mut extensions = group.extensions().clone();
+        extensions.add_or_replace(extension);
+        Ok(extensions)
     }
 }

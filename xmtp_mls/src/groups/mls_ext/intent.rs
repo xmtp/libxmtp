@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use openmls::group::MlsGroup;
+use openmls::prelude::Extensions;
 use xmtp_db::{group_intent::IntentKind, XmtpOpenMlsProvider};
-use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 
 pub async fn parse_intent(
     kind: &IntentKind,
@@ -76,8 +76,10 @@ pub trait GroupIntent {
         group: &mut MlsGroup,
         should_push: bool,
     ) -> Result<Option<PublishIntentData>, GroupError>;
-}
 
+    fn build_extensions(&self, group: &MlsGroup) -> Result<Extensions, GroupError>;
+}
+/*
 /// A Generic Message
 pub trait Message {
     fn is_commit(&self) -> bool;
@@ -86,3 +88,4 @@ pub trait Message {
     /// Prepare the message to be sent
     fn prepare(self) -> Result<GroupMessageInput, GroupError>;
 }
+*/

@@ -1,12 +1,15 @@
+use openmls::group::MlsGroup;
+use openmls::prelude::Extension;
+use openmls::prelude::Extensions;
+use openmls::prelude::UnknownExtension;
 use prost::{bytes::Bytes, Message};
 
 use super::IntentError;
+use crate::configuration::MUTABLE_METADATA_EXTENSION_ID;
+use crate::groups::group_mutable_metadata::GroupMutableMetadata;
 use crate::groups::mls_ext::MlsGroupExt;
 use crate::groups::mls_ext::PublishIntentData;
-use crate::groups::{
-    build_extensions_for_metadata_update, group_mutable_metadata::MetadataField,
-    mls_ext::GroupIntent,
-};
+use crate::groups::{group_mutable_metadata::MetadataField, mls_ext::GroupIntent};
 use crate::GroupError;
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
@@ -116,8 +119,7 @@ impl GroupIntent for UpdateMetadataIntentData {
         group: &mut openmls::prelude::MlsGroup,
         should_push: bool,
     ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
-        let mutable_metadata_extensions =
-            build_extensions_for_metadata_update(group, self.field_name, self.field_value)?;
+        let mutable_metadata_extensions = self.build_extensions(group)?;
 
         let (commit, _, _) = group.update_group_context_extensions(
             &provider,
@@ -134,5 +136,37 @@ impl GroupIntent for UpdateMetadataIntentData {
             .build()
             .map_err(GroupError::from)
             .map(Option::Some)
+    }
+
+    fn build_extensions(&self, group: &MlsGroup) -> Result<Extensions, GroupError> {
+        let existing_metadata: GroupMutableMetadata = group.try_into()?;
+        let mut attributes = existing_metadata.attributes.clone();
+        attributes.insert(self.field_name.clone(), self.field_value.clone());
+        let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+            attributes,
+            existing_metadata.admin_list,
+            existing_metadata.super_admin_list,
+        )
+        .try_into()?;
+        let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+        let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+        let mut extensions = group.extensions().clone();
+        extensions.add_or_replace(extension);
+        Ok(extensions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    async fn test_serialize_update_metadata() {
+        let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
+        let as_bytes: Vec<u8> = intent.clone().into();
+        let restored_intent: UpdateMetadataIntentData =
+            UpdateMetadataIntentData::try_from(as_bytes).unwrap();
+
+        assert_eq!(intent.field_value, restored_intent.field_value);
     }
 }
