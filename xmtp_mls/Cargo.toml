@@ -54,6 +54,7 @@ async-compression.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
+derive_builder.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true

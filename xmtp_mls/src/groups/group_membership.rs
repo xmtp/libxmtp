@@ -119,7 +119,7 @@ pub struct MembershipDiff<'inbox_id> {
     pub updated_inboxes: Vec<&'inbox_id String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MembershipDiffWithKeyPackages {
     pub new_installations: Vec<Installation>,
     pub new_key_packages: Vec<KeyPackage>,

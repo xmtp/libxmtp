@@ -1,12 +1,18 @@
 use prost::{bytes::Bytes, Message};
 
 use super::IntentError;
+use crate::groups::mls_ext::MlsGroupExt;
+use crate::groups::mls_ext::PublishIntentData;
+use crate::groups::{
+    build_extensions_for_metadata_update, group_mutable_metadata::MetadataField,
+    mls_ext::GroupIntent,
+};
+use crate::GroupError;
+use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     UpdateMetadataData,
 };
-
-use crate::groups::group_mutable_metadata::MetadataField;
 
 #[derive(Debug, Clone)]
 pub struct UpdateMetadataIntentData {
@@ -97,5 +103,36 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
         };
 
         Ok(Self::new(field_name, field_value))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl GroupIntent for UpdateMetadataIntentData {
+    async fn publish_data(
+        self: Box<Self>,
+        provider: &xmtp_db::XmtpOpenMlsProvider,
+        context: &crate::client::XmtpMlsLocalContext,
+        group: &mut openmls::prelude::MlsGroup,
+        should_push: bool,
+    ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
+        let mutable_metadata_extensions =
+            build_extensions_for_metadata_update(group, self.field_name, self.field_value)?;
+
+        let (commit, _, _) = group.update_group_context_extensions(
+            &provider,
+            mutable_metadata_extensions,
+            &context.identity.installation_keys,
+        )?;
+
+        let commit_bytes = commit.tls_serialize_detached()?;
+
+        PublishIntentData::builder()
+            .payload(commit_bytes)
+            .staged_commit(group.get_and_clear_pending_commit(provider)?)
+            .should_push(should_push)
+            .build()
+            .map_err(GroupError::from)
+            .map(Option::Some)
     }
 }

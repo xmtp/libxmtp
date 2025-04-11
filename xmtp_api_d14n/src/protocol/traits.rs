@@ -109,6 +109,7 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
+    /// Visit an Identity Updates Request
     fn visit_identity_updates_request(
         &mut self,
         _u: &get_identity_updates_request::Request,
