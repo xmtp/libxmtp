@@ -27,7 +27,6 @@ use self::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::extract_group_membership,
 };
 use self::{
     group_metadata::{GroupMetadata, GroupMetadataError},
@@ -38,7 +37,7 @@ use self::{
 use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
-use crate::groups::intents::UpdateGroupMembershipResult;
+use crate::groups::mls_ext::MlsExtensionsExt;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -55,8 +54,8 @@ use crate::{
     utils::id::calculate_message_id,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
-use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
+use intents::{MembershipIntentData, SendMessageIntentData};
+use mls_ext::{DecryptedWelcome, GroupExtError};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -224,6 +223,8 @@ pub enum GroupError {
     TooManyCharacters { length: usize },
     #[error("Group is paused until version {0} is available")]
     GroupPausedUntilUpdate(String),
+    #[error(transparent)]
+    GroupExtError(#[from] GroupExtError),
 }
 
 impl RetryableError for GroupError {
@@ -232,6 +233,7 @@ impl RetryableError for GroupError {
             Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
+            Self::GroupExtError(g) => g.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Hpke(hpke) => hpke.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
@@ -996,7 +998,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members(
         &self,
         account_identifiers: &[Identifier],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         // Fetch the associated inbox_ids
         let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<Identifier, String> = self
@@ -1039,7 +1041,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members_by_inbox_id<S: AsRef<str>>(
         &self,
         inbox_ids: &[S],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         let provider = self.client.mls_provider()?;
         self.add_members_by_inbox_id_with_provider(&provider, inbox_ids)
             .await
@@ -1050,21 +1052,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         self.ensure_not_paused().await?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
             .await?;
 
-        // TODO:nm this isn't the best test for whether the request is valid
-        // If some existing group member has an update, this will return an intent with changes
-        // when we really should return an error
-        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
-
+        let add_result = intent_data.data.clone();
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return ok_result;
+            return Ok(add_result);
         }
 
         let intent = self.queue_intent(
@@ -1075,7 +1073,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         self.sync_until_intent_resolved(provider, intent.id).await?;
-        ok_result
+        Ok(add_result)
     }
 
     /// Removes members from the group by their account addresses.
@@ -1950,7 +1948,7 @@ async fn validate_initial_group_membership(
 ) -> Result<(), GroupError> {
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
-    let membership = extract_group_membership(extensions)?;
+    let membership = extensions.group_membership()?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
