@@ -44,14 +44,6 @@ jobs:
         uses: actions/checkout@v4
       - name: Update rust toolchains
         run: rustup update
-      - name: Setup Kotlin
-        run: |
-          sudo apt update -q
-          sudo apt install -y openjdk-11-jdk
-          sudo snap install --classic kotlin
-          cd bindings_ffi
-          make install-jar
-          echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Cache
@@ -71,3 +63,7 @@ jobs:
         run: cargo nextest --profile ci run --workspace --test-threads 2 --exclude bindings_node --exclude bindings_wasm --all-features
       - name: test workspace with http
         run: cargo nextest run --profile ci --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
+      - name: test generated bindings
+        run: nix develop .#kotlin --command cargo nextest run -E 'package(xmtpv3)' --workspace --exclude bindings_wasm bindings_node
+      - name: test workspace with webassembly
+        run: ./dev/ci/wasm

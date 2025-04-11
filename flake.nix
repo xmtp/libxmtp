@@ -17,6 +17,7 @@
       url = "https://static.rust-lang.org/dist/channel-rust-stable.toml";
       flake = false;
     };
+    mvn2nix.url = "github:fzakaria/mvn2nix";
   };
 
   nixConfig = {
@@ -24,7 +25,7 @@
     extra-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, ... }:
+  outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, mvn2nix, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       perSystem = { pkgs, system, inputs', ... }:
@@ -35,7 +36,7 @@
           pkgConfig = {
             inherit system;
             # Rust Overlay
-            overlays = [ fenix.overlays.default foundry.overlay ];
+            overlays = [ fenix.overlays.default foundry.overlay mvn2nix.overlay ];
             config = {
               android_sdk.accept_license = true;
               allowUnfree = true;
@@ -60,6 +61,7 @@
             # Shell for iOS builds
             ios = callPackage pkgs ./nix/ios.nix { inherit mkToolchain; };
             js = callPackage pkgs ./nix/js.nix { };
+            kotlin = callPackage pkgs ./nix/kotlin.nix { };
             # the environment bindings_wasm is built in
             wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
           };
