@@ -704,7 +704,11 @@ fn store_key_package_references(
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
     post_quantum_keypair: &HpkeKeyPair,
 ) -> Result<(), IdentityError> {
+    // For dumb legacy reasons that are probably my fault, we keep the key package references
+    // keyed by the TLS serialized public init key instead of the slice version.
     let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
+    let post_quantum_public_key = post_quantum_keypair.public.tls_serialize_detached()?;
+    let post_quantum_private_key = post_quantum_keypair.private.tls_serialize_detached()?;
 
     let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
 
@@ -719,16 +723,14 @@ fn store_key_package_references(
     // Write the post quantum wrapper encryption public key to the key package references
     storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
         KEY_PACKAGE_REFERENCES,
-        &post_quantum_keypair.public,
+        &post_quantum_public_key,
         &hash_ref,
     )?;
-
-    let private_key_bytes: Vec<u8> = post_quantum_keypair.private.tls_serialize_detached()?;
 
     storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
         KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
         &hash_ref,
-        &private_key_bytes,
+        &post_quantum_private_key,
     )?;
 
     Ok(())
@@ -739,4 +741,20 @@ fn get_post_quantum_public_key_from_extensions(kp: &KeyPackage) -> Result<Vec<u8
         .unknown(POST_QUANTUM_PUBLIC_KEY_EXTENSION_ID)
         .map(|ext| ext.0.clone())
         .ok_or(IdentityError::MissingPostQuantumPublicKey)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_key_package_hash_ref() {
+        let post_quantum_key = generate_post_quantum_key().unwrap();
+        let hpke_public_key = post_quantum_key.public;
+
+        assert_eq!(
+            hpke_public_key.clone(),
+            hpke_public_key.tls_serialize_detached().unwrap()
+        )
+    }
 }

@@ -5,7 +5,6 @@ pub mod builder;
 pub mod client;
 pub mod configuration;
 pub mod groups;
-mod hpke;
 pub mod identity;
 pub mod identity_updates;
 mod intents;
