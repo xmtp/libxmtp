@@ -2,7 +2,8 @@
 # see https://diesel.rs/guides/configuring-diesel-cli
 
 [print_schema]
-file = "src/storage/encrypted_store/schema_gen.rs"
+file = "src/encrypted_store/schema_gen.rs"
+patch_file = "schema.patch"
 
 [migrations_directory]
 dir = "migrations"
