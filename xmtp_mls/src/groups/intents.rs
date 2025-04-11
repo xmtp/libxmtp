@@ -15,7 +15,9 @@ use xmtp_proto::xmtp::mls::database::{
     InstallationIds, PostCommitAction as PostCommitActionProto,
 };
 
-use super::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
+use super::{
+    scoped_client::ScopedGroupClient, validated_commit::CommitValidationError, GroupError, MlsGroup,
+};
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -67,6 +69,12 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
+    #[error("failed to verify installations")]
+    FailedToVerifyInstallations,
+    #[error(transparent)]
+    Commit(#[from] CommitValidationError),
+    #[error("required fields missing {0}")]
+    Builder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
@@ -322,14 +330,14 @@ pub(crate) mod tests {
         let mut membership_updates = HashMap::new();
         membership_updates.insert("foo".to_string(), 123);
 
-        let intent = UpdateGroupMembershipIntentData::new(
+        let intent = UpdateGroupMembershipIntent::new(
             membership_updates,
             vec!["bar".to_string()],
             vec![vec![1, 2, 3]],
         );
 
         let as_bytes: Vec<u8> = intent.clone().into();
-        let restored_intent: UpdateGroupMembershipIntentData = as_bytes.try_into().unwrap();
+        let restored_intent: UpdateGroupMembershipIntent = as_bytes.try_into().unwrap();
 
         assert_eq!(
             intent.membership_updates,

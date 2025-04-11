@@ -1,8 +1,9 @@
+use crate::groups::{mls_ext::GroupIntent, mls_ext::PublishIntentData};
 use prost::Message;
-
-use crate::groups::{mls_ext::GroupIntent, mls_sync::PublishIntentData};
+use tls_codec::Serialize;
 
 use super::IntentError;
+use crate::GroupError;
 use xmtp_proto::xmtp::mls::database::{
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
     SendMessageData,
@@ -38,26 +39,28 @@ impl SendMessageIntentData {
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl GroupIntent for SendMessageIntentData {
     async fn publish_data(
-        &self,
+        self: Box<Self>,
         provider: &xmtp_db::XmtpOpenMlsProvider,
-        client: impl crate::groups::scoped_client::ScopedGroupClient,
         context: &crate::client::XmtpMlsLocalContext,
         group: &mut openmls::prelude::MlsGroup,
-    ) -> Result<Option<crate::groups::mls_sync::PublishIntentData>, crate::groups::GroupError> {
+        should_push: bool,
+    ) -> Result<Option<PublishIntentData>, crate::groups::GroupError> {
         let msg = group.create_message(
             provider,
-            context.identity.installation_keys,
+            &context.identity.installation_keys,
             self.message.as_slice(),
         )?;
 
-        Ok(Some(PublishIntentData {
-            payload_to_publish: msg.tls_serialize_detached()?,
-            post_commit_action: None,
-            staged_commit: None,
-            should_send_push_notification: intent.should_push,
-        }))
+        PublishIntentData::builder()
+            .payload(msg.tls_serialize_detached()?)
+            .should_push(should_push)
+            .build()
+            .map_err(GroupError::from)
+            .map(Option::Some)
     }
 }
 
