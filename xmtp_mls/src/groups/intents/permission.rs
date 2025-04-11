@@ -1,12 +1,18 @@
+use crate::groups::mls_ext::MlsGroupExt;
+use crate::groups::mls_ext::PublishIntentData;
 use prost::{bytes::Bytes, Message};
-
+use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
     UpdatePermissionData,
 };
 
 use super::IntentError;
-use crate::groups::group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies};
+use crate::groups::{
+    build_extensions_for_permissions_update,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    mls_ext::GroupIntent,
+};
 
 #[repr(i32)]
 #[derive(Debug, Clone, PartialEq)]
@@ -155,5 +161,32 @@ impl TryFrom<Vec<u8>> for UpdatePermissionIntentData {
         let update_type: PermissionUpdateType = permission_update_type.try_into()?;
         let policy_option: PermissionPolicyOption = permission_policy_option.try_into()?;
         Ok(Self::new(update_type, policy_option, metadata_field_name))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl GroupIntent for UpdatePermissionIntentData {
+    async fn publish_data(
+        self,
+        provider: &xmtp_db::XmtpOpenMlsProvider,
+        context: &crate::client::XmtpMlsLocalContext,
+        group: &mut openmls::prelude::MlsGroup,
+        should_push: bool,
+    ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
+        let group_permissions_extensions = build_extensions_for_permissions_update(group, self)?;
+        let (commit, _, _) = group.update_group_context_extensions(
+            provider,
+            group_permissions_extensions,
+            &context.identity.installation_keys,
+        )?;
+        let commit_bytes = commit.tls_serialize_detached()?;
+
+        Ok(Some(PublishIntentData {
+            payload_to_publish: commit_bytes,
+            staged_commit: group.get_and_clear_pending_commit(provider)?,
+            post_commit_action: None,
+            should_send_push_notification: should_push,
+        }))
     }
 }
