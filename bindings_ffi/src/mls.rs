@@ -38,7 +38,7 @@ use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, Back
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
+use xmtp_mls::groups::intents::MembershipIntentData;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions, HmacKey};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -1611,8 +1611,8 @@ impl FfiUpdateGroupMembershipResult {
     }
 }
 
-impl From<UpdateGroupMembershipResult> for FfiUpdateGroupMembershipResult {
-    fn from(value: UpdateGroupMembershipResult) -> Self {
+impl From<MembershipIntentData> for FfiUpdateGroupMembershipResult {
+    fn from(value: MembershipIntentData) -> Self {
         FfiUpdateGroupMembershipResult::new(
             value.added_members,
             value.removed_members,

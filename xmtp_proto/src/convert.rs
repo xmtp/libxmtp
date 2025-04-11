@@ -287,19 +287,19 @@ impl TryFrom<OriginatorEnvelope> for WelcomeMessage {
 impl AuthenticatedData {
     pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
-            target_originator: None,
             target_topic: topic,
             depends_on: None,
             is_commit: false,
+            ..Default::default()
         }
     }
 
     pub fn with_topic_as_commit(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
-            target_originator: None,
             target_topic: topic,
             depends_on: None,
             is_commit: true,
+            ..Default::default()
         }
     }
 }

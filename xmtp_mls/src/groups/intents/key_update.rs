@@ -1,6 +1,8 @@
 use crate::groups::mls_ext::MlsGroupExt;
 use crate::groups::{mls_ext::GroupIntent, mls_ext::PublishIntentData};
 use crate::GroupError;
+use openmls::group::MlsGroup;
+use openmls::prelude::Extensions;
 use openmls::treesync::LeafNodeParameters;
 use tls_codec::Serialize;
 pub struct KeyUpdateIntent;
@@ -12,7 +14,7 @@ impl GroupIntent for KeyUpdateIntent {
         self: Box<Self>,
         provider: &xmtp_db::XmtpOpenMlsProvider,
         context: &crate::client::XmtpMlsLocalContext,
-        group: &mut openmls::prelude::MlsGroup,
+        group: &mut MlsGroup,
         should_push: bool,
     ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
         let (commit, _, _) = group.self_update(
@@ -28,5 +30,9 @@ impl GroupIntent for KeyUpdateIntent {
             .build()
             .map_err(GroupError::from)
             .map(Option::Some)
+    }
+
+    fn build_extensions(&self, _group: &MlsGroup) -> Result<Extensions, GroupError> {
+        Ok(Extensions::empty())
     }
 }

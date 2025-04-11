@@ -1,9 +1,12 @@
+use openmls::prelude::Extension;
+use openmls::prelude::Extensions;
+use openmls::prelude::UnknownExtension;
 use prost::Message;
 use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_id::InboxIdRef;
 
 use super::{IntentError, PostCommitAction};
-use crate::groups::build_group_membership_extension;
+use crate::configuration::GROUP_MEMBERSHIP_EXTENSION_ID;
 use crate::groups::group_membership::MembershipDiffWithKeyPackages;
 use crate::groups::mls_ext::MlsGroupExt;
 use crate::groups::mls_ext::PublishIntentData;
@@ -100,7 +103,10 @@ pub(crate) struct UpdateGroupMembershipIntent {
 
 impl UpdateGroupMembershipIntent {
     /// Create a new membership update intent, and include any failed installations
-    /// _from the network_
+    /// _from the network_.
+    /// This is the intent that will be committed to the Database,
+    /// so we only store failed installations that came from the network _not_
+    /// existing group membership.
     pub async fn new(
         to_add: &[InboxIdRef<'_>],
         to_remove: &[InboxIdRef<'_>],
@@ -109,7 +115,7 @@ impl UpdateGroupMembershipIntent {
         client: impl ScopedGroupClient,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, GroupError> {
-        let to_remove = to_remove.into_iter().map(ToString::to_string).collect();
+        let to_remove = to_remove.iter().map(ToString::to_string).collect();
         let mut data = MembershipIntentData::new(changed_inbox_ids, to_remove, vec![]);
         let old_membership = group.membership()?;
         let new_membership = data.apply_identity_changes(&old_membership);
@@ -120,7 +126,6 @@ impl UpdateGroupMembershipIntent {
             &old_membership,
         )
         .await?;
-        data.failed_installations = changes_with_kps.failed_installations.clone();
 
         // If we fail to fetch or verify all the added members' KeyPackage, return an error.
         // skip if the inbox ids is 0 from the beginning
@@ -131,6 +136,7 @@ impl UpdateGroupMembershipIntent {
             return Err(GroupError::Intent(IntentError::FailedToVerifyInstallations));
         }
 
+        data.failed_installations = changes_with_kps.failed_installations.clone();
         Ok(Self {
             data,
             changes_with_kps,
@@ -142,6 +148,8 @@ impl UpdateGroupMembershipIntent {
     /// Created a new Membership Update Intent from bytes.
     /// This function applies all failed installations from deserialized bytes,
     /// and current group membership of the group
+    /// This is the intent that is pulled from the database,
+    /// so we apply the failed installations from network & from the intent data itself
     pub async fn from_stored_bytes(
         data: &[u8],
         provider: &XmtpOpenMlsProvider,
@@ -200,7 +208,9 @@ impl GroupIntent for UpdateGroupMembershipIntent {
         // Update the extensions to have the new GroupMembership
         let mut new_extensions = extensions.clone();
 
-        new_extensions.add_or_replace(build_group_membership_extension(&self.new_membership));
+        self.build_extensions(group)?.iter().cloned().for_each(|e| {
+            let _ = new_extensions.add_or_replace(e);
+        });
 
         // Create the commit
         let (commit, maybe_welcome_message, _) = group.update_group_membership(
@@ -228,22 +238,63 @@ impl GroupIntent for UpdateGroupMembershipIntent {
             .map_err(GroupError::from)
             .map(Option::Some)
     }
+
+    fn build_extensions(&self, _: &OpenMlsGroup) -> Result<Extensions, GroupError> {
+        let unknown_gc_extension = UnknownExtension((&self.new_membership).into());
+        Ok(Extensions::single(Extension::Unknown(
+            GROUP_MEMBERSHIP_EXTENSION_ID,
+            unknown_gc_extension,
+        )))
+    }
 }
 
 impl From<UpdateGroupMembershipIntent> for Vec<u8> {
     fn from(intent: UpdateGroupMembershipIntent) -> Self {
+        intent.data.into()
+    }
+}
+
+impl From<MembershipIntentData> for Vec<u8> {
+    fn from(intent: MembershipIntentData) -> Self {
         let mut buf = Vec::new();
 
         UpdateGroupMembershipData {
             version: Some(UpdateGroupMembershipVersion::V1(UpdateGroupMembershipV1 {
-                membership_updates: intent.data.added_members,
-                removed_members: intent.data.removed_members,
-                failed_installations: intent.data.failed_installations,
+                membership_updates: intent.added_members,
+                removed_members: intent.removed_members,
+                failed_installations: intent.failed_installations,
             })),
         }
         .encode(&mut buf)
         .expect("encode error");
 
         buf
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    async fn test_serialize_update_membership() {
+        let mut membership_updates = HashMap::new();
+        membership_updates.insert("foo".to_string(), 123);
+
+        let intent = MembershipIntentData::new(
+            membership_updates,
+            vec!["bar".to_string()],
+            vec![vec![1, 2, 3]],
+        );
+
+        let as_bytes: Vec<u8> = intent.clone().into();
+        let restored_intent = MembershipIntentData::from_bytes(&as_bytes).unwrap();
+
+        assert_eq!(intent.added_members, restored_intent.added_members);
+        assert_eq!(intent.removed_members, restored_intent.removed_members);
+        assert_eq!(
+            intent.failed_installations,
+            restored_intent.failed_installations
+        );
     }
 }

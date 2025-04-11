@@ -314,56 +314,6 @@ pub(crate) mod tests {
     use super::*;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn test_serialize_send_message() {
-        let message = vec![1, 2, 3];
-        let intent = SendMessageIntentData::new(message.clone());
-        let as_bytes: Vec<u8> = intent.into();
-        let restored_intent = SendMessageIntentData::from_bytes(as_bytes.as_slice()).unwrap();
-
-        assert_eq!(restored_intent.message, message);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_serialize_update_membership() {
-        let mut membership_updates = HashMap::new();
-        membership_updates.insert("foo".to_string(), 123);
-
-        let intent = UpdateGroupMembershipIntent::new(
-            membership_updates,
-            vec!["bar".to_string()],
-            vec![vec![1, 2, 3]],
-        );
-
-        let as_bytes: Vec<u8> = intent.clone().into();
-        let restored_intent: UpdateGroupMembershipIntent = as_bytes.try_into().unwrap();
-
-        assert_eq!(
-            intent.membership_updates,
-            restored_intent.membership_updates
-        );
-
-        assert_eq!(intent.removed_members, restored_intent.removed_members);
-
-        assert_eq!(
-            intent.failed_installations,
-            restored_intent.failed_installations
-        );
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-    async fn test_serialize_update_metadata() {
-        let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
-        let as_bytes: Vec<u8> = intent.clone().into();
-        let restored_intent: UpdateMetadataIntentData =
-            UpdateMetadataIntentData::try_from(as_bytes).unwrap();
-
-        assert_eq!(intent.field_value, restored_intent.field_value);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_key_rotation_before_first_message() {
         let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;

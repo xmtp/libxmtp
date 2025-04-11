@@ -1523,7 +1523,7 @@ where
                     &intent.data,
                     provider,
                     &self.client,
-                    &openmls_group,
+                    openmls_group,
                 )
                 .await?;
                 intent_data
@@ -1688,7 +1688,7 @@ where
                         Ok(updates)
                     })?;
 
-            Ok(UpdateGroupMembershipIntent::new(
+            UpdateGroupMembershipIntent::new(
                 inbox_ids_to_add,
                 inbox_ids_to_remove,
                 changed_inbox_ids,
@@ -1696,7 +1696,7 @@ where
                 &self.client,
                 provider,
             )
-            .await?)
+            .await
         })
         .await
     }
