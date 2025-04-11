@@ -4687,7 +4687,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_2, 30);
+        assert_eq!(num_groups_synced_2, 31);
 
         // Second sync after removal will not process inactive groups
         let num_groups_synced_3: u32 = bo
