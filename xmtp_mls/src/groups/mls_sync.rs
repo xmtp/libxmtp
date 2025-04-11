@@ -1,10 +1,10 @@
 use super::{
-    build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
-    build_extensions_for_permissions_update, build_group_membership_extension,
     intents::{
-        Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
-        UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
+        Installation, IntentError, KeyUpdateIntent, PostCommitAction, SendMessageIntentData,
+        SendWelcomesAction, UpdateAdminListIntentData, UpdateGroupMembershipIntent,
+        UpdatePermissionIntentData,
     },
+    mls_ext::parse_intent,
     validated_commit::{CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
@@ -12,6 +12,9 @@ use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
 use crate::groups::mls_ext::GroupIntent;
 use crate::groups::mls_ext::MlsExtensionsExt;
+use crate::groups::mls_ext::MlsGroupExt;
+use crate::groups::mls_ext::PublishIntentData;
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{
     configuration::{
@@ -23,33 +26,27 @@ use crate::{
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
-    identity::{parse_credential, IdentityError},
+    identity::IdentityError,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::{LocalEvents, SyncMessage},
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use crate::{
-    groups::mls_ext::MlsGroupExt,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use openmls::{
-    credentials::BasicCredential,
     extensions::Extensions,
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     prelude::{
-        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
-        LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
-        ProcessedMessage, ProcessedMessageContent, Sender,
+        tls_codec::{Deserialize, Error as TlsCodecError},
+        MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
+        ProcessedMessage, ProcessedMessageContent,
     },
-    treesync::LeafNodeParameters,
 };
 use openmls::{framing::WireFormat, prelude::BasicCredentialError};
-use openmls_traits::{signatures::Signer, OpenMlsProvider};
+use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
 use sha2::Sha256;
@@ -171,14 +168,6 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::GroupPaused => false,
         }
     }
-}
-
-#[derive(Debug)]
-pub(super) struct PublishIntentData {
-    pub(super) staged_commit: Option<Vec<u8>>,
-    pub(super) post_commit_action: Option<Vec<u8>>,
-    pub(super) payload_to_publish: Vec<u8>,
-    pub(super) should_send_push_notification: bool,
 }
 
 impl<ScopedClient> MlsGroup<ScopedClient>
@@ -595,7 +584,7 @@ where
         )?;
 
         let (sender_inbox_id, sender_installation_id) =
-            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
+            mls_group.extract_sender(&processed_message, envelope_timestamp_ns)?;
 
         tracing::info!(
             inbox_id = self.client.inbox_id(),
@@ -692,7 +681,7 @@ where
         let msg_epoch = processed_message.epoch().as_u64();
         let msg_group_id = hex::encode(processed_message.group_id().as_slice());
         let (sender_inbox_id, sender_installation_id) =
-            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
+            mls_group.extract_sender(&processed_message, envelope_timestamp_ns)?;
 
         match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
@@ -1371,7 +1360,6 @@ where
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
     // A return value of [`Option::None`] means this intent would not change the group.
-    #[allow(clippy::type_complexity)]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn get_publish_intent_data(
         &self,
@@ -1379,115 +1367,10 @@ where
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<Option<PublishIntentData>, GroupError> {
-        match intent.kind {
-            IntentKind::UpdateGroupMembership => {
-                let intent = UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
-                intent
-                    .publish_data(
-                        provider,
-                        self.client.as_ref(),
-                        &self.context(),
-                        openmls_group,
-                    )
-                    .await
-            }
-            IntentKind::SendMessage => {
-                // We can safely assume all SendMessage intents have data
-                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                // TODO: Handle pending_proposal errors and UseAfterEviction errors
-                let msg = openmls_group.create_message(
-                    &provider,
-                    &self.context().identity.installation_keys,
-                    intent_data.message.as_slice(),
-                )?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: msg.tls_serialize_detached()?,
-                    post_commit_action: None,
-                    staged_commit: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
-            IntentKind::KeyUpdate => {
-                let (commit, _, _) = openmls_group.self_update(
-                    &provider,
-                    &self.context().identity.installation_keys,
-                    LeafNodeParameters::default(),
-                )?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit.tls_serialize_detached()?,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
-            IntentKind::MetadataUpdate => {
-                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions = build_extensions_for_metadata_update(
-                    openmls_group,
-                    metadata_intent.field_name,
-                    metadata_intent.field_value,
-                )?;
-
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    &provider,
-                    mutable_metadata_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
-            IntentKind::UpdateAdminList => {
-                let admin_list_update_intent =
-                    UpdateAdminListIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
-                    openmls_group,
-                    admin_list_update_intent,
-                )?;
-
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    provider,
-                    mutable_metadata_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
-            IntentKind::UpdatePermission => {
-                let update_permissions_intent =
-                    UpdatePermissionIntentData::try_from(intent.data.clone())?;
-                let group_permissions_extensions = build_extensions_for_permissions_update(
-                    openmls_group,
-                    update_permissions_intent,
-                )?;
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    provider,
-                    group_permissions_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
-                let commit_bytes = commit.tls_serialize_detached()?;
-                Ok(Some(PublishIntentData {
-                    payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                }))
-            }
-        }
+        let intent_data = parse_intent(intent.kind, intent.data)?;
+        intent_data
+            .publish_data(provider, &self.context(), openmls_group, intent.should_push)
+            .await
     }
 
     #[tracing::instrument(skip_all)]
@@ -1546,7 +1429,7 @@ where
 
     /**
      * Checks each member of the group for `IdentityUpdates` after their current sequence_id. If updates
-     * are found the method will construct an [`UpdateGroupMembershipIntentData`] and create a change
+     * are found the method will construct an [`UpdateGroupMembershipIntent`] and create a change
      * to the [`GroupMembership`] that will add any missing installations.
      *
      * This is designed to handle cases where existing members have added a new installation to their inbox or revoked an installation
@@ -1594,7 +1477,7 @@ where
         provider: &XmtpOpenMlsProvider,
         inbox_ids_to_add: &[InboxIdRef<'_>],
         inbox_ids_to_remove: &[InboxIdRef<'_>],
-    ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
+    ) -> Result<UpdateGroupMembershipIntent, GroupError> {
         self.load_mls_group_with_lock_async(provider, |mls_group| async move {
             let existing_group_membership = mls_group.extensions().group_membership()?;
             // TODO:nm prevent querying for updates on members who are being removed
@@ -1638,43 +1521,16 @@ where
 
                         Ok(updates)
                     })?;
-            let extensions: Extensions = mls_group.extensions().clone();
-            let old_group_membership = extensions.group_membership()?;
-            let mut new_membership = old_group_membership.clone();
-            for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
-                new_membership.add(inbox_id.clone(), *sequence_id);
-            }
-            for inbox_id in inbox_ids_to_remove {
-                new_membership.remove(inbox_id);
-            }
 
-            let changes_with_kps = calculate_membership_changes_with_keypackages(
-                &self.client,
-                provider,
-                &new_membership,
-                &old_group_membership,
-            )
-            .await?;
-
-            // If we fail to fetch or verify all the added members' KeyPackage, return an error.
-            // skip if the inbox ids is 0 from the beginning
-            if !inbox_ids_to_add.is_empty()
-                && !changes_with_kps.failed_installations.is_empty()
-                && changes_with_kps.new_installations.is_empty()
-            {
-                return Err(GroupError::Generic(
-                    "Failed to verify all installations".to_string(),
-                ));
-            }
-
-            Ok(UpdateGroupMembershipIntentData::new(
+            Ok(UpdateGroupMembershipIntent::new(
+                inbox_ids_to_add,
+                inbox_ids_to_remove,
                 changed_inbox_ids,
-                inbox_ids_to_remove
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect::<Vec<String>>(),
-                changes_with_kps.failed_installations,
-            ))
+                mls_group,
+                client,
+                provider,
+            )
+            .await?)
         })
         .await
     }
@@ -1808,30 +1664,6 @@ where
     }
 }
 
-// Extracts the message sender, but does not do any validation to ensure that the
-// installation_id is actually part of the inbox.
-fn extract_message_sender(
-    openmls_group: &mut OpenMlsGroup,
-    decrypted_message: &ProcessedMessage,
-    message_created_ns: u64,
-) -> Result<(InboxId, Vec<u8>), GroupMessageProcessingError> {
-    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-            if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = BasicCredential::try_from(member.credential)?;
-                let sender_inbox_id = parse_credential(basic_credential.identity())?;
-                return Ok((sender_inbox_id, member.signature_key));
-            }
-        }
-    }
-
-    let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
-    Err(GroupMessageProcessingError::InvalidSender {
-        message_time_ns: message_created_ns,
-        credential: basic_credential.identity().to_vec(),
-    })
-}
-
 pub(super) async fn calculate_membership_changes_with_keypackages<'a>(
     client: impl ScopedGroupClient,
     provider: &'a XmtpOpenMlsProvider,
@@ -1953,84 +1785,6 @@ async fn get_keypackages_for_installation_ids(
                 .collect(),
         )
         .await
-}
-
-// Takes UpdateGroupMembershipIntentData and applies it to the openmls group
-// returning the commit and post_commit_action
-#[tracing::instrument(level = "trace", skip_all)]
-async fn apply_update_group_membership_intent(
-    client: impl ScopedGroupClient,
-    provider: &XmtpOpenMlsProvider,
-    openmls_group: &mut OpenMlsGroup,
-    intent_data: UpdateGroupMembershipIntentData,
-    signer: impl Signer,
-) -> Result<Option<PublishIntentData>, GroupError> {
-    let extensions: Extensions = openmls_group.extensions().clone();
-    let old_group_membership = extensions.group_membership()?;
-    let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
-    let membership_diff = old_group_membership.diff(&new_group_membership);
-
-    let changes_with_kps = calculate_membership_changes_with_keypackages(
-        client,
-        provider,
-        &new_group_membership,
-        &old_group_membership,
-    )
-    .await?;
-    let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
-        openmls_group.removed_leaf_nodes(&changes_with_kps.removed_installations);
-
-    if leaf_nodes_to_remove.is_empty()
-        && changes_with_kps.new_key_packages.is_empty()
-        && membership_diff.updated_inboxes.is_empty()
-    {
-        return Ok(None);
-    }
-
-    // Update the extensions to have the new GroupMembership
-    let mut new_extensions = extensions.clone();
-
-    new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
-
-    // Create the commit
-    let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-        provider,
-        &signer,
-        &changes_with_kps.new_key_packages,
-        &leaf_nodes_to_remove,
-        new_extensions,
-    )?;
-
-    let post_commit_action = match maybe_welcome_message {
-        Some(welcome_message) => Some(PostCommitAction::from_welcome(
-            welcome_message,
-            changes_with_kps.new_installations,
-        )?),
-        None => None,
-    };
-
-    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
-        .ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-    Ok(Some(PublishIntentData {
-        payload_to_publish: commit.tls_serialize_detached()?,
-        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-        staged_commit: Some(staged_commit),
-        should_send_push_notification: false,
-    }))
-}
-
-fn get_and_clear_pending_commit(
-    openmls_group: &mut OpenMlsGroup,
-    provider: &XmtpOpenMlsProvider,
-) -> Result<Option<Vec<u8>>, GroupError> {
-    let commit = openmls_group
-        .pending_commit()
-        .as_ref()
-        .map(xmtp_db::db_serialize)
-        .transpose()?;
-    openmls_group.clear_pending_commit(provider.storage())?;
-    Ok(commit)
 }
 
 fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {
