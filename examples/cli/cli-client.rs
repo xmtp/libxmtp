@@ -32,7 +32,7 @@ use tracing_subscriber::{
 };
 use valuable::Valuable;
 use xmtp_api::ApiIdentifier;
-use xmtp_api_d14n::compat::D14nClient;
+use xmtp_api_d14n::queries::D14nClient;
 use xmtp_api_grpc::grpc_client::GrpcClient;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
 use xmtp_proto::traits::ApiClientError;

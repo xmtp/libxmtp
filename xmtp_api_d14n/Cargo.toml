@@ -9,10 +9,14 @@ async-trait.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
 futures.workspace = true
+hex.workspace = true
+impl-trait-for-tuples = "0.2"
 once_cell.workspace = true
+openmls_rust_crypto = { workspace = true }
 parking_lot.workspace = true
 prost.workspace = true
 prost-types.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
@@ -22,6 +26,10 @@ xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
+openmls = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+openmls = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
 xmtp_proto = { workspace = true, features = ["convert", "test-utils"] }
