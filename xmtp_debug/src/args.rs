@@ -9,7 +9,7 @@ use xmtp_api_grpc::grpc_client::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::compat::D14nClient;
+use xmtp_api_d14n::queries::D14nClient;
 use xmtp_proto::api_client::ApiBuilder;
 
 /// Debug & Generate data on the XMTP Network
