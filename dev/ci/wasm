@@ -3,9 +3,8 @@ set -eou pipefail
 
 export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:=}"
 
-WASM_BINDGEN_SPLIT_LINKED_MODULES=1 \
-  WASM_BINDGEN_TEST_ONLY_WEB=1 \
+WASM_BINDGEN_TEST_ONLY_WEB=1 \
   WASM_BINDGEN_TEST_TIMEOUT=180 \
   CHROMEDRIVER="chromedriver" \
-  cargo test --target wasm32-unknown-unknown --release \
+  cargo nextest run -E 'platform(target)' --target wasm32-unknown-unknown --release \
   -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p xmtp_api_d14n -p xmtp_db

@@ -10,17 +10,19 @@ futures = { workspace = true }
 hex.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
 xmtp_common.workspace = true
 xmtp_proto = { workspace = true, features = ["convert"] }
 
+# Optional
 mockall = { workspace = true, optional = true }
+xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
+
 
 # test utils
 [dev-dependencies]
@@ -32,6 +34,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
 wasm-bindgen-test.workspace = true
+xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
