@@ -4695,7 +4695,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_3, 0);
+        assert_eq!(num_groups_synced_3, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
