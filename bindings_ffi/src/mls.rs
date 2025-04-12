@@ -6426,8 +6426,8 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(alix_num_sync, 1);
-        assert_eq!(bola_num_sync, 1);
+        assert_eq!(alix_num_sync, 2);
+        assert_eq!(bola_num_sync, 2);
 
         let alix_groups = alix_conversations
             .list_groups(FfiListConversationsOptions::default())
