@@ -527,9 +527,7 @@ impl FfiXmtpClient {
         )?)
     }
 
-    pub async fn sync_preferences(
-        &self,
-    ) -> Result<u32, GenericError> {
+    pub async fn sync_preferences(&self) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
         let num_groups_synced: usize = inner
@@ -8017,5 +8015,64 @@ mod tests {
                 println!("No lifetime for this key package")
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_sync_consent() {
+        // Create two test users
+        let wallet_alix = generate_local_wallet();
+        let wallet_bo = generate_local_wallet();
+
+        let client_alix = new_test_client_with_wallet_and_history(wallet_alix.clone()).await;
+        let client_bo = new_test_client_with_wallet_and_history(wallet_bo).await;
+
+        // Create a group conversation
+        let alix_group = client_alix
+            .conversations()
+            .create_group_with_inbox_ids(
+                vec![client_bo.inbox_id()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        let initial_consent = alix_group.consent_state().unwrap();
+        assert_eq!(initial_consent, FfiConsentState::Allowed);
+
+        let client_alix2 = new_test_client_with_wallet_and_history(wallet_alix).await;
+        let state = client_alix2.inbox_state(true).await.unwrap();
+        assert_eq!(state.installations.len(), 2);
+
+        // Sync conversations
+        client_alix
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_group2 = client_alix2.conversation(alix_group.id()).unwrap();
+        assert_eq!(
+            alix_group2.consent_state().unwrap(),
+            FfiConsentState::Unknown
+        );
+
+        // Update consent state
+        alix_group
+            .update_consent_state(FfiConsentState::Denied)
+            .unwrap();
+        client_alix.sync_preferences().await.unwrap();
+        alix_group.sync().await.unwrap();
+        client_alix2.sync_preferences().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        alix_group2.sync().await.unwrap();
+
+        assert_eq!(
+            alix_group2.consent_state().unwrap(),
+            FfiConsentState::Denied
+        );
     }
 }
