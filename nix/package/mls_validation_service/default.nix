@@ -12,9 +12,9 @@ let
   };
 
   dockerImage = pkgs.dockerTools.buildLayeredImage {
-    name = "xmtp/mls-validation-service";
-    tag = "latest";
-    architecture = "linux/amd64";
+    name = "ghcr.io/xmtp/mls-validation-service"; # override ghcr images
+    tag = "main";
+    architecture = "amd64";
     contents = [ muslService.bin ];
     config = {
       Cmd = [ "${muslService.bin}/bin/mls-validation-service" ];

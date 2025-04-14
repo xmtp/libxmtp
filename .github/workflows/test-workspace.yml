@@ -39,11 +39,49 @@ jobs:
   build-docker:
     name: Setup
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains
-        run: rustup update
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
+      - name: Build Docker Image
+        run: nix build .#validationServiceDocker
+      - name: Upload image
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-service
+          path: ./result
+          retention-days: 1
+  workspace-grpc:
+    permissions:
+      contents: read
+      id-token: write
+    needs: [build-docker]
+    name: Test Workspace With gRPC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/ci/up-cached
+      - name: Check image used by container
+        run: |
+          docker inspect $(docker ps | grep validation | awk '{print $1}') --format '{{.Config.Image}}'
+          docker images
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Cache
@@ -51,96 +89,131 @@ jobs:
         with:
           workspaces: |
             .
-      - name: Build Docker Image
-        run: nix build .#validationServiceDocker
-      - name: Upload image
-        uses: actions/upload-artifact@v3
-        with:
-          name: validation-service
-          path: ./result
-          retention-days: 1
-  workspace-grpc:
-    name: Test Workspace With gRPC
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Docker image
-        uses: actions/download-artifact@v3
-        with:
-          name: validation-service
-          path: .
-      - name: Load Image
-        run: docker load < result
-      - name: start services
-        run: ./dev/docker/up
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-      - name: libraries with gRPC
+      - name: test libraries with gRPC
         run: cargo nextest --profile ci run --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features grpc-api
   workspace-http:
+    permissions:
+      contents: read
+      id-token: write
+    needs: [build-docker]
     name: Test Workspace with HTTP
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download Docker image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: validation-service
           path: .
       - name: Load Image
         run: docker load < result
       - name: start services
-        run: ./dev/docker/up
+        run: ./dev/ci/up-cached
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: libraries with HTTP
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: test libraries with HTTP
         run: cargo nextest run --profile ci --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features http-api
   workspace-webassembly:
+    permissions:
+      contents: read
+      id-token: write
+    needs: [build-docker]
     name: WebAssembly Tests
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download Docker image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: validation-service
           path: .
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Load Image
         run: docker load < result
       - name: start services
-        run: ./dev/docker/up
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
-      - name: webassembly
+        run: ./dev/ci/up-cached
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Install emscripten toolchains
+        run: | # TODO: nix doesn't support emscripten v4 yet
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+      - name: test webassembly
         run: ./dev/ci/wasm
   workspace-bin:
-    name: Test Bindings & Binaries
+    permissions:
+      contents: read
+      id-token: write
+    needs: [build-docker]
+    name: test bindings & binaries
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download Docker image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: validation-service
           path: .
       - name: Load Image
         run: docker load < result
       - name: start services
-        run: ./dev/docker/up
+        run: ./dev/ci/up-cached
       - name: Install nextest
         uses: taiki-e/install-action@nextest
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
       - name: binaries & bindings
         run: cargo nextest run --profile ci --workspace -E '(kind(lib) + kind(bin)) and (rdeps(xmtp_mls) and not package(xmtp_mls))'
   workspace-integration:
+    permissions:
+      contents: read
+      id-token: write
+    needs: [build-docker]
     name: Integration Tests & Foreign FFI Tests
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Download Docker image
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: validation-service
           path: .
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Load Image
         run: docker load < result
       - name: start services
-        run: ./dev/docker/up
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        run: ./dev/ci/up-cached
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
       - name: Integration Tests (foreign FFI/kotlin)
-        run: nix develop .#kotlin --command cargo nextest run --profile ci --workspace -E 'kind(test)'
+        run: ./dev/ci/kotlin-bindings

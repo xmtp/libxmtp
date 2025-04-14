@@ -21,7 +21,7 @@ services:
     depends_on:
       - db
   validation:
-    image: ghcr.io/xmtp/mls-validation-service:main
+    image: ${VALIDATION_IMAGE:-ghcr.io/xmtp/mls-validation-service:main}
     platform: linux/amd64
     build:
       context: ../..
@@ -29,8 +29,11 @@ services:
     environment:
       ANVIL_URL: "http://anvil:8545"
   anvil:
-    build:
-      dockerfile: ./anvil.Dockerfile
+    image: ghcr.io/foundry-rs/foundry
+    container_name: anvil
+    environment:
+      ANVIL_IP_ADDR: "0.0.0.0"
+    command: anvil --base-fee 100
     platform: linux/amd64
     ports:
       - 8545:8545
