@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
 
-use crate::{api_client::ApiStats, ApiEndpoint, Code, ProtoError, XmtpApiError};
+use crate::{api_client::ApiStats, ApiEndpoint, ProtoError};
 
 pub trait HasStats {
     fn stats(&self) -> &ApiStats;
@@ -47,7 +47,7 @@ pub type BoxedClient = Box<
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Client {
-    type Error: XmtpApiError + std::error::Error + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
     type Stream: futures::Stream;
 
     async fn request(
@@ -80,7 +80,7 @@ where
         retry: BoxedRetry,
     ) -> Result<T, ApiClientError<C::Error>>
     where
-        C::Error: RetryableError + XmtpApiError,
+        C::Error: RetryableError,
     {
         retry_async!(retry, (async { self.query(client).await }))
     }
@@ -93,7 +93,7 @@ impl<E, T, C> Query<T, C> for E
 where
     E: Endpoint<Output = T> + Sync,
     C: Client + Sync + Send,
-    C::Error: XmtpApiError,
+    C::Error: std::error::Error,
     T: Default + prost::Message + 'static,
     // TODO: figure out how to get conversions right
     // T: TryFrom<E::Output>,
@@ -120,7 +120,7 @@ where
 
 impl<E> ApiClientError<E>
 where
-    E: XmtpApiError + std::error::Error + 'static,
+    E: std::error::Error + 'static,
 {
     /*
         fn client(endpoint: String, source: E) -> Self {
@@ -167,41 +167,13 @@ pub enum ApiClientError<E: std::error::Error> {
     ProtoError(#[from] ProtoError),
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
-}
-
-//TODO: this should just be apart of the standard rust error type
-impl<E> XmtpApiError for ApiClientError<E>
-where
-    E: XmtpApiError + std::error::Error + RetryableError + 'static,
-{
-    fn api_call(&self) -> Option<ApiEndpoint> {
-        match self {
-            Self::ClientWithEndpoint { source, .. } => source.api_call(),
-            Self::Client { source } => source.api_call(),
-            _ => None,
-        }
-    }
-
-    fn code(&self) -> Option<Code> {
-        match self {
-            Self::ClientWithEndpoint { source, .. } => source.code(),
-            Self::Client { source } => source.code(),
-            _ => None,
-        }
-    }
-
-    fn grpc_message(&self) -> Option<&str> {
-        match self {
-            Self::ClientWithEndpoint { source, .. } => source.grpc_message(),
-            Self::Client { source } => source.grpc_message(),
-            _ => None,
-        }
-    }
+    #[error("{0}")]
+    Other(Box<dyn RetryableError + Send + Sync>),
 }
 
 impl<E> RetryableError for ApiClientError<E>
 where
-    E: XmtpApiError + RetryableError + std::error::Error + 'static,
+    E: RetryableError + std::error::Error + 'static,
 {
     fn is_retryable(&self) -> bool {
         use ApiClientError::*;
@@ -214,12 +186,13 @@ where
             Conversion(_) => false,
             ProtoError(_) => false,
             InvalidUri(_) => false,
+            Other(r) => retryable!(r),
         }
     }
 }
 
 // Infallible errors by definition can never occur
-impl<E: std::error::Error + XmtpApiError> From<std::convert::Infallible> for ApiClientError<E> {
+impl<E: std::error::Error> From<std::convert::Infallible> for ApiClientError<E> {
     fn from(_v: std::convert::Infallible) -> ApiClientError<E> {
         unreachable!()
     }
@@ -261,23 +234,12 @@ pub mod mock {
         async fn build(self) -> Result<Self::Output, Self::Error> {
             Ok(MockClient)
         }
+
+        fn rate_per_minute(&mut self, _limit: u32) {}
     }
 
     #[derive(thiserror::Error, Debug)]
     pub enum MockError {}
-    impl XmtpApiError for MockError {
-        fn api_call(&self) -> Option<ApiEndpoint> {
-            None
-        }
-
-        fn code(&self) -> Option<Code> {
-            None
-        }
-
-        fn grpc_message(&self) -> Option<&str> {
-            None
-        }
-    }
 
     impl RetryableError for MockError {
         fn is_retryable(&self) -> bool {

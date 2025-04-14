@@ -103,7 +103,7 @@ impl<S, E> SubscriptionStream<S, E> {
 impl<S, E> Stream for SubscriptionStream<S, E>
 where
     S: Stream<Item = std::result::Result<WelcomeMessage, E>>,
-    E: xmtp_proto::XmtpApiError + 'static,
+    E: xmtp_common::RetryableError + Send + Sync + 'static,
 {
     type Item = Result<WelcomeOrGroup>;
 
@@ -113,9 +113,7 @@ where
 
         match this.inner.poll_next(cx) {
             Ready(Some(welcome)) => {
-                let welcome = welcome
-                    .map_err(xmtp_proto::ApiError::from)
-                    .map_err(SubscribeError::from)?;
+                let welcome = welcome.map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
                 Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
             }
             Pending => Pending,
@@ -594,8 +592,8 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_self_group_creation() {
-        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))

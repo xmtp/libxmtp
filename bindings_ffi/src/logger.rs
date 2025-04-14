@@ -18,12 +18,6 @@ use tracing_subscriber::{
     registry::Registry, reload, util::SubscriberInitExt, EnvFilter, Layer,
 };
 
-pub const FILTER_DIRECTIVE: &str = "xmtp_mls=debug,xmtp_id=debug,\
-                    xmtp_api=debug,xmtp_api_grpc=debug,xmtp_proto=debug,\
-                    xmtp_common=debug,xmtp_api_d14n=debug,\
-                    xmtp_content_types=debug,xmtp_cryptography=debug,\
-                    xmtp_user_preferences=debug,xmtpv3=debug,xmtp_db=debug";
-
 #[cfg(target_os = "android")]
 pub use android::*;
 #[cfg(target_os = "android")]
@@ -35,9 +29,7 @@ mod android {
     {
         use tracing_subscriber::EnvFilter;
         let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = EnvFilter::builder()
-            .parse(FILTER_DIRECTIVE)
-            .unwrap_or_else(|_| EnvFilter::new("info"));
+        let libxmtp_filter = xmtp_common::filter_directive("debug");
 
         vec![
             paranoid_android::layer(env!("CARGO_PKG_NAME"))
@@ -63,9 +55,7 @@ mod ios {
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
-        let libxmtp_filter = EnvFilter::builder()
-            .parse(FILTER_DIRECTIVE)
-            .unwrap_or_else(|_| EnvFilter::new("info"));
+        let libxmtp_filter = xmtp_common::filter_directive("debug");
         let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
         OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
     }
@@ -227,37 +217,13 @@ pub enum FfiLogLevel {
 }
 
 impl FfiLogLevel {
-    fn to_filter_directive(&self) -> &str {
+    fn to_str(&self) -> &str {
         match self {
-            FfiLogLevel::Error => {
-                "xmtp_mls=error,xmtp_id=error,\
-                    xmtp_api=error,xmtp_api_grpc=error,xmtp_proto=error,\
-                    xmtp_common=error,xmtp_api_d14n=error,\
-                    xmtp_content_types=error,xmtp_cryptography=error,\
-                    xmtp_user_preferences=error,xmtpv3=error,xmtp_db=error"
-            }
-            FfiLogLevel::Warn => {
-                "xmtp_mls=warn,xmtp_id=warn,\
-                    xmtp_api=warn,xmtp_api_grpc=warn,xmtp_proto=warn,\
-                    xmtp_common=warn,xmtp_api_d14n=warn,\
-                    xmtp_content_types=warn,xmtp_cryptography=warn,\
-                    xmtp_user_preferences=warn,xmtpv3=warn,xmtp_db=warn"
-            }
-            FfiLogLevel::Info => {
-                "xmtp_mls=info,xmtp_id=info,\
-                    xmtp_api=info,xmtp_api_grpc=info,xmtp_proto=info,\
-                    xmtp_common=info,xmtp_api_d14n=info,\
-                    xmtp_content_types=info,xmtp_cryptography=info,\
-                    xmtp_user_preferences=info,xmtpv3=info,xmtp_db=info"
-            }
-            FfiLogLevel::Debug => FILTER_DIRECTIVE,
-            FfiLogLevel::Trace => {
-                "xmtp_mls=trace,xmtp_id=trace,\
-                    xmtp_api=trace,xmtp_api_grpc=trace,xmtp_proto=trace,\
-                    xmtp_common=trace,xmtp_api_d14n=trace,\
-                    xmtp_content_types=trace,xmtp_cryptography=trace,\
-                    xmtp_user_preferences=trace,xmtpv3=trace,xmtp_db=trace"
-            }
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Trace => "trace",
         }
     }
 }
@@ -300,6 +266,9 @@ fn enable_debug_file_inner(
     max_files: u32,
     log_level: FfiLogLevel,
 ) -> Result<(), GenericError> {
+    // First, ensure any previous logger is properly shut down
+    let _ = exit_debug_writer();
+
     let version = env!("CARGO_PKG_VERSION");
     let file_appender = RollingFileAppender::builder()
         .filename_prefix(format!("libxmtp-v{}.log", version))
@@ -310,13 +279,21 @@ fn enable_debug_file_inner(
     let (non_blocking, worker) = NonBlockingBuilder::default()
         .thread_name("libxmtp-log-writer")
         .finish(file_appender);
-    let _ = WORKER.set(Arc::new(Mutex::new(Some(worker))));
+
+    // Initialize the worker container if needed
+    if WORKER.get().is_none() {
+        let _ = WORKER.set(Arc::new(Mutex::new(None)));
+    }
+
+    // Now we can safely update the worker
+    if let Some(worker_container) = WORKER.get() {
+        *worker_container.lock() = Some(worker);
+    }
+
     let handle = LOGGER.lock();
     handle.modify(|l| {
         *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
-        let filter = EnvFilter::builder()
-            .parse(log_level.to_filter_directive())
-            .unwrap_or_else(|_| EnvFilter::new("info"));
+        let filter = xmtp_common::filter_directive(log_level.to_str());
         *l.filter_mut() = filter;
     })?;
     Ok(())
@@ -354,20 +331,12 @@ pub use test_logger::*;
 mod test_logger {
     use super::*;
     use std::io::Read;
-    use tracing_subscriber::EnvFilter;
 
     pub fn native_layer<S>() -> impl Layer<S>
     where
         S: Subscriber + for<'a> LookupSpan<'a>,
     {
         xmtp_common::logger_layer()
-    }
-
-    #[test]
-    fn test_directive() {
-        let _filter = EnvFilter::builder()
-            .parse(FILTER_DIRECTIVE)
-            .expect("should parse correctly");
     }
 
     #[test]

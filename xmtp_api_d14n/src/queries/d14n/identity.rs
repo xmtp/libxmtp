@@ -1,17 +1,16 @@
 use super::D14nClient;
+use crate::protocol::traits::Envelope;
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use xmtp_common::RetryableError;
-use xmtp_proto::XmtpApiError;
+use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
-use xmtp_proto::v4_utils::build_identity_topic_from_hex_encoded;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
     IdentityUpdateLog, Response,
 };
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
-use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -20,14 +19,10 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, P, E> XmtpIdentityClient for D14nClient<C, P>
 where
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
     P: Send + Sync + Client<Error = E>,
     C: Send + Sync + Client<Error = E>,
-    ApiClientError<E>: From<ApiClientError<<P as Client>::Error>>
-        + From<ApiClientError<<C as Client>::Error>>
-        + Send
-        + Sync
-        + 'static,
+    ApiClientError<E>: From<ApiClientError<<P as xmtp_proto::traits::Client>::Error>>,
 {
     type Error = ApiClientError<E>;
 
@@ -35,9 +30,14 @@ where
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
     ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
-        let envelope: ClientEnvelope = request.try_into().map_err(ApiClientError::Conversion)?;
+        let update = request.identity_update.ok_or(ConversionError::Missing {
+            item: "identity_update",
+            r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
+        })?;
+
+        let envelopes = update.client_envelopes()?;
         PublishClientEnvelopes::builder()
-            .envelope(envelope)
+            .envelopes(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
@@ -49,11 +49,7 @@ where
         &self,
         request: identity_v1::GetIdentityUpdatesRequest,
     ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
-        let topics = request
-            .requests
-            .iter()
-            .map(|r| build_identity_topic_from_hex_encoded(&r.inbox_id.clone()))
-            .collect::<Result<Vec<_>, _>>()?;
+        let topics = request.requests.topic()?;
 
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {

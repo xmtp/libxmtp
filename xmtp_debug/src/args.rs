@@ -9,7 +9,7 @@ use xmtp_api_grpc::grpc_client::GrpcClient;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::compat::D14nClient;
+use xmtp_api_d14n::queries::D14nClient;
 use xmtp_proto::api_client::ApiBuilder;
 
 /// Debug & Generate data on the XMTP Network
@@ -223,9 +223,11 @@ impl BackendOpts {
 
         match (self.backend, self.d14n) {
             (Dev, false) => eyre::bail!("No payer for V3"),
+            (Staging, false) => eyre::bail!("No payer for V3"),
             (Production, false) => eyre::bail!("No payer for V3"),
             (Local, false) => eyre::bail!("No payer for V3"),
             (Dev, true) => Ok((*crate::constants::XMTP_DEV_PAYER).clone()),
+            (Staging, true) => Ok((*crate::constants::XMTP_STAGING_PAYER).clone()),
             (Production, true) => Ok((*crate::constants::XMTP_PRODUCTION_PAYER).clone()),
             (Local, true) => Ok((*crate::constants::XMTP_LOCAL_PAYER).clone()),
         }
@@ -240,9 +242,11 @@ impl BackendOpts {
 
         match (self.backend, self.d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
+            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
             (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
             (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
         }
@@ -283,9 +287,11 @@ impl<'a> From<&'a BackendOpts> for u64 {
         } else {
             match (value.backend, value.d14n) {
                 (Production, false) => 2,
+                (Staging, false) => 1,
                 (Dev, false) => 1,
                 (Local, false) => 0,
                 (Production, true) => 5,
+                (Staging, true) => 6,
                 (Dev, true) => 4,
                 (Local, true) => 3,
             }
@@ -311,6 +317,7 @@ impl From<BackendOpts> for url::Url {
 #[derive(ValueEnum, Debug, Copy, Clone, Default)]
 pub enum BackendKind {
     Dev,
+    Staging,
     Production,
     #[default]
     Local,
@@ -321,9 +328,11 @@ impl BackendKind {
         use BackendKind::*;
         match (self, d14n) {
             (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
+            (Staging, false) => (*crate::constants::XMTP_DEV).clone(),
             (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
             (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
             (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
+            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
             (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
             (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
         }
@@ -335,6 +344,7 @@ impl From<BackendKind> for url::Url {
         use BackendKind::*;
         match value {
             Dev => (*crate::constants::XMTP_DEV).clone(),
+            Staging => (*crate::constants::XMTP_DEV).clone(),
             Production => (*crate::constants::XMTP_PRODUCTION).clone(),
             Local => (*crate::constants::XMTP_LOCAL).clone(),
         }

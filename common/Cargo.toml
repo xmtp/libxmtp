@@ -5,7 +5,6 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-arc-swap.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 futures = { workspace = true, features = ["std"] }
@@ -74,7 +73,7 @@ ctor.workspace = true
 parking_lot = { workspace = true }
 
 [features]
-features = []
+logging = ["dep:tracing-subscriber"]
 test-utils = [
   "dep:parking_lot",
   "dep:tracing-subscriber",

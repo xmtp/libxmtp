@@ -29,9 +29,9 @@ use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 use xmtp_common::{ExponentialBackoff, Retry, RetryBuilder};
 use xmtp_proto::api_client::XmtpTestClient;
 
-pub fn exponential() -> RetryBuilder<ExponentialBackoff, ExponentialBackoff> {
+pub fn exponential() -> RetryBuilder<ExponentialBackoff> {
     let e = ExponentialBackoff::default();
-    Retry::builder().with_strategy(e.clone()).with_cooldown(e)
+    Retry::builder().with_strategy(e)
 }
 
 pub fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
@@ -59,25 +59,9 @@ pub enum MockError {
     RateLimit,
 }
 
-impl xmtp_proto::XmtpApiError for MockError {
-    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
-        None
-    }
-    fn code(&self) -> Option<xmtp_proto::Code> {
-        None
-    }
-    fn grpc_message(&self) -> Option<&str> {
-        None
-    }
-}
-
 impl xmtp_common::RetryableError for MockError {
     fn is_retryable(&self) -> bool {
         true
-    }
-
-    fn needs_cooldown(&self) -> bool {
-        matches!(self, MockError::RateLimit)
     }
 }
 
@@ -104,6 +88,8 @@ impl ApiBuilder for MockApiBuilder {
     async fn build(self) -> Result<Self::Output, Self::Error> {
         Ok(ApiClient)
     }
+
+    fn rate_per_minute(&mut self, _limit: u32) {}
 }
 
 // Create a mock XmtpClient for testing the client wrapper

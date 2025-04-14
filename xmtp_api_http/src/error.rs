@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use xmtp_proto::{ApiEndpoint, Code, XmtpApiError};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ErrorResponse {
@@ -39,32 +38,5 @@ pub enum HttpClientError {
 impl xmtp_common::RetryableError for HttpClientError {
     fn is_retryable(&self) -> bool {
         true
-    }
-
-    fn needs_cooldown(&self) -> bool {
-        match self {
-            Self::Grpc(e) => (Code::from(e.code)) == Code::ResourceExhausted,
-            _ => false,
-        }
-    }
-}
-
-impl XmtpApiError for HttpClientError {
-    fn api_call(&self) -> Option<ApiEndpoint> {
-        None
-    }
-
-    fn code(&self) -> Option<Code> {
-        match self {
-            Self::Grpc(e) => Some(e.code.into()),
-            _ => None,
-        }
-    }
-
-    fn grpc_message(&self) -> Option<&str> {
-        match self {
-            Self::Grpc(e) => Some(&e.message),
-            _ => None,
-        }
     }
 }

@@ -1,167 +1,5 @@
 use thiserror::Error;
-use xmtp_common::retry::RetryableError;
-
-pub trait XmtpApiError:
-    std::fmt::Debug + std::fmt::Display + std::error::Error + Send + Sync + RetryableError
-{
-    /// The failing ApiCall
-    fn api_call(&self) -> Option<ApiEndpoint>;
-    /// grpc status error code
-    fn code(&self) -> Option<Code>;
-    /// message associated with this gRPC Error, if any.
-    /// this is not the same as the Display implementation
-    fn grpc_message(&self) -> Option<&str>;
-}
-
-#[derive(Error, Debug)]
-pub struct ApiError {
-    inner: Box<dyn XmtpApiError>,
-}
-
-impl RetryableError for ApiError {
-    fn is_retryable(&self) -> bool {
-        self.inner.is_retryable()
-    }
-
-    fn needs_cooldown(&self) -> bool {
-        if let Some(code) = self.inner.code() {
-            code == Code::ResourceExhausted
-        } else {
-            false
-        }
-    }
-}
-
-impl std::fmt::Display for ApiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl<E> From<E> for ApiError
-where
-    E: XmtpApiError + std::error::Error + std::fmt::Display + std::fmt::Debug + 'static,
-{
-    fn from(v: E) -> ApiError {
-        Self { inner: Box::new(v) }
-    }
-}
-
-// GRPC Error Code
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
-pub enum Code {
-    /// The operation completed successfully.
-    Ok = 0,
-    /// The operation was cancelled.
-    Cancelled = 1,
-    /// Unknown error.
-    Unknown = 2,
-    /// Client specified an invalid argument.
-    InvalidArgument = 3,
-    /// Deadline expired before operation could complete.
-    DeadlineExceeded = 4,
-    /// Some requested entity was not found.
-    NotFound = 5,
-    /// Some entity that we attempted to create already exists.
-    AlreadyExists = 6,
-    /// The caller does not have permission to execute the specified operation.
-    PermissionDenied = 7,
-    /// Some resource has been exhausted (rate limit).
-    ResourceExhausted = 8,
-    /// The system is not in a state required for the operation's execution.
-    FailedPrecondition = 9,
-    /// The operation was aborted.
-    Aborted = 10,
-    /// Operation was attempted past the valid range.
-    OutOfRange = 11,
-    /// Operation is not implemented or not supported.
-    Unimplemented = 12,
-    /// Internal error.
-    Internal = 13,
-    /// The service is currently unavailable.
-    Unavailable = 14,
-    /// Unrecoverable data loss or corruption.
-    DataLoss = 15,
-    /// The request does not have valid authentication credentials
-    Unauthenticated = 16,
-}
-
-impl From<usize> for Code {
-    fn from(v: usize) -> Code {
-        use Code::*;
-        match v {
-            0 => Ok,
-            1 => Cancelled,
-            2 => Unknown,
-            3 => InvalidArgument,
-            4 => DeadlineExceeded,
-            5 => NotFound,
-            6 => AlreadyExists,
-            7 => PermissionDenied,
-            8 => ResourceExhausted,
-            9 => FailedPrecondition,
-            10 => Aborted,
-            11 => OutOfRange,
-            12 => Unimplemented,
-            13 => Internal,
-            14 => Unavailable,
-            15 => DataLoss,
-            16 => Unauthenticated,
-            _ => Unknown,
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-mod convert {
-    impl From<super::Code> for tonic::Code {
-        fn from(v: super::Code) -> tonic::Code {
-            match v {
-                super::Code::Ok => tonic::Code::Ok,
-                super::Code::Cancelled => tonic::Code::Cancelled,
-                super::Code::Unknown => tonic::Code::Unknown,
-                super::Code::InvalidArgument => tonic::Code::InvalidArgument,
-                super::Code::DeadlineExceeded => tonic::Code::DeadlineExceeded,
-                super::Code::NotFound => tonic::Code::NotFound,
-                super::Code::AlreadyExists => tonic::Code::AlreadyExists,
-                super::Code::PermissionDenied => tonic::Code::PermissionDenied,
-                super::Code::ResourceExhausted => tonic::Code::ResourceExhausted,
-                super::Code::FailedPrecondition => tonic::Code::FailedPrecondition,
-                super::Code::Aborted => tonic::Code::Aborted,
-                super::Code::OutOfRange => tonic::Code::OutOfRange,
-                super::Code::Unimplemented => tonic::Code::Unimplemented,
-                super::Code::Internal => tonic::Code::Internal,
-                super::Code::Unavailable => tonic::Code::Unavailable,
-                super::Code::DataLoss => tonic::Code::DataLoss,
-                super::Code::Unauthenticated => tonic::Code::Unauthenticated,
-            }
-        }
-    }
-
-    impl From<tonic::Code> for super::Code {
-        fn from(v: tonic::Code) -> super::Code {
-            match v {
-                tonic::Code::Ok => super::Code::Ok,
-                tonic::Code::Cancelled => super::Code::Cancelled,
-                tonic::Code::Unknown => super::Code::Unknown,
-                tonic::Code::InvalidArgument => super::Code::InvalidArgument,
-                tonic::Code::DeadlineExceeded => super::Code::DeadlineExceeded,
-                tonic::Code::NotFound => super::Code::NotFound,
-                tonic::Code::AlreadyExists => super::Code::AlreadyExists,
-                tonic::Code::PermissionDenied => super::Code::PermissionDenied,
-                tonic::Code::ResourceExhausted => super::Code::ResourceExhausted,
-                tonic::Code::FailedPrecondition => super::Code::FailedPrecondition,
-                tonic::Code::Aborted => super::Code::Aborted,
-                tonic::Code::OutOfRange => super::Code::OutOfRange,
-                tonic::Code::Unimplemented => super::Code::Unimplemented,
-                tonic::Code::Internal => super::Code::Internal,
-                tonic::Code::Unavailable => super::Code::Unavailable,
-                tonic::Code::DataLoss => super::Code::DataLoss,
-                tonic::Code::Unauthenticated => super::Code::Unauthenticated,
-            }
-        }
-    }
-}
+use xmtp_common::RetryableError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ApiEndpoint {
@@ -261,6 +99,17 @@ pub enum ConversionError {
     OpenMls(#[from] openmls::prelude::Error),
     #[error(transparent)]
     Protocol(#[from] openmls::framing::errors::ProtocolMessageError),
+}
+
+// Conversion errors themselves not really retryable because the bytes are static,
+// the conversions are done in-memory, so a retrying a conversion should not change the outcome.
+// The API call is what should be retried.
+// If retry on a conversion error is desired a new error enum + custom Retrayble implementation
+// should be preferred.
+impl RetryableError for ConversionError {
+    fn is_retryable(&self) -> bool {
+        false
+    }
 }
 
 /// Error resulting from proto conversions/mutations

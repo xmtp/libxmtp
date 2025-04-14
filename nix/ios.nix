@@ -2,7 +2,7 @@
 { stdenv
 , darwin
 , lib
-, fenix
+, mkToolchain
 , pkg-config
 , mkShell
 , openssl
@@ -25,13 +25,7 @@ let
   ];
 
   # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
-    (lib.forEach
-      iosTargets
-      (target: fenix.targets."${target}".stable.rust-std))
-  ];
+  rust-ios-toolchain = mkToolchain iosTargets [ "clippy-preview" "rustfmt-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -49,7 +43,7 @@ mkShell {
   nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
-      rust-toolchain
+      rust-ios-toolchain
 
       # native libs
       zstd

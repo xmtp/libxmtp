@@ -2,13 +2,7 @@ use crate::utils::test::{TestClient as TestApiClient, HISTORY_SYNC_URL};
 use crate::{client::Client, identity::IdentityStrategy};
 use ethers::signers::LocalWallet;
 use xmtp_id::associations::test_utils::WalletTestExt;
-use xmtp_id::{
-    associations::{
-        builder::SignatureRequest,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    },
-    InboxOwner,
-};
+use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 pub type BenchClient = Client<TestApiClient>;
@@ -54,7 +48,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
         .unwrap();
 
     if history_sync {
-        client = client.history_sync_url(HISTORY_SYNC_URL);
+        client = client.device_sync_server_url(HISTORY_SYNC_URL);
     }
     let client = client.build().await.unwrap();
 
@@ -65,9 +59,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
 pub async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
     let mut signature_request = client.context().signature_request().unwrap();
     let signature_text = signature_request.signature_text();
-    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
-    );
+    let unverified_signature = owner.sign(&signature_text).unwrap();
     signature_request
         .add_signature(unverified_signature, client.scw_verifier())
         .await

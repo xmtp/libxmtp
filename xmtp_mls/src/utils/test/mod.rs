@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tester;
+
 use std::{
     future::Future,
     sync::{
@@ -11,16 +14,16 @@ use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
-    associations::{
-        test_utils::MockSmartContractSignatureVerifier,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-        Identifier,
-    },
+    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-use crate::{builder::ClientBuilder, identity::IdentityStrategy, Client, InboxOwner, XmtpApi};
+use crate::{
+    builder::{ClientBuilder, SyncWorkerMode},
+    identity::IdentityStrategy,
+    Client, InboxOwner, XmtpApi,
+};
 use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
@@ -74,6 +77,23 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             api_client,
             MockSmartContractSignatureVerifier::new(true),
             None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn new_test_client_no_sync(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+            Some(SyncWorkerMode::Disabled),
         )
         .await
     }
@@ -88,6 +108,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
         )
         .await
@@ -107,6 +128,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             api_client,
             MockSmartContractSignatureVerifier::new(true),
             Some(history_sync_url),
+            None,
         )
         .await
     }
@@ -124,6 +146,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
         )
         .await
@@ -201,6 +224,7 @@ async fn build_with_verifier<A, V>(
     api_client: A,
     scw_verifier: V,
     history_sync_url: Option<&str>,
+    sync_worker_mode: Option<SyncWorkerMode>,
 ) -> Client<A, V>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -217,7 +241,11 @@ where
         .with_scw_verifier(scw_verifier);
 
     if let Some(history_sync_url) = history_sync_url {
-        builder = builder.history_sync_url(history_sync_url);
+        builder = builder.device_sync_server_url(history_sync_url);
+    }
+
+    if let Some(sync_worker_mode) = sync_worker_mode {
+        builder = builder.device_sync_worker_mode(sync_worker_mode);
     }
 
     let client = builder.build().await.unwrap();
@@ -324,11 +352,11 @@ impl WorkerHandle {
 
 impl<ApiClient, V> Client<ApiClient, V> {
     pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
-        self.sync_worker_handle.lock().clone()
+        self.device_sync.worker_handle.lock().clone()
     }
 
     pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
-        *self.sync_worker_handle.lock() = Some(handle);
+        *self.device_sync.worker_handle.lock() = Some(handle);
     }
 }
 
@@ -338,9 +366,8 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 ) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
-    let unverified_signature = UnverifiedSignature::RecoverableEcdsa(
-        UnverifiedRecoverableEcdsaSignature::new(owner.sign(&signature_text).unwrap().into()),
-    );
+    let unverified_signature = owner.sign(&signature_text).unwrap();
+
     signature_request
         .add_signature(unverified_signature, client.scw_verifier())
         .await

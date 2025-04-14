@@ -81,6 +81,7 @@ fn create_ffi_client(c: &mut Criterion) {
                     nonce,
                     None,
                     Some(HISTORY_SYNC_URL.to_string()),
+                    None,
                 )
                 .instrument(span)
                 .await
@@ -121,6 +122,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -153,6 +155,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
                     nonce,
                     None,
                     Some(history_sync),
+                    None,
                 )
                 .instrument(span)
                 .await

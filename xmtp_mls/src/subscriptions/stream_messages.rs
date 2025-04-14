@@ -250,7 +250,7 @@ where
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
                     let future = ProcessMessageFuture::new(
                         *this.client,
-                        envelope.map_err(xmtp_proto::ApiError::from)?,
+                        envelope.map_err(|e| SubscribeError::BoxError(Box::new(e)))?,
                     )?;
                     let future = future.process();
                     this.state.set(State::Processing {

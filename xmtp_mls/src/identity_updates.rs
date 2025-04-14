@@ -745,7 +745,7 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let wallet = generate_local_wallet();
             let wallet_2 = generate_local_wallet();
-            let client = ClientBuilder::new_test_client(&wallet).await;
+            let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
             let inbox_id = client.inbox_id();
 
             get_association_state(&client, inbox_id).await;

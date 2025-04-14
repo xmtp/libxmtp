@@ -27,6 +27,11 @@ pub mod fmt;
 pub mod time;
 pub mod types;
 
+#[cfg(feature = "logging")]
+pub mod logging;
+#[cfg(feature = "logging")]
+pub use logging::*;
+
 use rand::{
     RngCore, SeedableRng,
     distributions::{Alphanumeric, DistString},

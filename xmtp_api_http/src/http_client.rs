@@ -16,6 +16,7 @@ impl XmtpHttpApiClient {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, HttpClientError> {
+        self.wait_for_ready().await;
         let host = http::uri::Builder::from(http::uri::Uri::try_from(self.host_url.clone())?);
         let uri = host.path_and_query(path).build()?;
         trace!("uri={uri}");

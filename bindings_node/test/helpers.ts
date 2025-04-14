@@ -12,6 +12,7 @@ import {
   IdentifierKind,
   LogLevel,
   SignatureRequestType,
+  SyncWorkerMode,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -56,6 +57,7 @@ export const createClient = async (user: User) => {
     },
     undefined,
     undefined,
+    SyncWorkerMode.disabled,
     { level: LogLevel.off }
   )
 }

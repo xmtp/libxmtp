@@ -7,35 +7,30 @@ pub mod test_utils;
 
 use std::sync::Arc;
 
-use xmtp_common::{ExponentialBackoff, Retry, RetryableError};
+use xmtp_common::{retryable, ExponentialBackoff, Retry, RetryableError};
 pub use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::ApiError;
 
 pub use identity::*;
 pub use mls::*;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, ApiError>;
 
 pub mod strategies {
     use super::*;
-    pub fn exponential_cooldown() -> Retry<ExponentialBackoff, ExponentialBackoff> {
-        let cooldown = ExponentialBackoff::builder()
-            .duration(std::time::Duration::from_secs(3))
-            .multiplier(3)
-            .max_jitter(std::time::Duration::from_millis(100))
-            .total_wait_max(std::time::Duration::from_secs(120))
-            .build();
-
-        xmtp_common::Retry::builder()
-            .with_cooldown(cooldown)
-            .build()
+    pub fn exponential_cooldown() -> Retry<ExponentialBackoff> {
+        xmtp_common::Retry::builder().build()
     }
 }
 
+// Erases Api Error type (which may be Http or Grpc)
+fn dyn_err(e: impl RetryableError + Send + Sync + 'static) -> ApiError {
+    ApiError::Api(Box::new(e))
+}
+
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("API client error: {0}")]
-    Api(#[from] ApiError),
+pub enum ApiError {
+    #[error("api client error {0}")]
+    Api(Box<dyn RetryableError + Send + Sync>),
     #[error(
         "mismatched number of results, key packages {} != installation_keys {}",
         .key_packages,
@@ -49,14 +44,10 @@ pub enum Error {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
 }
 
-impl RetryableError for Error {
+impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
-        matches!(self, Self::Api(_))
-    }
-
-    fn needs_cooldown(&self) -> bool {
         match self {
-            Self::Api(e) => e.needs_cooldown(),
+            Self::Api(e) => retryable!(e),
             _ => false,
         }
     }
@@ -66,15 +57,12 @@ impl RetryableError for Error {
 pub struct ApiClientWrapper<ApiClient> {
     // todo: this should be private to impl
     pub api_client: Arc<ApiClient>,
-    pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff, ExponentialBackoff>>,
+    pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient> {
-    pub fn new(
-        api_client: Arc<ApiClient>,
-        retry_strategy: Retry<ExponentialBackoff, ExponentialBackoff>,
-    ) -> Self {
+    pub fn new(api_client: Arc<ApiClient>, retry_strategy: Retry<ExponentialBackoff>) -> Self {
         Self {
             api_client,
             retry_strategy: retry_strategy.into(),
@@ -91,6 +79,16 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    #[cfg(all(
+        not(any(target_arch = "wasm32", feature = "http-api")),
+        feature = "grpc-api"
+    ))]
+    pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
+
+    #[cfg(any(feature = "http-api", target_arch = "wasm32",))]
+    pub type TestClient = xmtp_api_http::XmtpHttpApiClient;
+
     // Execute once before any tests are run
     #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
     #[cfg(not(target_arch = "wasm32"))]

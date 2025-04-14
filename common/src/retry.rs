@@ -16,19 +16,31 @@
 //! }
 //! ```
 
-use crate::time::{Duration, Instant};
-use arc_swap::ArcSwap;
+use crate::time::Duration;
 use rand::Rng;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use std::error::Error;
+use std::sync::Arc;
+
+// Rust 1.86 added Trait upcasting, so we can add these infallible conversions
+// which is useful when getting error messages
+impl From<Box<dyn RetryableError>> for Box<dyn Error> {
+    fn from(retryable: Box<dyn RetryableError>) -> Box<dyn Error> {
+        retryable
+    }
+}
+
+// NOTE: From<> implementation is not possible here b/c of rust orphan rules (relaxed for Box
+// types)
+/// Convert an Arc<RetryableError> to a Standard Library Arc<Error>
+pub fn arc_retryable_to_error(retryable: Arc<dyn RetryableError>) -> Arc<dyn Error> {
+    retryable
+}
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type BoxedRetry = Retry<Box<dyn Strategy + Send + Sync>, Box<dyn Strategy + Send + Sync>>;
+pub type BoxedRetry = Retry<Box<dyn Strategy + Send + Sync>>;
 
 #[cfg(target_arch = "wasm32")]
-pub type BoxedRetry = Retry<Box<dyn Strategy>, Box<dyn Strategy>>;
+pub type BoxedRetry = Retry<Box<dyn Strategy>>;
 
 pub struct NotSpecialized;
 
@@ -36,12 +48,6 @@ pub struct NotSpecialized;
 /// All Errors are not retryable by-default.
 pub trait RetryableError<SP = NotSpecialized>: std::error::Error {
     fn is_retryable(&self) -> bool;
-
-    /// If the global scope this `Retry` operates in needs to be
-    /// backed off on an error (e.g. a Rate Limit) this should return `true`
-    fn needs_cooldown(&self) -> bool {
-        false
-    }
 }
 
 impl<T> RetryableError for &'_ T
@@ -51,37 +57,19 @@ where
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
     }
-
-    fn needs_cooldown(&self) -> bool {
-        (**self).needs_cooldown()
-    }
 }
 
 impl<E: RetryableError> RetryableError for Box<E> {
     fn is_retryable(&self) -> bool {
         (**self).is_retryable()
     }
-
-    fn needs_cooldown(&self) -> bool {
-        (**self).needs_cooldown()
-    }
 }
 
 /// Options to specify how to retry a function
 #[derive(Debug, Clone)]
-pub struct Retry<S = ExponentialBackoff, C = ()> {
+pub struct Retry<S = ExponentialBackoff> {
     retries: usize,
     strategy: S,
-    /// global cooldown for this retry strategy
-    cooldown: C,
-    /// whether we are currently in a cooldown period
-    is_cooling: Arc<AtomicBool>,
-    /// since when have we been cooling
-    cooling_since: Arc<ArcSwap<crate::time::Instant>>,
-    /// how many consecutive cooldown attempts
-    cooldown_attempts: Arc<AtomicUsize>,
-    /// the last error we got before cooling down
-    last_err: Arc<AtomicBool>,
 }
 
 impl Default for Retry {
@@ -89,17 +77,11 @@ impl Default for Retry {
         Retry {
             retries: 5,
             strategy: ExponentialBackoff::default(),
-            cooldown: (),
-            cooling_since: Arc::new(ArcSwap::from_pointee(Instant::now())),
-            is_cooling: Arc::new(AtomicBool::new(false)),
-            cooldown_attempts: Arc::new(AtomicUsize::new(0usize)),
-            // whether the last error was a cooldown error
-            last_err: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
-impl<S: Strategy, C: Strategy> Retry<S, C> {
+impl<S: Strategy> Retry<S> {
     /// Get the number of retries this is configured with.
     pub fn retries(&self) -> usize {
         self.retries
@@ -108,58 +90,13 @@ impl<S: Strategy, C: Strategy> Retry<S, C> {
     pub fn backoff(&self, attempts: usize, time_spent: crate::time::Instant) -> Option<Duration> {
         self.strategy.backoff(attempts, time_spent)
     }
-
-    pub async fn cooldown(&self) {
-        if self.is_cooling.load(Ordering::SeqCst) {
-            if let Some(c) = self.cooldown.backoff(
-                self.cooldown_attempts.load(Ordering::SeqCst),
-                **self.cooling_since.load(),
-            ) {
-                let sleep_for = c.saturating_sub(self.cooling_since.load().elapsed());
-                tracing::debug!("cooling for {:?}", sleep_for);
-                crate::time::sleep(sleep_for).await;
-                self.cooldown_off();
-            }
-        }
-    }
-
-    pub fn toggle_cooldown(&self) {
-        if self.is_cooling.load(Ordering::SeqCst) {
-            return;
-        }
-        self.cooling_since.store(crate::time::Instant::now().into());
-        // if the last error was also a cooldown, increase attempts
-        if self.last_err.load(Ordering::SeqCst) {
-            let attempts = self.cooldown_attempts.fetch_add(1, Ordering::SeqCst);
-            tracing::info!("Attempts: {}", attempts);
-        } else {
-            self.cooldown_attempts.store(0, Ordering::SeqCst);
-        }
-        self.is_cooling.store(true, Ordering::SeqCst);
-    }
-
-    fn cooldown_off(&self) {
-        self.is_cooling.store(false, Ordering::SeqCst);
-        if self.last_err.load(Ordering::SeqCst) {}
-    }
-
-    pub fn last_err(&self, err: impl RetryableError) {
-        if !self.is_cooling.load(Ordering::SeqCst) {
-            self.last_err.store(err.needs_cooldown(), Ordering::SeqCst)
-        }
-    }
 }
 
-impl<S: Strategy + 'static, C: Strategy + 'static> Retry<S, C> {
-    pub fn boxed(self) -> Retry<Box<dyn Strategy>, Box<dyn Strategy>> {
+impl<S: Strategy + 'static> Retry<S> {
+    pub fn boxed(self) -> Retry<Box<dyn Strategy>> {
         Retry {
             strategy: Box::new(self.strategy),
-            cooldown: Box::new(self.cooldown),
             retries: self.retries,
-            is_cooling: self.is_cooling,
-            cooling_since: self.cooling_since,
-            cooldown_attempts: self.cooldown_attempts,
-            last_err: self.last_err,
         }
     }
 }
@@ -277,18 +214,16 @@ impl Strategy for ExponentialBackoff {
 
 /// Builder for [`Retry`]
 #[derive(Default, Debug, Copy, Clone)]
-pub struct RetryBuilder<S, C> {
+pub struct RetryBuilder<S> {
     retries: Option<usize>,
     strategy: S,
-    cooldown: C,
 }
 
-impl RetryBuilder<ExponentialBackoff, ()> {
+impl RetryBuilder<ExponentialBackoff> {
     pub fn new() -> Self {
         Self {
             retries: Some(5),
             strategy: ExponentialBackoff::default(),
-            cooldown: (),
         }
     }
 }
@@ -304,16 +239,11 @@ impl RetryBuilder<ExponentialBackoff, ()> {
 ///     .with_strategy(xmtp_common::ExponentialBackoff::default())
 ///     .build();
 /// ```
-impl<S: Strategy, C: Strategy> RetryBuilder<S, C> {
-    pub fn build(self) -> Retry<S, C> {
+impl<S: Strategy> RetryBuilder<S> {
+    pub fn build(self) -> Retry<S> {
         let mut retry = Retry {
             retries: 5usize,
             strategy: self.strategy,
-            cooldown: self.cooldown,
-            cooling_since: Arc::new(ArcSwap::from_pointee(Instant::now())),
-            is_cooling: Arc::new(AtomicBool::new(false)),
-            cooldown_attempts: Arc::new(AtomicUsize::new(0)),
-            last_err: Arc::new(AtomicBool::new(false)),
         };
 
         if let Some(retries) = self.retries {
@@ -329,33 +259,17 @@ impl<S: Strategy, C: Strategy> RetryBuilder<S, C> {
         self
     }
 
-    pub fn with_strategy<St: Strategy>(self, strategy: St) -> RetryBuilder<St, C> {
+    pub fn with_strategy<St: Strategy>(self, strategy: St) -> RetryBuilder<St> {
         RetryBuilder {
             retries: self.retries,
             strategy,
-            cooldown: self.cooldown,
-        }
-    }
-
-    /// Choose a cooldown strategy.
-    /// the Cooldown strategy is independant of the retry strategy.
-    /// The cooldown strategy additionally operates over the entire scope
-    /// of `Retry`.
-    /// This means any retry!() blocks using the same `Retry` strategy
-    /// would also be paused for the duration of the cooldown backoff.
-    /// By default this strategy resolves immediately (there is no cooldown period.)
-    pub fn with_cooldown<Cd>(self, cooldown: Cd) -> RetryBuilder<S, Cd> {
-        RetryBuilder {
-            retries: self.retries,
-            strategy: self.strategy,
-            cooldown,
         }
     }
 }
 
 impl Retry {
     /// Get the builder for [`Retry`]
-    pub fn builder() -> RetryBuilder<ExponentialBackoff, ()> {
+    pub fn builder() -> RetryBuilder<ExponentialBackoff> {
         RetryBuilder::new()
     }
 }
@@ -415,17 +329,10 @@ macro_rules! retry_async {
         loop {
             let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            $retry.cooldown().await;
             let res = $code.instrument(span).await;
             match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
-                    $retry.last_err(&e);
-                    if (&e).needs_cooldown() {
-                        tracing::warn!("Hit {}, cooling down", e);
-                        $retry.toggle_cooldown();
-                        continue;
-                    }
                     if (&e).is_retryable() && attempts < $retry.retries() {
                         tracing::warn!(
                             "retrying function that failed with error={}",

@@ -17,6 +17,7 @@ use crate::xmtp::mls::api::v1::{
 use futures::Stream;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use xmtp_common::RetryableError;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub trait XmtpTestClient {
@@ -91,94 +92,6 @@ pub mod trait_impls {
     }
 }
 
-pub trait XmtpApiSubscription {
-    fn is_closed(&self) -> bool;
-    fn get_messages(&self) -> Vec<Envelope>;
-    fn close_stream(&mut self);
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Self::Error>> + Send {
-    type Error;
-    async fn update(&mut self, req: SubscribeRequest) -> Result<(), Self::Error>;
-    fn close(&self);
-}
-
-// Wasm futures don't have `Send` or `Sync` bounds.
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait XmtpApiClient {
-    type Subscription: XmtpApiSubscription;
-    type MutableSubscription: MutableApiSubscription;
-    type Error;
-
-    async fn publish(
-        &self,
-        token: String,
-        request: PublishRequest,
-    ) -> Result<PublishResponse, Self::Error>;
-
-    async fn subscribe(&self, request: SubscribeRequest)
-        -> Result<Self::Subscription, Self::Error>;
-
-    async fn subscribe2(
-        &self,
-        request: SubscribeRequest,
-    ) -> Result<Self::MutableSubscription, Self::Error>;
-
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
-
-    async fn batch_query(
-        &self,
-        request: BatchQueryRequest,
-    ) -> Result<BatchQueryResponse, Self::Error>;
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<T> XmtpApiClient for Box<T>
-where
-    T: XmtpApiClient + Sync + ?Sized,
-{
-    type Subscription = <T as XmtpApiClient>::Subscription;
-    type MutableSubscription = <T as XmtpApiClient>::MutableSubscription;
-    type Error = <T as XmtpApiClient>::Error;
-
-    async fn publish(
-        &self,
-        token: String,
-        request: PublishRequest,
-    ) -> Result<PublishResponse, Self::Error> {
-        (**self).publish(token, request).await
-    }
-
-    async fn subscribe(
-        &self,
-        request: SubscribeRequest,
-    ) -> Result<Self::Subscription, Self::Error> {
-        (**self).subscribe(request).await
-    }
-
-    async fn subscribe2(
-        &self,
-        request: SubscribeRequest,
-    ) -> Result<Self::MutableSubscription, Self::Error> {
-        (**self).subscribe2(request).await
-    }
-
-    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
-        (**self).query(request).await
-    }
-
-    async fn batch_query(
-        &self,
-        request: BatchQueryRequest,
-    ) -> Result<BatchQueryResponse, Self::Error> {
-        (**self).batch_query(request).await
-    }
-}
-
 #[derive(Clone, Default, Debug)]
 pub struct ApiStats {
     pub upload_key_package: Arc<EndpointStats>,
@@ -217,7 +130,7 @@ impl EndpointStats {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsClient {
-    type Error: crate::XmtpApiError + 'static;
+    type Error: RetryableError + Send + Sync + 'static;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest)
         -> Result<(), Self::Error>;
     async fn fetch_key_packages(
@@ -362,7 +275,7 @@ pub trait XmtpMlsStreams {
     type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send + 'a
     where
         Self: 'a;
-    type Error: crate::XmtpApiError + 'static;
+    type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(
         &self,
@@ -384,7 +297,7 @@ pub trait XmtpMlsStreams {
     type WelcomeMessageStream<'a>: Stream<Item = Result<WelcomeMessage, Self::Error>> + 'a
     where
         Self: 'a;
-    type Error: crate::XmtpApiError + 'static;
+    type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(
         &self,
@@ -465,7 +378,7 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpIdentityClient {
-    type Error: crate::XmtpApiError + 'static;
+    type Error: RetryableError + Send + Sync + 'static;
     async fn publish_identity_update(
         &self,
         request: PublishIdentityUpdateRequest,
@@ -592,6 +505,9 @@ pub trait ApiBuilder {
 
     /// indicate tls (default: false)
     fn set_tls(&mut self, tls: bool);
+
+    /// Set  the rate limit per minute for this client
+    fn rate_per_minute(&mut self, limit: u32);
 
     #[allow(async_fn_in_trait)]
     /// Build the api client

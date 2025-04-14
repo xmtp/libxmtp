@@ -5,14 +5,8 @@ on:
       - 'swift-bindings-*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to use (without swift-bindings- prefix)'
-        required: true
-      sha7:
-        description: 'Short SHA (7 characters) of the commit'
-        required: true
-      checksum:
-        description: 'Checksum of the release zip file'
+      tag:
+        description: 'Tag to use (e.g. swift-bindings-0.1.0.abc1234)'
         required: true
 
 jobs:
@@ -23,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: libxmtp
-          ref: ${{ github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
       
       - name: Checkout libxmtp-swift
         uses: actions/checkout@v4
@@ -46,14 +40,32 @@ jobs:
           # Replace the major version in the original version string
           VERSION=$(echo $ORIG_VERSION | sed "s/^$MAJOR_VERSION/$NEW_MAJOR/")
           
-          SHA7="${{ github.event.client_payload.sha7 }}"
+          # Get the tag - either from the push event or from workflow_dispatch input
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            # Find the swift-bindings-* tag on the current commit
+            COMMIT_SHA=$(git rev-parse HEAD)
+            SWIFT_TAG=$(git tag --points-at $COMMIT_SHA | grep "^swift-bindings-" | head -n 1)
+            
+            # If no swift-bindings-* tag found, fall back to github.ref_name
+            if [[ -z "$SWIFT_TAG" ]]; then
+              TAG="${{ github.ref_name }}"
+            else
+              TAG="$SWIFT_TAG"
+            fi
+          fi
+          
+          # Extract version and SHA from tag
+          VERSION_INPUT=$(echo $TAG | sed 's/swift-bindings-//' | cut -d. -f1-3)
+          SHA7=$(echo $TAG | cut -d. -f4)
+          RELEASE_TAG="${TAG}"
           
           # If version contains "dev", append the git commit SHA
           if [[ "$VERSION" == *"dev"* ]]; then
             VERSION="${VERSION}.${SHA7}"
           fi
           
-          RELEASE_TAG="swift-bindings-${{ github.event.client_payload.version }}.${SHA7}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
@@ -76,7 +88,7 @@ jobs:
           VERSION="${{ steps.version_info.outputs.version }}"
           
           # Update version in podspec
-          sed -i '' "s/s.version *=.*'[0-9.]*'/s.version          = '${VERSION}'/" LibXMTP.podspec
+          sed -i '' "s/s.version *= *'[^']*'/s.version          = '${VERSION}'/" LibXMTP.podspec
           
           # Update source URL in podspec
           sed -i '' "s|s.source *=.*{.*}|s.source           = { :http => \"${RELEASE_URL}\", :type => :zip }|" LibXMTP.podspec
@@ -86,8 +98,19 @@ jobs:
       
       - name: Get checksum from release
         id: get_checksum
+        env:
+          GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
         run: |
-          CHECKSUM="${{ github.event.client_payload.checksum }}"
+          # Fetch the checksum from the release description
+          RELEASE_TAG="${{ steps.version_info.outputs.release_tag }}"
+          CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$RELEASE_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
+          
+          # Verify we got a valid checksum
+          if [[ ! $CHECKSUM =~ ^[a-f0-9]+$ ]]; then
+            echo "Failed to extract valid checksum from release description"
+            exit 1
+          fi
+          
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
       
       - name: Update Package.swift

@@ -1,6 +1,7 @@
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
+use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -121,6 +122,7 @@ pub async fn create_client(
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     history_sync_url: Option<String>,
+    sync_worker_mode: Option<FfiSyncWorkerMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -160,7 +162,11 @@ pub async fn create_client(
         .store(store);
 
     if let Some(url) = &history_sync_url {
-        builder = builder.history_sync_url(url);
+        builder = builder.device_sync_server_url(url);
+    }
+
+    if let Some(sync_worker_mode) = sync_worker_mode {
+        builder = builder.device_sync_worker_mode(sync_worker_mode.into());
     }
 
     let xmtp_client = builder.build().await?;
@@ -2787,6 +2793,7 @@ mod tests {
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
         FfiCreateGroupOptions, FfiDirection, FfiGroupPermissionsOptions,
@@ -2818,12 +2825,9 @@ mod tests {
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
-    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_cryptography::utils::rng;
     use xmtp_db::EncryptionKey;
-    use xmtp_id::associations::{
-        test_utils::WalletTestExt,
-        unverified::{UnverifiedRecoverableEcdsaSignature, UnverifiedSignature},
-    };
+    use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
         groups::{scoped_client::LocalScopedGroupClient, GroupError},
         InboxOwner,
@@ -2869,9 +2873,12 @@ mod tests {
         fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
             let recoverable_signature =
                 self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
-            match recoverable_signature {
-                RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
-            }
+
+            let bytes = match recoverable_signature {
+                UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
+                _ => unreachable!("Eth wallets only provide ecdsa signatures"),
+            };
+            Ok(bytes)
         }
     }
 
@@ -3014,19 +3021,24 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None).await
+        new_test_client_with_wallet_and_history_sync_url(wallet, None, None).await
     }
 
     async fn new_test_client_with_wallet_and_history(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+        )
+        .await
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
+        sync_worker_mode: Option<FfiSyncWorkerMode>,
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -3044,6 +3056,7 @@ mod tests {
             nonce,
             None,
             history_sync_url,
+            sync_worker_mode,
         )
         .await
         .unwrap();
@@ -3075,6 +3088,7 @@ mod tests {
             nonce,
             None,
             history_sync_url,
+            None,
         )
         .await?;
 
@@ -3172,6 +3186,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3231,10 +3246,24 @@ mod tests {
         new_test_client_with_wallet(wallet).await
     }
 
+    async fn new_test_client_no_sync() -> Arc<FfiXmtpClient> {
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            None,
+            Some(FfiSyncWorkerMode::Disabled),
+        )
+        .await
+    }
+
     async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(wallet, Some(HISTORY_SYNC_URL.to_string()))
-            .await
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+        )
+        .await
     }
 
     impl FfiConversation {
@@ -3286,6 +3315,7 @@ mod tests {
             nonce,
             Some(legacy_keys),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3313,6 +3343,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3330,6 +3361,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3367,6 +3399,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3387,6 +3420,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .is_err();
@@ -3402,17 +3436,11 @@ mod tests {
     impl SignWithWallet for FfiSignatureRequest {
         async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
             let signature_text = self.inner.lock().await.signature_text();
-            let wallet_signature: Vec<u8> = wallet.sign(&signature_text.clone()).unwrap().into();
 
             self.inner
                 .lock()
                 .await
-                .add_signature(
-                    UnverifiedSignature::RecoverableEcdsa(
-                        UnverifiedRecoverableEcdsaSignature::new(wallet_signature),
-                    ),
-                    &self.scw_verifier,
-                )
+                .add_signature(wallet.sign(&signature_text).unwrap(), &self.scw_verifier)
                 .await
                 .unwrap();
         }
@@ -3449,7 +3477,7 @@ mod tests {
         // Why is this 2?
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        assert_eq!(stats.send_group_messages.get_count(), 6);
 
         // Sleep for 2 seconds and make sure nothing else has sent
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -3458,7 +3486,7 @@ mod tests {
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 2);
+        assert_eq!(stats.send_group_messages.get_count(), 6);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3480,6 +3508,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3684,6 +3713,7 @@ mod tests {
             nonce,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3773,6 +3803,7 @@ mod tests {
             nonce,
             None, // v2_signed_private_key_proto
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3802,6 +3833,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -3842,6 +3874,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
         )
@@ -4107,8 +4140,8 @@ mod tests {
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_group_messages_for_updates() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
+        let alix = new_test_client_no_sync().await;
+        let bo = new_test_client_no_sync().await;
         let alix_provider = alix.inner_client.mls_provider().unwrap();
         let bo_provider = bo.inner_client.mls_provider().unwrap();
 
@@ -4633,7 +4666,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_1, 30);
+        assert_eq!(num_groups_synced_1, 31);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -4654,7 +4687,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_2, 30);
+        assert_eq!(num_groups_synced_2, 31);
 
         // Second sync after removal will not process inactive groups
         let num_groups_synced_3: u32 = bo
@@ -4662,7 +4695,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_3, 0);
+        assert_eq!(num_groups_synced_3, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -6427,8 +6460,8 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(alix_num_sync, 1);
-        assert_eq!(bola_num_sync, 1);
+        assert_eq!(alix_num_sync, 2);
+        assert_eq!(bola_num_sync, 2);
 
         let alix_groups = alix_conversations
             .list_groups(FfiListConversationsOptions::default())
@@ -7017,6 +7050,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -7056,6 +7090,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -7120,6 +7155,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
@@ -7155,6 +7191,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -7177,6 +7214,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -7196,6 +7234,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -7226,6 +7265,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
         )
         .await;
 
