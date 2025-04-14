@@ -36,6 +36,8 @@ env:
   RUSTFLAGS: --cfg tracing_unstable
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
+  build-docker:
+    name: Build Docker
   test:
     name: Test
     runs-on: warp-ubuntu-latest-x64-16x
@@ -57,13 +59,11 @@ jobs:
           dev/docker/up-v3
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: build tests
-        run: cargo nextest --profile ci run --no-run --workspace --tests --exclude bindings_node --exclude bindings_wasm --all-features
-      - name: test workspace with grpc
-        run: cargo nextest --profile ci run --workspace --test-threads 2 --exclude bindings_node --exclude bindings_wasm --all-features
-      - name: test workspace with http
+      - name: gRPC
+        run: cargo nextest --profile ci run --workspace --test-threads 2 -E 'platform(host) + kind(lib) + rdeps(xmtp_mls)' --all-features
+      - name: HTTP
         run: cargo nextest run --profile ci --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
-      - name: test generated bindings
-        run: nix develop .#kotlin --command cargo nextest run -E 'package(xmtpv3)' --workspace --exclude bindings_wasm bindings_node
+      - name: Mobile FFI Integration Tests
+        run: nix develop .#kotlin --command cargo nextest run -E 'kind(test)' --workspace --exclude bindings_wasm bindings_node
       - name: test workspace with webassembly
         run: ./dev/ci/wasm
