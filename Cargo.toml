@@ -9,7 +9,7 @@ members = [
   "xmtp_mls",
   "xmtp_api",
   "xmtp_id",
-  "bindings_go",
+  "bindings_c",
   "bindings_wasm",
   "bindings_node",
   "bindings_ffi",

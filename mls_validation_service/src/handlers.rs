@@ -164,18 +164,7 @@ impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse 
         }
     }
 }
-
-pub fn validate_inbox_id_key_package_ffi(key_package: Vec<u8>) -> bool {
-    match validate_inbox_id_key_package(key_package) {
-        Ok(res) => res.is_ok,
-        Err(e) => {
-            eprintln!("Error validating key package: {:?}", e);
-            false
-        }
-    }
-}
-
-fn validate_inbox_id_key_package(
+async fn validate_inbox_id_key_package(
     key_package: Vec<u8>,
 ) -> Result<ValidateInboxIdKeyPackageResponse, ValidateInboxIdKeyPackageError> {
     let rust_crypto = RustCrypto::default();

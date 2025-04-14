@@ -425,11 +425,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "bindings_go"
+name = "bindings_c"
 version = "1.2.0-dev"
 dependencies = [
  "libc",
- "mls_validation_service",
+ "openmls_rust_crypto",
+ "xmtp_mls",
 ]
 
 [[package]]

@@ -9,10 +9,6 @@ version = "0.1.4"
 name = "mls-validation-service"
 path = "src/main.rs"
 
-[lib]
-name = "mls_validation_service"
-path = "src/lib.rs"
-
 [build-dependencies]
 vergen-git2 = { workspace = true, features = ["build"] }
 

@@ -1,13 +1,14 @@
 [package]
-name = "bindings_go"
+name = "bindings_c"
 edition = "2024"
 license.workspace = true
 version.workspace = true
 
 [lib]
-name = "bindings_go"
+name = "bindings_c"
 crate-type = ["cdylib"]
 
 [dependencies]
-mls_validation_service = { path = "../mls_validation_service" }
+openmls_rust_crypto = { workspace = true }
+xmtp_mls.workspace = true
 libc = "0.2"

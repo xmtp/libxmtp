@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   pull_request:
 jobs:
-  build-go-bindings:
+  build-c-bindings:
     strategy:
       fail-fast: false
       matrix:
@@ -27,20 +27,20 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_go
+            bindings_c
       - name: Install cbindgen
         run: cargo install cbindgen
       - name: Generate header
-        working-directory: ./bindings_go
-        run: cbindgen --config cbindgen.toml --crate bindings_go --output libxmtpmls.h
+        working-directory: ./bindings_c
+        run: cbindgen --config cbindgen.toml --crate bindings_c --output libxmtpmls.h
       - name: Build shared library
         run: |
-          cargo build --release --target ${{ matrix.target }} --package bindings_go
+          cargo build --release --target ${{ matrix.target }} --package bindings_c
       - name: Package artifacts
         run: |
           mkdir -p dist/${{ matrix.target }}
-          cp target/${{ matrix.target }}/release/libbindings_go.* dist/${{ matrix.target }}/
-          cp bindings_go/libxmtpmls.h dist/${{ matrix.target }}/
+          cp target/${{ matrix.target }}/release/libbindings_c.* dist/${{ matrix.target }}/
+          cp bindings_c/libxmtpmls.h dist/${{ matrix.target }}/
       - name: Upload release artefacts
         uses: actions/upload-artifact@v4
         with:
