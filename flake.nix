@@ -23,11 +23,16 @@
   nixConfig = {
     extra-trusted-public-keys = "xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=";
     extra-substituters = "https://xmtp.cachix.org";
+    extra-trusted-substituters = "https://xmtp.cachix.org";
   };
 
-  outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, mvn2nix, ... }:
+  outputs = inputs@{ self, flake-parts, fenix, crane, foundry, mvn2nix, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
+      imports = [
+        ./nix/lib
+        flake-parts.flakeModules.flakeModules
+      ];
       perSystem = { pkgs, system, ... }:
         let
           util = import inputs.mkshell-util;
@@ -43,12 +48,11 @@
             };
           };
           mkToolchain = targets: components: pkgs.fenix.combine [
-            ((pkgs.fenix.fromManifestFile rust-manifest).minimalToolchain)
-            (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (pkgs.fenix.fromManifestFile rust-manifest)."${c}"))
+            (pkgs.fenix.fromManifestFile inputs.rust-manifest).minimalToolchain
+            (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile inputs.rust-manifest).rust-std))
+            (pkgs.lib.forEach components (c: (pkgs.fenix.fromManifestFile inputs.rust-manifest)."${c}"))
           ];
-          craneLib = crane.mkLib pkgs;
-          filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };
+          filesets = self.lib.filesets { inherit pkgs inputs; };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
@@ -64,7 +68,13 @@
             # the environment bindings_wasm is built in
             wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
           };
-          packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
+          packages = {
+            bindingsWasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
+            validationService = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).bin;
+            validationServiceDocker = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).dockerImage;
+
+          };
         };
+      debug = true;
     };
 }
