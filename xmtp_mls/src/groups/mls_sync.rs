@@ -1124,6 +1124,19 @@ where
                         msgv1.id,
                         e
                     );
+
+                    let group_epoch = self.epoch(provider).await.ok();
+                    let msg_epoch = GroupEpoch::from(msgv1.id);
+                    if let Some(group_epoch) = group_epoch {
+                        if msg_epoch.as_u64() > group_epoch {
+                            tracing::error!(
+                                "Message epoch [{}] is greater than group epoch [{}], your group may be forked",
+                                msg_epoch,
+                                group_epoch
+                            );
+                        }
+                    }
+                    
                     Err(e)
                 }
             }
