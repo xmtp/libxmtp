@@ -54,12 +54,15 @@
           devShells = {
             # shell for general xmtp rust dev
             default = callPackage pkgs ./nix/libxmtp.nix { inherit mkToolchain; };
+            # shell for general xmtp rust dev
+            ci = callPackage pkgs ./nix/ci.nix { inherit mkToolchain; };
+
             # Shell for android builds
             android = callPackage pkgs ./nix/android.nix { inherit mkToolchain; };
             # Shell for iOS builds
             ios = callPackage pkgs ./nix/ios.nix { inherit mkToolchain; };
             js = callPackage pkgs ./nix/js.nix { };
-            kotlin = callPackage pkgs ./nix/kotlin.nix { };
+            kotlin = callPackage pkgs ./nix/kotlin.nix { inherit mkToolchain; };
             # the environment bindings_wasm is built in
             wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
           };
@@ -67,9 +70,7 @@
             bindingsWasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
             validationService = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).bin;
             validationServiceDocker = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).dockerImage;
-
           };
         };
-      debug = true;
     };
 }
