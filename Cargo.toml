@@ -9,6 +9,7 @@ members = [
   "xmtp_mls",
   "xmtp_api",
   "xmtp_id",
+  "bindings_go",
   "bindings_wasm",
   "bindings_node",
   "bindings_ffi",
@@ -118,6 +119,7 @@ xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
+mls_validation_service = { path = "mls_validation_service"}
 
 
 [profile.dev]

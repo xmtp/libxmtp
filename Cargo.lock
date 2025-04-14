@@ -425,6 +425,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindings_go"
+version = "1.2.0-dev"
+dependencies = [
+ "libc",
+ "mls_validation_service",
+]
+
+[[package]]
 name = "bindings_node"
 version = "1.2.0-dev"
 dependencies = [

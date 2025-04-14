@@ -1,0 +1,45 @@
+name: Release Go Bindings
+on:
+  workflow_dispatch:
+  pull_request:
+jobs:
+  build-linux:
+    runs-on: warp-ubuntu-latest-x64-16x
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add ${{ matrix.target }}
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_go
+      - name: Install cbindgen
+        run: cargo install cbindgen
+      - name: Generate header
+        working-directory: ./bindings_go
+        run: cbindgen --config cbindgen.toml --crate bindings_go --output libxmtpmls.h
+      - name: Build shared library
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+      - name: Package artifacts
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/libbindings_go.* dist/${{ matrix.target }}/
+          cp bindings_go/libxmtpmls.h dist/${{ matrix.target }}/
+      - name: Upload release artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output_target }}
+          path: dist/${{ matrix.target }}/*

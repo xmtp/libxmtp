@@ -135,8 +135,7 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<_> = join_all(responses)
-            .await
+        let responses: Vec<_> = responses
             .into_iter()
             .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
             .map(|r| r.unwrap_or_else(|e| e))
@@ -166,7 +165,17 @@ impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse 
     }
 }
 
-async fn validate_inbox_id_key_package(
+pub fn validate_inbox_id_key_package_ffi(key_package: Vec<u8>) -> bool {
+    match validate_inbox_id_key_package(key_package) {
+        Ok(res) => res.is_ok,
+        Err(e) => {
+            eprintln!("Error validating key package: {:?}", e);
+            false
+        }
+    }
+}
+
+fn validate_inbox_id_key_package(
     key_package: Vec<u8>,
 ) -> Result<ValidateInboxIdKeyPackageResponse, ValidateInboxIdKeyPackageError> {
     let rust_crypto = RustCrypto::default();
