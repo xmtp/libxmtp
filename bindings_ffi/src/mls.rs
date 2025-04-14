@@ -3060,7 +3060,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7944,11 +7944,13 @@ mod tests {
     async fn test_key_package_validation() {
         // Create a test client
         let client = new_test_client().await;
+        const INBOX_ID: &str = "4b9d88d2c2b9988bc97641180a9a87214675b2d803248c3fd480515fb0b50b37";
 
         // Get the client's inbox state to retrieve installation IDs
-        let inbox_state = client.inbox_state(true).await.unwrap();
+        // let inbox_state = client.inbox_state(true).await.unwrap();
         // let inbox_state = client.get_latest_inbox_state("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b".to_string()).await.unwrap();
         // let inbox_state = client.get_latest_inbox_state("bd03ba1d688c7ababe4e39eb0012a3cff7003e0faef2e164ff95e1ce4db30141".to_string()).await.unwrap();
+        let inbox_state = client.get_latest_inbox_state(INBOX_ID.to_string()).await.unwrap();
 
         // Extract installation IDs from the inbox state
         let installation_ids: Vec<Vec<u8>> = inbox_state
@@ -7956,6 +7958,8 @@ mod tests {
             .iter()
             .map(|installation| installation.id.clone())
             .collect();
+
+        println!("InboxId: {:?} has {} installations", INBOX_ID, installation_ids.len());
 
         assert!(
             !installation_ids.is_empty(),
