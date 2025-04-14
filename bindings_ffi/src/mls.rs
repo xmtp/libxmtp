@@ -5425,14 +5425,18 @@ mod tests {
         assert!(stream.is_closed());
     }
 
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_all_messages_error() {
         let alix = new_test_client().await;
         let bo = new_test_client().await;
-        println!("alix: {}", alix.inbox_id());
-        println!("bo: {}", bo.inbox_id());
-
+        let caro = new_test_client().await;
+        let dave = new_test_client().await;
+        let dave2 = new_test_client().await;
+        let dave3 = new_test_client().await;
+        let dave4 = new_test_client().await;
+        let mut replace = xmtp_common::InboxIdReplace::default();
+        replace.add(&alix.inbox_id(), "alix");
+        replace.add(&bo.inbox_id(), "bo");
         let alix_group_1 = alix
             .conversations()
             .create_group(
@@ -5441,20 +5445,155 @@ mod tests {
             )
             .await
             .unwrap();
-        println!("alix group id:{:?}",hex::encode(&alix_group_1.inner.group_id));
+        let alix_group_2 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        let alix_group_3 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        let alix_group_4 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        alix_group_1
+            .add_members_by_inbox_id(vec![dave.inbox_id()])
+            .await
+            .unwrap();
+        alix_group_1
+            .add_members_by_inbox_id(vec![dave2.inbox_id()])
+            .await
+            .unwrap();
+
+        println!(
+            "alix group id:{:?}",
+            hex::encode(&alix_group_1.inner.group_id)
+        );
         let stream_callback = Arc::new(RustStreamCallback::default());
         let bo_stream = bo
             .conversations()
             .stream_all_messages(stream_callback.clone())
             .await;
         bo_stream.wait_for_ready().await;
-        alix_group_1.send("1 from alix".as_bytes().to_vec()).await.unwrap();
-        let bo_conversations = bo.conversations()
+        alix_group_1
+            .send("1 from alix".as_bytes().to_vec())
+            .await
+            .unwrap();
+        alix_group_1
+            .update_group_name("alix update group name 1".to_string())
+            .await
+            .unwrap();
+        alix_group_1.add_super_admin(bo.inbox_id()).await.unwrap();
+        alix_group_1
+            .update_group_name("alix update group name 2".to_string())
+            .await
+            .unwrap();
+        alix_group_1
+            .update_group_name("alix update group name 3".to_string())
+            .await
+            .unwrap();
+        alix_group_2
+            .update_group_name("alix update group name 4".to_string())
+            .await
+            .unwrap();
+        alix_group_3
+            .update_group_name("alix update group name 5".to_string())
+            .await
+            .unwrap();
+        alix_group_1
+            .add_members_by_inbox_id(vec![caro.inbox_id()])
+            .await
+            .unwrap();
+        alix_group_4
+            .update_group_name("alix update group name 6".to_string())
+            .await
+            .unwrap();
+        alix_group_1
+            .update_group_name("alix update group name 6".to_string())
+            .await
+            .unwrap();
+        let alix_group_5 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        let alix_group_6 = alix
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+        alix_group_1
+            .add_members_by_inbox_id(vec![dave3.inbox_id()])
+            .await
+            .unwrap();
+
+        let bo_conversations = bo
+            .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap();
         let bo_conversation = bo_conversations[0].clone();
-        println!("bo group id:{:?}",hex::encode(&bo_conversation.conversation.inner.group_id));
-        bo_conversation.conversation.send("2 from bo".as_bytes().to_vec()).await.unwrap();
+        let bo_conversation2 = bo_conversations[1].clone();
+        let bo_conversation3 = bo_conversations[2].clone();
+        let bo_conversation4 = bo_conversations[3].clone();
+        alix_group_1
+            .add_members_by_inbox_id(vec![dave4.inbox_id()])
+            .await
+            .unwrap();
+
+        println!(
+            "bo group id:{:?}",
+            hex::encode(&bo_conversation.conversation.inner.group_id)
+        );
+        bo_conversation
+            .conversation
+            .send("2 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_conversation
+            .conversation
+            .send("3 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_conversation
+            .conversation
+            .send("4 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_conversation2
+            .conversation
+            .send("4 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_conversation3
+            .conversation
+            .send("4 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+        bo_conversation4
+            .conversation
+            .send("4 from bo".as_bytes().to_vec())
+            .await
+            .unwrap();
+
         //if we send more messages it get resolved
     }
 
