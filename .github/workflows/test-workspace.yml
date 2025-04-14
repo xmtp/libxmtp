@@ -37,10 +37,8 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   build-docker:
-    name: Build Docker
-  test:
-    name: Test
-    runs-on: warp-ubuntu-latest-x64-16x
+    name: Setup
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,17 +51,96 @@ jobs:
         with:
           workspaces: |
             .
-      - name: Start Docker containers
-        run: |
-          dev/build_validation_service_local
-          dev/docker/up-v3
+      - name: Build Docker Image
+        run: nix build .#validationServiceDocker
+      - name: Upload image
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-service
+          path: ./result
+          retention-days: 1
+  workspace-grpc:
+    name: Test Workspace With gRPC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v3
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/docker/up
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-      - name: gRPC
-        run: cargo nextest --profile ci run --workspace --test-threads 2 -E 'platform(host) + kind(lib) + rdeps(xmtp_mls)' --all-features
-      - name: HTTP
-        run: cargo nextest run --profile ci --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
-      - name: Mobile FFI Integration Tests
-        run: nix develop .#kotlin --command cargo nextest run -E 'kind(test)' --workspace --exclude bindings_wasm bindings_node
-      - name: test workspace with webassembly
+      - name: libraries with gRPC
+        run: cargo nextest --profile ci run --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features grpc-api
+  workspace-http:
+    name: Test Workspace with HTTP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v3
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/docker/up
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: libraries with HTTP
+        run: cargo nextest run --profile ci --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features http-api
+  workspace-webassembly:
+    name: WebAssembly Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v3
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/docker/up
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: webassembly
         run: ./dev/ci/wasm
+  workspace-bin:
+    name: Test Bindings & Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v3
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/docker/up
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: binaries & bindings
+        run: cargo nextest run --profile ci --workspace -E '(kind(lib) + kind(bin)) and (rdeps(xmtp_mls) and not package(xmtp_mls))'
+  workspace-integration:
+    name: Integration Tests & Foreign FFI Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Docker image
+        uses: actions/download-artifact@v3
+        with:
+          name: validation-service
+          path: .
+      - name: Load Image
+        run: docker load < result
+      - name: start services
+        run: ./dev/docker/up
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Integration Tests (foreign FFI/kotlin)
+        run: nix develop .#kotlin --command cargo nextest run --profile ci --workspace -E 'kind(test)'

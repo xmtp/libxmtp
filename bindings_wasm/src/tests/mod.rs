@@ -1,12 +1,12 @@
 mod web;
 
 use crate::client::LogLevel;
-use crate::client::{create_client, Client, LogOptions};
+use crate::client::{Client, LogOptions, create_client};
 use crate::inbox_id::generate_inbox_id;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
-use xmtp_cryptography::utils::{rng, LocalWallet};
+use xmtp_cryptography::utils::{LocalWallet, rng};
 use xmtp_id::InboxOwner;
 
 async fn create_test_client() -> Client {

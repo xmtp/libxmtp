@@ -8,3 +8,4 @@ WASM_BINDGEN_TEST_ONLY_WEB=1 \
   CHROMEDRIVER="chromedriver" \
   cargo nextest run -E 'platform(target)' --target wasm32-unknown-unknown --release \
   -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p xmtp_api_d14n -p xmtp_db
+
