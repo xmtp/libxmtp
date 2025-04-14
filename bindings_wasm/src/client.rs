@@ -352,4 +352,24 @@ impl Client {
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
   }
+
+  #[wasm_bindgen(js_name = syncPreferences)]
+  pub async fn sync_preferences(&self) -> Result<u32, JsError> {
+    let inner = self.inner_client.as_ref();
+
+    let provider = inner
+      .mls_provider()
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let num_groups_synced: usize = inner
+      .sync_all_welcomes_and_history_sync_groups(&provider)
+      .await
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let num_groups_synced: u32 = num_groups_synced
+      .try_into()
+      .map_err(|_| JsError::new("Failed to convert usize to u32"))?;
+
+    Ok(num_groups_synced)
+  }
 }

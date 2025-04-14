@@ -1032,6 +1032,22 @@ where
         Ok(active_groups_count)
     }
 
+    pub async fn sync_all_welcomes_and_history_sync_groups(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<usize, ClientError> {
+        self.sync_welcomes(provider).await?;
+        let groups = provider
+            .conn_ref()
+            .all_sync_groups()?
+            .into_iter()
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .collect();
+        let active_groups_count = self.sync_all_groups(groups, provider).await?;
+
+        Ok(active_groups_count)
+    }
+
     /**
      * Validates a credential against the given installation public key
      *
