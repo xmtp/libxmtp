@@ -144,6 +144,12 @@ impl RetryableError for StorageError {
             Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Duplicate(d) => retryable!(d),
+            Self::Io(_) => true,
+            Self::OpenMlsStorage(storage) => retryable!(storage),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Native(_) => true,
+            #[cfg(target_arch = "wasm32")]
+            Self::Wasm(_) => true,
             _ => false,
         }
     }
