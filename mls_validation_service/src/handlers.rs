@@ -135,7 +135,8 @@ impl ValidationApi for ValidationService {
             .map(validate_inbox_id_key_package)
             .collect();
 
-        let responses: Vec<_> = responses
+        let responses: Vec<_> = join_all(responses)
+            .await
             .into_iter()
             .map(|res| res.map_err(ValidateInboxIdKeyPackageResponse::from))
             .map(|r| r.unwrap_or_else(|e| e))
@@ -164,6 +165,7 @@ impl From<ValidateInboxIdKeyPackageError> for ValidateInboxIdKeyPackageResponse 
         }
     }
 }
+
 async fn validate_inbox_id_key_package(
     key_package: Vec<u8>,
 ) -> Result<ValidateInboxIdKeyPackageResponse, ValidateInboxIdKeyPackageError> {
