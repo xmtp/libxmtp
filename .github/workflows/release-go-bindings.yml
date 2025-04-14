@@ -32,7 +32,7 @@ jobs:
         run: cbindgen --config cbindgen.toml --crate bindings_go --output libxmtpmls.h
       - name: Build shared library
         run: |
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }} --package bindings_go
       - name: Package artifacts
         run: |
           mkdir -p dist/${{ matrix.target }}
