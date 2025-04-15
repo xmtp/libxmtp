@@ -5931,7 +5931,8 @@ pub(crate) mod tests {
                 .unwrap(),
             4
         );
-        // We fail on the last line because a1 is forked from b and c, stuck on epoch 3
+        // We pass on the last line because a's cursor has not moved past any commits, even though it processed
+        // messages out of order
         assert_eq!(
             group_a
                 .epoch(&client_a1.mls_provider().unwrap())
