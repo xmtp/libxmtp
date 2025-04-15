@@ -2111,7 +2111,7 @@ pub(crate) mod tests {
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 1);
+        assert_eq!(provider.conn_ref().intents_processed(), 1);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
