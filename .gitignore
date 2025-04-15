@@ -172,6 +172,8 @@ chain_urls.json
 # Mise Configs
 .mise.toml
 .emacs.desktop
+
+# Emscripten SDK
 emsdk/**
 emsdk
 result
