@@ -5771,7 +5771,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]
-    async fn handles_out_of_order_messages() {
+    async fn can_stream_out_of_order_without_forking() {
         let wallet_a = generate_local_wallet();
         let wallet_b = generate_local_wallet();
         let wallet_c = generate_local_wallet();
@@ -5780,12 +5780,12 @@ pub(crate) mod tests {
         let client_c = ClientBuilder::new_test_client(&wallet_c).await;
 
         // Create a group
-        let group_a1 = client_a1
+        let group_a = client_a1
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
         // Add client_b and client_c to the group
-        group_a1
+        group_a
             .add_members_by_inbox_id(&[client_b.inbox_id(), client_c.inbox_id()])
             .await
             .unwrap();
@@ -5805,16 +5805,16 @@ pub(crate) mod tests {
         let binding = client_c.find_groups(GroupQueryArgs::default()).unwrap();
         let group_c = binding.first().unwrap();
 
-        // Each client sends a message and syncs
-        group_a1
+        // Each client sends a message and syncs (ensures any key update commits are sent)
+        group_a
             .send_message_optimistic("Message a1".as_bytes())
             .unwrap();
-        group_a1
-            .publish_intents(&group_a1.mls_provider().unwrap())
+        group_a
+            .publish_intents(&group_a.mls_provider().unwrap())
             .await
             .unwrap();
 
-        group_a1.sync().await.unwrap();
+        group_a.sync().await.unwrap();
         group_b.sync().await.unwrap();
         group_c.sync().await.unwrap();
 
@@ -5826,7 +5826,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        group_a1.sync().await.unwrap();
+        group_a.sync().await.unwrap();
         group_b.sync().await.unwrap();
         group_c.sync().await.unwrap();
 
@@ -5839,13 +5839,13 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync the groups
-        group_a1.sync().await.unwrap();
+        group_a.sync().await.unwrap();
         group_b.sync().await.unwrap();
         group_c.sync().await.unwrap();
 
-        // After being client a adds b and c, all groups are in the same epoch
+        // After client a adds b and c, and they each sent a message, all groups are in the same epoch
         assert_eq!(
-            group_a1
+            group_a
                 .epoch(&client_a1.mls_provider().unwrap())
                 .await
                 .unwrap(),
@@ -5866,7 +5866,7 @@ pub(crate) mod tests {
             3
         );
 
-        // Client b updates the group name (incrementing the epoch from 1 to 2) and syncs
+        // Client b updates the group name, (incrementing the epoch from 3 to 4), and syncs
         group_b
             .update_group_name("Group B".to_string())
             .await
@@ -5891,7 +5891,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(messages.len(), 8);
 
-        // Get reference to last two messages
+        // Get reference to last message
         let last_message = messages.last().unwrap();
 
         // Simulating group_a streaming out of order by processing the last_message first
@@ -5900,9 +5900,10 @@ pub(crate) mod tests {
             _ => panic!("Expected V1 message"),
         };
 
-        // This is the key line, because we pass in false for incrementing epoch/cursor
+        // This is the key line, because we pass in false for incrementing epoch/cursor (simulating streaming)
+        // This processing will not longer update the cursor, so we will not be forked
         let increment_epoch = false;
-        let result = group_a1
+        let result = group_a
             .process_message(
                 &client_a1.mls_provider().unwrap(),
                 v1_last_message,
@@ -5911,8 +5912,8 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_ok());
 
-        // Now syncing will not update group_a1 group name since the cursor has moved on past it, we are forked!
-        group_a1.sync().await.unwrap();
+        // Now syncing a will update group_a group name since the cursor has NOT moved on past it
+        group_a.sync().await.unwrap();
         group_b.sync().await.unwrap();
         group_c.sync().await.unwrap();
 
@@ -5932,7 +5933,7 @@ pub(crate) mod tests {
         );
         // We fail on the last line because a1 is forked from b and c, stuck on epoch 3
         assert_eq!(
-            group_a1
+            group_a
                 .epoch(&client_a1.mls_provider().unwrap())
                 .await
                 .unwrap(),
