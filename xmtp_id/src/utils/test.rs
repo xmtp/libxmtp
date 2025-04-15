@@ -147,7 +147,7 @@ where
     // deploy implementation for factory
     let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
         .unwrap()
-        .gas_price(100)
+        .gas_price(1_000_000_000)
         .send()
         .await
         .unwrap();
@@ -155,7 +155,7 @@ where
     let factory =
         CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
             .unwrap()
-            .gas_price(100)
+            .gas_price(1_000_000_000)
             .send()
             .await
             .unwrap();
@@ -186,7 +186,7 @@ where
     use ethers::signers::Signer;
     use ethers::utils::Anvil;
     use std::sync::Arc;
-    let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
+    let anvil = Anvil::new().spawn();
     let contract_deployer: LocalWallet = anvil.keys()[9].clone().into();
     let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
     let client = SignerMiddleware::new(
@@ -197,7 +197,7 @@ where
     // deploy implementation for factory
     let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
         .unwrap()
-        .gas_price(100)
+        .gas_price(1_000_000_000)
         .send()
         .await
         .unwrap();
@@ -205,7 +205,7 @@ where
     let factory =
         CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
             .unwrap()
-            .gas_price(100)
+            .gas_price(1_000_000_000)
             .send()
             .await
             .unwrap();

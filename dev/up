@@ -31,3 +31,6 @@ fi
 
 dev/build_validation_service_local
 dev/docker/up
+
+
+
