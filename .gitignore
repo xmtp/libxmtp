@@ -171,3 +171,7 @@ chain_urls.json
 
 # Mise Configs
 .mise.toml
+
+# Emscripten SDK
+emsdk/**
+emsdk
