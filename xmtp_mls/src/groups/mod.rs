@@ -4742,7 +4742,7 @@ pub(crate) mod tests {
             .unwrap();
         let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group = bo_groups.first().unwrap();
-        bo_group.send_message(&vec![2]).await.unwrap();
+        bo_group.send_message(&[2]).await.unwrap();
         let bo_provider = bo_client.mls_provider().unwrap();
         let intent = bo_provider
             .conn_ref()
