@@ -38,7 +38,7 @@ env:
 jobs:
   build-docker:
     name: Setup
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     permissions:
       contents: read
       id-token: write
@@ -63,7 +63,7 @@ jobs:
       id-token: write
     needs: [build-docker]
     name: Test Workspace With gRPC
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,7 +97,7 @@ jobs:
       id-token: write
     needs: [build-docker]
     name: Test Workspace with HTTP
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,7 +127,7 @@ jobs:
       id-token: write
     needs: [build-docker]
     name: WebAssembly Tests
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
       id-token: write
     needs: [build-docker]
     name: test bindings & binaries
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -193,7 +193,7 @@ jobs:
       id-token: write
     needs: [build-docker]
     name: Integration Tests & Foreign FFI Tests
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v4
