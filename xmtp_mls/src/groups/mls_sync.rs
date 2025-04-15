@@ -563,6 +563,7 @@ where
         mls_group: &mut OpenMlsGroup,
         message: PrivateMessageIn,
         envelope: &GroupMessageV1,
+        allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -637,12 +638,19 @@ where
             );
             let processed_message = mls_group.process_message(provider, message)?;
 
-            let is_updated = provider.conn_ref().update_cursor(
-                &envelope.group_id,
-                EntityKind::Group,
-                *cursor as i64,
-            )?;
-            if !is_updated {
+            let requires_processing = if allow_cursor_increment {
+                provider.conn_ref().update_cursor(
+                    &envelope.group_id,
+                    EntityKind::Group,
+                    *cursor as i64,
+                )?
+            } else {
+                let current_cursor = provider
+                    .conn_ref()
+                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                current_cursor < *cursor as i64
+            };
+            if !requires_processing {
                 return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
             }
             let previous_epoch = mls_group.epoch().as_u64();
@@ -879,13 +887,22 @@ where
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
+    ///
+    /// # Parameters
+    /// * `provider` - The OpenMLS provider for database access
+    /// * `envelope` - The message envelope to process
+    /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
+    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when 
+    ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
-        allow_epoch_increment: bool,
+        trust_message_order: bool,
     ) -> Result<(), GroupMessageProcessingError> {
+        let allow_epoch_increment = trust_message_order;
+        let allow_cursor_increment = trust_message_order;
         let cursor = envelope.id;
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
@@ -989,6 +1006,7 @@ where
                         &mut mls_group,
                         message,
                         envelope,
+                        allow_cursor_increment,
                     )
                     .await
                 })
