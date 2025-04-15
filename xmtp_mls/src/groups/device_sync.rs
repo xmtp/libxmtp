@@ -235,8 +235,8 @@ where
                         })
                     )?;
                 }
-                LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::info!("Incoming preference update");
+                LocalEvents::IncomingPreferenceUpdate(u) => {
+                    tracing::error!("Incoming preference update");
                 }
                 _ => {}
             }
