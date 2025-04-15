@@ -621,13 +621,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(new_group)
     }
 
-    // Create a group from a decrypted and decoded welcome message
-    // If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    /// Create a group from a decrypted and decoded welcome message.
+    /// If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    ///
+    /// # Parameters
+    /// * `client` - The client context to use for group operations
+    /// * `provider` - The OpenMLS provider for database access
+    /// * `welcome` - The encrypted welcome message
+    /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
+    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
+    ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn create_from_welcome(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
+        allow_cursor_increment: bool,
     ) -> Result<Self, GroupError>
     where
         ScopedClient: Clone,
@@ -681,12 +690,19 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 ..
             } = decrypted_welcome;
 
-            let is_updated = provider.conn_ref().update_cursor(
-                client.context().installation_public_key(),
-                EntityKind::Welcome,
-                welcome.id as i64,
-            )?;
-            if !is_updated {
+            let requires_processing = if allow_cursor_increment {
+                provider.conn_ref().update_cursor(
+                    client.context().installation_public_key(),
+                    EntityKind::Welcome,
+                    welcome.id as i64,
+                )?
+            } else {
+                let current_cursor = provider
+                    .conn_ref()
+                    .get_last_cursor_for_id(client.context().installation_public_key(), EntityKind::Welcome)?;
+                current_cursor < welcome.id as i64
+            };
+            if !requires_processing {
                 return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
             }
 
@@ -717,7 +733,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                             current_version_str
                         );
                         Some(min_version)
-                    } else {
+            } else {
                         None
                     }
                 } else {
