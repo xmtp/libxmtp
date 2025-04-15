@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -13,6 +14,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import java.io.File
+import java.security.SecureRandom
 
 @RunWith(AndroidJUnit4::class)
 class HistorySyncTest {
@@ -45,8 +47,8 @@ class HistorySyncTest {
     @Test
     fun testSyncConsent() = runBlocking {
         val alixGroup = alixClient.conversations.newGroup(listOf(fixtures.boClient.inboxId))
-        val intialConsent = alixGroup.consentState()
-        assertEquals(intialConsent, ConsentState.ALLOWED)
+        val initialConsent = alixGroup.consentState()
+        assertEquals(initialConsent, ConsentState.ALLOWED)
 
         val alixClient2 = Client.create(
             account = alixWallet,
@@ -62,22 +64,19 @@ class HistorySyncTest {
         assertEquals(state.installations.size, 2)
 
         alixClient.conversations.syncAllConversations()
-        delay(2000)
         alixClient2.conversations.syncAllConversations()
-        delay(2000)
+
         val alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
             ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
         assertEquals(alixGroup2.consentState(), ConsentState.UNKNOWN)
 
         alixGroup.updateConsentState(ConsentState.DENIED)
-        alixClient.preferences.syncConsent()
+        alixClient.preferences.sync()
+        alixGroup.sync()
+
+        alixClient2.preferences.sync()
         delay(2000)
-        alixClient.conversations.syncAllConversations()
-        delay(2000)
-        alixClient2.preferences.syncConsent()
-        delay(2000)
-        alixClient2.conversations.syncAllConversations()
-        delay(2000)
+        alixGroup2.sync()
 
         assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
     }
@@ -87,7 +86,6 @@ class HistorySyncTest {
         val alixGroup = alixClient.conversations.newGroup(listOf(fixtures.boClient.inboxId))
         val initialMessageCount = alixGroup.messages().size
         assertEquals(initialMessageCount, 1)
-
         val alixClient2 = Client.create(
             account = alixWallet,
             options = ClientOptions(
@@ -108,12 +106,18 @@ class HistorySyncTest {
         delay(2000)
         alixClient2.conversations.syncAllConversations()
         delay(2000)
+        alixClient.preferences.sync()
+        delay(2000)
+        alixClient2.preferences.sync()
+        delay(2000)
 
         val alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
             ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
 
+        alixGroup2.sync()
+
         val messageCount2 = alixGroup2.messages().size
-        assertEquals(messageCount2, 1)
+        assertEquals(messageCount2, 2)
     }
 
     @Test
@@ -221,5 +225,92 @@ class HistorySyncTest {
         Thread.sleep(2000)
         assertEquals(2, preferences)
         job.cancel()
+    }
+
+    @Test
+    fun testDisablingHistoryTransferStillSyncsLocalState() = runBlocking {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val options = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            appContext = context,
+            dbEncryptionKey = key,
+            historySyncUrl = null
+        )
+        val alix1 =
+            Client.create(
+                account = fakeWallet,
+                options = options
+            )
+
+        val alix2 =
+            Client.create(
+                account = fakeWallet,
+                options = options
+            )
+
+        val alixGroup = runBlocking { alix1.conversations.newGroup(listOf(boClient.inboxId)) }
+        // Sync both clients
+        alix1.conversations.syncAllConversations()
+        alix2.conversations.syncAllConversations()
+
+        // Find the group on the second client and check that consent is UNKNOWN
+        val alixGroup2 = alix2.conversations.findGroup(alixGroup.id)
+            ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
+        assertEquals(alixGroup2.consentState(), ConsentState.UNKNOWN)
+
+        // Update consent state on first client
+        alixGroup.updateConsentState(ConsentState.DENIED)
+        alix1.preferences.sync()
+        alixGroup.sync() // explicitly sync the group to match Rust test
+
+        // Sync second client preferences and conversation
+        alix2.preferences.sync()
+        delay(2000) // simulate async propagation
+        alixGroup2.sync()
+
+        // Validate the updated consent is visible on second client
+        assertEquals(alixGroup2.consentState(), ConsentState.DENIED)
+    }
+
+    @Test
+    fun testDisablingHistoryTransferDoesNotTransfer() = runBlocking {
+        val alixGroup = alixClient.conversations.newGroup(listOf(fixtures.boClient.inboxId))
+        val initialMessageCount = alixGroup.messages().size
+        assertEquals(initialMessageCount, 1)
+        val alixClient2 = Client.create(
+            account = alixWallet,
+            options = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                appContext = fixtures.context,
+                dbEncryptionKey = fixtures.key,
+                historySyncUrl = null,
+                dbDirectory = fixtures.context.filesDir.absolutePath.toString()
+            )
+        )
+
+        val state = alixClient2.inboxState(true)
+        assertEquals(state.installations.size, 2)
+
+        alixGroup.send("hi")
+
+        // Sync all conversations
+        alixClient.conversations.syncAllConversations()
+        delay(2000)
+        alixClient2.conversations.syncAllConversations()
+        delay(2000)
+        alixClient.preferences.sync()
+        delay(2000)
+        alixClient2.preferences.sync()
+        delay(2000)
+
+        val alixGroup2 = alixClient2.conversations.findGroup(alixGroup.id)
+            ?: throw AssertionError("Failed to find group with ID: ${alixGroup.id}")
+
+        alixGroup2.sync()
+
+        val messageCount2 = alixGroup2.messages().size
+        assertEquals(messageCount2, 1)
     }
 }
