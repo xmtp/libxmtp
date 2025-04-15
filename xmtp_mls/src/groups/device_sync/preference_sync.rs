@@ -33,6 +33,7 @@ impl UserPreferenceUpdate {
             .iter()
             .map(bincode::serialize)
             .collect::<Result<Vec<_>, _>>()?;
+        tracing::error!("Sent count: {}", contents.len());
         let update_proto = UserPreferenceUpdateProto { contents };
         let content_bytes = serde_json::to_vec(&update_proto)?;
         sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
@@ -41,10 +42,18 @@ impl UserPreferenceUpdate {
                 idempotency_key: now.to_string(),
             })),
         })?;
+        tracing::info!("We here");
+
+        // sync_group.publish_intents(&provider).await?;
+        sync_group
+            .sync_until_last_intent_resolved(&provider)
+            .await?;
+        tracing::info!("We here 2");
 
         if let Some(handle) = client.device_sync.worker_handle() {
             updates.iter().for_each(|u| match u {
                 UserPreferenceUpdate::ConsentUpdate(_) => {
+                    tracing::error!("Sent consent to group_id: {:?}", sync_group.group_id);
                     handle.increment_metric(SyncMetric::V1ConsentSent)
                 }
                 UserPreferenceUpdate::HmacKeyUpdate { .. } => {
@@ -53,7 +62,7 @@ impl UserPreferenceUpdate {
             });
         }
 
-        sync_group.publish_intents(&provider).await?;
+        tracing::info!("We here 3");
 
         Ok(())
     }
@@ -67,6 +76,7 @@ impl UserPreferenceUpdate {
         let conn = provider.conn_ref();
 
         let proto_content = update_proto.contents;
+        tracing::error!("{} incoming", proto_content.len());
 
         let mut updates = Vec::with_capacity(proto_content.len());
         let mut consent_updates = vec![];

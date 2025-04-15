@@ -832,11 +832,15 @@ where
                                     .send(LocalEvents::IncomingPreferenceUpdate(updates));
                             }
                             _ => {
+                                tracing::error!("?");
                                 return Err(GroupMessageProcessingError::InvalidPayload);
                             }
                         }
                     }
-                    None => return Err(GroupMessageProcessingError::InvalidPayload),
+                    None => {
+                        tracing::error!("??");
+                        return Err(GroupMessageProcessingError::InvalidPayload);
+                    }
                 }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
@@ -1296,6 +1300,8 @@ where
                 Some(vec![IntentState::ToPublish]),
                 None,
             )?;
+
+            tracing::error!("heh {intents:?}");
 
             for intent in intents {
                 let result = retry_async!(

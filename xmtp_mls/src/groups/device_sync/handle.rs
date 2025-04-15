@@ -77,7 +77,7 @@ where
     ) -> Result<(), xmtp_common::time::Expired> {
         let metric = self.metrics.lock().entry(metric).or_default().clone();
 
-        let result = xmtp_common::time::timeout(Duration::from_secs(20), async {
+        let result = xmtp_common::time::timeout(Duration::from_secs(5), async {
             loop {
                 if metric.load(Ordering::SeqCst) >= count {
                     return;

@@ -409,11 +409,9 @@ where
             Err(_) => {
                 let sync_group =
                     MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+                tracing::info!("Creating sync group: {:?}", sync_group.group_id);
+                sync_group.add_missing_installations(provider).await?;
                 sync_group.sync_with_conn(provider).await?;
-                tracing::error!("Creating sync group: {:?}", sync_group.group_id);
-
-                let sync_group = self.group(sync_group.group_id)?;
-                sync_group.update_installations().await?;
 
                 sync_group
             }

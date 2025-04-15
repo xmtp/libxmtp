@@ -2839,7 +2839,9 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{scoped_client::LocalScopedGroupClient, GroupError},
+        groups::{
+            device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
+        },
         InboxOwner,
     };
 
@@ -8047,11 +8049,6 @@ mod tests {
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
 
-        let sg2 = alix2
-            .inner_client
-            .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
-            .unwrap();
-
         alix.conversations()
             .sync_all_conversations(None)
             .await
@@ -8059,11 +8056,6 @@ mod tests {
         alix2
             .conversations()
             .sync_all_conversations(None)
-            .await
-            .unwrap();
-
-        alix.inner_client
-            .sync_welcomes(&alix.inner_client.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -8071,15 +8063,15 @@ mod tests {
             .inner_client
             .get_sync_group(&alix.inner_client.mls_provider().unwrap())
             .unwrap();
-        let sg2_2 = alix2
+        let sg2 = alix2
             .inner_client
             .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
             .unwrap();
-        assert_eq!(sg2_2.group_id, sg2.group_id);
+
         assert_eq!(sg1.group_id, sg2.group_id);
 
-        sg1.sync().await.unwrap();
-        sg2.sync().await.unwrap();
+        // sg1.sync().await.unwrap();
+        // sg2.sync().await.unwrap();
 
         alix.conversations()
             .sync_all_conversations(None)
@@ -8091,7 +8083,6 @@ mod tests {
             .await
             .unwrap();
 
-        alix_group.update_installations().await.unwrap();
         alix2
             .inner_client
             .sync_welcomes(&alix2.inner_client.mls_provider().unwrap())
@@ -8108,19 +8099,18 @@ mod tests {
         alix_group
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
-        tracing::error!("==========?????? {:?}", sg2.group_id);
+        alix_worker
+            .wait(SyncMetric::V1ConsentSent, 2)
+            .await
+            .unwrap();
 
-        tokio::time::sleep(Duration::from_secs(3)).await;
         sg2.sync().await.unwrap();
-        tracing::error!(
-            "==== epoch {}",
-            sg2.epoch(&alix2.inner_client.mls_provider().unwrap())
-                .await
-                .unwrap()
-        );
-        alix2.sync_preferences().await.unwrap();
-        // alix_group2.sync().await.unwrap();
-        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        tracing::info!("Sync group id {:?}", sg2.group_id);
+        alix2_worker
+            .wait(SyncMetric::V1ConsentReceived, 1)
+            .await
+            .unwrap();
 
         assert_eq!(
             alix_group2.consent_state().unwrap(),

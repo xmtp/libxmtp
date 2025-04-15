@@ -1543,13 +1543,11 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map(UserPreferenceUpdate::ConsentUpdate)
             .collect();
 
-        if !new_records.is_empty() {
-            // Dispatch an update event so it can be synced across devices
-            let _ = self
-                .client
-                .local_events()
-                .send(LocalEvents::OutgoingPreferenceUpdates(new_records));
-        }
+        // Dispatch an update event so it can be synced across devices
+        let _ = self
+            .client
+            .local_events()
+            .send(LocalEvents::OutgoingPreferenceUpdates(new_records));
 
         Ok(())
     }
