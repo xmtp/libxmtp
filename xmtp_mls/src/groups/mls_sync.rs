@@ -892,7 +892,7 @@ where
     /// * `provider` - The OpenMLS provider for database access
     /// * `envelope` - The message envelope to process
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
-    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when 
+    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
@@ -951,11 +951,19 @@ where
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, provider, &message, envelope).await;
 
                     provider.transaction(|provider| {
-                        let is_updated =
-                            provider
+                        let requires_processing = if allow_cursor_increment {
+                            provider.conn_ref().update_cursor(
+                                &envelope.group_id,
+                                EntityKind::Group,
+                                cursor as i64,
+                            )?
+                        } else {
+                            let current_cursor = provider
                                 .conn_ref()
-                                .update_cursor(&envelope.group_id, EntityKind::Group, cursor as i64)?;
-                        if !is_updated {
+                                .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                            current_cursor < cursor as i64
+                        };
+                        if !requires_processing {
                             return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                         }
 
