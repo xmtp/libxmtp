@@ -193,7 +193,7 @@ impl DbConnection {
 
         query = query.order(dsl::id.asc());
 
-        Ok(self.raw_query_write(|conn| query.load::<StoredGroupIntent>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load::<StoredGroupIntent>(conn))?)
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
@@ -223,7 +223,7 @@ impl DbConnection {
         })?;
 
         if rows_changed == 0 {
-            let already_published = self.raw_query_write(|conn| {
+            let already_published = self.raw_query_read(|conn| {
                 dsl::group_intents
                     .filter(dsl::id.eq(intent_id))
                     .first::<StoredGroupIntent>(conn)
@@ -326,22 +326,9 @@ impl DbConnection {
         &self,
         payload_hash: Vec<u8>,
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
-        let result = self.raw_query_write(|conn| {
+        let result = self.raw_query_read(|conn| {
             dsl::group_intents
                 .filter(dsl::payload_hash.eq(payload_hash))
-                .first::<StoredGroupIntent>(conn)
-                .optional()
-        })?;
-
-        Ok(result)
-    }
-    pub fn find_group_intent_by_intent_id(
-        &self,
-        id: &i32,
-    ) -> Result<Option<StoredGroupIntent>, StorageError> {
-        let result = self.raw_query_write(|conn| {
-            dsl::group_intents
-                .filter(dsl::id.eq(id))
                 .first::<StoredGroupIntent>(conn)
                 .optional()
         })?;
@@ -474,7 +461,7 @@ pub(crate) mod tests {
     }
 
     fn find_first_intent(conn: &DbConnection, group_id: group::ID) -> StoredGroupIntent {
-        conn.raw_query_write(|raw_conn| {
+        conn.raw_query_read(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))
                 .first(raw_conn)
