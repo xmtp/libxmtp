@@ -410,7 +410,7 @@ where
 
         let group = retry_async!(
             Retry::default(),
-            (async { MlsGroup::create_from_welcome(client, provider, welcome).await })
+            (async { MlsGroup::create_from_welcome(client, provider, welcome, false).await })
         );
 
         if let Err(e) = group {
