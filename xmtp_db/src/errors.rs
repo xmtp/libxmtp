@@ -43,10 +43,10 @@ pub enum StorageError {
     Builder(#[from] derive_builder::UninitializedFieldError),
     #[cfg(not(target_arch = "wasm32"))]
     #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
-    Native(#[from] super::native::NativeStorageError),
+    Native(#[from] crate::database::native::NativeStorageError),
     #[cfg(target_arch = "wasm32")]
     #[cfg_attr(target_arch = "wasm32", error(transparent))]
-    Wasm(#[from] super::wasm::WasmStorageError),
+    Wasm(#[from] crate::database::wasm::WasmStorageError),
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
 }
@@ -69,7 +69,7 @@ impl StorageError {
     pub fn db_needs_connection(&self) -> bool {
         matches!(
             self,
-            Self::Native(super::native::NativeStorageError::PoolNeedsConnection)
+            Self::Native(crate::database::native::NativeStorageError::PoolNeedsConnection)
         )
     }
 }
