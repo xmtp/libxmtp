@@ -14,9 +14,7 @@
 let
   inherit (stdenv) hostPlatform;
   upperTarget = lib.strings.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] rustTarget);
-  pname = (builtins.fromTOML (builtins.readFile ./../../../mls_validation_service/Cargo.toml)).package.name;
-  version = (builtins.fromTOML (builtins.readFile ./../../../mls_validation_service/Cargo.toml)).package.version;
-
+  inherit ((builtins.fromTOML (builtins.readFile ./../../../mls_validation_service/Cargo.toml)).package) version name;
 
   filesetForCrate = crate: lib.fileset.toSource {
     root = ./../../..;
@@ -39,6 +37,7 @@ let
     # openssl library from the cross pkg set
     OPENSSL_NO_VENDOR = 1;
     CARGO_BUILD_TARGET = rustTarget;
+    CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     "CARGO_TARGET_${upperTarget}_LINKER" = "${stdenv.cc.targetPrefix}cc";
   };
 
@@ -68,23 +67,23 @@ let
       ]);
 
     doCheck = false;
-    cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_cli";
     RUSTFLAGS = [ "--cfg" "tracing_unstable" ];
     OPENSSL_DIR = "${openssl.out}";
     OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
   } // linkerArgs;
 
   cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
-    pname = "mls-validation-service-deps";
+    cargoExtraArgs = "--workspace --lib --exclude bindings_node --exclude bindings_wasm --exclude xmtpv3";
+    inherit version;
+    pname = name;
   });
 
   bin = craneLib.buildPackage ({
-    inherit cargoArtifacts pname version;
-    cargoExtraArgs = "--package mls_validation_service";
+    inherit cargoArtifacts version;
+    pname = name;
+    cargoExtraArgs = "-p mls_validation_service --features test-utils";
     src = filesetForCrate ./../../../mls_validation_service;
     doCheck = false;
-
-    RUST_BACKTRACE = 1;
   } // commonArgs);
 
   devShell = mkShell

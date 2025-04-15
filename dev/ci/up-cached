@@ -2,4 +2,8 @@
 set -eou pipefail
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+COMPOSE="${script_dir}"/../docker/compose
+SERVICES=$($COMPOSE config --services | grep -v "^validation$")
+$COMPOSE pull $SERVICES
+
 "${script_dir}"/../docker/compose up -d --no-build --remove-orphans --wait --timeout 300

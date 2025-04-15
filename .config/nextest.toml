@@ -13,3 +13,8 @@ fail-fast = false
 [[profile.ci.overrides]]
 platform = 'wasm32-unknown-unkown'
 slow-timeout = "1m"
+
+[profile.local]
+failure-output = "final"
+fail-fast = false
+success-output = "never"
