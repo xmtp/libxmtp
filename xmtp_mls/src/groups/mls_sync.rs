@@ -36,11 +36,9 @@ use xmtp_db::{
     refresh_state::EntityKind,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+    Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
 };
 
-use crate::groups::mls_sync::InvalidEpochError::InvalidEpoch;
-use crate::subscriptions::LocalEventError;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -66,7 +64,6 @@ use std::{
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
 };
-use hex::encode;
 use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
@@ -329,8 +326,7 @@ where
                 last_err = Some(err);
             }
 
-            match provider.conn_ref().find_group_intent_by_intent_id(&intent_id)
-            {
+            match Fetch::<StoredGroupIntent>::fetch(provider.conn_ref(), &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(());
@@ -347,10 +343,10 @@ where
                     return Err(last_err.unwrap_or(GroupError::IntentNotCommitted));
                 }
                 Ok(Some(StoredGroupIntent {
-                            id,
-                            state: IntentState::Processed,
-                            ..
-                        })) => {
+                    id,
+                    state: IntentState::Processed,
+                    ..
+                })) => {
                     tracing::warn!(
                         "not retrying intent ID {id}. since it is in state processed. {:?}",
                         last_err
@@ -920,7 +916,8 @@ where
         let allow_cursor_increment = trust_message_order;
         let cursor = envelope.id;
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
-        let message = match mls_message_in.clone().extract() {
+
+        let message = match mls_message_in.extract() {
             MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
             other => Err(GroupMessageProcessingError::UnsupportedMessageType(
                 discriminant(&other),
@@ -929,52 +926,40 @@ where
         if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
-        let message_entity_kind = match mls_message_in.wire_format() {
-            WireFormat::Welcome => EntityKind::Welcome,
-            _ => EntityKind::Group,
-        };
 
-        let last_cursor = provider
+        let intent = provider
             .conn_ref()
-            .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-        let should_skip_message = last_cursor > envelope.id as i64;
-        if should_skip_message {
-            tracing::info!(
-                inbox_id = self.client.inbox_id(),
-                installation_id = %self.client.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                envelope.id,
-                message_entity_kind,
-                last_cursor
-            );
-            Err(GroupMessageProcessingError::AlreadyProcessed(envelope.id))
-        } else {
-            self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
-                
+            .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),
+            group_id = hex::encode(&self.group_id),
+            cursor = envelope.id,
+            "Processing envelope with hash {}, id = {}",
+            hex::encode(sha256(envelope.data.as_slice())),
+            envelope.id
+        );
 
-                // Load the intent *after* acquiring the group lock
-                let intent = provider
-                    .conn_ref()
-                    .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
-
-                let intents = provider
-                    .conn_ref()
-                    .find_group_intents_test();
-
-                tracing::warn!("group intents: {:?}", intents);
-
+        match intent {
+            // Intent with the payload hash matches
+            Ok(Some(intent)) => {
+                let intent_id = intent.id;
                 tracing::info!(
                     inbox_id = self.client.inbox_id(),
                     installation_id = %self.client.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = envelope.id,
-                    "Processing envelope with hash {}, id = {}",
-                    hex::encode(sha256(envelope.data.as_slice())),
-                    envelope.id
+                    intent_id,
+                    intent.kind = %intent.kind,
+                    "client [{}] is about to process own envelope [{}] for intent [{}]",
+                    self.client.inbox_id(),
+                    envelope.id,
+                    intent_id
                 );
 
-                tracing::warn!("intent info: {:?}", intent);
+                self.load_mls_group_with_lock_async(provider, |mut mls_group| async move  {
+                    let message = message.into();
+                    let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, provider, &message, envelope).await;
 
                     provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
@@ -992,20 +977,51 @@ where
                         if !requires_processing {
                             return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                         }
-                            tracing::warn!("intent info2: {:?}", intent2);
-                            let is_updated = provider
-                                .conn_ref()
-                                .update_cursor(&envelope.group_id, EntityKind::Group, envelope.id as i64)?;
-                            if !is_updated {
-                                return Err(ProcessIntentError::AlreadyProcessed(envelope.id).into());
-                            }
 
-                            let intent_state = match maybe_validated_commit {
-                                Err(err) => err?,
-                                Ok(commit) => {
-                                    self.process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
-                                }
-                            };
+                        let intent_state = match maybe_validated_commit {
+                            Err(err) => err?,
+                            Ok(commit) => {
+                                self
+                                .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
+                            }
+                        };
+                        match intent_state {
+                            IntentState::ToPublish => {
+                                Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
+                            }
+                            IntentState::Committed => {
+                                self.handle_metadata_update_from_intent(provider, &intent)?;
+                                Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
+                            }
+                            IntentState::Published => {
+                                tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
+                                Ok(())
+                            }
+                            IntentState::Error => {
+                                tracing::warn!("Intent [{}] moved to error status", intent_id);
+                                Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
+                            }
+                            IntentState::Processed => {
+                                tracing::warn!("Intent [{}] moved to Processed status", intent_id);
+                                Ok(provider.conn_ref().set_group_intent_processed(intent_id)?)
+                            }
+                        }
+                    })
+                }).await?;
+
+                Ok(())
+            }
+            // No matching intent found. The message did not originate here.
+            Ok(None) => {
+                tracing::info!(
+                    inbox_id = self.client.inbox_id(),
+                    installation_id = %self.client.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    cursor = envelope.id,
+                    "client [{}] is about to process external envelope [{}]",
+                    self.client.inbox_id(),
+                    envelope.id
+                );
 
                 self.load_mls_group_with_lock_async(provider, |mut mls_group| async move {
                     self.validate_and_process_external_message(
@@ -1018,17 +1034,10 @@ where
                     .await
                 })
                 .await?;
-                        self.validate_and_process_external_message(
-                            provider,
-                            &mut mls_group,
-                            message,
-                            envelope,
-                        )
-                            .await
-                    }
-                    Err(err) => Err(GroupMessageProcessingError::Storage(err)),
-                }
-            }).await
+
+                Ok(())
+            }
+            Err(err) => Err(GroupMessageProcessingError::Storage(err)),
         }
     }
 
@@ -1100,41 +1109,64 @@ where
             _ => return Err(GroupMessageProcessingError::InvalidPayload),
         };
 
-        // Download all unread welcome messages and convert to groups.
-        // In a database transaction, increment the cursor for a given entity and
-        // apply the update after the provided `ProcessingFn` has completed successfully.
-        match self.process_message(provider, msgv1, true).await {
-            Ok(_) => {
-                tracing::info!(
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data)?;
+        let message_entity_kind = match mls_message_in.wire_format() {
+            WireFormat::Welcome => EntityKind::Welcome,
+            _ => EntityKind::Group,
+        };
+
+        let last_cursor = provider
+            .conn_ref()
+            .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
+        let should_skip_message = last_cursor > msgv1.id as i64;
+        if should_skip_message {
+            tracing::info!(
+                inbox_id = self.client.inbox_id(),
+                installation_id = %self.client.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
+                msgv1.id,
+                message_entity_kind,
+                last_cursor
+            );
+            Err(GroupMessageProcessingError::AlreadyProcessed(msgv1.id))
+        } else {
+            // Download all unread welcome messages and convert to groups.
+            // In a database transaction, increment the cursor for a given entity and
+            // apply the update after the provided `ProcessingFn` has completed successfully.
+            match self.process_message(provider, msgv1, true).await {
+                Ok(_) => {
+                    tracing::info!(
                         "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
                         hex::encode(&msgv1.group_id),
                         msgv1.id
                     );
-                Ok(())
-            }
-            Err(GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
-                    min_version,
-                ),
-            )) => {
-                // Instead of updating cursor, mark group as paused
-                provider
-                    .conn_ref()
-                    .set_group_paused(&self.group_id, &min_version)?;
-                tracing::warn!(
-                    "Group [{}] paused due to minimum protocol version requirement",
-                    hex::encode(&self.group_id)
-                );
-                Err(GroupMessageProcessingError::GroupPaused)
-            }
-            Err(e) => {
-                tracing::info!(
-                    "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
-                    hex::encode(&msgv1.group_id),
-                    msgv1.id,
-                    e
-                );
-                Err(e)
+                    Ok(())
+                }
+                Err(GroupMessageProcessingError::CommitValidation(
+                    CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
+                        min_version,
+                    ),
+                )) => {
+                    // Instead of updating cursor, mark group as paused
+                    provider
+                        .conn_ref()
+                        .set_group_paused(&self.group_id, &min_version)?;
+                    tracing::warn!(
+                        "Group [{}] paused due to minimum protocol version requirement",
+                        hex::encode(&self.group_id)
+                    );
+                    Err(GroupMessageProcessingError::GroupPaused)
+                }
+                Err(e) => {
+                    tracing::info!(
+                        "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
+                        hex::encode(&msgv1.group_id),
+                        msgv1.id,
+                        e
+                    );
+                    Err(e)
+                }
             }
         }
     }
