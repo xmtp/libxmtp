@@ -1199,7 +1199,7 @@ where
                     // If the error is retryable we cannot move on to the next message
                     // otherwise you can get into a forked group state.
                     if is_retryable {
-                        tracing::error!(
+                        tracing::info!(
                             error = %error_message,
                             "Aborting message processing for retryable error: {}",
                             error_message
