@@ -527,18 +527,14 @@ impl FfiXmtpClient {
         )?)
     }
 
-    pub async fn sync_preferences(&self) -> Result<u32, GenericError> {
+    pub async fn sync_preferences(&self) -> Result<u64, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let num_groups_synced: usize = inner
+        let num_groups_synced = inner
             .sync_all_welcomes_and_history_sync_groups(&provider)
             .await?;
-        // Convert usize to u32 for compatibility with Uniffi
-        let num_groups_synced: u32 = num_groups_synced
-            .try_into()
-            .map_err(|_| GenericError::FailedToConvertToU32)?;
 
-        Ok(num_groups_synced)
+        Ok(num_groups_synced as u64)
     }
 }
 
@@ -1540,8 +1536,8 @@ impl FfiConversations {
 impl FfiConversations {
     pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = inner.store().conn()?;
-        let sync_group = inner.get_sync_group(&conn)?;
+        let provider = inner.mls_provider()?;
+        let sync_group = inner.get_sync_group(&provider)?;
         Ok(sync_group.into())
     }
 }
@@ -3060,7 +3056,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -6648,9 +6644,10 @@ mod tests {
     async fn test_stream_consent() {
         let wallet = generate_local_wallet();
         let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
-        let alix_a_conn = alix_a.inner_client.store().conn().unwrap();
+        let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
         // wait for alix_a's sync worker to create a sync group
-        let _ = wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_conn) }).await;
+        let _ =
+            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
 
         let alix_b = new_test_client_with_wallet_and_history(wallet).await;
         wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
@@ -8023,54 +8020,85 @@ mod tests {
         let wallet_alix = generate_local_wallet();
         let wallet_bo = generate_local_wallet();
 
-        let client_alix =
+        let alix =
             new_test_client_with_wallet_and_history_sync_url(wallet_alix.clone(), None, None).await;
-        let client_bo =
-            new_test_client_with_wallet_and_history_sync_url(wallet_bo, None, None).await;
+        let alix_worker = alix.inner_client.worker_handle().unwrap();
+        alix_worker.wait_for_init().await.unwrap();
+        let bo = new_test_client_with_wallet_and_history_sync_url(
+            wallet_bo,
+            None,
+            Some(FfiSyncWorkerMode::Disabled),
+        )
+        .await;
 
         // Create a group conversation
-        let alix_group = client_alix
+        let alix_group = alix
             .conversations()
-            .create_group_with_inbox_ids(
-                vec![client_bo.inbox_id()],
-                FfiCreateGroupOptions::default(),
-            )
+            .create_group_with_inbox_ids(vec![bo.inbox_id()], FfiCreateGroupOptions::default())
             .await
             .unwrap();
         let initial_consent = alix_group.consent_state().unwrap();
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
-        let client_alix2 =
-            new_test_client_with_wallet_and_history_sync_url(wallet_alix, None, None).await;
-        let state = client_alix2.inbox_state(true).await.unwrap();
-        assert_eq!(state.installations.len(), 2);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        let alix2 = new_test_client_with_wallet_and_history_sync_url(wallet_alix, None, None).await;
+        let alix2_worker = alix2.inner_client.worker_handle().unwrap();
+        alix2_worker.wait_for_init().await.unwrap();
 
-        // Sync conversations
-        client_alix
+        let state = alix2.inbox_state(true).await.unwrap();
+        assert_eq!(state.installations.len(), 2);
+
+        let sg2 = alix2
             .inner_client
-            .sync_welcomes(&client_alix.inner_client.mls_provider().unwrap())
+            .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
+            .unwrap();
+
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix2
+            .conversations()
+            .sync_all_conversations(None)
             .await
             .unwrap();
 
-        let sg1 = client_alix
-            .inner_client
-            .get_sync_group(client_alix.inner_client.mls_provider().unwrap().conn_ref())
+        alix.inner_client
+            .sync_welcomes(&alix.inner_client.mls_provider().unwrap())
+            .await
             .unwrap();
-        let sg2 = client_alix2
+
+        let sg1 = alix
             .inner_client
-            .get_sync_group(client_alix2.inner_client.mls_provider().unwrap().conn_ref())
+            .get_sync_group(&alix.inner_client.mls_provider().unwrap())
             .unwrap();
+        let sg2_2 = alix2
+            .inner_client
+            .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
+            .unwrap();
+        assert_eq!(sg2_2.group_id, sg2.group_id);
         assert_eq!(sg1.group_id, sg2.group_id);
 
-        alix_group.update_installations().await.unwrap();
-        client_alix2
-            .inner_client
-            .sync_welcomes(&client_alix2.inner_client.mls_provider().unwrap())
+        sg1.sync().await.unwrap();
+        sg2.sync().await.unwrap();
+
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix2
+            .conversations()
+            .sync_all_conversations(None)
             .await
             .unwrap();
 
-        let alix_group2 = client_alix2.conversation(alix_group.id()).unwrap();
+        alix_group.update_installations().await.unwrap();
+        alix2
+            .inner_client
+            .sync_welcomes(&alix2.inner_client.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        let alix_group2 = alix2.conversation(alix_group.id()).unwrap();
         assert_eq!(
             alix_group2.consent_state().unwrap(),
             FfiConsentState::Unknown
@@ -8080,11 +8108,19 @@ mod tests {
         alix_group
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
+        tracing::error!("==========?????? {:?}", sg2.group_id);
 
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        client_alix2.sync_preferences().await.unwrap();
-        alix_group2.sync().await.unwrap();
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        sg2.sync().await.unwrap();
+        tracing::error!(
+            "==== epoch {}",
+            sg2.epoch(&alix2.inner_client.mls_provider().unwrap())
+                .await
+                .unwrap()
+        );
+        alix2.sync_preferences().await.unwrap();
+        // alix_group2.sync().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         assert_eq!(
             alix_group2.consent_state().unwrap(),

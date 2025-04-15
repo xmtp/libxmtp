@@ -1,5 +1,5 @@
 use super::*;
-use crate::Client;
+use crate::{groups::scoped_client::LocalScopedGroupClient, Client};
 use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
 
 use serde::{Deserialize, Serialize};
@@ -22,13 +22,18 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
     ) -> Result<(), DeviceSyncError> {
         let provider = client.mls_provider()?;
-        let sync_group = client.ensure_sync_group(&provider).await?;
+        let sync_group = client.get_sync_group(&provider)?;
 
-        let updates = updates
+        tracing::info!(
+            "Outgoing preference update {updates:?} sync group: {:?}",
+            sync_group.group_id
+        );
+
+        let contents = updates
             .iter()
             .map(bincode::serialize)
             .collect::<Result<Vec<_>, _>>()?;
-        let update_proto = UserPreferenceUpdateProto { contents: updates };
+        let update_proto = UserPreferenceUpdateProto { contents };
         let content_bytes = serde_json::to_vec(&update_proto)?;
         sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
@@ -37,14 +42,26 @@ impl UserPreferenceUpdate {
             })),
         })?;
 
+        if let Some(handle) = client.device_sync.worker_handle() {
+            updates.iter().for_each(|u| match u {
+                UserPreferenceUpdate::ConsentUpdate(_) => {
+                    handle.increment_metric(SyncMetric::V1ConsentSent)
+                }
+                UserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                    handle.increment_metric(SyncMetric::V1HmacSent)
+                }
+            });
+        }
+
         sync_group.publish_intents(&provider).await?;
 
         Ok(())
     }
 
     /// Process and insert incoming preference updates over the sync group
-    pub(crate) fn process_incoming_preference_update(
+    pub(crate) fn process_incoming_preference_update<C: LocalScopedGroupClient>(
         update_proto: UserPreferenceUpdateProto,
+        client: &C,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<Self>, StorageError> {
         let conn = provider.conn_ref();
@@ -83,6 +100,17 @@ impl UserPreferenceUpdate {
             conn.insert_or_replace_consent_records(&consent_updates)?;
         }
 
+        if let Some(handle) = client.worker_handle() {
+            updates.iter().for_each(|u| match u {
+                UserPreferenceUpdate::ConsentUpdate(_) => {
+                    handle.increment_metric(SyncMetric::V1ConsentReceived)
+                }
+                UserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                    handle.increment_metric(SyncMetric::V1HmacReceived)
+                }
+            });
+        }
+
         Ok(updates)
     }
 }
@@ -90,10 +118,8 @@ impl UserPreferenceUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builder::ClientBuilder, groups::scoped_client::ScopedGroupClient};
+    use crate::{groups::scoped_client::ScopedGroupClient, utils::tester::Tester};
     use xmtp_db::consent_record::{ConsentState, ConsentType};
-
-    use crypto_utils::generate_local_wallet;
 
     #[derive(Serialize, Deserialize, Clone)]
     #[repr(i32)]
@@ -120,37 +146,31 @@ mod tests {
 
     #[xmtp_common::test]
     async fn test_hmac_sync() {
-        let wallet = generate_local_wallet();
-        let amal_a =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
-        let amal_a_provider = amal_a.mls_provider().unwrap();
-        let amal_a_conn = amal_a_provider.conn_ref();
-        let amal_a_worker = amal_a.sync_worker_handle().unwrap();
-
-        let amal_b =
-            ClientBuilder::new_test_client_with_history(&wallet, "http://localhost:5558").await;
-        let amal_b_provider = amal_b.mls_provider().unwrap();
-        let amal_b_conn = amal_b_provider.conn_ref();
-        let amal_b_worker = amal_b.sync_worker_handle().unwrap();
+        let amal_a = Tester::new().await;
+        let amal_b = amal_a.clone().await;
 
         // wait for the new sync group
-        amal_a_worker.wait_for_processed_count(1).await.unwrap();
-        amal_b_worker.wait_for_processed_count(1).await.unwrap();
+        amal_a.worker.wait_for_init().await.unwrap();
+        amal_b.worker.wait_for_init().await.unwrap();
 
-        amal_a.sync_welcomes(&amal_a_provider).await.unwrap();
+        amal_a.sync_welcomes(&amal_a.provider).await.unwrap();
 
-        let sync_group_a = amal_a.get_sync_group(amal_a_conn).unwrap();
-        let sync_group_b = amal_b.get_sync_group(amal_b_conn).unwrap();
+        let sync_group_a = amal_a.get_sync_group(&amal_a.provider).unwrap();
+        let sync_group_b = amal_b.get_sync_group(&amal_b.provider).unwrap();
         assert_eq!(sync_group_a.group_id, sync_group_b.group_id);
 
-        sync_group_a.sync_with_conn(&amal_a_provider).await.unwrap();
-        sync_group_b.sync_with_conn(&amal_a_provider).await.unwrap();
+        sync_group_a.sync_with_conn(&amal_a.provider).await.unwrap();
+        sync_group_b.sync_with_conn(&amal_a.provider).await.unwrap();
 
         // Wait for a to process the new hmac key
-        amal_a_worker.wait_for_processed_count(2).await.unwrap();
+        amal_a
+            .worker
+            .wait(SyncMetric::V1HmacReceived, 1)
+            .await
+            .unwrap();
 
-        let pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
-        let pref_b = StoredUserPreferences::load(amal_b_conn).unwrap();
+        let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref()).unwrap();
+        let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref()).unwrap();
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -159,7 +179,7 @@ mod tests {
             .await
             .unwrap();
 
-        let new_pref_a = StoredUserPreferences::load(amal_a_conn).unwrap();
+        let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref()).unwrap();
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

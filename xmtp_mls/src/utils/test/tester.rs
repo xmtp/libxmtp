@@ -1,6 +1,9 @@
 #![allow(unused)]
 
-use crate::builder::ClientBuilder;
+use crate::{
+    builder::ClientBuilder,
+    groups::device_sync::handle::{SyncMetric, WorkerHandle},
+};
 use ethers::signers::LocalWallet;
 use parking_lot::Mutex;
 use passkey::{
@@ -31,6 +34,7 @@ pub(crate) struct Tester<Owner> {
     pub owner: Owner,
     pub client: FullXmtpClient,
     pub provider: Arc<XmtpOpenMlsProvider>,
+    pub worker: Arc<WorkerHandle<SyncMetric>>,
 }
 
 impl Tester<LocalWallet> {
@@ -59,11 +63,13 @@ where
     pub(crate) async fn new_from_owner(owner: Owner) -> Self {
         let client = ClientBuilder::new_test_client(&owner).await;
         let provider = client.mls_provider().unwrap();
+        let worker = client.device_sync.worker_handle().unwrap();
 
         Self {
             owner,
             client,
             provider: Arc::new(provider),
+            worker,
         }
     }
 }

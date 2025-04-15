@@ -104,13 +104,13 @@ pub(crate) mod tests {
         wait_for_min_intents(amal_b_conn, 3).await;
         tracing::info!("Waiting for intents published");
 
-        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
         amal_a
             .sync_welcomes(&amal_a_provider)
             .await
             .expect("sync_welcomes");
-        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
 
@@ -121,7 +121,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Have amal_a receive the message (and auto-process)
-        let amal_a_sync_group = amal_a.get_sync_group(amal_a_conn).unwrap();
+        let amal_a_sync_group = amal_a.get_sync_group(&amal_a_provider).unwrap();
         assert_ok!(amal_a_sync_group.sync_with_conn(&amal_a_provider).await);
 
         xmtp_common::wait_for_some(|| async {
@@ -162,7 +162,7 @@ pub(crate) mod tests {
         //  3.) MessageHistory Sync Request
         wait_for_min_intents(amal_a_conn, 3).await;
         tracing::info!("Waiting for intents published");
-        let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let old_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
 
         // let old_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
         tracing::info!("Disconnecting");
@@ -204,7 +204,7 @@ pub(crate) mod tests {
             .sync_welcomes(&amal_a_provider)
             .await
             .expect("sync_welcomes");
-        let new_group_id = amal_a.get_sync_group(amal_a_conn).unwrap().group_id;
+        let new_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
         // group id should have changed to the new sync group created by the second installation
         assert_ne!(old_group_id, new_group_id);
     }

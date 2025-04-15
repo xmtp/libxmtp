@@ -1,6 +1,5 @@
 use crate::builder::SyncWorkerMode;
-#[cfg(any(test, feature = "test-utils"))]
-use crate::groups::device_sync::WorkerHandle;
+use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::utils::VersionInfo;
@@ -161,7 +160,13 @@ pub struct DeviceSync {
     #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
+}
+
+impl DeviceSync {
+    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.worker_handle.lock().clone()
+    }
 }
 
 // most of these things are `Arc`'s
@@ -620,16 +625,6 @@ where
         self.create_dm_by_inbox_id(inbox_id, opts).await
     }
 
-    pub(crate) fn create_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-
-        Ok(sync_group)
-    }
-
     /// Look up a group by its ID
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
@@ -976,11 +971,6 @@ where
                         "[{}] syncing group",
                         self.inbox_id()
                     );
-                    tracing::info!(
-                        inbox_id = self.inbox_id(),
-                        "[{}] syncing group",
-                        self.inbox_id()
-                    );
                     let is_active = group
                         .load_mls_group_with_lock_async(provider, |mls_group| async move {
                             Ok::<bool, GroupError>(mls_group.is_active())
@@ -1037,15 +1027,10 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(provider).await?;
-        let groups = provider
-            .conn_ref()
-            .all_sync_groups()?
-            .into_iter()
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
-            .collect();
-        let active_groups_count = self.sync_all_groups(groups, provider).await?;
+        self.get_sync_group(provider)?.sync().await?;
+        // let active_groups_count = self.sync_all_groups(groups, provider).await?;
 
-        Ok(active_groups_count)
+        Ok(1)
     }
 
     /**

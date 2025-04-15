@@ -1,3 +1,4 @@
+use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::group_membership::{GroupMembership, MembershipDiff};
 use crate::utils::VersionInfo;
 use crate::verified_key_package_v2::KeyPackageVerificationError;
@@ -35,7 +36,7 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
-    fn history_sync_url(&self) -> &Option<String>;
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>>;
 
     fn version_info(&self) -> &Arc<VersionInfo>;
 
@@ -183,8 +184,8 @@ where
         Client::<ApiClient, Verifier>::context(self)
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        &self.device_sync.server_url
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.device_sync.worker_handle()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -269,8 +270,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        (**self).worker_handle()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -370,8 +371,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        (**self).worker_handle()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
@@ -468,8 +469,8 @@ where
         (**self).local_events()
     }
 
-    fn history_sync_url(&self) -> &Option<String> {
-        (**self).history_sync_url()
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        (**self).worker_handle()
     }
 
     fn version_info(&self) -> &Arc<VersionInfo> {
