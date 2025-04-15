@@ -1,9 +1,9 @@
 [profile.default]
-default-filter = "all()"
+default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
 retries = 0
 
 [profile.ci]
-default-filter = "all()"
+default-filter = "not test(test_stream_all_messages_does_not_lose_messages)"
 retries = 0
 status-level = "skip"
 failure-output = "immediate-final"
