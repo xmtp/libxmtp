@@ -2086,8 +2086,8 @@ pub(crate) mod tests {
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
-    use xmtp_common::{assert_err, assert_ok};
     use xmtp_common::time::now_ns;
+    use xmtp_common::{assert_err, assert_ok};
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -4744,10 +4744,19 @@ pub(crate) mod tests {
         let bo_group = bo_groups.first().unwrap();
         bo_group.send_message(&vec![2]).await.unwrap();
         let bo_provider = bo_client.mls_provider().unwrap();
-        let intent = bo_provider.conn_ref().find_group_intents(bo_group.clone().group_id, Some(vec![IntentState::Processed]), None).unwrap();
+        let intent = bo_provider
+            .conn_ref()
+            .find_group_intents(
+                bo_group.clone().group_id,
+                Some(vec![IntentState::Processed]),
+                None,
+            )
+            .unwrap();
         assert_eq!(intent.len(), 2); //key_update and send_message
 
-        let process_result = bo_group.sync_until_intent_resolved(&bo_provider, intent[1].id).await;
+        let process_result = bo_group
+            .sync_until_intent_resolved(&bo_provider, intent[1].id)
+            .await;
         assert_ok!(process_result);
     }
 
