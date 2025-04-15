@@ -202,12 +202,12 @@ jobs:
         with:
           name: validation-service
           path: .
+      - name: Load Image
+        run: docker load < result
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
       - uses: DeterminateSystems/flakehub-cache-action@main
-      - name: Load Image
-        run: docker load < result
       - name: start services
         run: ./dev/ci/up-cached
       - name: Cache
