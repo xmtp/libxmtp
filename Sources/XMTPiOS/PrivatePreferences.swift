@@ -72,7 +72,12 @@ public actor PrivatePreferences {
 			entity: inboxId
 		).fromFFI
 	}
+	
+	public func sync() async throws {
+		try await ffiClient.syncPreferences()
+	}
 
+	@available(*, deprecated, message: "syncConsent is deprecated. Use `sync()` instead.")
 	public func syncConsent() async throws {
 		try await ffiClient.sendSyncRequest(kind: .consent)
 	}

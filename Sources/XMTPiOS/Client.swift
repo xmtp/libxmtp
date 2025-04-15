@@ -288,7 +288,8 @@ public final class Client {
 			accountIdentifier: accountIdentifier.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
-			historySyncUrl: options.historySyncUrl
+			historySyncUrl: options.historySyncUrl,
+			syncWorkerMode: .enabled
 		)
 
 		return (ffiClient, dbURL)
@@ -368,7 +369,8 @@ public final class Client {
 			accountIdentifier: identity.ffiPrivate,
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
-			historySyncUrl: nil
+			historySyncUrl: nil,
+			syncWorkerMode: nil
 		)
 	}
 
