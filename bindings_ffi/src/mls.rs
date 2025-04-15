@@ -3060,7 +3060,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -8023,8 +8023,10 @@ mod tests {
         let wallet_alix = generate_local_wallet();
         let wallet_bo = generate_local_wallet();
 
-        let client_alix = new_test_client_with_wallet_and_history(wallet_alix.clone()).await;
-        let client_bo = new_test_client_with_wallet_and_history(wallet_bo).await;
+        let client_alix =
+            new_test_client_with_wallet_and_history_sync_url(wallet_alix.clone(), None, None).await;
+        let client_bo =
+            new_test_client_with_wallet_and_history_sync_url(wallet_bo, None, None).await;
 
         // Create a group conversation
         let alix_group = client_alix
@@ -8038,19 +8040,33 @@ mod tests {
         let initial_consent = alix_group.consent_state().unwrap();
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
-        let client_alix2 = new_test_client_with_wallet_and_history(wallet_alix).await;
+        let client_alix2 =
+            new_test_client_with_wallet_and_history_sync_url(wallet_alix, None, None).await;
         let state = client_alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Sync conversations
         client_alix
-            .conversations()
-            .sync_all_conversations(None)
+            .inner_client
+            .sync_welcomes(&client_alix.inner_client.mls_provider().unwrap())
             .await
             .unwrap();
+
+        let sg1 = client_alix
+            .inner_client
+            .get_sync_group(client_alix.inner_client.mls_provider().unwrap().conn_ref())
+            .unwrap();
+        let sg2 = client_alix2
+            .inner_client
+            .get_sync_group(client_alix2.inner_client.mls_provider().unwrap().conn_ref())
+            .unwrap();
+        assert_eq!(sg1.group_id, sg2.group_id);
+
+        alix_group.update_installations().await.unwrap();
         client_alix2
-            .conversations()
-            .sync_all_conversations(None)
+            .inner_client
+            .sync_welcomes(&client_alix2.inner_client.mls_provider().unwrap())
             .await
             .unwrap();
 
@@ -8064,11 +8080,11 @@ mod tests {
         alix_group
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
-        client_alix.sync_preferences().await.unwrap();
-        alix_group.sync().await.unwrap();
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
         client_alix2.sync_preferences().await.unwrap();
-        tokio::time::sleep(Duration::from_secs(2)).await;
         alix_group2.sync().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         assert_eq!(
             alix_group2.consent_state().unwrap(),
