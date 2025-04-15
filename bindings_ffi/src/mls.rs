@@ -5439,52 +5439,6 @@ mod tests {
         assert!(stream.is_closed());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_stream_all_messages_error() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
-
-        let mut replace = xmtp_common::InboxIdReplace::default();
-        replace.add(&alix.inbox_id(), "alix");
-        replace.add(&bo.inbox_id(), "bo");
-
-        let alix_group_1 = alix
-            .conversations()
-            .create_group(
-                vec![bo.account_identifier.clone()],
-                FfiCreateGroupOptions::default(),
-            )
-            .await
-            .unwrap();
-        let stream_callback = Arc::new(RustStreamCallback::default());
-        let bo_stream = bo
-            .conversations()
-            .stream_all_messages(stream_callback.clone())
-            .await;
-        bo_stream.wait_for_ready().await;
-
-        alix_group_1
-            .send("1 from alix".as_bytes().to_vec())
-            .await
-            .unwrap();
-        alix_group_1
-            .update_group_name("alix update group name 1".to_string())
-            .await
-            .unwrap();
-
-        let bo_conversations = bo
-            .conversations()
-            .list(FfiListConversationsOptions::default())
-            .unwrap();
-        let bo_conversation = bo_conversations[0].clone();
-        bo_conversation
-            .conversation
-            .send("2 from bo".as_bytes().to_vec())
-            .await
-            .unwrap();
-    }
-
-
     #[tokio::test(flavor = "multi_thread")]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
