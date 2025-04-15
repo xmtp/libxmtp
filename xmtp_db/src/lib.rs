@@ -125,7 +125,7 @@ pub mod test_util {
                         .unwrap(),
                 )
             })
-                .unwrap()
+            .unwrap()
         }
 
         pub fn intents_deleted(&self) -> i32 {
