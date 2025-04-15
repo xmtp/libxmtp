@@ -5774,4 +5774,176 @@ pub(crate) mod tests {
             .await;
         assert!(result.is_err());
     }
+
+    #[xmtp_common::test(flavor = "multi_thread")]
+    async fn can_stream_out_of_order_without_forking() {
+        let wallet_a = generate_local_wallet();
+        let wallet_b = generate_local_wallet();
+        let wallet_c = generate_local_wallet();
+        let client_a1 = ClientBuilder::new_test_client(&wallet_a).await;
+        let client_b = ClientBuilder::new_test_client(&wallet_b).await;
+        let client_c = ClientBuilder::new_test_client(&wallet_c).await;
+
+        // Create a group
+        let group_a = client_a1
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        // Add client_b and client_c to the group
+        group_a
+            .add_members_by_inbox_id(&[client_b.inbox_id(), client_c.inbox_id()])
+            .await
+            .unwrap();
+
+        // Sync the group
+        client_b
+            .sync_welcomes(&client_b.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let binding = client_b.find_groups(GroupQueryArgs::default()).unwrap();
+        let group_b = binding.first().unwrap();
+
+        client_c
+            .sync_welcomes(&client_c.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let binding = client_c.find_groups(GroupQueryArgs::default()).unwrap();
+        let group_c = binding.first().unwrap();
+
+        // Each client sends a message and syncs (ensures any key update commits are sent)
+        group_a
+            .send_message_optimistic("Message a1".as_bytes())
+            .unwrap();
+        group_a
+            .publish_intents(&group_a.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        group_a.sync().await.unwrap();
+        group_b.sync().await.unwrap();
+        group_c.sync().await.unwrap();
+
+        group_b
+            .send_message_optimistic("Message b1".as_bytes())
+            .unwrap();
+        group_b
+            .publish_intents(&group_b.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        group_a.sync().await.unwrap();
+        group_b.sync().await.unwrap();
+        group_c.sync().await.unwrap();
+
+        group_c
+            .send_message_optimistic("Message c1".as_bytes())
+            .unwrap();
+        group_c
+            .publish_intents(&group_c.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        // Sync the groups
+        group_a.sync().await.unwrap();
+        group_b.sync().await.unwrap();
+        group_c.sync().await.unwrap();
+
+        // After client a adds b and c, and they each sent a message, all groups are in the same epoch
+        assert_eq!(
+            group_a
+                .epoch(&client_a1.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            group_b
+                .epoch(&client_b.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            group_c
+                .epoch(&client_c.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            3
+        );
+
+        // Client b updates the group name, (incrementing the epoch from 3 to 4), and syncs
+        group_b
+            .update_group_name("Group B".to_string())
+            .await
+            .unwrap();
+        group_b.sync().await.unwrap();
+
+        // Client c sends two text messages before incrementing the epoch
+        group_c
+            .send_message_optimistic("Message c2".as_bytes())
+            .unwrap();
+        group_c
+            .publish_intents(&group_c.mls_provider().unwrap())
+            .await
+            .unwrap();
+        group_b.sync().await.unwrap();
+
+        // Retrieve all messages from group B, verify they contain the two messages from client c even though they were sent from the wrong epoch
+        let messages = client_b
+            .api_client
+            .query_group_messages(group_b.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 8);
+
+        // Get reference to last message
+        let last_message = messages.last().unwrap();
+
+        // Simulating group_a streaming out of order by processing the last_message first
+        let v1_last_message = match &last_message.version {
+            Some(xmtp_proto::xmtp::mls::api::v1::group_message::Version::V1(v1)) => v1,
+            _ => panic!("Expected V1 message"),
+        };
+
+        // This is the key line, because we pass in false for incrementing epoch/cursor (simulating streaming)
+        // This processing will not longer update the cursor, so we will not be forked
+        let increment_epoch = false;
+        let result = group_a
+            .process_message(
+                &client_a1.mls_provider().unwrap(),
+                v1_last_message,
+                increment_epoch,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // Now syncing a will update group_a group name since the cursor has NOT moved on past it
+        group_a.sync().await.unwrap();
+        group_b.sync().await.unwrap();
+        group_c.sync().await.unwrap();
+
+        assert_eq!(
+            group_b
+                .epoch(&client_b.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            4
+        );
+        assert_eq!(
+            group_c
+                .epoch(&client_c.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            4
+        );
+        // We pass on the last line because a's cursor has not moved past any commits, even though it processed
+        // messages out of order
+        assert_eq!(
+            group_a
+                .epoch(&client_a1.mls_provider().unwrap())
+                .await
+                .unwrap(),
+            4
+        );
+    }
 }
