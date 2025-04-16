@@ -2840,6 +2840,7 @@ mod tests {
         groups::{
             device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
         },
+        utils::tester::PasskeyUser,
         InboxOwner,
     };
 
@@ -3029,25 +3030,80 @@ mod tests {
 
     use xmtp_mls::utils::test::tester::*;
 
-    trait FfiClientTesterBuilder<Owner> {
+    trait FfiClientTesterBuilder<Owner>
+    where
+        Owner: InboxOwner,
+    {
         async fn build(self) -> Tester<Owner, Arc<FfiXmtpClient>>;
+        async fn build_no_panic(self) -> Result<Tester<Owner, Arc<FfiXmtpClient>>, GenericError>;
     }
     impl FfiClientTesterBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
         async fn build(self) -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
-            let client = new_test_client_with_wallet(self.owner.clone()).await;
-            let provider = client.inner_client.mls_provider().unwrap();
+            self.build_no_panic().await.unwrap()
+        }
+
+        async fn build_no_panic(
+            self,
+        ) -> Result<Tester<LocalWallet, Arc<FfiXmtpClient>>, GenericError> {
+            let client = create_raw_client(&self).await;
+            let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
+            let signature_request = client.signature_request().unwrap();
+            signature_request
+                .add_ecdsa_signature(
+                    owner
+                        .sign(signature_request.signature_text().await.unwrap())
+                        .unwrap(),
+                )
+                .await?;
+            client.register_identity(signature_request).await?;
+
+            let provider = client.inner_client.mls_provider()?;
             let worker = client.inner_client.worker_handle();
 
-            Tester {
+            Ok(Tester {
                 builder: self,
                 client,
                 provider: Arc::new(provider),
                 worker,
-            }
+            })
         }
     }
     impl FfiClientTesterBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
-        async fn build(self) -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {}
+        async fn build(self) -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
+            self.build_no_panic().await.unwrap()
+        }
+
+        async fn build_no_panic(
+            self,
+        ) -> Result<Tester<PasskeyUser, Arc<FfiXmtpClient>>, GenericError> {
+            let client = create_raw_client(&self).await;
+            let signature_request = client.signature_request().unwrap();
+            let text = signature_request.signature_text().await.unwrap();
+            let UnverifiedSignature::Passkey(signature) = self.owner.sign(&text).unwrap() else {
+                unreachable!("Passkeys only provide passkey signatures.");
+            };
+
+            signature_request
+                .add_passkey_signature(FfiPasskeySignature {
+                    authenticator_data: signature.authenticator_data,
+                    client_data_json: signature.client_data_json,
+                    public_key: signature.public_key,
+                    signature: signature.signature,
+                })
+                .await
+                .unwrap();
+            client.register_identity(signature_request).await?;
+
+            let provider = client.inner_client.mls_provider().unwrap();
+            let worker = client.inner_client.worker_handle();
+
+            Ok(Tester {
+                builder: self,
+                client,
+                provider: Arc::new(provider),
+                worker,
+            })
+        }
     }
 
     trait FfiXmtpClientWalletTester {
@@ -3063,8 +3119,14 @@ mod tests {
         }
     }
 
-    async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> Arc<FfiXmtpClient> {
-        let ident = builder.owner.get_identifier();
+    async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> Arc<FfiXmtpClient>
+    where
+        Owner: InboxOwner,
+    {
+        let nonce = 1;
+        let ident = builder.owner.get_identifier().unwrap();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
         let client = create_client(
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
@@ -3072,11 +3134,18 @@ mod tests {
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
             &inbox_id,
-            ident,
+            ident.into(),
             1,
             None,
-            builder.sync_url,
-            Some(builder.sync_mode.unwrap_or(SyncWorkerMode::Disabled).into()),
+            builder.sync_url.clone(),
+            Some(
+                builder
+                    .sync_mode
+                    .as_ref()
+                    .unwrap_or(&SyncWorkerMode::Disabled)
+                    .clone()
+                    .into(),
+            ),
         )
         .await
         .unwrap();
@@ -3090,7 +3159,12 @@ mod tests {
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
     ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(wallet, None, None).await
+        new_test_client_with_wallet_and_history_sync_url(
+            wallet,
+            None,
+            Some(FfiSyncWorkerMode::Disabled),
+        )
+        .await
     }
 
     async fn new_test_client_with_wallet_and_history(
@@ -3099,7 +3173,7 @@ mod tests {
         new_test_client_with_wallet_and_history_sync_url(
             wallet,
             Some(HISTORY_SYNC_URL.to_string()),
-            None,
+            Some(FfiSyncWorkerMode::Disabled),
         )
         .await
     }
@@ -3167,147 +3241,6 @@ mod tests {
         register_client_no_panic(&ffi_inbox_owner, &client).await?;
 
         Ok(client)
-    }
-
-    type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-    type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
-
-    #[allow(dead_code)]
-    struct PasskeyUser {
-        pk_cred: PasskeyCredential,
-        pk_client: PasskeyClient,
-        client: Arc<FfiXmtpClient>,
-    }
-
-    impl Deref for PasskeyUser {
-        type Target = Arc<FfiXmtpClient>;
-        fn deref(&self) -> &Self::Target {
-            &self.client
-        }
-    }
-
-    async fn new_passkey_client() -> PasskeyUser {
-        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
-        let parameters_from_rp = PublicKeyCredentialParameters {
-            ty: PublicKeyCredentialType::PublicKey,
-            alg: coset::iana::Algorithm::ES256,
-        };
-        let pk_user_entity = PublicKeyCredentialUserEntity {
-            id: random_vec(32).into(),
-            display_name: "Alex Passkey".into(),
-            name: "apk@example.org".into(),
-        };
-        let pk_auth_store: Option<Passkey> = None;
-        let pk_aaguid = Aaguid::new_empty();
-        let pk_user_validation_method = PkUserValidationMethod {};
-        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = Client::new(pk_auth);
-
-        let request = CredentialCreationOptions {
-            public_key: PublicKeyCredentialCreationOptions {
-                rp: PublicKeyCredentialRpEntity {
-                    id: None, // Leaving the ID as None means use the effective domain
-                    name: origin.domain().unwrap().into(),
-                },
-                user: pk_user_entity,
-                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
-                // It's guaranteed to be unique, and that's good enough for us.
-                // All we care about is if that unique credential signs below.
-                challenge: Bytes::from(vec![]),
-                pub_key_cred_params: vec![parameters_from_rp],
-                timeout: None,
-                exclude_credentials: None,
-                authenticator_selection: None,
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        // Now create the credential.
-        let pk_cred = pk_client
-            .register(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-
-        let public_key = pk_cred.response.public_key.as_ref().unwrap()[26..].to_vec();
-
-        let identity = FfiIdentifier {
-            identifier: hex::encode(public_key.clone()),
-            identifier_kind: FfiIdentifierKind::Passkey,
-        };
-
-        let nonce = 0;
-        let inbox_id = identity.inbox_id(nonce).unwrap();
-
-        let db_path = tmp_path();
-        let db_enc_key = static_enc_key().to_vec();
-
-        let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(db_path),
-            Some(db_enc_key),
-            &inbox_id,
-            identity,
-            nonce,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-
-        let conn = client.inner_client.context().store().conn().unwrap();
-        conn.register_triggers();
-
-        let signature_request = client.signature_request().unwrap();
-        let challenge = signature_request
-            .signature_text()
-            .await
-            .unwrap()
-            .as_bytes()
-            .to_vec();
-        let sign_request = CredentialRequestOptions {
-            public_key: PublicKeyCredentialRequestOptions {
-                challenge: Bytes::from(challenge),
-                timeout: None,
-                rp_id: Some(String::from(origin.domain().unwrap())),
-                allow_credentials: None,
-                user_verification: UserVerificationRequirement::default(),
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        let cred = pk_client
-            .authenticate(origin.clone(), sign_request, DefaultClientData)
-            .await
-            .unwrap();
-        let resp = cred.response;
-
-        let signature = resp.signature.to_vec();
-
-        signature_request
-            .add_passkey_signature(FfiPasskeySignature {
-                public_key,
-                signature,
-                client_data_json: resp.client_data_json.to_vec(),
-                authenticator_data: resp.authenticator_data.to_vec(),
-            })
-            .await
-            .unwrap();
-        client.register_identity(signature_request).await.unwrap();
-
-        PasskeyUser {
-            pk_client,
-            pk_cred,
-            client,
-        }
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
@@ -3519,7 +3452,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = new_passkey_client().await;
+        let alex = TesterBuilder::new()
+            .with_sync_worker()
+            .with_sync_server()
+            .build()
+            .await;
         let worker = alex.client.inner_client.worker_handle().unwrap();
         worker.wait(SyncMetric::V1RequestSent, 1).await.unwrap();
 
@@ -3652,114 +3589,23 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn associate_passkey() {
         let alex = new_test_client().await;
+        let pk = PasskeyUser::new().await;
+        alex.add_identity(pk.identifier().into()).await.unwrap();
 
-        let origin = url::Url::parse("https://xmtp.chat").expect("Should parse");
-        let parameters_from_rp = PublicKeyCredentialParameters {
-            ty: PublicKeyCredentialType::PublicKey,
-            alg: coset::iana::Algorithm::ES256,
+        let sig_request = alex.signature_request().unwrap();
+        let text = sig_request.signature_text().await.unwrap();
+        let UnverifiedSignature::Passkey(sig) = pk.sign(&text).unwrap() else {
+            unreachable!();
         };
-        let pk_user_entity = PublicKeyCredentialUserEntity {
-            id: random_vec(32).into(),
-            display_name: "Alex Passkey".into(),
-            name: "apk@example.org".into(),
-        };
-        let pk_auth_store: Option<Passkey> = None;
-        let pk_aaguid = Aaguid::new_empty();
-        let pk_user_validation_method = PkUserValidationMethod {};
-        let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = Client::new(pk_auth);
-
-        let request = CredentialCreationOptions {
-            public_key: PublicKeyCredentialCreationOptions {
-                rp: PublicKeyCredentialRpEntity {
-                    id: None, // Leaving the ID as None means use the effective domain
-                    name: origin.domain().unwrap().into(),
-                },
-                user: pk_user_entity,
-                // We're not passing a challenge here because we don't care about the credential and the user_entity behind it (for now).
-                // It's guaranteed to be unique, and that's good enough for us.
-                // All we care about is if that unique credential signs below.
-                challenge: Bytes::from(vec![]),
-                pub_key_cred_params: vec![parameters_from_rp],
-                timeout: None,
-                exclude_credentials: None,
-                authenticator_selection: None,
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        // Now create the credential.
-        let my_webauthn_credential = pk_client
-            .register(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-
-        let public_key = my_webauthn_credential.response.public_key.unwrap().to_vec();
-        let public_key = public_key[26..].to_vec();
-
-        let sig_request = alex
-            .add_identity(FfiIdentifier {
-                identifier: hex::encode(&public_key),
-                identifier_kind: FfiIdentifierKind::Passkey,
-            })
-            .await
-            .unwrap();
-
-        let challenge = sig_request.signature_text().await.unwrap();
-        let challenge_bytes = challenge.as_bytes().to_vec();
-
-        let request = CredentialRequestOptions {
-            public_key: PublicKeyCredentialRequestOptions {
-                challenge: Bytes::from(challenge_bytes),
-                timeout: None,
-                rp_id: Some(String::from(origin.domain().unwrap())),
-                allow_credentials: None,
-                user_verification: UserVerificationRequirement::default(),
-                hints: None,
-                attestation: AttestationConveyancePreference::None,
-                attestation_formats: None,
-                extensions: None,
-            },
-        };
-
-        let cred = pk_client
-            .authenticate(origin.clone(), request, DefaultClientData)
-            .await
-            .unwrap();
-        let resp = cred.response;
-
-        let mut signature = resp.signature.to_vec();
-
-        // Try to add a bad sig first
-        // Corrupt the sig
-        signature[4] = signature[4].wrapping_add(1);
-        let result = sig_request
-            .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key: public_key.clone(),
-            })
-            .await;
-        // It should not verify
-        assert!(result.is_err());
-
-        // un-corrupt the sig
-        signature[4] = signature[4].wrapping_sub(1);
         sig_request
             .add_passkey_signature(FfiPasskeySignature {
-                authenticator_data: resp.authenticator_data.to_vec(),
-                signature: signature.clone(),
-                client_data_json: resp.client_data_json.to_vec(),
-                public_key: public_key.clone(),
+                public_key: sig.public_key,
+                signature: sig.signature,
+                authenticator_data: sig.authenticator_data,
+                client_data_json: sig.client_data_json,
             })
             .await
-            // should be good
             .unwrap();
-
         alex.apply_signature_request(sig_request).await.unwrap();
     }
 

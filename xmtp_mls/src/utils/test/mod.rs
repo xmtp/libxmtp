@@ -6,6 +6,7 @@ pub mod tester;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
+use xmtp_api_http::HttpClientBuilderError;
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},

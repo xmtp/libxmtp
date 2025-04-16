@@ -14,3 +14,12 @@ impl From<FfiSyncWorkerMode> for SyncWorkerMode {
         }
     }
 }
+
+impl From<SyncWorkerMode> for FfiSyncWorkerMode {
+    fn from(value: SyncWorkerMode) -> Self {
+        match value {
+            SyncWorkerMode::Enabled => Self::Enabled,
+            SyncWorkerMode::Disabled => Self::Disabled,
+        }
+    }
+}

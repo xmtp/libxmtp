@@ -2,6 +2,7 @@
 
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
+    client::ClientError,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
 };
 use ethers::signers::LocalWallet;
@@ -24,8 +25,9 @@ use xmtp_id::{
     },
     InboxOwner,
 };
+use xmtp_proto::prelude::XmtpTestClient;
 
-use super::FullXmtpClient;
+use super::{FullXmtpClient, HISTORY_SYNC_URL};
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -98,7 +100,7 @@ where
         TesterBuilder::new().owner(owner).build().await
     }
 
-    pub(crate) async fn new_installation(&self) -> Self {
+    pub async fn new_installation(&self) -> Self {
         let cloned = self.builder.clone().build().await;
         // The cloned will have created a new sync grup and invited you to it.
         // Sync the welcomes to become a part of it.
@@ -116,7 +118,7 @@ impl<Owner, Client> Tester<Owner, Client>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
+    pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
         TesterBuilder::new().owner(owner)
     }
 }
@@ -171,7 +173,21 @@ where
         self.owner(PasskeyUser::new().await)
     }
 
-    pub(crate) fn sync_mode(self, mode: SyncWorkerMode) -> Self {
+    pub fn with_sync_worker(self) -> Self {
+        Self {
+            sync_mode: Some(SyncWorkerMode::Enabled),
+            ..self
+        }
+    }
+
+    pub fn with_sync_server(self) -> Self {
+        Self {
+            sync_url: Some(HISTORY_SYNC_URL.to_string()),
+            ..self
+        }
+    }
+
+    pub fn sync_mode(self, mode: SyncWorkerMode) -> Self {
         Self {
             sync_mode: Some(mode),
             ..self
