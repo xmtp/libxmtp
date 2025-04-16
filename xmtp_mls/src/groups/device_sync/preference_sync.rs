@@ -1,5 +1,5 @@
 use super::*;
-use crate::{groups::scoped_client::LocalScopedGroupClient, Client};
+use crate::{groups::scoped_client::ScopedGroupClient, Client};
 use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
 
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ impl UserPreferenceUpdate {
     }
 
     /// Process and insert incoming preference updates over the sync group
-    pub(crate) fn process_incoming_preference_update<C: LocalScopedGroupClient>(
+    pub(crate) fn process_incoming_preference_update<C: ScopedGroupClient>(
         update_proto: UserPreferenceUpdateProto,
         client: &C,
         provider: &XmtpOpenMlsProvider,
