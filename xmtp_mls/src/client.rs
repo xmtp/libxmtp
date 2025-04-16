@@ -928,7 +928,7 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self, provider, welcome).await;
+        let result = MlsGroup::create_from_welcome(self, provider, welcome, true).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
