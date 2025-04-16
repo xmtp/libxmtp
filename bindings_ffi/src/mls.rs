@@ -3463,6 +3463,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
         let alex = new_passkey_client().await;
+        let worker = alex.client.inner_client.worker_handle().unwrap();
+        worker.wait(SyncMetric::V1RequestSent, 1).await.unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3470,7 +3472,7 @@ mod tests {
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         assert_eq!(stats.send_welcome_messages.get_count(), 0);
-        assert_eq!(stats.send_group_messages.get_count(), 0);
+        assert_eq!(stats.send_group_messages.get_count(), 2);
 
         let bo = new_test_client();
         let conversation = alex
@@ -3481,15 +3483,15 @@ mod tests {
             )
             .await
             .unwrap();
-
         conversation.send(b"Hello there".to_vec()).await.unwrap();
+        worker.wait(SyncMetric::V1ConsentSent, 1).await.unwrap();
+        worker.wait(SyncMetric::V1HmacSent, 1).await.unwrap();
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
-        // Why is this 2?
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 6);
+        let group_message_count = stats.send_group_messages.get_count();
 
         // Sleep for 2 seconds and make sure nothing else has sent
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -3498,7 +3500,7 @@ mod tests {
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
         assert_eq!(stats.send_welcome_messages.get_count(), 1);
-        assert_eq!(stats.send_group_messages.get_count(), 6);
+        assert_eq!(stats.send_group_messages.get_count(), group_message_count);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

@@ -213,6 +213,7 @@ where
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
+
             match event {
                 LocalEvents::SyncMessage(msg) => match msg {
                     SyncMessage::Reply { message_id } => {
@@ -226,6 +227,10 @@ where
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
+                    if preference_updates.is_empty() {
+                        continue;
+                    }
+
                     retry_async!(
                         self.retry,
                         (async {
@@ -542,7 +547,7 @@ where
             handle.increment_metric(SyncMetric::V1PayloadSent);
         }
 
-        tracing::error!(
+        tracing::info!(
             "Backup payload sent to sync group {:?}",
             sync_group.group_id
         );

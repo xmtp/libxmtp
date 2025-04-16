@@ -3,16 +3,9 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
-use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
