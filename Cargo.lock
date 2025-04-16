@@ -8009,6 +8009,7 @@ dependencies = [
  "uniffi",
  "url",
  "uuid 1.16.0",
+ "vergen-git2",
  "xmtp_api",
  "xmtp_api_grpc",
  "xmtp_common",

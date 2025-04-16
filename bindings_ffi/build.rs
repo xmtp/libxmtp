@@ -1,21 +1,23 @@
 use std::process::Command;
+use std::error::Error;
+use vergen_git2::{BuildBuilder, Emitter, Git2Builder};
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     Command::new("make")
         .args(["libxmtp-version"])
         .status()
         .expect("failed to make libxmtp-version");
 
-    let output = Command::new("git")
-        .args(["rev-parse", "--short=7", "HEAD"])
-        .output();
-
-    let git_hash = match output {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        }
-        _ => "unknown".to_string(),
-    };
-
-    println!("cargo:rustc-env=GIT_COMMIT_SHA={}", git_hash);
+    let build = BuildBuilder::all_build()?;
+    let git = Git2Builder::default()
+        .sha(true)
+        .commit_timestamp(true)
+        .build()?;
+    
+    Emitter::default()
+        .add_instructions(&build)?
+        .add_instructions(&git)?
+        .emit()?;
+    
+    Ok(())
 }
