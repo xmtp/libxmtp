@@ -32,7 +32,8 @@ Start Docker Desktop.
   RUST_LOG=off cargo test
   ```
 
-  Many team members also install and use `cargo nextest` for better test isolation and log output behavior.
+  Many team members also install and use `cargo nextest` for better test
+  isolation and log output behavior.
 
 - To run WebAssembly tests headless:
 
@@ -51,6 +52,55 @@ Start Docker Desktop.
   ```
   dev/test/browser-sdk
   ```
+
+## Tips & Tricks
+
+### Log Output Flags for Tests
+
+- Output test logs in a async-aware context-specific tree format with the
+  environment variable `CONTEXTUAL`
+
+```
+CONTEXTUAL=1 cargo test
+```
+
+- Filter tests logs by Crate
+
+```
+RUST_LOG=xmtp_mls=debug,xmtp_api=off,xmtp_id=info cargo test
+```
+
+- Output test logs as in a structured JSON format for inspection with
+  third-party viewer
+
+```
+STRUCTURED=1 cargo test
+```
+
+- Two ways to replace InboxIds/InstallationIds/EthAddresses with a
+  human-readable string name in logs
+
+1.)
+
+Before the test runs, add an `InboxIdReplace` declaration to the top
+`replace.add` accepts two arguments: the string to replace in logs and the
+string to replace it with. Note that on dropping the "InboxIdReplace" object,
+the replacements will no longer be made.
+
+```rust
+let mut replace = InboxIdReplace::default();
+replace.add(alix.installation_id(), "alix_installation_id");
+```
+
+2.) Build the `TesterBuilder` `with_name`
+
+```rust
+let tester = Tester::builder().with_name("alix").build().await;
+```
+
+This replaces all instances of alix's InboxIds, InstallationIds and Identifiers
+with "alix", "alix_installation", "alix_identifier" respectively, in test output
+logs.
 
 ## Quick Start (Dev Containers)
 
@@ -119,4 +169,5 @@ buffers
 
 ## Contributing
 
-See our [contribution guide](./CONTRIBUTING.md) to learn more about contributing to this project.
+See our [contribution guide](./CONTRIBUTING.md) to learn more about contributing
+to this project.

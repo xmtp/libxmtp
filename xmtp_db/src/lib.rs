@@ -21,13 +21,17 @@ pub use errors::*;
 impl DbConnection {
     #[allow(unused)]
     pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
+        self.raw_query_write::<_, StorageError, _>(|conn| {
+            conn.batch_execute("PRAGMA query_only = ON;")
+        })?;
         Ok(())
     }
 
     #[allow(unused)]
     pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
+        self.raw_query_write::<_, StorageError, _>(|conn| {
+            conn.batch_execute("PRAGMA query_only = OFF;")
+        })?;
         Ok(())
     }
 }
@@ -38,6 +42,13 @@ pub async fn init_sqlite() {}
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
+
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        xmtp_common::logger();
+    }
+
     use super::*;
     use diesel::{RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow, sql_query};
     impl DbConnection {
@@ -85,7 +96,9 @@ pub mod test_util {
 
             for query in queries {
                 let query = diesel::sql_query(query);
-                let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
+                let _ = self
+                    .raw_query_write::<_, StorageError, _>(|conn| query.execute(conn))
+                    .unwrap();
             }
         }
 
@@ -93,19 +106,23 @@ pub mod test_util {
         pub fn disable_memory_security(&self) {
             let query = r#"PRAGMA cipher_memory_security = OFF"#;
             let query = diesel::sql_query(query);
-            let _ = self.raw_query_read(|c| query.clone().execute(c)).unwrap();
-            let _ = self.raw_query_write(|c| query.execute(c)).unwrap();
+            let _ = self
+                .raw_query_read::<_, StorageError, _>(|c| query.clone().execute(c))
+                .unwrap();
+            let _ = self
+                .raw_query_write::<_, StorageError, _>(|c| query.execute(c))
+                .unwrap();
         }
 
         pub fn intents_published(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query_read::<_, StorageError, _>(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -114,14 +131,14 @@ pub mod test_util {
         }
 
         pub fn intents_processed(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query_read::<_, StorageError, _>(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_processed FROM test_metadata WHERE rowid = 1",
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -130,12 +147,12 @@ pub mod test_util {
         }
 
         pub fn intents_deleted(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query_read::<_, StorageError, _>(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -144,12 +161,12 @@ pub mod test_util {
         }
 
         pub fn intents_created(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query_read::<_, StorageError, _>(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )

@@ -94,7 +94,6 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use xmtp_db::Store;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
@@ -108,6 +107,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
 };
+use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::{
@@ -347,6 +347,26 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
+impl<C> std::fmt::Debug for MlsGroup<C>
+where
+    C: ScopedGroupClient,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let id = xmtp_common::fmt::truncate_hex(hex::encode(&self.group_id));
+        let inbox_id = self.client.inbox_id();
+        let installation = self.client.installation_id().to_string();
+        let time = chrono::DateTime::from_timestamp_nanos(self.created_at_ns);
+        write!(
+            f,
+            "Group {{ id: [{}], created: [{}], client: [{}], installation: [{}] }}",
+            id,
+            time.format("%H:%M:%S"),
+            inbox_id,
+            installation
+        )
+    }
+}
+
 pub struct ConversationListItem<C> {
     pub group: MlsGroup<C>,
     pub last_message: Option<StoredGroupMessage>,
@@ -517,7 +537,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
         provider: impl OpenMlsProvider,
@@ -542,7 +562,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, operation))]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -599,7 +619,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(new_group)
     }
 
-    // Save a new group to the db
     pub(crate) fn insert(
         client: &ScopedClient,
         provider: &XmtpOpenMlsProvider,
@@ -660,7 +679,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
-        stored_group.store(provider.conn_ref())?;
+        stored_group.store_or_ignore(provider.conn_ref())?;
 
         Ok(stored_group)
     }
@@ -995,8 +1014,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.context().mls_provider()?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns)
             .await?;
@@ -1115,7 +1133,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
         Ok(messages)
     }
@@ -1126,7 +1144,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
@@ -1270,7 +1288,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
-        let provider = self.client.store().conn()?.into();
+        let provider = self.client.mls_provider()?;
 
         let intent_data = self
             .get_membership_update_intent(&provider, &[], inbox_ids)
@@ -1549,8 +1567,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.context().mls_provider()?;
         if let Some(min_version) = provider
             .conn_ref()
             .get_group_paused_version(&self.group_id)?
@@ -1668,7 +1685,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().store().db();
         let group = conn
             .find_group(&self.group_id)?
             .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
@@ -1677,7 +1694,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let record = conn.get_consent_record(
             hex::encode(self.group_id.clone()),
             ConsentType::ConversationId,
@@ -1690,7 +1707,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
 
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
