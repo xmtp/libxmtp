@@ -30,8 +30,11 @@ use super::FullXmtpClient;
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 #[allow(dead_code)]
-pub struct Tester<Owner, Client> {
-    pub owner: Owner,
+pub struct Tester<Owner, Client>
+where
+    Owner: InboxOwner,
+{
+    pub builder: TesterBuilder<Owner>,
     pub client: Client,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
@@ -59,28 +62,44 @@ impl XmtpClientPasskeyTester for Tester<PasskeyUser, FullXmtpClient> {
     }
 }
 
-impl<Owner> Tester<Owner, FullXmtpClient>
+trait XmtpClientTesterBuilder<Owner>
 where
-    Owner: InboxOwner + Clone + 'static,
+    Owner: InboxOwner,
 {
-    pub(crate) async fn new_from_owner(owner: Owner) -> Self {
-        let client = ClientBuilder::new_test_client(&owner).await;
+    async fn build(self) -> Tester<Owner, FullXmtpClient>;
+}
+
+impl<Owner> XmtpClientTesterBuilder<Owner> for TesterBuilder<Owner>
+where
+    Owner: InboxOwner,
+{
+    async fn build(self) -> Tester<Owner, FullXmtpClient> {
+        let client = ClientBuilder::new_test_client(&self.owner).await;
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
             worker.wait_for_init().await.unwrap();
         }
 
-        Self {
-            owner,
+        Tester {
+            builder: self,
             client,
             provider: Arc::new(provider),
             worker,
         }
     }
+}
+
+impl<Owner> Tester<Owner, FullXmtpClient>
+where
+    Owner: InboxOwner + Clone + 'static,
+{
+    pub(crate) async fn new_from_owner(owner: Owner) -> Self {
+        TesterBuilder::new().owner(owner).build().await
+    }
 
     pub(crate) async fn new_installation(&self) -> Self {
-        let cloned = Self::new_from_owner(self.owner.clone()).await;
+        let cloned = self.builder.clone().build().await;
         // The cloned will have created a new sync grup and invited you to it.
         // Sync the welcomes to become a part of it.
         self.sync_welcomes(&self.provider).await.unwrap();
@@ -98,10 +117,7 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     pub(crate) fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
-        TesterBuilder {
-            owner: Some(owner),
-            ..Default::default()
-        }
+        TesterBuilder::new().owner(owner)
     }
 }
 
@@ -116,31 +132,49 @@ where
     }
 }
 
-pub(crate) struct TesterBuilder<Owner> {
-    owner: Option<Owner>,
-    sync_mode: Option<SyncWorkerMode>,
+#[derive(Clone)]
+pub struct TesterBuilder<Owner>
+where
+    Owner: InboxOwner,
+{
+    pub owner: Owner,
+    pub sync_mode: Option<SyncWorkerMode>,
+    pub sync_url: Option<String>,
 }
 
-impl<Owner> TesterBuilder<Owner> {
-    pub(crate) fn owner<NewOwner>(self, owner: NewOwner) -> TesterBuilder<NewOwner> {
-        TesterBuilder {
-            owner: Some(owner),
-            sync_mode: self.sync_mode,
+impl TesterBuilder<LocalWallet> {
+    pub fn new() -> Self {
+        Self {
+            owner: generate_local_wallet(),
+            sync_mode: None,
+            sync_url: None,
         }
     }
+}
+
+impl<Owner> TesterBuilder<Owner>
+where
+    Owner: InboxOwner,
+{
+    pub fn owner<NewOwner>(self, owner: NewOwner) -> TesterBuilder<NewOwner>
+    where
+        NewOwner: InboxOwner,
+    {
+        TesterBuilder {
+            owner,
+            sync_mode: self.sync_mode,
+            sync_url: self.sync_url,
+        }
+    }
+
+    pub async fn passkey_owner(self) -> TesterBuilder<PasskeyUser> {
+        self.owner(PasskeyUser::new().await)
+    }
+
     pub(crate) fn sync_mode(self, mode: SyncWorkerMode) -> Self {
         Self {
             sync_mode: Some(mode),
             ..self
-        }
-    }
-}
-
-impl<Owner> Default for TesterBuilder<Owner> {
-    fn default() -> Self {
-        Self {
-            owner: None,
-            sync_mode: None,
         }
     }
 }

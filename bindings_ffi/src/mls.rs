@@ -2836,6 +2836,7 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
+        builder::SyncWorkerMode,
         groups::{
             device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
         },
@@ -2850,11 +2851,11 @@ mod tests {
     const HISTORY_SYNC_URL: &str = "http://localhost:5558";
 
     #[derive(Clone)]
-    pub struct LocalWalletInboxOwner {
+    pub struct FfiWalletInboxOwner {
         wallet: xmtp_cryptography::utils::LocalWallet,
     }
 
-    impl LocalWalletInboxOwner {
+    impl FfiWalletInboxOwner {
         pub fn with_wallet(wallet: xmtp_cryptography::utils::LocalWallet) -> Self {
             Self { wallet }
         }
@@ -2870,7 +2871,7 @@ mod tests {
         }
     }
 
-    impl FfiInboxOwner for LocalWalletInboxOwner {
+    impl FfiInboxOwner for FfiWalletInboxOwner {
         fn get_identifier(&self) -> Result<FfiIdentifier, IdentityValidationError> {
             let ident = self
                 .wallet
@@ -3005,12 +3006,12 @@ mod tests {
         [2u8; 32]
     }
 
-    async fn register_client(inbox_owner: &LocalWalletInboxOwner, client: &FfiXmtpClient) {
+    async fn register_client(inbox_owner: &FfiWalletInboxOwner, client: &FfiXmtpClient) {
         register_client_no_panic(inbox_owner, client).await.unwrap()
     }
 
     async fn register_client_no_panic(
-        inbox_owner: &LocalWalletInboxOwner,
+        inbox_owner: &FfiWalletInboxOwner,
         client: &FfiXmtpClient,
     ) -> Result<(), GenericError> {
         let signature_request = client.signature_request().unwrap();
@@ -3028,23 +3029,61 @@ mod tests {
 
     use xmtp_mls::utils::test::tester::*;
 
-    trait FfiXmtpClientWalletTester {
-        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
+    trait FfiClientTesterBuilder<Owner> {
+        async fn build(self) -> Tester<Owner, Arc<FfiXmtpClient>>;
     }
-    impl FfiXmtpClientWalletTester for Tester<LocalWallet, Arc<FfiXmtpClient>> {
-        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
-            let owner = generate_local_wallet();
-            let client = new_test_client_with_wallet(owner.clone()).await;
+    impl FfiClientTesterBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
+        async fn build(self) -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
+            let client = new_test_client_with_wallet(self.owner.clone()).await;
             let provider = client.inner_client.mls_provider().unwrap();
             let worker = client.inner_client.worker_handle();
 
             Tester {
-                owner,
+                builder: self,
                 client,
                 provider: Arc::new(provider),
                 worker,
             }
         }
+    }
+    impl FfiClientTesterBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
+        async fn build(self) -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {}
+    }
+
+    trait FfiXmtpClientWalletTester {
+        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
+        async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>>;
+    }
+    impl FfiXmtpClientWalletTester for Tester<LocalWallet, Arc<FfiXmtpClient>> {
+        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
+            TesterBuilder::new().build().await
+        }
+        async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
+            TesterBuilder::new().passkey_owner().await.build().await
+        }
+    }
+
+    async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> Arc<FfiXmtpClient> {
+        let ident = builder.owner.get_identifier();
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            &inbox_id,
+            ident,
+            1,
+            None,
+            builder.sync_url,
+            Some(builder.sync_mode.unwrap_or(SyncWorkerMode::Disabled).into()),
+        )
+        .await
+        .unwrap();
+        let conn = client.inner_client.context().store().conn().unwrap();
+        conn.register_triggers();
+
+        client
     }
 
     /// Create a new test client with a given wallet.
@@ -3070,7 +3109,7 @@ mod tests {
         history_sync_url: Option<String>,
         sync_worker_mode: Option<FfiSyncWorkerMode>,
     ) -> Arc<FfiXmtpClient> {
-        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3102,7 +3141,7 @@ mod tests {
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet);
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3355,7 +3394,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_storage() {
-        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3409,7 +3448,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
-        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
         let nonce = 1;
         let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3524,7 +3563,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_add_wallet_to_inbox() {
         // Setup the initial first client
-        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3727,7 +3766,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_revoke_wallet() {
         // Setup the initial first client
-        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
         let nonce = 1;
         let ident = ffi_inbox_owner.identifier();
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3818,7 +3857,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_invalid_external_signature() {
-        let inbox_owner = LocalWalletInboxOwner::new();
+        let inbox_owner = FfiWalletInboxOwner::new();
         let ident = inbox_owner.identifier();
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
@@ -3846,12 +3885,12 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_can_message() {
-        let amal = LocalWalletInboxOwner::new();
+        let amal = FfiWalletInboxOwner::new();
         let amal_ident = amal.identifier();
         let nonce = 1;
         let amal_inbox_id = amal_ident.inbox_id(nonce).unwrap();
 
-        let bola = LocalWalletInboxOwner::new();
+        let bola = FfiWalletInboxOwner::new();
         let bola_ident = bola.identifier();
         let bola_inbox_id = bola_ident.inbox_id(nonce).unwrap();
         let path = tmp_path();
@@ -7053,7 +7092,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet_a.clone());
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet_a.clone());
         register_client(&ffi_inbox_owner, &client_a).await;
 
         // Step 3: Generate wallet B
@@ -7093,7 +7132,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let ffi_inbox_owner = LocalWalletInboxOwner::with_wallet(wallet_b.clone());
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet_b.clone());
         register_client(&ffi_inbox_owner, &client_b).await;
 
         assert!(client_b.inbox_id() == client_a.inbox_id());
@@ -7194,7 +7233,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let ffi_inbox_owner_a = LocalWalletInboxOwner::with_wallet(wallet_a.clone());
+        let ffi_inbox_owner_a = FfiWalletInboxOwner::with_wallet(wallet_a.clone());
         register_client(&ffi_inbox_owner_a, &client_a).await;
 
         // Step 2: Wallet B creates a new client with inbox_id B
@@ -7217,7 +7256,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let ffi_inbox_owner_b1 = LocalWalletInboxOwner::with_wallet(wallet_b.clone());
+        let ffi_inbox_owner_b1 = FfiWalletInboxOwner::with_wallet(wallet_b.clone());
         register_client(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
