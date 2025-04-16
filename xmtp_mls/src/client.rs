@@ -1025,10 +1025,15 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<usize, ClientError> {
         self.sync_welcomes(provider).await?;
-        self.get_sync_group(provider)?.sync().await?;
-        // let active_groups_count = self.sync_all_groups(groups, provider).await?;
+        let groups = provider
+            .conn_ref()
+            .all_sync_groups()?
+            .into_iter()
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .collect();
+        let active_groups_count = self.sync_all_groups(groups, provider).await?;
 
-        Ok(1)
+        Ok(active_groups_count)
     }
 
     /**

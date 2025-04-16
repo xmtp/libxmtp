@@ -8072,9 +8072,6 @@ mod tests {
 
         assert_eq!(sg1.group_id, sg2.group_id);
 
-        // sg1.sync().await.unwrap();
-        // sg2.sync().await.unwrap();
-
         alix.conversations()
             .sync_all_conversations(None)
             .await
