@@ -56,7 +56,7 @@ pub(crate) mod tests {
         assert_eq!(syncable_consent_records.len(), 1);
 
         // Create a second installation for amal with sync.
-        let amal_b = amal_a.clone().await;
+        let amal_b = amal_a.new_installation().await;
 
         amal_b
             .worker()

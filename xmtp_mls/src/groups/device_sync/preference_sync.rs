@@ -163,7 +163,7 @@ mod tests {
     #[xmtp_common::test]
     async fn test_hmac_sync() {
         let amal_a = Tester::new().await;
-        let amal_b = amal_a.clone().await;
+        let amal_b = amal_a.new_installation().await;
 
         // wait for the new sync group
         amal_a.worker().wait_for_init().await.unwrap();

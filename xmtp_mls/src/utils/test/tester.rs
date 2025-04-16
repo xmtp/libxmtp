@@ -79,7 +79,7 @@ where
         }
     }
 
-    pub(crate) async fn clone(&self) -> Self {
+    pub(crate) async fn new_installation(&self) -> Self {
         let cloned = Self::new_from_owner(self.owner.clone()).await;
         // The cloned will have created a new sync grup and invited you to it.
         // Sync the welcomes to become a part of it.
