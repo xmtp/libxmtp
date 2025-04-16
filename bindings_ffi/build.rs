@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::error::Error;
+use std::process::Command;
 use vergen_git2::{BuildBuilder, Emitter, Git2Builder};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -13,11 +13,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .sha(true)
         .commit_timestamp(true)
         .build()?;
-    
+
     Emitter::default()
         .add_instructions(&build)?
         .add_instructions(&git)?
         .emit()?;
-    
+
     Ok(())
 }
