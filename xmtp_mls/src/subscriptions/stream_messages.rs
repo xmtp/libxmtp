@@ -404,7 +404,9 @@ where
                 cursor_id,
                 inbox_id = self.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                "group message not found"
+                "no further processing for streamed message [{}] in group [{}]",
+                &cursor_id,
+                hex::encode(&self.msg.group_id),
             );
 
             Ok(None)
