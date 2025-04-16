@@ -193,7 +193,6 @@ pub struct SyncWorker<ApiClient, V> {
     retry: Retry,
 
     // Number of events processed
-    #[cfg(any(test, feature = "test-utils"))]
     handle: std::sync::Arc<WorkerHandle<SyncMetric>>,
 }
 

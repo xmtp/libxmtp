@@ -159,7 +159,6 @@ pub struct DeviceSync {
 
     #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
-    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
 }
 
@@ -295,7 +294,6 @@ where
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
-                #[cfg(any(test, feature = "test-utils"))]
                 worker_handle: Arc::new(parking_lot::Mutex::default()),
             },
         }
