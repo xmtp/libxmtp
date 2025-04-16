@@ -59,7 +59,7 @@ pub(crate) mod tests {
         let amal_b = amal_a.clone().await;
 
         amal_b
-            .worker
+            .worker()
             .wait(SyncMetric::V1RequestSent, 1)
             .await
             .unwrap();
@@ -76,7 +76,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         amal_a
-            .worker
+            .worker()
             .wait(SyncMetric::V1PayloadSent, 1)
             .await
             .unwrap();
@@ -89,7 +89,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         amal_b
-            .worker
+            .worker()
             .wait(SyncMetric::V1PayloadProcessed, 1)
             .await
             .unwrap();
@@ -116,7 +116,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         amal_a
-            .worker
+            .worker()
             .wait(SyncMetric::V1ConsentSent, 2)
             .await
             .unwrap();
@@ -128,7 +128,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         amal_b
-            .worker
+            .worker()
             .wait(SyncMetric::V1ConsentReceived, 1)
             .await
             .unwrap();

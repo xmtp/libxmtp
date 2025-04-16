@@ -122,13 +122,13 @@ pub(crate) struct TesterBuilder<Owner> {
 }
 
 impl<Owner> TesterBuilder<Owner> {
-    pub(crate) fn owner<NewOwner>(self: Self, owner: NewOwner) -> TesterBuilder<NewOwner> {
+    pub(crate) fn owner<NewOwner>(self, owner: NewOwner) -> TesterBuilder<NewOwner> {
         TesterBuilder {
             owner: Some(owner),
             sync_mode: self.sync_mode,
         }
     }
-    pub(crate) fn sync_mode(self: Self, mode: SyncWorkerMode) -> Self {
+    pub(crate) fn sync_mode(self, mode: SyncWorkerMode) -> Self {
         Self {
             sync_mode: Some(mode),
             ..self

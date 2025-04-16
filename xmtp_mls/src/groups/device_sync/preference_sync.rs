@@ -166,8 +166,8 @@ mod tests {
         let amal_b = amal_a.clone().await;
 
         // wait for the new sync group
-        amal_a.worker.wait_for_init().await.unwrap();
-        amal_b.worker.wait_for_init().await.unwrap();
+        amal_a.worker().wait_for_init().await.unwrap();
+        amal_b.worker().wait_for_init().await.unwrap();
 
         amal_a.sync_welcomes(&amal_a.provider).await.unwrap();
 
@@ -180,7 +180,7 @@ mod tests {
 
         // Wait for a to process the new hmac key
         amal_a
-            .worker
+            .worker()
             .wait(SyncMetric::V1HmacReceived, 1)
             .await
             .unwrap();
