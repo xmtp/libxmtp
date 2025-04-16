@@ -8108,7 +8108,6 @@ mod tests {
 
         sg2.sync().await.unwrap();
 
-        tracing::info!("Sync group id {:?}", sg2.group_id);
         alix2_worker
             .wait(SyncMetric::V1ConsentReceived, 1)
             .await

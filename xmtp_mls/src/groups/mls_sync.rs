@@ -822,7 +822,7 @@ where
                                     UserPreferenceUpdate::process_incoming_preference_update(
                                         update,
                                         &self.client,
-                                        &provider,
+                                        provider,
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
@@ -832,13 +832,11 @@ where
                                     .send(LocalEvents::IncomingPreferenceUpdate(updates));
                             }
                             _ => {
-                                tracing::error!("?");
                                 return Err(GroupMessageProcessingError::InvalidPayload);
                             }
                         }
                     }
                     None => {
-                        tracing::error!("??");
                         return Err(GroupMessageProcessingError::InvalidPayload);
                     }
                 }
