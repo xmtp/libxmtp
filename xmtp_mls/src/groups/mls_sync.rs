@@ -639,12 +639,22 @@ where
             let processed_message = mls_group.process_message(provider, message)?;
 
             let requires_processing = if allow_cursor_increment {
+                tracing::info!(
+                    "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true", 
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
                 provider.conn_ref().update_cursor(
                     &envelope.group_id,
                     EntityKind::Group,
                     *cursor as i64,
                 )?
             } else {
+                tracing::info!(
+                    "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
                 let current_cursor = provider
                     .conn_ref()
                     .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
@@ -956,12 +966,22 @@ where
 
                     provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
+                            tracing::info!(
+                                "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
+                                hex::encode(envelope.group_id.as_slice()),
+                                cursor
+                            );
                             provider.conn_ref().update_cursor(
                                 &envelope.group_id,
                                 EntityKind::Group,
                                 cursor as i64,
                             )?
                         } else {
+                            tracing::info!(
+                                "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                                hex::encode(envelope.group_id.as_slice()),
+                                cursor
+                            );
                             let current_cursor = provider
                                 .conn_ref()
                                 .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;

@@ -691,12 +691,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             } = decrypted_welcome;
 
             let requires_processing = if allow_cursor_increment {
+                tracing::info!(
+                    "calling update cursor for welcome {}, allow_cursor_increment is true",
+                    welcome.id
+                );
                 provider.conn_ref().update_cursor(
                     client.context().installation_public_key(),
                     EntityKind::Welcome,
                     welcome.id as i64,
                 )?
             } else {
+                tracing::info!(
+                    "will not call update cursor for welcome {}, allow_cursor_increment is false",
+                    welcome.id
+                );
                 let current_cursor = provider
                     .conn_ref()
                     .get_last_cursor_for_id(client.context().installation_public_key(), EntityKind::Welcome)?;
