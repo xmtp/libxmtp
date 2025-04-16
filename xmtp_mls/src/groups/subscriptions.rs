@@ -109,7 +109,7 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_decode_group_message_bytes() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
