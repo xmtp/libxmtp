@@ -2,7 +2,9 @@
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::*;
-use crate::{Store, group::tests::generate_group, test_utils::with_connection};
+use crate::{
+    EncryptedMessageStore, Store, group::tests::generate_group, test_utils::with_connection,
+};
 use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 use xmtp_content_types::should_push;
 
@@ -59,16 +61,17 @@ async fn it_gets_messages() {
 
 #[xmtp_common::test]
 async fn it_cannot_insert_message_without_group() {
-    use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
-
-    with_connection(|conn| {
-        let message = generate_message(None, None, None, None);
-        assert_err!(
-            message.store(conn),
-            StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
-        );
-    })
-    .await
+    use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
+    let store = EncryptedMessageStore::new_test().await;
+    let conn = DbConnection::new(store.conn().unwrap());
+    let message = generate_message(None, None, None, None);
+    let result = message.store(&conn);
+    assert_err!(
+        result,
+        StorageError::Connection(crate::ConnectionError::Database(
+            diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
+        ))
+    );
 }
 
 #[xmtp_common::test]
@@ -85,7 +88,7 @@ async fn it_gets_many_messages() {
         }
 
         let count: i64 = conn
-            .raw_query_read(|raw_conn| {
+            .raw_query_read::<_, StorageError, _>(|raw_conn| {
                 dsl::group_messages
                     .select(diesel::dsl::count_star())
                     .first(raw_conn)

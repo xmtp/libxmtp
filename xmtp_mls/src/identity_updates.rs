@@ -289,7 +289,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -316,7 +316,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -332,7 +332,6 @@ where
 
         // Cycle the HMAC key
         self.cycle_hmac(&provider).await?;
-
         Ok(builder.build())
     }
 
@@ -345,7 +344,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -383,12 +382,8 @@ where
         retry_async!(
             Retry::default(),
             (async {
-                load_identity_updates(
-                    &self.api_client,
-                    &self.store().conn()?,
-                    &[inbox_id.as_str()],
-                )
-                .await
+                load_identity_updates(&self.api_client, &self.context.db(), &[inbox_id.as_str()])
+                    .await
             })
         )?;
 
@@ -614,7 +609,7 @@ pub(crate) mod tests {
         ApiClient: XmtpApi,
         Verifier: SmartContractSignatureVerifier,
     {
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
         load_identity_updates(&client.api_client, &conn, &[inbox_id])
             .await
             .unwrap();
@@ -648,7 +643,7 @@ pub(crate) mod tests {
         add_wallet_signature(&mut request, &wallet2).await;
         client.apply_signature_request(request).await.unwrap();
 
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
         let state = client
             .get_latest_association_state(&conn, client.inbox_id())
             .await
@@ -800,7 +795,7 @@ pub(crate) mod tests {
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
 
         insert_identity_update(&conn, "inbox_1", 1);
         insert_identity_update(&conn, "inbox_2", 2);
@@ -862,7 +857,7 @@ pub(crate) mod tests {
 
         // Create a new client to test group operations with
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let other_conn = other_client.store().conn().unwrap();
+        let other_conn = other_client.context.db();
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         // Load all the identity updates for the new inboxes
         load_identity_updates(&other_client.api_client, &other_conn, ids.as_slice())

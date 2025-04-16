@@ -95,11 +95,7 @@ impl Client {
 
   #[napi]
   pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState> {
-    let conn = self
-      .inner_client()
-      .store()
-      .conn()
-      .map_err(ErrorWrapper::from)?;
+    let conn = self.inner_client().store().db();
     let state = self
       .inner_client()
       .get_latest_association_state(&conn, &inbox_id)

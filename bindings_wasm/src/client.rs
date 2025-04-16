@@ -310,11 +310,7 @@ impl Client {
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>, JsError> {
-    let conn = self
-      .inner_client
-      .store()
-      .conn()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let conn = self.inner_client.store().db();
     let inbox_id = self
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)

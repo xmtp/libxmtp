@@ -269,10 +269,16 @@ where
         for (msg, content) in unprocessed_messages.clone().iter_with_content() {
             let is_external = msg.sender_installation_id != installation_id;
 
-            tracing::info!("Message content: (external: {is_external}) {content:?}");
+            tracing::info!(
+                "Message content: (external: {is_external}) id={}, {content:?}",
+                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id))
+            );
 
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
-                tracing::error!("Message processing: {err:?}");
+                tracing::error!(
+                    "Message processing: err processing msg {}: {err:?}",
+                    xmtp_common::fmt::truncate_hex(hex::encode(msg.id))
+                );
             };
         }
 
@@ -312,7 +318,6 @@ where
                     // Ignore our own messages
                     return Ok(());
                 }
-
                 self.process_sync_payload(reply).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }

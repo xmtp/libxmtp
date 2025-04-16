@@ -71,6 +71,7 @@ mod tests {
         group::StoredGroup,
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
+        StorageError,
     };
 
     #[xmtp_common::test]
@@ -115,7 +116,7 @@ mod tests {
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -127,7 +128,7 @@ mod tests {
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -165,21 +166,21 @@ mod tests {
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop()?;
 
         let mut groups: Vec<StoredGroup> = alix
             .provider
             .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))?;
+            .raw_query_read::<_, StorageError, _>(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
         let old_messages: Vec<StoredGroupMessage> = alix
             .provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))?;
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 6);
 
         let opts = BackupOptions {
@@ -204,7 +205,7 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
@@ -214,22 +215,27 @@ mod tests {
         let consent_records: Vec<StoredConsentRecord> = alix2
             .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))?;
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
-            groups::table
-                .filter(groups::conversation_type.ne(ConversationType::Sync))
-                .load(conn)
-        })?;
+        let groups: Vec<StoredGroup> = alix2
+            .provider
+            .conn_ref()
+            .raw_query_read::<_, StorageError, _>(|conn| {
+                groups::table
+                    .filter(groups::conversation_type.ne(ConversationType::Sync))
+                    .load(conn)
+            })?;
         assert_eq!(groups.len(), 1);
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> =
-            alix2.provider.conn_ref().raw_query_read(|conn| {
+        let messages: Vec<StoredGroupMessage> = alix2
+            .provider
+            .conn_ref()
+            .raw_query_read::<_, StorageError, _>(|conn| {
                 group_messages::table
                     .filter(group_messages::group_id.eq(&groups[0].id))
                     .load(conn)

@@ -390,7 +390,7 @@ impl FfiXmtpClient {
         identifier: FfiIdentifier,
     ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = self.inner_client.store().conn()?;
+        let conn = self.inner_client.context().db();
         let result = inner
             .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
             .await?;
@@ -467,7 +467,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiInboxState, GenericError> {
         let state = self
             .inner_client
-            .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
+            .get_latest_association_state(&self.inner_client.context().db(), &inbox_id)
             .await?;
         Ok(state.into())
     }
@@ -1293,6 +1293,7 @@ impl FfiConversations {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
@@ -3080,7 +3081,7 @@ mod tests {
         .await
         .unwrap();
 
-        let conn = client.inner_client.context().store().conn().unwrap();
+        let conn = client.inner_client.context().db();
         conn.register_triggers();
 
         register_client_with_wallet(&ffi_inbox_owner, &client).await;
@@ -3112,7 +3113,7 @@ mod tests {
         )
         .await?;
 
-        let conn = client.inner_client.context().store().conn().unwrap();
+        let conn = client.inner_client.context().db();
         conn.register_triggers();
 
         register_client_with_wallet_no_panic(&ffi_inbox_owner, &client).await?;
@@ -3381,7 +3382,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().conn().unwrap();
+        let conn = client.inner_client.store().db();
         let state = client
             .inner_client
             .get_latest_association_state(&conn, &inbox_id)
@@ -3496,7 +3497,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().conn().unwrap();
+        let conn = client.inner_client.store().db();
         let state = client
             .inner_client
             .get_latest_association_state(&conn, &inbox_id)
@@ -7923,7 +7924,6 @@ mod tests {
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
         let alix2 = alix.builder.build().await;
-
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
 

@@ -201,10 +201,9 @@ impl<ScopedClient> MlsGroup<ScopedClient>
 where
     ScopedClient: ScopedGroupClient,
 {
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
-        let conn = self.context().store().conn()?;
-        let mls_provider = XmtpOpenMlsProvider::from(conn);
+        let mls_provider = self.context().mls_provider()?;
         let conn = mls_provider.conn_ref();
 
         let epoch = self.epoch(&mls_provider).await?;
@@ -556,7 +555,10 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        skip(mls_group, commit, intent, provider, message, envelope)
+    )]
     fn process_own_message(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -616,7 +618,7 @@ where
         Ok((IntentState::Committed, None))
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, mls_group, message, envelope))]
     async fn validate_and_process_external_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -642,14 +644,13 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
             Err::<(), StorageError>(StorageError::IntentionalRollback)
         });
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
-            result?;
+            result.inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
         let processed_message = processed_message.expect("Was just set to Some")?;
 
@@ -757,7 +758,10 @@ where
 
     /// Process an external message
     /// returns a MessageIdentifier, identifiying the message processed if any.
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        skip(provider, mls_group, processed_message, envelope, validated_commit)
+    )]
     fn process_external_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1005,7 +1009,7 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
+    #[tracing::instrument(skip(provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1226,7 +1230,7 @@ where
     /// Consume a message, decrypting its contents and processing it
     /// Applies the message if it is a commit.
     /// Returns a 'MessageIdentifier' for this message
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, envelope))]
     async fn consume_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1302,7 +1306,7 @@ where
         Ok(message)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(messages, provider))]
     pub async fn process_messages(
         &self,
         messages: Vec<GroupMessage>,
@@ -1505,7 +1509,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(provider))]
     pub(super) async fn publish_intents(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1995,7 +1999,7 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
-        let conn = self.client.store().conn()?;
+        let conn = self.client.context().db();
 
         let preferences = StoredUserPreferences::load(&conn)?;
         let mut ikm = match preferences.hmac_key {
@@ -2319,8 +2323,8 @@ pub(crate) mod tests {
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 
-        let conn = amal_a.context().store().conn().unwrap();
-        let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
+        let conn = amal_a.context().mls_provider().unwrap();
+        let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn);
 
         // create group intent
         amal_group_a.sync().await.unwrap();
