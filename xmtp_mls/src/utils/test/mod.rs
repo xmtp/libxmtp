@@ -3,16 +3,9 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
-use xmtp_common::time::{timeout, Expired};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
@@ -76,7 +69,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            None,
+            Some(HISTORY_SYNC_URL),
             None,
         )
         .await
@@ -295,68 +288,6 @@ where
             .await
             .unwrap();
         ids.contains_key(&identifier)
-    }
-}
-
-#[derive(Default)]
-pub struct WorkerHandle {
-    processed: AtomicUsize,
-    notify: Notify,
-}
-
-impl WorkerHandle {
-    pub async fn wait_for_new_events(&self, mut count: usize) -> Result<(), Expired> {
-        timeout(xmtp_common::time::Duration::from_secs(3), async {
-            while count > 0 {
-                self.notify.notified().await;
-                count -= 1;
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn wait_for_processed_count(&self, expected: usize) -> Result<(), Expired> {
-        timeout(xmtp_common::time::Duration::from_secs(3), async {
-            while self.processed.load(Ordering::SeqCst) < expected {
-                self.notify.notified().await;
-            }
-        })
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn block_for_num_events<Fut>(&self, num_events: usize, op: Fut) -> Result<(), Expired>
-    where
-        Fut: Future<Output = ()>,
-    {
-        let processed_count = self.processed_count();
-        op.await;
-        self.wait_for_processed_count(processed_count + num_events)
-            .await?;
-        Ok(())
-    }
-
-    pub fn processed_count(&self) -> usize {
-        self.processed.load(Ordering::SeqCst)
-    }
-
-    pub fn increment(&self) {
-        self.processed
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.notify.notify_waiters();
-    }
-}
-
-impl<ApiClient, V> Client<ApiClient, V> {
-    pub fn sync_worker_handle(&self) -> Option<Arc<WorkerHandle>> {
-        self.device_sync.worker_handle.lock().clone()
-    }
-
-    pub(crate) fn set_sync_worker_handle(&self, handle: Arc<WorkerHandle>) {
-        *self.device_sync.worker_handle.lock() = Some(handle);
     }
 }
 
