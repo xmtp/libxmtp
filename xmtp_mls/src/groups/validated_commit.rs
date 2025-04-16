@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::groups::mls_ext::MlsExtensionsExt;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -558,9 +559,9 @@ fn get_latest_group_membership(
 ) -> Result<GroupMembership, CommitValidationError> {
     for proposal in staged_commit.queued_proposals() {
         match proposal.proposal() {
-            Proposal::GroupContextExtensions(group_context_extensions) => {
+            Proposal::GroupContextExtensions(group_context) => {
                 let new_group_membership: GroupMembership =
-                    extract_group_membership(group_context_extensions.extensions())?;
+                    group_context.extensions().group_membership()?;
                 tracing::info!(
                     "Group context extensions proposal found: {:?}",
                     new_group_membership
