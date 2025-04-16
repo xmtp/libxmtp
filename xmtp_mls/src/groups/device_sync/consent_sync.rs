@@ -25,12 +25,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    const HISTORY_SERVER_HOST: &str = "localhost";
-    const HISTORY_SERVER_PORT: u16 = 5558;
-
-    use super::*;
-    use crate::{groups::scoped_client::ScopedGroupClient, utils::tester::Tester};
-    use xmtp_db::consent_record::{ConsentState, ConsentType};
+    use crate::{
+        groups::{device_sync::handle::SyncMetric, scoped_client::ScopedGroupClient},
+        utils::tester::Tester,
+    };
+    use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -59,38 +58,48 @@ pub(crate) mod tests {
         // Create a second installation for amal with sync.
         let amal_b = amal_a.clone().await;
 
+        amal_b
+            .worker
+            .wait(SyncMetric::V1RequestSent, 1)
+            .await
+            .unwrap();
+
         let consent_records_b = amal_b
             .syncable_consent_records(amal_b.provider.conn_ref())
             .unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
-        amal_b
+        amal_a
+            .get_sync_group(&amal_a.provider)
+            .unwrap()
+            .sync()
+            .await
+            .unwrap();
+        amal_a
             .worker
-            .wait(SyncMetric::V1ConsentReceived, 1)
+            .wait(SyncMetric::V1PayloadSent, 1)
             .await
             .unwrap();
 
-        let old_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
-        // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).
-        amal_a.sync_welcomes(&amal_a.provider).await.unwrap();
-        let new_group_id = amal_a.get_sync_group(&amal_a.provider).unwrap().group_id;
-        // group id should have changed to the new sync group created by the second installation
-        assert_ne!(old_group_id, new_group_id);
-
-        let consent_a = amal_a
-            .syncable_consent_records(amal_a.provider.conn_ref())
-            .unwrap()
-            .len();
-
         // Have amal_a receive the message (and auto-process)
-        amal_b.worker.wait(SyncMetric::V1PayloadProcessed, 1).await;
+        amal_b
+            .get_sync_group(&amal_b.provider)
+            .unwrap()
+            .sync()
+            .await
+            .unwrap();
+        amal_b
+            .worker
+            .wait(SyncMetric::V1PayloadProcessed, 1)
+            .await
+            .unwrap();
 
         // Test consent streaming
         let amal_b_sync_group = amal_b.get_sync_group(&amal_b.provider).unwrap();
         let bo_wallet = generate_local_wallet();
 
         // Ensure bo is not consented with amal_b
-        let mut bo_consent_with_amal_b = amal_b
+        let bo_consent_with_amal_b = amal_b
             .provider
             .conn_ref()
             .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
@@ -106,12 +115,11 @@ pub(crate) mod tests {
             )])
             .await
             .unwrap();
-        assert!(amal_a
-            .provider
-            .conn_ref()
-            .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
-            .unwrap()
-            .is_some());
+        amal_a
+            .worker
+            .wait(SyncMetric::V1ConsentSent, 2)
+            .await
+            .unwrap();
         let amal_a_subscription = amal_a.local_events().subscribe();
 
         // Wait for the consent to get streamed to the amal_b
@@ -119,7 +127,11 @@ pub(crate) mod tests {
             .sync_with_conn(&amal_b.provider)
             .await
             .unwrap();
-        amal_b.worker.wait(SyncMetric::V1ConsentReceived, 1).await;
+        amal_b
+            .worker
+            .wait(SyncMetric::V1ConsentReceived, 1)
+            .await
+            .unwrap();
 
         // No new messages were generated for the amal_a installation during this time.
         assert!(amal_a_subscription.is_empty());

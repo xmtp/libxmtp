@@ -57,13 +57,19 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     pub(crate) async fn clone(&self) -> Self {
-        Self::new_from_owner(self.owner.clone()).await
+        let cloned = Self::new_from_owner(self.owner.clone()).await;
+        // The cloned will have created a new sync grup and invited you to it.
+        // Sync the welcomes to become a part of it.
+        self.sync_welcomes(&self.provider).await.unwrap();
+        cloned
     }
 
     pub(crate) async fn new_from_owner(owner: Owner) -> Self {
         let client = ClientBuilder::new_test_client(&owner).await;
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle().unwrap();
+
+        worker.wait_for_init().await.unwrap();
 
         Self {
             owner,

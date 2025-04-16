@@ -76,7 +76,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            None,
+            Some(HISTORY_SYNC_URL),
             None,
         )
         .await

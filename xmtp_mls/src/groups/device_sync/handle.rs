@@ -39,6 +39,7 @@ pub enum SyncMetric {
     V1HmacReceived,
     V1PayloadSent,
     V1PayloadProcessed,
+    V1RequestSent,
 }
 
 impl<Metric> WorkerHandle<Metric>

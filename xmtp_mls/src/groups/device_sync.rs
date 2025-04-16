@@ -1,6 +1,7 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::WORKER_RESTART_DELAY;
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
+use crate::groups::scoped_client::LocalScopedGroupClient;
 use crate::{
     client::ClientError,
     configuration::NS_IN_HOUR,
@@ -217,12 +218,11 @@ where
                     SyncMessage::Reply { message_id } => {
                         let provider = self.client.mls_provider()?;
                         self.on_reply(message_id, &provider).await?;
-                        self.handle.increment_metric(SyncMetric::V1PayloadSent);
+                        self.handle.increment_metric(SyncMetric::V1PayloadProcessed);
                     }
                     SyncMessage::Request { message_id } => {
                         let provider = self.client.mls_provider()?;
                         self.on_request(message_id, &provider).await?;
-                        self.handle.increment_metric(SyncMetric::V1PayloadProcessed);
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
@@ -237,8 +237,8 @@ where
                         })
                     )?;
                 }
-                LocalEvents::IncomingPreferenceUpdate(u) => {
-                    tracing::error!("Incoming preference update {u:?}");
+                LocalEvents::IncomingPreferenceUpdate(_) => {
+                    // Intentionally blank.
                 }
                 _ => {}
             }
@@ -297,12 +297,17 @@ where
             })
         )?;
 
+        if msg.sender_installation_id == self.client.installation_id() {
+            return Ok(());
+        }
+
         let msg_content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
         let DeviceSyncContent::Request(request) = msg_content else {
             unreachable!();
         };
 
         client.reply_to_sync_request(provider, request).await?;
+
         Ok(())
     }
 
@@ -434,7 +439,6 @@ where
 
         // find the sync group
         let sync_group = self.get_sync_group(provider)?;
-
         // sync the group
         sync_group.sync_with_conn(provider).await?;
 
@@ -449,7 +453,7 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
+        sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
             move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
@@ -460,7 +464,11 @@ where
         })?;
 
         // publish the intent
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
+        if let Some(handle) = self.worker_handle() {
+            handle.increment_metric(SyncMetric::V1RequestSent);
+        }
 
         Ok(request)
     }
@@ -528,7 +536,16 @@ where
             })),
         })?;
 
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
+        if let Some(handle) = self.worker_handle() {
+            handle.increment_metric(SyncMetric::V1PayloadSent);
+        }
+
+        tracing::error!(
+            "Backup payload sent to sync group {:?}",
+            sync_group.group_id
+        );
 
         Ok(())
     }

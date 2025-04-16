@@ -1301,8 +1301,6 @@ where
                 None,
             )?;
 
-            tracing::error!("heh {intents:?}");
-
             for intent in intents {
                 let result = retry_async!(
                     Retry::default(),
