@@ -641,7 +641,7 @@ where
             let requires_processing = if allow_cursor_increment {
                 tracing::info!(
                     "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true", 
-                    hex::encode(envelope.group_id.as_slice()), 
+                    hex::encode(envelope.group_id.as_slice()),
                     *cursor
                 );
                 provider.conn_ref().update_cursor(
