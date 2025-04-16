@@ -36,7 +36,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+    Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
 };
 
 use futures::future::try_join_all;
@@ -341,6 +341,17 @@ where
                         last_err
                     );
                     return Err(last_err.unwrap_or(GroupError::IntentNotCommitted));
+                }
+                Ok(Some(StoredGroupIntent {
+                    id,
+                    state: IntentState::Processed,
+                    ..
+                })) => {
+                    tracing::warn!(
+                        "not retrying intent ID {id}. since it is in state processed. {:?}",
+                        last_err
+                    );
+                    return Ok(());
                 }
                 Ok(Some(StoredGroupIntent { id, state, .. })) => {
                     tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
@@ -1010,6 +1021,10 @@ where
                                 tracing::warn!("Intent [{}] moved to error status", intent_id);
                                 Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
                             }
+                            IntentState::Processed => {
+                                tracing::warn!("Intent [{}] moved to Processed status", intent_id);
+                                Ok(provider.conn_ref().set_group_intent_processed(intent_id)?)
+                            }
                         }
                     })
                 }).await?;
@@ -1204,7 +1219,7 @@ where
                     // If the error is retryable we cannot move on to the next message
                     // otherwise you can get into a forked group state.
                     if is_retryable {
-                        tracing::error!(
+                        tracing::info!(
                             error = %error_message,
                             "Aborting message processing for retryable error: {}",
                             error_message
@@ -1401,8 +1416,7 @@ where
                             installation_id = %self.client.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
-                        let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
-                        deleter.delete(intent.id)?;
+                        provider.conn_ref().set_group_intent_processed(intent.id)?
                     }
                 }
             }
@@ -1558,8 +1572,7 @@ where
                     }
                 }
             }
-            let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = conn;
-            deleter.delete(intent.id)?;
+            conn.set_group_intent_processed(intent.id)?
         }
 
         Ok(())
@@ -2118,7 +2131,7 @@ pub(crate) mod tests {
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 1);
+        assert_eq!(provider.conn_ref().intents_processed(), 1);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
