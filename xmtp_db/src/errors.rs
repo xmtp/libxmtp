@@ -1,6 +1,8 @@
 use diesel::result::DatabaseErrorKind;
 use thiserror::Error;
 
+use crate::ConnectionError;
+
 use super::{
     refresh_state::EntityKind,
     sql_key_store::{self, SqlKeyStoreError},
@@ -49,6 +51,8 @@ pub enum StorageError {
     Wasm(#[from] crate::database::wasm::WasmStorageError),
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Connection(#[from] ConnectionError),
 }
 
 impl From<std::convert::Infallible> for StorageError {

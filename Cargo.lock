@@ -7806,6 +7806,7 @@ name = "xmtp_db"
 version = "1.2.0-dev"
 dependencies = [
  "bincode",
+ "ctor",
  "derive_builder",
  "diesel",
  "diesel_migrations",

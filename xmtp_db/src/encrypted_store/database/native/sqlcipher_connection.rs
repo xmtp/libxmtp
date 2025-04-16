@@ -394,6 +394,7 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
+            tracing::info!("Creating store with file at {}", &db_path);
             let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
                 .await
                 .unwrap();

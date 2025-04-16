@@ -1,8 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
-use crate::ConnectionExt;
+use crate::{ConnectionExt, DbConnection};
 
-use super::encrypted_store::db_connection::DbConnectionPrivate;
 use bincode;
 use diesel::{
     prelude::*,
@@ -28,17 +27,19 @@ struct StorageData {
 }
 
 #[derive(Debug)]
-pub struct SqlKeyStore<C> {
+pub struct SqlKeyStore<C = crate::DefaultConnection> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: C,
+    conn: DbConnection<C>,
 }
 
 impl<C> SqlKeyStore<C> {
     pub fn new(conn: C) -> Self {
-        Self { conn }
+        Self {
+            conn: DbConnection::new(conn),
+        }
     }
 
-    pub fn conn_ref(&self) -> &C {
+    pub fn conn_ref(&self) -> &DbConnection<C> {
         &self.conn
     }
 }
@@ -50,7 +51,7 @@ where
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,
-    ) -> Result<Vec<StorageData>, diesel::result::Error> {
+    ) -> Result<Vec<StorageData>, crate::ConnectionError> {
         self.conn_ref().raw_query_read(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -63,7 +64,7 @@ where
         &self,
         storage_key: &Vec<u8>,
         value: &[u8],
-    ) -> Result<usize, diesel::result::Error> {
+    ) -> Result<usize, crate::ConnectionError> {
         self.conn_ref().raw_query_write(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -77,7 +78,7 @@ where
         &self,
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
-    ) -> Result<usize, diesel::result::Error> {
+    ) -> Result<usize, crate::ConnectionError> {
         self.conn_ref().raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
@@ -228,7 +229,7 @@ where
 
         let _ = self
             .conn_ref()
-            .raw_query_write::<_, _, SqlKeyStoreError>(|conn| {
+            .raw_query_write::<_, SqlKeyStoreError, _>(|conn| {
                 sql_query(DELETE_QUERY)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -239,7 +240,7 @@ where
 }
 
 /// Errors thrown by the key store.
-#[derive(thiserror::Error, Debug, PartialEq)]
+#[derive(thiserror::Error, Debug)]
 pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
     UnsupportedValueTypeBytes,
@@ -251,16 +252,20 @@ pub enum SqlKeyStoreError {
     NotFound,
     #[error("database error: {0}")]
     Storage(#[from] diesel::result::Error),
+    #[error("connection {0}")]
+    Connection(#[from] crate::ConnectionError),
 }
 
 impl RetryableError for SqlKeyStoreError {
     fn is_retryable(&self) -> bool {
+        use SqlKeyStoreError::*;
         match self {
-            SqlKeyStoreError::Storage(err) => retryable!(err),
-            SqlKeyStoreError::SerializationError => false,
-            SqlKeyStoreError::UnsupportedMethod => false,
-            SqlKeyStoreError::UnsupportedValueTypeBytes => false,
-            SqlKeyStoreError::NotFound => false,
+            Storage(err) => retryable!(err),
+            SerializationError => false,
+            UnsupportedMethod => false,
+            UnsupportedValueTypeBytes => false,
+            NotFound => false,
+            Connection(c) => retryable!(c),
         }
     }
 }
@@ -815,7 +820,7 @@ where
 
         let data: Vec<StorageData> =
             self.conn_ref()
-                .raw_query_read::<_, _, SqlKeyStoreError>(|conn| {
+                .raw_query_read::<_, SqlKeyStoreError, _>(|conn| {
                     sql_query(query)
                         .bind::<diesel::sql_types::Binary, _>(&storage_key)
                         .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)

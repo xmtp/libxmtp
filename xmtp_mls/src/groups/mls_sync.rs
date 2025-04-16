@@ -183,8 +183,7 @@ where
 {
     #[tracing::instrument(skip_all)]
     pub async fn sync(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let mls_provider = XmtpOpenMlsProvider::from(conn);
+        let mls_provider = self.context().mls_provider()?;
         let conn = mls_provider.conn_ref();
 
         let epoch = self.epoch(&mls_provider).await?;
@@ -1808,7 +1807,7 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
-        let conn = self.client.store().conn()?;
+        let conn = self.client.context().db();
 
         let preferences = StoredUserPreferences::load(&conn)?;
         let mut ikm = match preferences.hmac_key {
@@ -2137,8 +2136,8 @@ pub(crate) mod tests {
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 
-        let conn = amal_a.context().store().conn().unwrap();
-        let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
+        let conn = amal_a.context().mls_provider().unwrap();
+        let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn);
 
         // create group intent
         amal_group_a.sync().await.unwrap();

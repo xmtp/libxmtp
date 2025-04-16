@@ -25,5 +25,5 @@ pub mod native_exports {
     pub type DefaultDatabase = super::native::NativeDb;
     // the native module already defines this
     // pub type RawDbConnection = native::RawDbConnection;
-    pub type DefaultConnection = super::native::PersistentOrMem;
+    pub type DefaultConnection = std::sync::Arc<super::native::PersistentOrMem>;
 }

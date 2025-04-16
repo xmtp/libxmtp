@@ -1,20 +1,17 @@
-use crate::database::DefaultDatabase;
-use crate::{ConnectionExt, StorageError};
-use crate::{
-    ProviderTransactions, XmtpDb, db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore,
-};
+use crate::{ConnectionExt, DbConnection, StorageError};
+use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
+use diesel::Connection;
+use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::database::DefaultConnection>;
-
 #[derive(Debug)]
-pub struct XmtpOpenMlsProviderPrivate<C> {
+pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
 }
 
-impl<C> XmtpOpenMlsProviderPrivate<C> {
+impl<C> XmtpOpenMlsProvider<C> {
     pub fn new(conn: C) -> Self {
         Self {
             crypto: RustCrypto::default(),
@@ -22,16 +19,18 @@ impl<C> XmtpOpenMlsProviderPrivate<C> {
         }
     }
 
-    pub fn new_crypto() -> RustCrypto {
-        RustCrypto::default()
-    }
-
-    pub fn conn_ref(&self) -> &C {
+    pub fn conn_ref(&self) -> &DbConnection<C> {
         self.key_store.conn_ref()
     }
 }
 
-impl<C> ProviderTransactions<C> for XmtpOpenMlsProviderPrivate<C>
+impl XmtpOpenMlsProvider {
+    pub fn new_crypto() -> RustCrypto {
+        RustCrypto::default()
+    }
+}
+
+impl<C> ProviderTransactions<C> for XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
 {
@@ -51,7 +50,7 @@ where
     /// ```
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<C>) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
         E: From<StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
@@ -62,16 +61,19 @@ where
         match fun(self) {
             Ok(value) => {
                 conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })
-                .map_err(StorageError::from)?;
+                    <C::Connection as Connection>::TransactionManager::commit_transaction(
+                        &mut *conn,
+                    )
+                })?;
                 tracing::debug!("Transaction being committed");
                 Ok(value)
             }
             Err(err) => {
                 tracing::debug!("Transaction being rolled back");
                 match conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
+                    <C::Connection as Connection>::TransactionManager::rollback_transaction(
+                        &mut *conn,
+                    )
                 }) {
                     Ok(()) => Err(err),
                     Err(StorageError::DieselResult(
@@ -84,7 +86,7 @@ where
     }
 }
 
-impl<C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<C>
+impl<C> OpenMlsProvider for XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
 {
@@ -105,7 +107,7 @@ where
     }
 }
 
-impl<C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<C>
+impl<C> OpenMlsProvider for &XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
 {

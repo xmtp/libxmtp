@@ -72,7 +72,7 @@ impl DbConnection {
         entity_kind: EntityKind,
     ) -> Result<Option<RefreshState>, StorageError> {
         use super::schema::refresh_state::dsl;
-        let res = self.raw_query_read(|conn| {
+        let res = self.raw_query_read::<_, StorageError, _>(|conn| {
             dsl::refresh_state
                 .find((entity_id.as_ref(), entity_kind))
                 .first(conn)
@@ -113,7 +113,7 @@ impl DbConnection {
             NotFound::RefreshStateByIdAndKind(entity_id.as_ref().to_vec(), entity_kind),
         )?;
 
-        let num_updated = self.raw_query_write(|conn| {
+        let num_updated = self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::update(&state)
                 .filter(dsl::cursor.lt(cursor))
                 .set(dsl::cursor.eq(cursor))

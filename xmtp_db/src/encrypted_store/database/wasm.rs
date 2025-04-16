@@ -1,6 +1,6 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
-use crate::{StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
+use crate::{StorageOption, XmtpDb, db_connection::DbConnection};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::AnsiTransactionManager, prelude::*};
 use parking_lot::Mutex;
@@ -133,8 +133,8 @@ impl XmtpDb for WasmDb {
     type Connection = SqliteConnection;
     type TransactionManager = AnsiTransactionManager;
 
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error> {
-        Ok(DbConnectionPrivate::from_arc_mutex(
+    fn conn(&self) -> Result<DbConnection<Self::Connection>, Self::Error> {
+        Ok(DbConnection::from_arc_mutex(
             self.conn.clone(),
             None,
             self.transaction_lock.clone(),

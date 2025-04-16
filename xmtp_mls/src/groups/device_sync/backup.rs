@@ -91,6 +91,7 @@ mod tests {
         group::StoredGroup,
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
+        StorageError,
     };
 
     #[xmtp_common::test]
@@ -139,7 +140,7 @@ mod tests {
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -151,7 +152,7 @@ mod tests {
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -159,12 +160,14 @@ mod tests {
     #[tokio::test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
+        use xmtp_db::StorageError;
+
         use crate::utils::HISTORY_SYNC_URL;
 
         let alix_wallet = generate_local_wallet();
         let alix =
             ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
-        let alix_conn = alix.store().conn().unwrap();
+        let alix_conn = alix.context.db();
         let alix_provider = Arc::new(alix.mls_provider().unwrap());
 
         let bo_wallet = generate_local_wallet();
@@ -193,21 +196,21 @@ mod tests {
 
         let mut consent_records: Vec<StoredConsentRecord> = alix_provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop().unwrap();
 
         let mut groups: Vec<StoredGroup> = alix_provider
             .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| groups::table.load(conn))
             .unwrap();
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop().unwrap();
 
         let old_messages: Vec<StoredGroupMessage> = alix_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(old_messages.len(), 6);
 
@@ -233,7 +236,7 @@ mod tests {
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 0);
 
@@ -243,7 +246,7 @@ mod tests {
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| consent_records::table.load(conn))
             .unwrap();
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
@@ -251,7 +254,7 @@ mod tests {
 
         let groups: Vec<StoredGroup> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| groups::table.load(conn))
             .unwrap();
         assert_eq!(groups.len(), 2);
         // It's the same group
@@ -259,7 +262,7 @@ mod tests {
 
         let messages: Vec<StoredGroupMessage> = alix2_provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| group_messages::table.load(conn))
             .unwrap();
         // Only the application messages should sync
         assert_eq!(messages.len(), 1);

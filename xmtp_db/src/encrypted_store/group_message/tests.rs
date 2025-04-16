@@ -56,13 +56,15 @@ async fn it_gets_messages() {
 
 #[xmtp_common::test]
 async fn it_cannot_insert_message_without_group() {
-    use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
+    use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
 
     with_connection(|conn| {
         let message = generate_message(None, None, None, None);
         assert_err!(
             message.store(conn),
-            StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
+            StorageError::Connection(crate::ConnectionError::Database(
+                diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
+            ))
         );
     })
     .await
@@ -82,7 +84,7 @@ async fn it_gets_many_messages() {
         }
 
         let count: i64 = conn
-            .raw_query_read(|raw_conn| {
+            .raw_query_read::<_, StorageError, _>(|raw_conn| {
                 dsl::group_messages
                     .select(diesel::dsl::count_star())
                     .first(raw_conn)

@@ -869,8 +869,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.context().mls_provider()?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(&provider, update_interval_ns)
             .await?;
@@ -989,7 +988,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
         Ok(messages)
     }
@@ -1000,7 +999,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
@@ -1144,7 +1143,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
-        let provider = self.client.store().conn()?.into();
+        let provider = self.client.mls_provider()?;
 
         let intent_data = self
             .get_membership_update_intent(&provider, &[], inbox_ids)
@@ -1403,8 +1402,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
-        let provider = XmtpOpenMlsProvider::from(conn);
+        let provider = self.context().mls_provider()?;
         if let Some(min_version) = provider
             .conn_ref()
             .get_group_paused_version(&self.group_id)?
@@ -1519,7 +1517,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().store().db();
         let group = conn
             .find_group(&self.group_id)?
             .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
@@ -1528,7 +1526,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Find the `inbox_id` of the group member who is the peer of this dm
     pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let group = conn
             .find_group(&self.group_id)?
             .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
@@ -1541,7 +1539,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
         let record = conn.get_consent_record(
             hex::encode(self.group_id.clone()),
             ConsentType::ConversationId,
@@ -1554,7 +1552,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let conn = self.context().store().conn()?;
+        let conn = self.context().db();
 
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
@@ -2147,6 +2145,7 @@ pub(crate) mod tests {
         group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
         xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
+    use xmtp_db::{ConnectionExt, StorageError};
 
     async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
         client
@@ -2241,7 +2240,7 @@ pub(crate) mod tests {
         group.send_message(msg).await.expect("send message");
 
         group
-            .receive(&client.store().conn().unwrap().into())
+            .receive(&client.context.mls_provider().unwrap())
             .await
             .unwrap();
         // Check for messages
@@ -2374,12 +2373,12 @@ pub(crate) mod tests {
             .expect("bola's add should succeed in a no-op");
 
         amal_group
-            .receive(&amal.store().conn().unwrap().into())
+            .receive(&amal.context.mls_provider().unwrap())
             .await
             .expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
+        let amal_db = amal.context.mls_provider().unwrap();
         let amal_members_len = amal_group
             .load_mls_group_with_lock(&amal_db, |mls_group| Ok(mls_group.members().count()))
             .unwrap();
@@ -2387,7 +2386,7 @@ pub(crate) mod tests {
         assert_eq!(amal_members_len, 3);
 
         // Check Bola's MLS group state.
-        let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
+        let bola_db = bola.context.mls_provider().unwrap();
         let bola_members_len = bola_group
             .load_mls_group_with_lock(&bola_db, |mls_group| Ok(mls_group.members().count()))
             .unwrap();
@@ -2518,7 +2517,7 @@ pub(crate) mod tests {
 
         // The dm shows up
         let alix_groups = alix_conn
-            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query_read::<_, StorageError, _>(|conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(alix_groups.len(), 2);
         // They should have the same ID
@@ -3246,7 +3245,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(messages.len(), 2);
 
-        let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = client.context.mls_provider().unwrap();
         let pending_commit_is_none = group
             .load_mls_group_with_lock(&provider, |mls_group| {
                 Ok(mls_group.pending_commit().is_none())
@@ -3420,7 +3419,7 @@ pub(crate) mod tests {
 
         assert_eq!(group.members().await.unwrap().len(), 2);
 
-        let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
+        let provider: XmtpOpenMlsProvider = amal.context.mls_provider().unwrap();
         // Finished with setup
 
         // add a second installation for amal using the same wallet
@@ -4668,14 +4667,14 @@ pub(crate) mod tests {
         // Get the group messages before we lock the DB, simulating an error that happens
         // in the middle of a sync instead of the beginning
         let bo_messages = bo
-            .query_group_messages(&bo_group.group_id, &bo.store().conn().unwrap())
+            .query_group_messages(&bo_group.group_id, &bo.context.db())
             .await
             .unwrap();
 
-        let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
+        let conn_1: XmtpOpenMlsProvider = bo.context.db().into();
         let conn_2 = bo.store().conn().unwrap();
         conn_2
-            .raw_query_write(|c| {
+            .raw_query_write::<_, _, StorageError>(|c| {
                 c.batch_execute("BEGIN EXCLUSIVE").unwrap();
                 Ok::<_, diesel::result::Error>(())
             })
@@ -4718,7 +4717,7 @@ pub(crate) mod tests {
         let bo_group = bo_groups.first().unwrap();
 
         let mut bo_messages_from_api = bo_client
-            .query_group_messages(&bo_group.group_id, &bo_client.store().conn().unwrap())
+            .query_group_messages(&bo_group.group_id, &bo_client.context.db())
             .await
             .unwrap();
 

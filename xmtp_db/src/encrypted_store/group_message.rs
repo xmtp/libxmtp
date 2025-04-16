@@ -313,7 +313,8 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self
+            .raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
     pub fn group_messages_paged(
@@ -344,7 +345,8 @@ impl DbConnection {
         }
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self
+            .raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
     /// Query for group messages with their reactions
@@ -394,7 +396,7 @@ impl DbConnection {
         };
 
         let reactions: Vec<StoredGroupMessage> =
-            self.raw_query_read(|conn| reactions_query.load(conn))?;
+            self.raw_query_read::<_, StorageError, _>(|conn| reactions_query.load(conn))?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -430,7 +432,7 @@ impl DbConnection {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read(|conn| {
+        Ok(self.raw_query_read::<_, StorageError, _>(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first(conn)
@@ -443,7 +445,7 @@ impl DbConnection {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read(|conn| {
+        Ok(self.raw_query_read::<_, StorageError, _>(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(timestamp))
@@ -457,7 +459,7 @@ impl DbConnection {
         msg_id: &MessageId,
         timestamp: u64,
     ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+        Ok(self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -472,7 +474,7 @@ impl DbConnection {
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+        Ok(self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
@@ -481,7 +483,7 @@ impl DbConnection {
     }
 
     pub fn delete_expired_messages(&self) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+        Ok(self.raw_query_write::<_, StorageError, _>(|conn| {
             use diesel::prelude::*;
             let disappear_from_ns = groups_dsl::message_disappear_from_ns
                 .assume_not_null()
