@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use crate::{
-    builder::ClientBuilder,
+    builder::{ClientBuilder, SyncWorkerMode},
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
 };
 use ethers::signers::LocalWallet;
@@ -30,46 +30,46 @@ use super::FullXmtpClient;
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 #[allow(dead_code)]
-pub(crate) struct Tester<Owner> {
+pub struct Tester<Owner, Client> {
     pub owner: Owner,
-    pub client: FullXmtpClient,
+    pub client: Client,
     pub provider: Arc<XmtpOpenMlsProvider>,
-    pub worker: Arc<WorkerHandle<SyncMetric>>,
+    pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
 }
 
-impl Tester<LocalWallet> {
-    pub(crate) async fn new() -> Self {
+pub(crate) trait XmtpClientWalletTester {
+    async fn new() -> Tester<LocalWallet, FullXmtpClient>;
+}
+
+pub(crate) trait XmtpClientPasskeyTester {
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
+}
+
+impl XmtpClientWalletTester for Tester<LocalWallet, FullXmtpClient> {
+    async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Self::new_from_owner(wallet).await
     }
 }
 
-impl Tester<PasskeyUser> {
-    pub(crate) async fn new_passkey() -> Self {
+impl XmtpClientPasskeyTester for Tester<PasskeyUser, FullXmtpClient> {
+    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
         Self::new_from_owner(passkey_user).await
     }
 }
 
-#[allow(dead_code)]
-impl<Owner> Tester<Owner>
+impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) async fn clone(&self) -> Self {
-        let cloned = Self::new_from_owner(self.owner.clone()).await;
-        // The cloned will have created a new sync grup and invited you to it.
-        // Sync the welcomes to become a part of it.
-        self.sync_welcomes(&self.provider).await.unwrap();
-        cloned
-    }
-
     pub(crate) async fn new_from_owner(owner: Owner) -> Self {
         let client = ClientBuilder::new_test_client(&owner).await;
         let provider = client.mls_provider().unwrap();
-        let worker = client.device_sync.worker_handle().unwrap();
-
-        worker.wait_for_init().await.unwrap();
+        let worker = client.device_sync.worker_handle();
+        if let Some(worker) = &worker {
+            worker.wait_for_init().await.unwrap();
+        }
 
         Self {
             owner,
@@ -78,16 +78,70 @@ where
             worker,
         }
     }
+
+    pub(crate) async fn clone(&self) -> Self {
+        let cloned = Self::new_from_owner(self.owner.clone()).await;
+        // The cloned will have created a new sync grup and invited you to it.
+        // Sync the welcomes to become a part of it.
+        self.sync_welcomes(&self.provider).await.unwrap();
+        cloned
+    }
+
+    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+        self.worker.as_ref().unwrap()
+    }
 }
 
-impl<Owner> Deref for Tester<Owner>
+#[allow(dead_code)]
+impl<Owner, Client> Tester<Owner, Client>
+where
+    Owner: InboxOwner + Clone + 'static,
+{
+    pub(crate) fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
+        TesterBuilder {
+            owner: Some(owner),
+            ..Default::default()
+        }
+    }
+}
+
+impl<Owner, Client> Deref for Tester<Owner, Client>
 where
     Owner: InboxOwner,
 {
-    type Target = FullXmtpClient;
+    type Target = Client;
 
     fn deref(&self) -> &Self::Target {
         &self.client
+    }
+}
+
+pub(crate) struct TesterBuilder<Owner> {
+    owner: Option<Owner>,
+    sync_mode: Option<SyncWorkerMode>,
+}
+
+impl<Owner> TesterBuilder<Owner> {
+    pub(crate) fn owner<NewOwner>(self: Self, owner: NewOwner) -> TesterBuilder<NewOwner> {
+        TesterBuilder {
+            owner: Some(owner),
+            sync_mode: self.sync_mode,
+        }
+    }
+    pub(crate) fn sync_mode(self: Self, mode: SyncWorkerMode) -> Self {
+        Self {
+            sync_mode: Some(mode),
+            ..self
+        }
+    }
+}
+
+impl<Owner> Default for TesterBuilder<Owner> {
+    fn default() -> Self {
+        Self {
+            owner: None,
+            sync_mode: None,
+        }
     }
 }
 

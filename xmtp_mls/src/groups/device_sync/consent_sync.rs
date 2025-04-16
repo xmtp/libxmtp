@@ -27,7 +27,7 @@ pub(crate) mod tests {
 
     use crate::{
         groups::{device_sync::handle::SyncMetric, scoped_client::ScopedGroupClient},
-        utils::tester::Tester,
+        utils::tester::{Tester, XmtpClientWalletTester},
     };
     use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 

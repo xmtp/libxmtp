@@ -536,10 +536,7 @@ impl FfiXmtpClient {
 
         Ok(num_groups_synced as u64)
     }
-}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl FfiXmtpClient {
     pub fn signature_request(&self) -> Option<Arc<FfiSignatureRequest>> {
         let scw_verifier = self.inner_client.scw_verifier().clone();
         self.inner_client
@@ -2813,7 +2810,7 @@ mod tests {
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
         GenericError,
     };
-    use ethers::utils::hex;
+    use ethers::{signers::LocalWallet, utils::hex};
     use prost::Message;
     use std::{
         collections::HashMap,
@@ -3027,6 +3024,27 @@ mod tests {
         client.register_identity(signature_request).await?;
 
         Ok(())
+    }
+
+    use xmtp_mls::utils::test::tester::*;
+
+    trait FfiXmtpClientWalletTester {
+        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
+    }
+    impl FfiXmtpClientWalletTester for Tester<LocalWallet, Arc<FfiXmtpClient>> {
+        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
+            let owner = generate_local_wallet();
+            let client = new_test_client_with_wallet(owner.clone()).await;
+            let provider = client.inner_client.mls_provider().unwrap();
+            let worker = client.inner_client.worker_handle();
+
+            Tester {
+                owner,
+                client,
+                provider: Arc::new(provider),
+                worker,
+            }
+        }
     }
 
     /// Create a new test client with a given wallet.
@@ -7944,7 +7962,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_key_package_validation() {
         // Create a test client
-        let client = new_test_client().await;
+        let client = Tester::new().await;
 
         // Get the client's inbox state to retrieve installation IDs
         let inbox_state = client.inbox_state(true).await.unwrap();

@@ -129,7 +129,7 @@ mod tests {
             device_sync::{handle::SyncMetric, preference_sync::UserPreferenceUpdate},
             scoped_client::ScopedGroupClient,
         },
-        utils::tester::Tester,
+        utils::tester::{Tester, XmtpClientWalletTester},
     };
     use serde::{Deserialize, Serialize};
     use xmtp_db::{

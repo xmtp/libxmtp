@@ -24,7 +24,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tracing::{instrument, warn};
+use tracing::{info_span, instrument, warn, Instrument};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{
     time::{now_ns, Duration},
@@ -381,25 +381,31 @@ where
     }
 
     fn spawn_worker(mut self) {
-        xmtp_common::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
-            while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
-                if err.db_needs_connection() {
-                    tracing::warn!(
-                        inbox_id,
-                        installation_id,
-                        "Pool disconnected. task will restart on reconnect"
-                    );
-                    break;
-                } else {
-                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                    // Wait 2 seconds before restarting.
-                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+        let span = info_span!("\x1b[34mSYNC WORKER");
+
+        xmtp_common::spawn(
+            None,
+            async move {
+                let inbox_id = self.client.inbox_id().to_string();
+                let installation_id = hex::encode(self.client.installation_public_key());
+                while let Err(err) = self.run().await {
+                    tracing::info!("Running worker..");
+                    if err.db_needs_connection() {
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
+                        break;
+                    } else {
+                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                    }
                 }
             }
-        });
+            .instrument(span),
+        );
     }
 }
 
