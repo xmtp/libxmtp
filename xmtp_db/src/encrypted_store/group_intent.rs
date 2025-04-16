@@ -53,6 +53,7 @@ pub enum IntentState {
     Published = 2,
     Committed = 3,
     Error = 4,
+    Processed = 5,
 }
 
 #[derive(Queryable, Identifiable, PartialEq, Clone)]
@@ -250,6 +251,25 @@ impl DbConnection {
         Ok(())
     }
 
+    // Set the intent with the given ID to `Committed`
+    pub fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
+        let rows_changed = self.raw_query_write(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                // State machine requires that the only valid state transition to Committed is from
+                // Published
+                .set(dsl::state.eq(IntentState::Processed))
+                .execute(conn)
+        })?;
+
+        // If nothing matched the query, return an error. Either ID or state was wrong
+        if rows_changed == 0 {
+            return Err(NotFound::IntentById(intent_id).into());
+        }
+
+        Ok(())
+    }
+
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     pub fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -383,6 +403,7 @@ where
             2 => Ok(IntentState::Published),
             3 => Ok(IntentState::Committed),
             4 => Ok(IntentState::Error),
+            5 => Ok(IntentState::Processed),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
