@@ -2108,8 +2108,8 @@ pub(crate) mod tests {
     use prost::Message;
     use std::sync::Arc;
     use wasm_bindgen_test::wasm_bindgen_test;
-    use xmtp_common::assert_err;
     use xmtp_common::time::now_ns;
+    use xmtp_common::{assert_err, assert_ok};
     use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -4740,6 +4740,46 @@ pub(crate) mod tests {
         assert!(errors
             .iter()
             .any(|err| err.to_string().contains("already processed")));
+    }
+
+    #[xmtp_common::test]
+    async fn skip_already_processed_intents() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let bo_wallet = generate_local_wallet();
+        let bo_client = ClientBuilder::new_test_client(&bo_wallet).await;
+
+        let alix_group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        alix_group
+            .add_members_by_inbox_id(&[bo_client.inbox_id()])
+            .await
+            .unwrap();
+
+        bo_client
+            .sync_welcomes(&bo_client.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
+        let bo_group = bo_groups.first().unwrap();
+        bo_group.send_message(&[2]).await.unwrap();
+        let bo_provider = bo_client.mls_provider().unwrap();
+        let intent = bo_provider
+            .conn_ref()
+            .find_group_intents(
+                bo_group.clone().group_id,
+                Some(vec![IntentState::Processed]),
+                None,
+            )
+            .unwrap();
+        assert_eq!(intent.len(), 2); //key_update and send_message
+
+        let process_result = bo_group
+            .sync_until_intent_resolved(&bo_provider, intent[1].id)
+            .await;
+        assert_ok!(process_result);
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]
