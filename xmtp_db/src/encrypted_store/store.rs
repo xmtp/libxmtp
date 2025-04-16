@@ -29,27 +29,25 @@ where
             tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
             tracing::info!("Migrations successful");
-            Ok::<_, StorageError>(())
+            Ok(())
         })?;
 
         Ok::<_, StorageError>(())
     }
 
-    pub fn mls_provider(
-        &self,
-    ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
+    pub fn mls_provider(&self) -> Result<XmtpOpenMlsProviderPrivate<Db::Connection>, StorageError> {
         let conn = self.conn()?;
         Ok(XmtpOpenMlsProviderPrivate::new(conn))
     }
 
     /// Pulls a new connection from the store
-    pub fn conn(&self) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
+    pub fn conn(&self) -> Result<impl ConnectionExt, StorageError> {
         Ok(self.db.conn()?)
     }
 
     /// Release connection to the database, closing it
     pub fn release_connection(&self) -> Result<(), StorageError> {
-        Ok(self.db.release_connection()?)
+        Ok(self.db.reconnect()?)
     }
 
     /// Reconnect to the database

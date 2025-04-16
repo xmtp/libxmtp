@@ -1,5 +1,4 @@
 use crate::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use diesel::connection::TransactionManager;
 use parking_lot::Mutex;
 use std::{
     fmt,
@@ -9,7 +8,7 @@ use std::{
     },
 };
 
-use super::XmtpDb;
+use super::{TransactionGuard, XmtpDb};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type DbConnection = DbConnectionPrivate<crate::database::RawDbConnection>;
@@ -156,15 +155,5 @@ impl<C> fmt::Debug for DbConnectionPrivate<C> {
         f.debug_struct("DbConnection")
             .field("wrapped_conn", &"DbConnection")
             .finish()
-    }
-}
-
-pub struct TransactionGuard<'a> {
-    in_transaction: Arc<AtomicBool>,
-    _mutex_guard: parking_lot::MutexGuard<'a, ()>,
-}
-impl Drop for TransactionGuard<'_> {
-    fn drop(&mut self) {
-        self.in_transaction.store(false, Ordering::SeqCst);
     }
 }

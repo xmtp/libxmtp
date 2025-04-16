@@ -1,31 +1,24 @@
-use crate::StorageError;
 use crate::database::DefaultDatabase;
+use crate::{ConnectionExt, StorageError};
 use crate::{
     ProviderTransactions, XmtpDb, db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore,
 };
-use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
-use std::marker::PhantomData;
 
-pub type XmtpOpenMlsProvider =
-    XmtpOpenMlsProviderPrivate<DefaultDatabase, crate::database::RawDbConnection>;
+pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<crate::database::DefaultConnection>;
 
 #[derive(Debug)]
-pub struct XmtpOpenMlsProviderPrivate<Db, C> {
+pub struct XmtpOpenMlsProviderPrivate<C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
-    // This is here for the ProviderTransaction trait
-    // to avoid having to put explicit type annotations everywhere.
-    _phantom: PhantomData<Db>,
 }
 
-impl<Db, C> XmtpOpenMlsProviderPrivate<Db, C> {
-    pub fn new(conn: DbConnectionPrivate<C>) -> Self {
+impl<C> XmtpOpenMlsProviderPrivate<C> {
+    pub fn new(conn: C) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
-            _phantom: PhantomData,
         }
     }
 
@@ -33,14 +26,14 @@ impl<Db, C> XmtpOpenMlsProviderPrivate<Db, C> {
         RustCrypto::default()
     }
 
-    pub fn conn_ref(&self) -> &DbConnectionPrivate<C> {
+    pub fn conn_ref(&self) -> &C {
         self.key_store.conn_ref()
     }
 }
 
-impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
+impl<C> ProviderTransactions<C> for XmtpOpenMlsProviderPrivate<C>
 where
-    Db: XmtpDb,
+    C: ConnectionExt,
 {
     /// Start a new database transaction with the OpenMLS Provider from XMTP
     /// with the provided connection
@@ -58,13 +51,13 @@ where
     /// ```
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<C>) -> Result<T, E>,
         E: From<StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
         let conn = self.conn_ref();
-        let _guard = conn.start_transaction::<Db>()?;
+        let _guard = conn.start_transaction()?;
 
         match fun(self) {
             Ok(value) => {
@@ -81,7 +74,9 @@ where
                     <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
                 }) {
                     Ok(()) => Err(err),
-                    Err(diesel::result::Error::BrokenTransactionManager) => Err(err),
+                    Err(StorageError::DieselResult(
+                        diesel::result::Error::BrokenTransactionManager,
+                    )) => Err(err),
                     Err(rollback) => Err(StorageError::from(rollback).into()),
                 }
             }
@@ -89,9 +84,9 @@ where
     }
 }
 
-impl<Db, C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<Db, C>
+impl<C> OpenMlsProvider for XmtpOpenMlsProviderPrivate<C>
 where
-    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
+    C: ConnectionExt,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -110,9 +105,9 @@ where
     }
 }
 
-impl<Db, C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<Db, C>
+impl<C> OpenMlsProvider for &XmtpOpenMlsProviderPrivate<C>
 where
-    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
+    C: ConnectionExt,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;

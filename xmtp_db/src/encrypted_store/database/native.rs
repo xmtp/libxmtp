@@ -1,16 +1,20 @@
 mod sqlcipher_connection;
 
-use crate::NotFound;
 /// Native SQLite connection using SqlCipher
-use crate::encrypted_store::DbConnectionPrivate;
+use crate::{ConnectionExt, NotFound};
+use crate::{StorageError, TransactionGuard};
+use diesel::connection::TransactionManager;
+use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     Connection,
     connection::{AnsiTransactionManager, SimpleConnection},
-    r2d2::{self, CustomizeConnection, PoolTransactionManager, PooledConnection},
+    r2d2::{self, CustomizeConnection, PooledConnection},
 };
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use thiserror::Error;
 use xmtp_common::RetryableError;
 
@@ -22,10 +26,7 @@ use self::sqlcipher_connection::EncryptedConnection;
 use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 trait XmtpConnection:
-    ValidatedConnection
-    + CustomizeConnection<SqliteConnection, r2d2::Error>
-    + dyn_clone::DynClone
-    + IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>>
+    ValidatedConnection + CustomizeConnection<SqliteConnection, r2d2::Error> + dyn_clone::DynClone
 {
 }
 
@@ -33,28 +34,14 @@ impl<T> XmtpConnection for T where
     T: ValidatedConnection
         + CustomizeConnection<SqliteConnection, r2d2::Error>
         + dyn_clone::DynClone
-        + IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>>
 {
 }
+
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
     fn validate(&self, _opts: &StorageOption) -> Result<(), NativeStorageError> {
         Ok(())
-    }
-}
-
-// we can remove this once https://github.com/rust-lang/rust/issues/65991
-// is merged, which should be happening soon (next ~2 releases)
-trait IntoSuper<Super: ?Sized> {
-    fn into_super(self: Box<Self>) -> Box<Super>;
-}
-
-impl<T: CustomizeConnection<SqliteConnection, r2d2::Error>>
-    IntoSuper<dyn CustomizeConnection<SqliteConnection, r2d2::Error>> for T
-{
-    fn into_super(self: Box<Self>) -> Box<dyn CustomizeConnection<SqliteConnection, r2d2::Error>> {
-        self
     }
 }
 
@@ -136,11 +123,15 @@ impl RetryableError for NativeStorageError {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) pool: Arc<RwLock<Option<Pool>>>,
-    pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
-    transaction_lock: Arc<Mutex<()>>,
     customizer: Option<Box<dyn XmtpConnection>>,
+
     opts: StorageOption,
+    conn: Arc<PersistentOrMem>,
+}
+
+pub enum PersistentOrMem {
+    Persistent(NativeDbConnection),
+    Mem(EphemeralDbConnection),
 }
 
 impl NativeDb {
@@ -149,75 +140,72 @@ impl NativeDb {
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, NativeStorageError> {
-        let mut builder = Pool::builder();
-
         let customizer = if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
-            builder = builder.connection_customizer(Box::new(enc_connection.clone()));
             Some(Box::new(enc_connection) as Box<dyn XmtpConnection>)
         } else if matches!(opts, StorageOption::Persistent(_)) {
-            builder = builder.connection_customizer(Box::new(UnencryptedConnection));
             Some(Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>)
         } else {
             None
         };
 
-        let pool = match opts {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(path) => builder
-                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-                .build(ConnectionManager::new(path))?,
+        let conn = match opts {
+            StorageOption::Ephemeral => PersistentOrMem::Mem(EphemeralDbConnection::new()?),
+            StorageOption::Persistent(path) => {
+                PersistentOrMem::Persistent(NativeDbConnection::new(path, customizer.clone())?)
+            }
         };
 
-        // Take one of the connections and use it as the only writer.
-        let mut write_conn = pool.get()?;
-        write_conn.batch_execute("PRAGMA query_only = OFF;")?;
-
         Ok(Self {
-            pool: Arc::new(Some(pool).into()),
-            write_conn: Arc::new(Mutex::new(write_conn)),
-            transaction_lock: Arc::new(Mutex::new(())),
+            conn: conn.into(),
             customizer,
             opts: opts.clone(),
         })
     }
+}
 
-    fn raw_conn(&self) -> Result<RawDbConnection, NativeStorageError> {
-        let pool_guard = self.pool.read();
+impl ConnectionExt for PersistentOrMem {
+    type Connection = SqliteConnection;
 
-        let pool = pool_guard
-            .as_ref()
-            .ok_or(NativeStorageError::PoolNeedsConnection)?;
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+        match self {
+            Self::Persistent(p) => p.start_transaction(),
+            Self::Mem(m) => m.start_transaction(),
+        }
+    }
 
-        tracing::trace!(
-            "pulling connection from pool, idle={}, total={}",
-            pool.state().idle_connections,
-            pool.state().connections
-        );
+    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        match self {
+            Self::Persistent(p) => p.raw_query_read(fun),
+            Self::Mem(m) => m.raw_query_read(fun),
+        }
+    }
 
-        Ok(pool.get()?)
+    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        match self {
+            Self::Persistent(p) => p.raw_query_write(fun),
+            Self::Mem(m) => m.raw_query_write(fun),
+        }
     }
 }
 
 impl XmtpDb for NativeDb {
-    type Connection = RawDbConnection;
-    type TransactionManager = PoolTransactionManager<AnsiTransactionManager>;
+    type Connection = PersistentOrMem;
     type Error = NativeStorageError;
 
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error> {
-        let conn = match self.opts {
-            StorageOption::Ephemeral => None,
-            StorageOption::Persistent(_) => Some(self.raw_conn()?),
-        };
-
-        Ok(DbConnectionPrivate::from_arc_mutex(
-            self.write_conn.clone(),
-            conn.map(|conn| Arc::new(parking_lot::Mutex::new(conn))),
-            self.transaction_lock.clone(),
-        ))
+    fn conn(&self) -> Result<&Self::Connection, Self::Error> {
+        Ok(&self.conn)
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), Self::Error> {
@@ -228,33 +216,210 @@ impl XmtpDb for NativeDb {
         }
     }
 
-    fn release_connection(&self) -> Result<(), Self::Error> {
-        tracing::warn!("released sqlite database connection");
-        let mut pool_guard = self.pool.write();
-        pool_guard.take();
+    fn disconnect(&self) -> Result<(), Self::Error> {
+        use PersistentOrMem::*;
+        match self.conn.as_ref() {
+            Persistent(p) => p.disconnect()?,
+            Mem(m) => m.disconnect()?,
+        };
         Ok(())
     }
 
     fn reconnect(&self) -> Result<(), Self::Error> {
+        use PersistentOrMem::*;
+        match self.conn.as_ref() {
+            Persistent(p) => p.reconnect(),
+            Mem(m) => m.reconnect(),
+        }
+    }
+}
+
+pub struct EphemeralDbConnection {
+    conn: Arc<Mutex<SqliteConnection>>,
+    in_transaction: Arc<AtomicBool>,
+    global_lock: Arc<Mutex<()>>,
+}
+
+impl EphemeralDbConnection {
+    fn new() -> Result<Self, NativeStorageError> {
+        Ok(Self {
+            conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
+            in_transaction: Arc::new(AtomicBool::new(false)),
+            global_lock: Arc::new(Mutex::new(())),
+        })
+    }
+
+    fn disconnect(&self) -> Result<(), NativeStorageError> {
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), NativeStorageError> {
+        let mut w = self.conn.lock();
+        let conn = SqliteConnection::establish(":memory:")?;
+        *w = conn;
+        Ok(())
+    }
+}
+
+impl ConnectionExt for EphemeralDbConnection {
+    type Connection = SqliteConnection;
+
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+        let guard = self.global_lock.lock();
+        let mut c = self.conn.lock();
+        AnsiTransactionManager::begin_transaction(&mut *c)?;
+        self.in_transaction.store(true, Ordering::SeqCst);
+
+        Ok(TransactionGuard {
+            _mutex_guard: guard,
+            in_transaction: self.in_transaction.clone(),
+        })
+    }
+
+    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+        E: From<diesel::result::Error>,
+    {
+        let mut conn = self.conn.lock();
+        return fun(&mut *conn).map_err(E::from);
+    }
+
+    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        let mut conn = self.conn.lock();
+        return fun(&mut *conn).map_err(E::from);
+    }
+}
+
+pub struct NativeDbConnection {
+    pub(super) read: Arc<RwLock<Option<Pool>>>,
+    pub(super) write: Arc<Mutex<SqliteConnection>>,
+    transaction_lock: Arc<Mutex<()>>,
+    global_lock: Arc<Mutex<()>>,
+    in_transaction: Arc<AtomicBool>,
+    path: String,
+    customizer: Option<Box<dyn XmtpConnection>>,
+}
+
+impl NativeDbConnection {
+    fn new(
+        path: &str,
+        customizer: Option<Box<dyn XmtpConnection>>,
+    ) -> Result<Self, NativeStorageError> {
+        let builder = Pool::builder();
+        let builder = if let Some(ref c) = customizer {
+            builder.connection_customizer(c.clone())
+        } else {
+            builder
+        };
+        let read = builder
+            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+            .build(ConnectionManager::new(path))?;
+
+        let mut write = SqliteConnection::establish(path)?;
+        write.batch_execute("PRAGMA query_only = OFF;")?;
+        let write = Arc::new(Mutex::new(write));
+
+        Ok(Self {
+            read: Arc::new(RwLock::new(Some(read))),
+            write,
+            transaction_lock: Arc::new(Mutex::new(())),
+            global_lock: Arc::new(Mutex::new(())),
+            in_transaction: Arc::new(AtomicBool::new(false)),
+            path: path.to_string(),
+            customizer,
+        })
+    }
+
+    fn disconnect(&self) -> Result<(), NativeStorageError> {
+        tracing::warn!("released sqlite database connection");
+        let mut pool_guard = self.read.write();
+        pool_guard.take();
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), NativeStorageError> {
         tracing::info!("reconnecting sqlite database connection");
         let mut builder = Pool::builder();
 
-        if let Some(ref opts) = self.customizer {
-            builder = builder.connection_customizer(opts.clone().into_super());
+        if let Some(ref c) = self.customizer {
+            builder = builder.connection_customizer(c.clone());
         }
 
-        let pool = match self.opts {
-            StorageOption::Ephemeral => builder
-                .max_size(1)
-                .build(ConnectionManager::new(":memory:"))?,
-            StorageOption::Persistent(ref path) => builder
+        let mut pool = self.read.write();
+        *pool = Some(
+            builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-                .build(ConnectionManager::new(path))?,
-        };
+                .build(ConnectionManager::new(self.path.clone()))?,
+        );
 
-        let mut pool_write = self.pool.write();
-        *pool_write = Some(pool);
-
+        let mut write = self.write.lock();
+        if write.is_broken() {
+            let mut new = SqliteConnection::establish(&self.path)?;
+            new.batch_execute("PRAGMA query_only = OFF;")?;
+            *write = new;
+        }
         Ok(())
+    }
+}
+
+impl ConnectionExt for NativeDbConnection {
+    type Connection = SqliteConnection;
+
+    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::StorageError> {
+        let guard = self.global_lock.lock();
+        let mut write = self.write.lock();
+        AnsiTransactionManager::begin_transaction(&mut *write)?;
+        self.in_transaction.store(true, Ordering::SeqCst);
+
+        Ok(TransactionGuard {
+            _mutex_guard: guard,
+            in_transaction: self.in_transaction.clone(),
+        })
+    }
+
+    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        if self.in_transaction.load(Ordering::SeqCst) {
+            let mut lock = self.write.lock();
+            return fun(&mut *lock);
+        }
+
+        // TODO: Question: insipx: why were reads in a lock before? If we're writing something it should
+        // use the write lock, why would we need to protect reads?
+        if let Some(pool) = &*self.read.read() {
+            tracing::trace!(
+                "pulling connection from pool, idle={}, total={}",
+                pool.state().idle_connections,
+                pool.state().connections
+            );
+            let mut conn = pool.get().map_err(NativeStorageError::from)?;
+            return fun(&mut *conn).map_err(E::from);
+        } else {
+            return Err(NativeStorageError::PoolNeedsConnection);
+        }
+    }
+
+    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        let _guard;
+        if !self.in_transaction.load(Ordering::SeqCst) {
+            _guard = self.global_lock.lock();
+        }
+        fun(&mut self.write.lock()).map_err(E::from)
     }
 }

@@ -1,5 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
+use crate::ConnectionExt;
+
 use super::encrypted_store::db_connection::DbConnectionPrivate;
 use bincode;
 use diesel::{
@@ -28,22 +30,22 @@ struct StorageData {
 #[derive(Debug)]
 pub struct SqlKeyStore<C> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnectionPrivate<C>,
+    conn: C,
 }
 
 impl<C> SqlKeyStore<C> {
-    pub fn new(conn: DbConnectionPrivate<C>) -> Self {
+    pub fn new(conn: C) -> Self {
         Self { conn }
     }
 
-    pub fn conn_ref(&self) -> &DbConnectionPrivate<C> {
+    pub fn conn_ref(&self) -> &C {
         &self.conn
     }
 }
 
 impl<C> SqlKeyStore<C>
 where
-    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
+    C: ConnectionExt,
 {
     fn select_query<const VERSION: u16>(
         &self,
@@ -224,12 +226,14 @@ where
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self.conn_ref().raw_query_write(|conn| {
-            sql_query(DELETE_QUERY)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .execute(conn)
-        })?;
+        let _ = self
+            .conn_ref()
+            .raw_query_write::<_, _, SqlKeyStoreError>(|conn| {
+                sql_query(DELETE_QUERY)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .execute(conn)
+            })?;
         Ok(())
     }
 }
@@ -288,7 +292,7 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
-    C: diesel::Connection<Backend = crate::Sqlite> + diesel::connection::LoadConnection,
+    C: ConnectionExt,
 {
     type Error = SqlKeyStoreError;
 
@@ -809,12 +813,14 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                .load(conn)
-        })?;
+        let data: Vec<StorageData> =
+            self.conn_ref()
+                .raw_query_read::<_, _, SqlKeyStoreError>(|conn| {
+                    sql_query(query)
+                        .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                        .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                        .load(conn)
+                })?;
 
         if let Some(entry) = data.into_iter().next() {
             match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {

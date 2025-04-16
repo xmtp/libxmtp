@@ -38,10 +38,12 @@ use crate::Store;
 
 pub use database::*;
 
-use db_connection::DbConnectionPrivate;
 use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub type EncryptionKey = [u8; 32];
@@ -60,27 +62,89 @@ pub enum StorageOption {
     Persistent(String),
 }
 
+pub struct TransactionGuard<'a> {
+    in_transaction: Arc<AtomicBool>,
+    _mutex_guard: parking_lot::MutexGuard<'a, ()>,
+}
+
+impl Drop for TransactionGuard<'_> {
+    fn drop(&mut self) {
+        self.in_transaction.store(false, Ordering::SeqCst);
+    }
+}
+
 pub trait Database {
     type Db: XmtpDb;
 
-    fn init_db() -> Result<(), StorageError>;
+    fn init_db(&mut self) -> Result<(), StorageError>;
     fn db(&self) -> &Self::Db;
     fn take(self) -> Self::Db
     where
         Self: Sized;
 }
 
-#[allow(async_fn_in_trait)]
-pub trait XmtpDb {
-    type Error;
-
+pub trait ConnectionExt {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
         + Send;
-    type TransactionManager: diesel::connection::TransactionManager<Self::Connection>;
+
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError>;
+
+    /// Run a scoped read-only query
+    /// Implementors are expected to store an instance of 'TransactionGuard'
+    /// in order to track transaction context
+    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized;
+
+    /// Run a scoped write-only query
+    /// Implementors are expected to store an instance of 'TransactionGuard'
+    /// in order to track transaction context
+    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized;
+}
+
+impl<C> ConnectionExt for &C
+where
+    C: ConnectionExt,
+{
+    type Connection = <C as ConnectionExt>::Connection;
+
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+        <C as ConnectionExt>::start_transaction(self)
+    }
+
+    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_read(self, fun)
+    }
+
+    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        E: From<diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+}
+
+pub trait XmtpDb {
+    type Error;
+    /// The Connection type for this database
+    type Connection: ConnectionExt + Send;
 
     /// Validate a connection is as expected
     fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
@@ -88,13 +152,13 @@ pub trait XmtpDb {
     }
 
     /// Returns the Connection implementation for this Database
-    fn conn(&self) -> Result<DbConnectionPrivate<Self::Connection>, Self::Error>;
+    fn conn(&self) -> Result<&Self::Connection, Self::Error>;
 
     /// Reconnect to the database
     fn reconnect(&self) -> Result<(), Self::Error>;
 
     /// Release connection to the database, closing it
-    fn release_connection(&self) -> Result<(), Self::Error>;
+    fn disconnect(&self) -> Result<(), Self::Error>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -255,13 +319,13 @@ where
     }
 }
 
-pub trait ProviderTransactions<Db>
+pub trait ProviderTransactions<C>
 where
-    Db: XmtpDb,
+    C: ConnectionExt,
 {
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
+        F: FnOnce(&XmtpOpenMlsProviderPrivate<C>) -> Result<T, E>,
         E: From<StorageError> + std::error::Error;
 }
 
