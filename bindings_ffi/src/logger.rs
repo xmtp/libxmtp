@@ -270,8 +270,9 @@ fn enable_debug_file_inner(
     let _ = exit_debug_writer();
 
     let version = env!("CARGO_PKG_VERSION");
+    let commit_sha = option_env!("GIT_COMMIT_SHA").unwrap_or("unknown");
     let file_appender = RollingFileAppender::builder()
-        .filename_prefix(format!("libxmtp-v{}.log", version))
+        .filename_prefix(format!("libxmtp-v{}.{}.log", version, commit_sha))
         .rotation(rotation.into())
         .max_log_files(max_files as usize)
         .build(&directory)?;
