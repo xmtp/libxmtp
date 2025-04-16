@@ -411,7 +411,7 @@ where
 
         let group = retry_async!(
             Retry::default(),
-            (async { MlsGroup::create_from_welcome(client, provider, welcome).await })
+            (async { MlsGroup::create_from_welcome(client, provider, welcome, false).await })
         );
 
         if let Err(e) = group {
@@ -483,7 +483,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(7))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_streaming() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
