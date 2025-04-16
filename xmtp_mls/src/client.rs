@@ -1,6 +1,5 @@
 use crate::builder::SyncWorkerMode;
-#[cfg(any(test, feature = "test-utils"))]
-use crate::groups::device_sync::WorkerHandle;
+use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::utils::VersionInfo;
@@ -160,8 +159,13 @@ pub struct DeviceSync {
 
     #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
-    #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle>>>>,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
+}
+
+impl DeviceSync {
+    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.worker_handle.lock().clone()
+    }
 }
 
 // most of these things are `Arc`'s
@@ -290,7 +294,6 @@ where
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
-                #[cfg(any(test, feature = "test-utils"))]
                 worker_handle: Arc::new(parking_lot::Mutex::default()),
             },
         }
@@ -618,16 +621,6 @@ where
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
         self.create_dm_by_inbox_id(inbox_id, opts).await
-    }
-
-    pub(crate) fn create_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<MlsGroup<Self>, ClientError> {
-        tracing::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-
-        Ok(sync_group)
     }
 
     /// Look up a group by its ID
@@ -971,11 +964,6 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    tracing::info!(
-                        inbox_id = self.inbox_id(),
-                        "[{}] syncing group",
-                        self.inbox_id()
-                    );
                     tracing::info!(
                         inbox_id = self.inbox_id(),
                         "[{}] syncing group",

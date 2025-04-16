@@ -1,8 +1,7 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::WORKER_RESTART_DELAY;
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
-#[cfg(any(test, feature = "test-utils"))]
-pub use crate::utils::WorkerHandle;
+use crate::groups::scoped_client::LocalScopedGroupClient;
 use crate::{
     client::ClientError,
     configuration::NS_IN_HOUR,
@@ -17,13 +16,15 @@ use aes_gcm::{
 #[cfg(not(target_arch = "wasm32"))]
 use backup::BackupError;
 use futures::{Stream, StreamExt};
+use handle::{SyncMetric, WorkerHandle};
 use preference_sync::UserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tracing::{instrument, warn};
+use tracing::{info_span, instrument, warn, Instrument};
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_common::{
     time::{now_ns, Duration},
@@ -52,6 +53,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backup;
 pub mod consent_sync;
+pub mod handle;
 pub mod message_sync;
 pub mod preference_sync;
 
@@ -165,8 +167,7 @@ where
         );
 
         let worker = SyncWorker::new(client);
-        #[cfg(any(test, feature = "test-utils"))]
-        self.set_sync_worker_handle(worker.handle.clone());
+        *self.device_sync.worker_handle.lock() = Some(worker.handle.clone());
         worker.spawn_worker();
     }
 
@@ -193,8 +194,7 @@ pub struct SyncWorker<ApiClient, V> {
     retry: Retry,
 
     // Number of events processed
-    #[cfg(any(test, feature = "test-utils"))]
-    handle: std::sync::Arc<WorkerHandle>,
+    handle: std::sync::Arc<WorkerHandle<SyncMetric>>,
 }
 
 impl<ApiClient, V> SyncWorker<ApiClient, V>
@@ -207,23 +207,30 @@ where
         while !self.client.identity().is_ready() {
             xmtp_common::yield_().await
         }
+
         self.sync_init().await?;
+        self.handle.increment_metric(SyncMetric::Init);
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
+
             match event {
                 LocalEvents::SyncMessage(msg) => match msg {
                     SyncMessage::Reply { message_id } => {
                         let provider = self.client.mls_provider()?;
-                        self.on_reply(message_id, &provider).await?
+                        self.on_reply(message_id, &provider).await?;
+                        self.handle.increment_metric(SyncMetric::V1PayloadProcessed);
                     }
                     SyncMessage::Request { message_id } => {
                         let provider = self.client.mls_provider()?;
-                        self.on_request(message_id, &provider).await?
+                        self.on_request(message_id, &provider).await?;
                     }
                 },
                 LocalEvents::OutgoingPreferenceUpdates(preference_updates) => {
-                    tracing::info!("Outgoing preference update {preference_updates:?}");
+                    if preference_updates.is_empty() {
+                        continue;
+                    }
+
                     retry_async!(
                         self.retry,
                         (async {
@@ -236,14 +243,9 @@ where
                     )?;
                 }
                 LocalEvents::IncomingPreferenceUpdate(_) => {
-                    tracing::info!("Incoming preference update");
+                    // Intentionally blank.
                 }
                 _ => {}
-            }
-
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                self.handle.increment();
             }
         }
         Ok(())
@@ -300,12 +302,17 @@ where
             })
         )?;
 
+        if msg.sender_installation_id == self.client.installation_id() {
+            return Ok(());
+        }
+
         let msg_content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
         let DeviceSyncContent::Request(request) = msg_content else {
             unreachable!();
         };
 
         client.reply_to_sync_request(provider, request).await?;
+
         Ok(())
     }
 
@@ -327,7 +334,7 @@ where
                 "Initializing device sync... url: {:?}",
                 client.device_sync.server_url
             );
-            if client.get_sync_group(provider.conn_ref()).is_err() {
+            if client.get_sync_group(&provider).is_err() {
                 client.ensure_sync_group(&provider).await?;
 
                 client
@@ -369,32 +376,36 @@ where
             stream,
             init: OnceCell::new(),
             retry,
-
-            #[cfg(any(test, feature = "test-utils"))]
-            handle: std::sync::Arc::new(Default::default()),
+            handle: std::sync::Arc::new(WorkerHandle::new()),
         }
     }
 
     fn spawn_worker(mut self) {
-        xmtp_common::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
-            while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
-                if err.db_needs_connection() {
-                    tracing::warn!(
-                        inbox_id,
-                        installation_id,
-                        "Pool disconnected. task will restart on reconnect"
-                    );
-                    break;
-                } else {
-                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                    // Wait 2 seconds before restarting.
-                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+        let span = info_span!("\x1b[34mSYNC WORKER");
+
+        xmtp_common::spawn(
+            None,
+            async move {
+                let inbox_id = self.client.inbox_id().to_string();
+                let installation_id = hex::encode(self.client.installation_public_key());
+                while let Err(err) = self.run().await {
+                    tracing::info!("Running worker..");
+                    if err.db_needs_connection() {
+                        tracing::warn!(
+                            inbox_id,
+                            installation_id,
+                            "Pool disconnected. task will restart on reconnect"
+                        );
+                        break;
+                    } else {
+                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        // Wait 2 seconds before restarting.
+                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                    }
                 }
             }
-        });
+            .instrument(span),
+        );
     }
 }
 
@@ -408,14 +419,18 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group = match self.get_sync_group(provider.conn_ref()) {
+        let sync_group = match self.get_sync_group(provider) {
             Ok(group) => group,
-            Err(_) => self.create_sync_group(provider)?,
+            Err(_) => {
+                let sync_group =
+                    MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+                tracing::info!("Creating sync group: {:?}", sync_group.group_id);
+                sync_group.add_missing_installations(provider).await?;
+                sync_group.sync_with_conn(provider).await?;
+
+                sync_group
+            }
         };
-        sync_group
-            .maybe_update_installations(provider, None)
-            .await?;
-        sync_group.sync_with_conn(provider).await?;
 
         Ok(sync_group)
     }
@@ -434,8 +449,7 @@ where
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
-
+        let sync_group = self.get_sync_group(provider)?;
         // sync the group
         sync_group.sync_with_conn(provider).await?;
 
@@ -450,7 +464,7 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
+        sync_group.prepare_message(&content_bytes, provider, {
             let request = request.clone();
             move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
@@ -461,7 +475,11 @@ where
         })?;
 
         // publish the intent
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
+        if let Some(handle) = self.worker_handle() {
+            handle.increment_metric(SyncMetric::V1RequestSent);
+        }
 
         Ok(request)
     }
@@ -498,7 +516,7 @@ where
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
         // find the sync group
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
+        let sync_group = self.get_sync_group(provider)?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -529,7 +547,16 @@ where
             })),
         })?;
 
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
+
+        if let Some(handle) = self.worker_handle() {
+            handle.increment_metric(SyncMetric::V1PayloadSent);
+        }
+
+        tracing::info!(
+            "Backup payload sent to sync group {:?}",
+            sync_group.group_id
+        );
 
         Ok(())
     }
@@ -539,7 +566,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
+        let sync_group = self.get_sync_group(provider)?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = provider.conn_ref().get_group_messages(
@@ -577,7 +604,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider.conn_ref())?;
+        let sync_group = self.get_sync_group(provider)?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs {
@@ -754,12 +781,16 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub fn get_sync_group(&self, conn: &DbConnection) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group_id = conn
+    pub fn get_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<MlsGroup<Self>, GroupError> {
+        let sync_group_id = provider
+            .conn_ref()
             .latest_sync_group()?
             .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
             .id;
-        let sync_group = self.group_with_conn(conn, &sync_group_id)?;
+        let sync_group = self.group_with_conn(provider.conn_ref(), &sync_group_id)?;
 
         Ok(sync_group)
     }

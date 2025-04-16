@@ -28,7 +28,6 @@ use crate::{
     subscriptions::{LocalEvents, SyncMessage},
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{
     db_connection::DbConnection,
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
@@ -38,6 +37,7 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
     Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
 };
+use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 use futures::future::try_join_all;
 use hkdf::Hkdf;
@@ -820,7 +820,9 @@ where
                                 // and returns a copy of what was inserted
                                 let updates =
                                     UserPreferenceUpdate::process_incoming_preference_update(
-                                        update, provider,
+                                        update,
+                                        &self.client,
+                                        provider,
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
@@ -834,7 +836,9 @@ where
                             }
                         }
                     }
-                    None => return Err(GroupMessageProcessingError::InvalidPayload),
+                    None => {
+                        return Err(GroupMessageProcessingError::InvalidPayload);
+                    }
                 }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
@@ -1550,6 +1554,13 @@ where
         provider: &XmtpOpenMlsProvider,
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
+        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
+            return Ok(());
+        };
+        if stored_group.conversation_type == ConversationType::Sync {
+            return Ok(());
+        }
+
         // determine how long of an interval in time to use before updating list
         let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
 
