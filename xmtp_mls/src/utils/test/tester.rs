@@ -141,6 +141,12 @@ where
 
 impl TesterBuilder<LocalWallet> {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for TesterBuilder<LocalWallet> {
+    fn default() -> Self {
         Self {
             owner: generate_local_wallet(),
             sync_mode: None,

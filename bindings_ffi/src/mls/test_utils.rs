@@ -25,7 +25,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
     async fn build_no_panic(
         &self,
     ) -> Result<Tester<LocalWallet, Arc<FfiXmtpClient>>, GenericError> {
-        let client = create_raw_client(&self).await;
+        let client = create_raw_client(self).await;
         let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
         let signature_request = client.signature_request().unwrap();
         signature_request
@@ -60,7 +60,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
     async fn build_no_panic(
         &self,
     ) -> Result<Tester<PasskeyUser, Arc<FfiXmtpClient>>, GenericError> {
-        let client = create_raw_client(&self).await;
+        let client = create_raw_client(self).await;
         let signature_request = client.signature_request().unwrap();
         let text = signature_request.signature_text().await.unwrap();
         let UnverifiedSignature::Passkey(signature) = self.owner.sign(&text).unwrap() else {
@@ -92,6 +92,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
 pub trait LocalTester {
     async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
+    #[allow(unused)]
     async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>>;
 
     fn builder() -> TesterBuilder<LocalWallet>;
