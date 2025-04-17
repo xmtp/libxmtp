@@ -83,7 +83,9 @@ where
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
-            worker.wait_for_init().await.unwrap();
+            if self.wait_for_init {
+                worker.wait_for_init().await.unwrap();
+            }
         }
         client.sync_welcomes(&provider).await;
 
@@ -135,8 +137,9 @@ where
     Owner: InboxOwner,
 {
     pub owner: Owner,
-    pub sync_mode: Option<SyncWorkerMode>,
+    pub sync_mode: SyncWorkerMode,
     pub sync_url: Option<String>,
+    pub wait_for_init: bool,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -149,8 +152,9 @@ impl Default for TesterBuilder<LocalWallet> {
     fn default() -> Self {
         Self {
             owner: generate_local_wallet(),
-            sync_mode: None,
+            sync_mode: SyncWorkerMode::Disabled,
             sync_url: None,
+            wait_for_init: true,
         }
     }
 }
@@ -167,6 +171,7 @@ where
             owner,
             sync_mode: self.sync_mode,
             sync_url: self.sync_url,
+            wait_for_init: self.wait_for_init,
         }
     }
 
@@ -176,7 +181,7 @@ where
 
     pub fn with_sync_worker(self) -> Self {
         Self {
-            sync_mode: Some(SyncWorkerMode::Enabled),
+            sync_mode: SyncWorkerMode::Enabled,
             ..self
         }
     }
@@ -188,11 +193,15 @@ where
         }
     }
 
-    pub fn sync_mode(self, mode: SyncWorkerMode) -> Self {
+    pub fn do_not_wait_for_init(self) -> Self {
         Self {
-            sync_mode: Some(mode),
+            wait_for_init: false,
             ..self
         }
+    }
+
+    pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {
+        Self { sync_mode, ..self }
     }
 }
 

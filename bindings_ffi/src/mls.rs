@@ -3010,17 +3010,6 @@ mod tests {
         .await
     }
 
-    async fn new_test_client_with_wallet_and_history(
-        wallet: xmtp_cryptography::utils::LocalWallet,
-    ) -> Arc<FfiXmtpClient> {
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            Some(HISTORY_SYNC_URL.to_string()),
-            Some(FfiSyncWorkerMode::Disabled),
-        )
-        .await
-    }
-
     async fn new_test_client_with_wallet_and_history_sync_url(
         wallet: xmtp_cryptography::utils::LocalWallet,
         history_sync_url: Option<String>,
@@ -6487,16 +6476,20 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
-        let wallet = generate_local_wallet();
-        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
+        let alix = Tester::builder()
+            .with_sync_worker()
+            .with_sync_server()
+            .do_not_wait_for_init()
+            .build()
+            .await;
         let stream_a_callback = Arc::new(RustStreamCallback::default());
 
-        let a_stream = alix_a
+        let a_stream = alix
             .conversations()
             .stream_preferences(stream_a_callback.clone())
             .await;
 
-        let _alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        let _alix_b = alix.builder.build().await;
 
         let result = stream_a_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());

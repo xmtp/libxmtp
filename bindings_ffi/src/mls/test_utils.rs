@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ethers::signers::LocalWallet;
 use xmtp_common::tmp_path;
 use xmtp_id::InboxOwner;
-use xmtp_mls::{builder::SyncWorkerMode, utils::test::tester::*};
+use xmtp_mls::utils::test::tester::*;
 
 use crate::inbox_owner::FfiInboxOwner;
 
@@ -41,7 +41,9 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
         let worker = client.inner_client.worker_handle();
 
         if let Some(worker) = &worker {
-            worker.wait_for_init().await.unwrap();
+            if self.wait_for_init {
+                worker.wait_for_init().await.unwrap();
+            }
         }
 
         Ok(Tester {
@@ -80,6 +82,12 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
         let provider = client.inner_client.mls_provider().unwrap();
         let worker = client.inner_client.worker_handle();
+
+        if let Some(worker) = &worker {
+            if self.wait_for_init {
+                worker.wait_for_init().await.unwrap();
+            }
+        }
 
         Ok(Tester {
             builder: self.clone(),
@@ -129,14 +137,7 @@ where
         1,
         None,
         builder.sync_url.clone(),
-        Some(
-            builder
-                .sync_mode
-                .as_ref()
-                .unwrap_or(&SyncWorkerMode::Disabled)
-                .clone()
-                .into(),
-        ),
+        Some(builder.sync_mode.clone().into()),
     )
     .await
     .unwrap();
