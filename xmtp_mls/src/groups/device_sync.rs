@@ -1,7 +1,7 @@
 use super::{GroupError, MlsGroup};
 use crate::configuration::WORKER_RESTART_DELAY;
 use crate::groups::disappearing_messages::DisappearingMessagesCleanerWorker;
-use crate::groups::scoped_client::LocalScopedGroupClient;
+use crate::groups::scoped_client::ScopedGroupClient;
 use crate::{
     client::ClientError,
     configuration::NS_IN_HOUR,
