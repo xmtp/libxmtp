@@ -2344,7 +2344,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 18270.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 23343.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 59168.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 3285.toShort()) {
@@ -7660,7 +7660,7 @@ public interface FfiXmtpClientInterface {
     
     fun `signatureRequest`(): FfiSignatureRequest?
     
-    suspend fun `syncPreferences`(): kotlin.UInt
+    suspend fun `syncPreferences`(): kotlin.ULong
     
     /**
      * A utility function to easily verify that a piece of text was signed by this installation.
@@ -8343,7 +8343,7 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
     
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `syncPreferences`() : kotlin.UInt {
+    override suspend fun `syncPreferences`() : kotlin.ULong {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
             UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_sync_preferences(
@@ -8351,11 +8351,11 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
                 
             )
         },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_u32(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_u32(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_u32(future) },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_u64(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_u64(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_u64(future) },
         // lift function
-        { FfiConverterUInt.lift(it) },
+        { FfiConverterULong.lift(it) },
         // Error FFI converter
         GenericException.ErrorHandler,
     )
