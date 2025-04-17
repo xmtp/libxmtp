@@ -70,7 +70,7 @@ use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::mls::message_contents::group_updated;
+use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -1770,6 +1770,7 @@ where
                         installation_key,
                         data: encrypted,
                         hpke_public_key: installation.hpke_public_key,
+                        wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
                     })),
                 })
             })
