@@ -4,17 +4,19 @@ use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    Client,
 };
 use ethers::signers::LocalWallet;
 use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
-    client::{Client, DefaultClientData},
+    client::{Client as PasskeyClient, DefaultClientData},
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
+use xmtp_api::XmtpApi;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_id::{
@@ -23,6 +25,7 @@ use xmtp_id::{
         unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
         Identifier,
     },
+    scw_verifier::SmartContractSignatureVerifier,
     InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
@@ -42,49 +45,50 @@ where
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
 }
 
-pub(crate) trait XmtpClientWalletTester {
+pub(crate) trait LocalTester {
     async fn new() -> Tester<LocalWallet, FullXmtpClient>;
-}
-
-pub(crate) trait XmtpClientPasskeyTester {
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
+    fn builder() -> TesterBuilder<LocalWallet>;
 }
 
-impl XmtpClientWalletTester for Tester<LocalWallet, FullXmtpClient> {
+impl LocalTester for Tester<LocalWallet, FullXmtpClient> {
     async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();
-        Self::new_from_owner(wallet).await
+        Tester::new_with_owner(wallet).await
     }
-}
 
-impl XmtpClientPasskeyTester for Tester<PasskeyUser, FullXmtpClient> {
     async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
-        Self::new_from_owner(passkey_user).await
+        Tester::new_with_owner(passkey_user).await
+    }
+
+    fn builder() -> TesterBuilder<LocalWallet> {
+        TesterBuilder::new()
     }
 }
 
-trait XmtpClientTesterBuilder<Owner>
+pub(crate) trait XmtpClientTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
 {
-    async fn build(self) -> Tester<Owner, FullXmtpClient>;
+    async fn build(&self) -> Tester<Owner, C>;
 }
 
-impl<Owner> XmtpClientTesterBuilder<Owner> for TesterBuilder<Owner>
+impl<Owner> XmtpClientTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
 where
-    Owner: InboxOwner,
+    Owner: InboxOwner + Clone,
 {
-    async fn build(self) -> Tester<Owner, FullXmtpClient> {
+    async fn build(&self) -> Tester<Owner, FullXmtpClient> {
         let client = ClientBuilder::new_test_client(&self.owner).await;
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
             worker.wait_for_init().await.unwrap();
         }
+        client.sync_welcomes(&provider).await;
 
         Tester {
-            builder: self,
+            builder: self.clone(),
             client,
             provider: Arc::new(provider),
             worker,
@@ -96,20 +100,8 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) async fn new_from_owner(owner: Owner) -> Self {
+    pub(crate) async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
-    }
-
-    pub async fn new_installation(&self) -> Self {
-        let cloned = self.builder.clone().build().await;
-        // The cloned will have created a new sync grup and invited you to it.
-        // Sync the welcomes to become a part of it.
-        self.sync_welcomes(&self.provider).await.unwrap();
-        cloned
-    }
-
-    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
-        self.worker.as_ref().unwrap()
     }
 }
 
@@ -120,6 +112,9 @@ where
 {
     pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
         TesterBuilder::new().owner(owner)
+    }
+    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+        self.worker.as_ref().unwrap()
     }
 }
 
@@ -195,14 +190,14 @@ where
     }
 }
 
-pub type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-pub type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+pub type PKCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
+pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
 
 #[derive(Clone)]
 pub struct PasskeyUser {
     origin: Url,
-    pk_cred: Arc<PasskeyCredential>,
-    pk_client: Arc<Mutex<PasskeyClient>>,
+    pk_cred: Arc<PKCredential>,
+    pk_client: Arc<Mutex<PKClient>>,
 }
 
 impl InboxOwner for PasskeyUser {
@@ -267,7 +262,7 @@ impl PasskeyUser {
         let pk_aaguid = Aaguid::new_empty();
         let pk_user_validation_method = PkUserValidationMethod {};
         let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = Client::new(pk_auth);
+        let mut pk_client = PasskeyClient::new(pk_auth);
 
         let request = CredentialCreationOptions {
             public_key: PublicKeyCredentialCreationOptions {

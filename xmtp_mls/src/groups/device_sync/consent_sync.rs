@@ -27,7 +27,7 @@ pub(crate) mod tests {
 
     use crate::{
         groups::{device_sync::handle::SyncMetric, scoped_client::ScopedGroupClient},
-        utils::tester::{Tester, XmtpClientWalletTester},
+        utils::tester::*,
     };
     use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
 
@@ -56,7 +56,7 @@ pub(crate) mod tests {
         assert_eq!(syncable_consent_records.len(), 1);
 
         // Create a second installation for amal with sync.
-        let amal_b = amal_a.new_installation().await;
+        let amal_b = amal_a.builder.build().await;
 
         amal_b
             .worker()

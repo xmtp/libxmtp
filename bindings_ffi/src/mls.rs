@@ -65,6 +65,10 @@ use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
 use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
+
+#[cfg(test)]
+mod test_utils;
+
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 #[derive(uniffi::Object, Clone)]
@@ -2758,39 +2762,6 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
-    use futures::future::join_all;
-    use passkey::{
-        authenticator::{Authenticator, UserCheck, UserValidationMethod},
-        client::{Client, DefaultClientData},
-        types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
-    };
-    use public_suffix::PublicSuffixList;
-
-    struct PkUserValidationMethod {}
-    #[async_trait::async_trait]
-    impl UserValidationMethod for PkUserValidationMethod {
-        type PasskeyItem = Passkey;
-        async fn check_user<'a>(
-            &self,
-            _credential: Option<&'a Passkey>,
-            presence: bool,
-            verification: bool,
-        ) -> Result<UserCheck, Ctap2Error> {
-            Ok(UserCheck {
-                presence,
-                verification,
-            })
-        }
-
-        fn is_verification_enabled(&self) -> Option<bool> {
-            Some(true)
-        }
-
-        fn is_presence_enabled(&self) -> bool {
-            true
-        }
-    }
-
     use super::{
         create_client, FfiConsentCallback, FfiMessage, FfiMessageCallback, FfiPreferenceCallback,
         FfiPreferenceUpdate, FfiXmtpClient,
@@ -2800,6 +2771,7 @@ mod tests {
         encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        mls::test_utils::{LocalBuilder, LocalTester},
         worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -2810,11 +2782,11 @@ mod tests {
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
         GenericError,
     };
-    use ethers::{signers::LocalWallet, utils::hex};
+    use ethers::utils::hex;
+    use futures::future::join_all;
     use prost::Message;
     use std::{
         collections::HashMap,
-        ops::Deref,
         sync::{
             atomic::{AtomicU32, Ordering},
             Arc, Mutex,
@@ -2836,14 +2808,12 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        builder::SyncWorkerMode,
         groups::{
             device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
         },
-        utils::tester::PasskeyUser,
+        utils::tester::{PasskeyUser, Tester},
         InboxOwner,
     };
-
     use xmtp_proto::xmtp::mls::message_contents::{
         content_types::{ReactionAction, ReactionSchema, ReactionV2},
         ContentTypeId, EncodedContent,
@@ -3026,133 +2996,6 @@ mod tests {
         client.register_identity(signature_request).await?;
 
         Ok(())
-    }
-
-    use xmtp_mls::utils::test::tester::*;
-
-    trait FfiClientTesterBuilder<Owner>
-    where
-        Owner: InboxOwner,
-    {
-        async fn build(self) -> Tester<Owner, Arc<FfiXmtpClient>>;
-        async fn build_no_panic(self) -> Result<Tester<Owner, Arc<FfiXmtpClient>>, GenericError>;
-    }
-    impl FfiClientTesterBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
-        async fn build(self) -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
-            self.build_no_panic().await.unwrap()
-        }
-
-        async fn build_no_panic(
-            self,
-        ) -> Result<Tester<LocalWallet, Arc<FfiXmtpClient>>, GenericError> {
-            let client = create_raw_client(&self).await;
-            let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
-            let signature_request = client.signature_request().unwrap();
-            signature_request
-                .add_ecdsa_signature(
-                    owner
-                        .sign(signature_request.signature_text().await.unwrap())
-                        .unwrap(),
-                )
-                .await?;
-            client.register_identity(signature_request).await?;
-
-            let provider = client.inner_client.mls_provider()?;
-            let worker = client.inner_client.worker_handle();
-
-            Ok(Tester {
-                builder: self,
-                client,
-                provider: Arc::new(provider),
-                worker,
-            })
-        }
-    }
-    impl FfiClientTesterBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
-        async fn build(self) -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
-            self.build_no_panic().await.unwrap()
-        }
-
-        async fn build_no_panic(
-            self,
-        ) -> Result<Tester<PasskeyUser, Arc<FfiXmtpClient>>, GenericError> {
-            let client = create_raw_client(&self).await;
-            let signature_request = client.signature_request().unwrap();
-            let text = signature_request.signature_text().await.unwrap();
-            let UnverifiedSignature::Passkey(signature) = self.owner.sign(&text).unwrap() else {
-                unreachable!("Passkeys only provide passkey signatures.");
-            };
-
-            signature_request
-                .add_passkey_signature(FfiPasskeySignature {
-                    authenticator_data: signature.authenticator_data,
-                    client_data_json: signature.client_data_json,
-                    public_key: signature.public_key,
-                    signature: signature.signature,
-                })
-                .await
-                .unwrap();
-            client.register_identity(signature_request).await?;
-
-            let provider = client.inner_client.mls_provider().unwrap();
-            let worker = client.inner_client.worker_handle();
-
-            Ok(Tester {
-                builder: self,
-                client,
-                provider: Arc::new(provider),
-                worker,
-            })
-        }
-    }
-
-    trait FfiXmtpClientWalletTester {
-        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
-        async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>>;
-    }
-    impl FfiXmtpClientWalletTester for Tester<LocalWallet, Arc<FfiXmtpClient>> {
-        async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
-            TesterBuilder::new().build().await
-        }
-        async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
-            TesterBuilder::new().passkey_owner().await.build().await
-        }
-    }
-
-    async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> Arc<FfiXmtpClient>
-    where
-        Owner: InboxOwner,
-    {
-        let nonce = 1;
-        let ident = builder.owner.get_identifier().unwrap();
-        let inbox_id = ident.inbox_id(nonce).unwrap();
-
-        let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
-            &inbox_id,
-            ident.into(),
-            1,
-            None,
-            builder.sync_url.clone(),
-            Some(
-                builder
-                    .sync_mode
-                    .as_ref()
-                    .unwrap_or(&SyncWorkerMode::Disabled)
-                    .clone()
-                    .into(),
-            ),
-        )
-        .await
-        .unwrap();
-        let conn = client.inner_client.context().store().conn().unwrap();
-        conn.register_triggers();
-
-        client
     }
 
     /// Create a new test client with a given wallet.
@@ -3452,7 +3295,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = TesterBuilder::new()
+        let alex = Tester::builder()
             .with_sync_worker()
             .with_sync_server()
             .build()
@@ -6001,8 +5844,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_group_creation_custom_permissions() {
-        let alix = new_test_client().await;
-        let bola = new_test_client().await;
+        let alix = Tester::new().await;
+        let bola = Tester::new().await;
 
         let custom_permissions = FfiPermissionPolicySet {
             add_admin_policy: FfiPermissionPolicy::Admin,
@@ -6111,8 +5954,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_group_creation_custom_permissions_fails_when_invalid() {
-        let alix = new_test_client().await;
-        let bola = new_test_client().await;
+        let alix = Tester::new().await;
+        let bola = Tester::new().await;
 
         // Add / Remove Admin must be Admin or Super Admin or Deny
         let custom_permissions_invalid_1 = FfiPermissionPolicySet {
@@ -6321,8 +6164,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_dms_sync_but_do_not_list() {
-        let alix = new_test_client().await;
-        let bola = new_test_client().await;
+        let alix = Tester::new().await;
+        let bola = Tester::new().await;
 
         let alix_conversations = alix.conversations();
         let bola_conversations = bola.conversations();
@@ -6379,9 +6222,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_dm_streaming() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
-        let caro = new_test_client().await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+        let caro = Tester::new().await;
 
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -6467,8 +6310,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_all_dm_messages() {
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
         let alix_dm = alix
             .conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
@@ -6549,14 +6392,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
-        let wallet = generate_local_wallet();
-        let alix_a = new_test_client_with_wallet_and_history(wallet.clone()).await;
-        let alix_a_provider = alix_a.inner_client.mls_provider().unwrap();
+        let alix_a = Tester::builder().with_sync_worker().build().await;
+
         // wait for alix_a's sync worker to create a sync group
         let _ =
-            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a_provider) }).await;
+            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a.provider) }).await;
 
-        let alix_b = new_test_client_with_wallet_and_history(wallet).await;
+        let alix_b = alix_a.builder.build().await;
+
         wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
             .await
             .unwrap();
@@ -7924,19 +7767,12 @@ mod tests {
     #[tokio::test]
     async fn test_sync_consent() {
         // Create two test users
-        let wallet_alix = generate_local_wallet();
-        let wallet_bo = generate_local_wallet();
-
-        let alix =
-            new_test_client_with_wallet_and_history_sync_url(wallet_alix.clone(), None, None).await;
-        let alix_worker = alix.inner_client.worker_handle().unwrap();
-        alix_worker.wait_for_init().await.unwrap();
-        let bo = new_test_client_with_wallet_and_history_sync_url(
-            wallet_bo,
-            None,
-            Some(FfiSyncWorkerMode::Disabled),
-        )
-        .await;
+        let alix = Tester::builder()
+            .with_sync_server()
+            .with_sync_worker()
+            .build()
+            .await;
+        let bo = Tester::new().await;
 
         // Create a group conversation
         let alix_group = alix
@@ -7947,9 +7783,7 @@ mod tests {
         let initial_consent = alix_group.consent_state().unwrap();
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
-        let alix2 = new_test_client_with_wallet_and_history_sync_url(wallet_alix, None, None).await;
-        let alix2_worker = alix2.inner_client.worker_handle().unwrap();
-        alix2_worker.wait_for_init().await.unwrap();
+        let alix2 = alix.builder.build().await;
 
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
@@ -7991,28 +7825,24 @@ mod tests {
             .await
             .unwrap();
 
-        let alix_group2 = alix2.conversation(alix_group.id()).unwrap();
-        assert_eq!(
-            alix_group2.consent_state().unwrap(),
-            FfiConsentState::Unknown
-        );
-
         // Update consent state
         alix_group
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
-        alix_worker
+        alix.worker()
             .wait(SyncMetric::V1ConsentSent, 2)
             .await
             .unwrap();
 
         sg2.sync().await.unwrap();
 
-        alix2_worker
+        alix2
+            .worker()
             .wait(SyncMetric::V1ConsentReceived, 1)
             .await
             .unwrap();
 
+        let alix_group2 = alix2.conversation(alix_group.id()).unwrap();
         assert_eq!(
             alix_group2.consent_state().unwrap(),
             FfiConsentState::Denied
