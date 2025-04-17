@@ -107,7 +107,7 @@ pub trait ScopedGroupClient: Sized {
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
 
-    fn history_sync_url(&self) -> &Option<String>;
+    fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>>;
 
     fn version_info(&self) -> &Arc<VersionInfo>;
 

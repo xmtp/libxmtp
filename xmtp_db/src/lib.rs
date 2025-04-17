@@ -49,6 +49,7 @@ pub mod test_util {
                     intents_created INT DEFAULT 0,
                     intents_published INT DEFAULT 0,
                     intents_deleted INT DEFAULT 0,
+                    intents_processed INT DEFAULT 0,
                     rowid integer PRIMARY KEY CHECK (rowid = 1) -- There can only be one meta
                 );
                 "#,
@@ -62,6 +63,12 @@ pub mod test_util {
                 BEGIN
                     UPDATE test_metadata SET intents_published = intents_published + 1;
                 END;"#,
+                r#"CREATE TRIGGER intents_processed_tracking AFTER UPDATE OF state ON group_intents
+                FOR EACH ROW
+                WHEN NEW.state = 5
+                BEGIN
+                    UPDATE test_metadata SET intents_processed = intents_processed + 1;
+                END;"#,
                 r#"CREATE TRIGGER intents_deleted_tracking AFTER DELETE ON group_intents
                 FOR EACH ROW
                 BEGIN
@@ -70,8 +77,9 @@ pub mod test_util {
                 r#"INSERT INTO test_metadata (
                     intents_created,
                     intents_deleted,
-                    intents_published
-                ) VALUES (0, 0,0);"#,
+                    intents_published,
+                    intents_processed
+                ) VALUES (0, 0, 0, 0);"#,
             ];
 
             for query in queries {
@@ -93,6 +101,22 @@ pub mod test_util {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
+                    ))
+                    .unwrap();
+                let row = row.next().unwrap().unwrap();
+                Ok::<_, StorageError>(
+                    <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
+                        .unwrap(),
+                )
+            })
+            .unwrap()
+        }
+
+        pub fn intents_processed(&self) -> i32 {
+            self.raw_query_read(|conn| {
+                let mut row = conn
+                    .load(sql_query(
+                        "SELECT intents_processed FROM test_metadata WHERE rowid = 1",
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
