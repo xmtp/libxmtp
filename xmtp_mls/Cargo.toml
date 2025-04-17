@@ -58,6 +58,7 @@ futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
 hkdf.workspace = true
+openmls_libcrux_crypto = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 parking_lot.workspace = true
