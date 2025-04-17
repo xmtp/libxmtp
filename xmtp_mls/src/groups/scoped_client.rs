@@ -109,8 +109,6 @@ pub trait ScopedGroupClient: Sized {
 
     fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>>;
 
-    fn history_sync_url(&self) -> &Option<String>;
-
     fn version_info(&self) -> &Arc<VersionInfo>;
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
