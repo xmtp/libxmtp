@@ -3815,8 +3815,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_group_with_members() {
-        let amal = new_test_client().await;
-        let bola = new_test_client().await;
+        let amal = Tester::new().await;
+        let bola = Tester::new().await;
 
         let group = amal
             .conversations()
