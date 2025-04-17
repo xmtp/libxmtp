@@ -5791,7 +5791,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
-    #[xmtp_common::test(flavor = "multi_thread")]
+    #[wasm_bindgen_test(unsupported = tokio::test(flavor = "multi_thread", worker_threads = 8))]
     async fn can_stream_out_of_order_without_forking() {
         let wallet_a = generate_local_wallet();
         let wallet_b = generate_local_wallet();
