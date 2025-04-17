@@ -181,7 +181,7 @@ impl<ScopedClient> MlsGroup<ScopedClient>
 where
     ScopedClient: ScopedGroupClient,
 {
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument]
     pub async fn sync(&self) -> Result<(), GroupError> {
         let mls_provider = self.context().mls_provider()?;
         let conn = mls_provider.conn_ref();
@@ -212,7 +212,7 @@ where
     }
 
     // TODO: Should probably be renamed to `sync_with_provider`
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(provider))]
     pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
@@ -509,7 +509,10 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        skip(mls_group, commit, intent, provider, message, envelope)
+    )]
     fn process_own_message(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -566,7 +569,7 @@ where
         Ok(IntentState::Committed)
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, mls_group, message, envelope))]
     async fn validate_and_process_external_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -586,13 +589,16 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider.transaction(|provider| {
-            processed_message = Some(mls_group.process_message(provider, message.clone()));
-            // Rollback the transaction. We want to synchronize with the server before committing.
-            Err::<(), StorageError>(StorageError::IntentionalRollback)
-        });
-        if !matches!(result, Err(StorageError::IntentionalRollback)) {
-            result?;
+        let result = provider
+            .transaction(|provider| {
+                processed_message = Some(mls_group.process_message(provider, message.clone()));
+                // Rollback the transaction. We want to synchronize with the server before committing.
+                Err::<(), StorageError>(StorageError::IntentionalRollback)
+            })
+            .unwrap_err();
+        if !matches!(result, StorageError::IntentionalRollback) {
+            tracing::debug!("immutable process message failed, {}", result);
+            return Err(result.into());
         }
         let processed_message = processed_message.expect("Was just set to Some")?;
 
@@ -698,7 +704,10 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        skip(provider, mls_group, processed_message, envelope, validated_commit)
+    )]
     fn process_external_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -918,7 +927,7 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
+    #[tracing::instrument(skip(provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1121,7 +1130,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, envelope))]
     async fn consume_message(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -1194,7 +1203,7 @@ where
         }
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(messages, provider))]
     pub async fn process_messages(
         &self,
         messages: Vec<GroupMessage>,
@@ -1247,7 +1256,7 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(level = "debug", skip(provider))]
     pub(super) async fn receive(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
         let messages = self
             .client
@@ -1321,7 +1330,7 @@ where
         Ok(Some(msg))
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(provider))]
     pub(super) async fn publish_intents(
         &self,
         provider: &XmtpOpenMlsProvider,

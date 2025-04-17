@@ -378,6 +378,7 @@ impl ConnectionExt for NativeDbConnection {
         })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -385,6 +386,7 @@ impl ConnectionExt for NativeDbConnection {
         Self: Sized,
     {
         if self.in_transaction.load(Ordering::SeqCst) {
+            tracing::debug!("read in transaction");
             let mut conn = self.write.lock();
             return fun(&mut *conn)
                 .map_err(ConnectionError::from)
@@ -411,6 +413,7 @@ impl ConnectionExt for NativeDbConnection {
         };
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

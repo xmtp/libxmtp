@@ -291,6 +291,26 @@ pub struct MlsGroup<C> {
     mutex: Arc<Mutex<()>>,
 }
 
+impl<C> std::fmt::Debug for MlsGroup<C>
+where
+    C: ScopedGroupClient,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let id = xmtp_common::fmt::truncate_hex(hex::encode(&self.group_id));
+        let inbox_id = self.client.inbox_id();
+        let installation = self.client.installation_id().to_string();
+        let time = chrono::DateTime::from_timestamp_nanos(self.created_at_ns);
+        write!(
+            f,
+            "Group {{ id: [{}], created: [{}], client: [{}], installation: [{}] }}",
+            id,
+            time.format("%H:%M:%S"),
+            inbox_id,
+            installation
+        )
+    }
+}
+
 pub struct ConversationListItem<C> {
     pub group: MlsGroup<C>,
     pub last_message: Option<StoredGroupMessage>,
@@ -447,7 +467,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
         provider: impl OpenMlsProvider,
@@ -472,7 +492,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "debug", skip(provider, operation))]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         provider: &XmtpOpenMlsProvider,

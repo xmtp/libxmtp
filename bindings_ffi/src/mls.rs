@@ -1308,6 +1308,7 @@ impl FfiConversations {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
@@ -7765,9 +7766,10 @@ mod tests {
         let alix = Tester::builder()
             .with_sync_server()
             .with_sync_worker()
+            .with_name("alix")
             .build()
             .await;
-        let bo = Tester::new().await;
+        let bo = Tester::builder().with_name("bo").build().await;
 
         // Create a group conversation
         let alix_group = alix
@@ -7779,7 +7781,6 @@ mod tests {
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
         let alix2 = alix.builder.build().await;
-
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
 

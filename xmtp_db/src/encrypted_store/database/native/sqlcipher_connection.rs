@@ -299,10 +299,13 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
         conn.batch_execute(&format!(
             "{}
             PRAGMA query_only = ON;
+            PRAGMA journal_mode = WAL;
             PRAGMA busy_timeout = 5000;",
             self.pragmas()
         ))
         .map_err(diesel::r2d2::Error::QueryError)?;
+        conn.batch_execute(&format!("PRAGMA journal_mode = WAL;"))
+            .map_err(diesel::r2d2::Error::QueryError)?;
 
         Ok(())
     }

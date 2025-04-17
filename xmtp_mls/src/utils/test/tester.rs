@@ -17,6 +17,7 @@ use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_common::InboxIdReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_id::{
@@ -43,6 +44,9 @@ where
     pub client: Client,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    /// Replacement names for this tester
+    /// Replacements are removed on drop
+    pub replace: InboxIdReplace,
 }
 
 pub(crate) trait LocalTester {
@@ -79,7 +83,19 @@ where
     Owner: InboxOwner + Clone,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
+        let mut replace = InboxIdReplace::default();
+        if let Some(name) = &self.name {
+            let ident = self.owner.get_identifier().unwrap();
+            replace.add(&ident.to_string(), &format!("{name}_ident"));
+        }
         let client = ClientBuilder::new_test_client(&self.owner).await;
+        if let Some(name) = &self.name {
+            replace.add(
+                &client.installation_public_key().to_string(),
+                &format!("{name}_installation"),
+            );
+            replace.add(client.inbox_id(), &name);
+        }
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
@@ -94,6 +110,7 @@ where
             client,
             provider: Arc::new(provider),
             worker,
+            replace,
         }
     }
 }
@@ -140,6 +157,7 @@ where
     pub sync_mode: SyncWorkerMode,
     pub sync_url: Option<String>,
     pub wait_for_init: bool,
+    pub name: Option<String>,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -155,6 +173,7 @@ impl Default for TesterBuilder<LocalWallet> {
             sync_mode: SyncWorkerMode::Disabled,
             sync_url: None,
             wait_for_init: true,
+            name: None,
         }
     }
 }
@@ -172,6 +191,17 @@ where
             sync_mode: self.sync_mode,
             sync_url: self.sync_url,
             wait_for_init: self.wait_for_init,
+            name: self.name,
+        }
+    }
+
+    /// Assign a name to this tester
+    /// Replaces log output of InstallationIds, Identifiers, and InboxIds
+    /// when using CONTEXTUAL = 1
+    pub fn with_name(self, s: &str) -> TesterBuilder<Owner> {
+        Self {
+            name: Some(s.to_string()),
+            ..self
         }
     }
 

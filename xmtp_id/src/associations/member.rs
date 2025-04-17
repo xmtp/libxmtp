@@ -343,12 +343,23 @@ impl TryFrom<ApiIdentifier> for Identifier {
 }
 
 /// A Member of Inbox
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Member {
     pub identifier: MemberIdentifier,
     pub added_by_entity: Option<MemberIdentifier>,
     pub client_timestamp_ns: Option<u64>,
     pub added_on_chain_id: Option<u64>,
+}
+
+impl std::fmt::Debug for Member {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Member {{ identifier: {:?}, added_by {:?}, client_timestamp: {:?}, added_on_chain: {:?} }}",
+            self.identifier,
+            self.added_by_entity,
+            self.client_timestamp_ns,
+            self.added_on_chain_id
+        )
+    }
 }
 
 impl Member {

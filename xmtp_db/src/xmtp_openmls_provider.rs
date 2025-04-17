@@ -48,6 +48,7 @@ where
     ///     provider.conn().db_operation()?;
     /// })
     /// ```
+    #[tracing::instrument(level = "debug", skip_all)]
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
