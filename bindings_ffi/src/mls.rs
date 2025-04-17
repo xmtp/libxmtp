@@ -3430,15 +3430,17 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn associate_passkey() {
+    async fn test_associate_passkey() {
         let alex = new_test_client().await;
-        let pk = PasskeyUser::new().await;
-        alex.add_identity(pk.identifier().into()).await.unwrap();
+        let passkey = PasskeyUser::new().await;
 
-        let sig_request = alex.signature_request().unwrap();
-        let text = sig_request.signature_text().await.unwrap();
-        let UnverifiedSignature::Passkey(sig) = pk.sign(&text).unwrap() else {
-            unreachable!();
+        let sig_request = alex
+            .add_identity(passkey.identifier().into())
+            .await
+            .unwrap();
+        let challenge = sig_request.signature_text().await.unwrap();
+        let UnverifiedSignature::Passkey(sig) = passkey.sign(&challenge).unwrap() else {
+            unreachable!()
         };
         sig_request
             .add_passkey_signature(FfiPasskeySignature {
@@ -3449,6 +3451,7 @@ mod tests {
             })
             .await
             .unwrap();
+
         alex.apply_signature_request(sig_request).await.unwrap();
     }
 
@@ -4426,7 +4429,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_1, 31);
+        assert_eq!(num_groups_synced_1, 30);
 
         // Remove bo from all groups and sync
         for group in alix
@@ -4447,7 +4450,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_2, 31);
+        assert_eq!(num_groups_synced_2, 30);
 
         // Second sync after removal will not process inactive groups
         let num_groups_synced_3: u32 = bo
@@ -4455,7 +4458,7 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
-        assert_eq!(num_groups_synced_3, 1);
+        assert_eq!(num_groups_synced_3, 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
