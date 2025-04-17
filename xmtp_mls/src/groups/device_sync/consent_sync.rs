@@ -69,6 +69,8 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
+        amal_a.test_has_same_sync_group_as(&amal_b).await.unwrap();
+
         amal_a
             .get_sync_group(&amal_a.provider)
             .unwrap()
