@@ -42,6 +42,7 @@ use xmtp_db::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     EncryptedMessageStore, NotFound, StorageError,
 };
+use xmtp_id::AsIdRef;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -608,19 +609,20 @@ where
     /// Find or create a Direct Message by inbox_id with the default settings
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
-        inbox_id: InboxId,
+        inbox_id: impl AsIdRef,
         opts: DMMetadataOptions,
     ) -> Result<MlsGroup<Self>, ClientError> {
+        let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider()?;
         let group = provider.conn_ref().find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
-            member_two_inbox_id: &inbox_id,
+            member_two_inbox_id: inbox_id,
         })?;
         if let Some(group) = group {
             return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
         }
-        self.create_dm_by_inbox_id(inbox_id, opts).await
+        self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
 
     /// Look up a group by its ID

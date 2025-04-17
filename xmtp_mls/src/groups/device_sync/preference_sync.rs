@@ -129,7 +129,7 @@ mod tests {
             device_sync::{handle::SyncMetric, preference_sync::UserPreferenceUpdate},
             scoped_client::ScopedGroupClient,
         },
-        utils::tester::{Tester, XmtpClientWalletTester},
+        utils::tester::{LocalTester, Tester, XmtpClientTesterBuilder},
     };
     use serde::{Deserialize, Serialize};
     use xmtp_db::{
@@ -163,7 +163,7 @@ mod tests {
     #[xmtp_common::test]
     async fn test_hmac_sync() {
         let amal_a = Tester::new().await;
-        let amal_b = amal_a.new_installation().await;
+        let amal_b = amal_a.builder.build().await;
 
         // wait for the new sync group
         amal_a.worker().wait_for_init().await.unwrap();
