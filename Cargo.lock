@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "futures",
  "hex",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "console_error_panic_hook",
  "futures",
@@ -1075,9 +1075,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.13"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33480d6946193aa8033910124896ca395333cae7e2d1113d1fef6c3272217df2"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -3172,7 +3172,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3873,9 +3873,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.70"
+version = "0.10.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61cfb4e166a8bb8c9b55c500bc2308550148ece889be90f609377e58140f42c6"
+checksum = "fedfea7d58a1f73118430a55da6a286e7b044961736ce96a16a17068ea25e5da"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -3914,9 +3914,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.105"
+version = "0.9.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b22d5b84be05a8d6947c7cb71f7c849aa0f112acd4bf51c2a7c1c988ac0a9dc"
+checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
 dependencies = [
  "cc",
  "libc",
@@ -5986,9 +5986,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.43.0"
+version = "1.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d61fa4ffa3de412bfea335c6ecff681de2b609ba3c77ef3e00e521813a9ed9e"
+checksum = "e6b88822cbe49de4185e3a4cbf8321dd487cf5fe0c5c65695fef6346371e9c48"
 dependencies = [
  "backtrace",
  "bytes",
@@ -7413,7 +7413,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "ctor",
@@ -7431,7 +7431,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "derive_builder",
@@ -7448,7 +7448,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7470,7 +7470,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7491,7 +7491,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "chrono",
  "clap",
@@ -7523,7 +7523,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -7554,7 +7554,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "hex",
  "libsecp256k1",
@@ -7572,7 +7572,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "bincode",
  "curve25519-dalek",
@@ -7600,7 +7600,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7636,7 +7636,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -7709,7 +7709,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "dynosaur",
@@ -7733,7 +7733,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "async-trait",
  "coset",
