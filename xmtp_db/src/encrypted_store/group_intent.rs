@@ -261,7 +261,7 @@ impl DbConnection {
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query_write(|conn| {
+        let rows_changed = self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from

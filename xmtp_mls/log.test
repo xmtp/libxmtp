@@ -1,0 +1,372 @@
+
+running 141 tests
+test groups::device_sync::message_sync::tests::test_generate_nonce ... ok
+test groups::device_sync::message_sync::tests::test_new_pin ... ok
+test groups::device_sync::message_sync::tests::test_new_key ... ok
+test groups::device_sync::message_sync::tests::test_new_request_id ... ok
+test groups::device_sync::preference_sync::tests::test_can_deserialize_between_versions ... ok
+test builder::tests::stored_identity_happy_path ... ok
+test groups::group_membership::tests::test_diff ... ok
+test groups::group_membership::tests::test_equality_works ... ok
+test builder::tests::api_identity_mismatch ... ok
+test groups::group_metadata::tests::test_dm_members_sort ... ok
+test groups::group_permissions::tests::test_allow_all ... ok
+test groups::group_permissions::tests::test_and_condition ... ok
+test groups::group_permissions::tests::test_actor_is_creator ... ok
+test builder::tests::stored_identity_mismatch ... ok
+test groups::group_permissions::tests::test_any_condition ... ok
+test groups::group_permissions::tests::test_deny ... ok
+test groups::group_permissions::tests::test_permission_update ... ok
+test groups::group_permissions::tests::test_preconfigured_policy ... ok
+test groups::group_permissions::tests::test_evaluate_field_with_unknown_policy ... ok
+test groups::group_permissions::tests::test_preconfigured_policy_equality_new_metadata ... ok
+test groups::group_permissions::tests::test_dm_group_permissions ... ok
+test groups::group_permissions::tests::test_serialize ... ok
+test groups::group_permissions::tests::test_update_group_name ... ok
+test groups::intents::tests::test_serialize_send_message ... ok
+test groups::intents::tests::test_serialize_update_metadata ... ok
+test groups::intents::tests::test_serialize_update_membership ... ok
+test builder::tests::api_identity_happy_path ... ok
+test builder::tests::builder_test ... ok
+test client::tests::test_find_inbox_id ... ok
+test client::tests::test_find_groups ... ok
+test groups::device_sync::message_sync::tests::test_prepare_groups_to_sync ... ok
+test client::tests::test_welcome_encryption ... ok
+test client::tests::test_rotate_key_package ... ok
+test builder::tests::identity_persistence_test ... ok
+test groups::mls_sync::tests::hmac_keys_work_as_expected ... ok
+test builder::tests::test_2nd_time_client_creation ... ok
+test groups::device_sync::message_sync::tests::test_externals_cant_join_sync_group ... ok
+test client::tests::test_register_installation ... ok
+test client::tests::test_sync_welcomes ... ok
+test groups::subscriptions::tests::test_subscribe_multiple ... ok
+test client::tests::test_find_or_create_dm_by_inbox_id ... ok
+test client::tests::test_sync_all_groups ... ok
+test groups::device_sync::message_sync::tests::test_sync_continues_during_db_disconnect ... ok
+test client::tests::test_sync_all_groups_and_welcomes ... ok
+test groups::device_sync::preference_sync::tests::test_hmac_sync ... ok
+test groups::mls_sync::tests::publish_intents_worst_case_scenario ... ok
+test client::tests::test_add_remove_then_add_again ... ok
+test client::tests::test_key_package_rotation ... ok
+test groups::subscriptions::tests::test_decode_group_message_bytes ... ok
+2025-04-17T14:26:03.741024Z  INFO xmtp_mls::groups::tests: TEST
+2025-04-17T14:26:03.743845Z  INFO new:new_database: xmtp_db::encrypted_store: Setting up DB connection pool
+2025-04-17T14:26:03.744820Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/CtiyqDXCij7bRC9n0C4PVvsr.db3] exists? [true]
+2025-04-17T14:26:03.745844Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: migrating sqlcipher db=[/tmp/CtiyqDXCij7bRC9n0C4PVvsr.db3] to plaintext header with salt=[/tmp/CtiyqDXCij7bRC9n0C4PVvsr.db3.sqlcipher_salt]
+2025-04-17T14:26:03.747431Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: writing salt to file salt="fb9e0dc83aef3cde470b5a4b58fae01c" file=/tmp/CtiyqDXCij7bRC9n0C4PVvsr.db3.sqlcipher_salt
+2025-04-17T14:26:03.767068Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/CtiyqDXCij7bRC9n0C4PVvsr.db3] exists? [true]
+2025-04-17T14:26:03.768268Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: Sqlite cipher_version="4.6.1 community", cipher_provider_version="OpenSSL 3.4.1 11 Feb 2025"
+2025-04-17T14:26:03.768302Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: SQLCipher Database validated.
+2025-04-17T14:26:03.770723Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Running DB migrations
+test groups::subscriptions::tests::test_subscribe_membership_changes ... ok
+test groups::tests::respect_allow_epoch_increment ... ok
+test groups::device_sync::consent_sync::tests::test_consent_sync ... ok
+test groups::tests::test_add_invalid_member ... ok
+test groups::device_sync::backup::tests::test_buffer_export_import ... ok
+test groups::device_sync::backup::tests::test_file_backup ... ok
+test groups::tests::add_missing_installs_reentrancy ... ok
+test client::tests::test_group_member_recovery ... ok
+test groups::tests::test_add_unregistered_member ... ok
+test groups::subscriptions::tests::test_subscribe_messages ... ok
+test groups::intents::tests::test_key_rotation_before_first_message ... ok
+test groups::tests::test_can_read_group_creator_inbox_id ... ok
+2025-04-17T14:26:04.134634Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: sqlite_version=3.46.1
+2025-04-17T14:26:04.134683Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Migrations successful
+2025-04-17T14:26:04.134730Z  INFO xmtp_mls::identity: Initializing identity
+2025-04-17T14:26:04.147197Z DEBUG xmtp_mls::identity: identity in store: None
+2025-04-17T14:26:04.147254Z  INFO get_inbox_ids{account_identifiers=[ApiIdentifier { identifier: "0x28eef6a34d528baedffa31e756c7c71e17c606bd", identifier_kind: Ethereum }] len=1}: xmtp_api::identity: Getting inbox_ids for account identities: [ApiIdentifier { identifier: "0x28eef6a34d528baedffa31e756c7c71e17c606bd", identifier_kind: Ethereum }]
+2025-04-17T14:26:04.157444Z  INFO xmtp_id::associations::builder: adding verified signature signer=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 missing_signatures=[Address("0x28eef6a34d528baedffa31e756c7c71e17c606bd"), Installation("5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"), Address("0x28eef6a34d528baedffa31e756c7c71e17c606bd")]
+2025-04-17T14:26:04.157483Z DEBUG xmtp_mls::builder: Initialized identity inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.157503Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"]
+2025-04-17T14:26:04.158952Z DEBUG xmtp_mls::groups::device_sync: starting sync worker inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.159008Z  INFO xmtp_db::test_util: Registering triggers
+2025-04-17T14:26:04.167589Z  INFO xmtp_id::associations::builder: adding verified signature signer=0x28eef6a34d528baedffa31e756c7c71e17c606bd missing_signatures=[Address("0x28eef6a34d528baedffa31e756c7c71e17c606bd"), Address("0x28eef6a34d528baedffa31e756c7c71e17c606bd")]
+2025-04-17T14:26:04.167624Z  INFO xmtp_mls::client: registering identity
+2025-04-17T14:26:04.185496Z DEBUG upload_key_package: xmtp_api::mls: upload key packages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.186930Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.187682Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.204920Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"]
+2025-04-17T14:26:04.207305Z  INFO xmtp_mls::groups::device_sync: Initializing device sync... url: None inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.209461Z  INFO xmtp_mls::client: creating sync group
+2025-04-17T14:26:04.213784Z DEBUG load_mls_group_with_lock_async: xmtp_mls::identity_updates: Fetching identity updates for: ["82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"]
+2025-04-17T14:26:04.214514Z  INFO new:new_database: xmtp_db::encrypted_store: Setting up DB connection pool
+2025-04-17T14:26:04.215779Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/VTi965AuxR0wekKjMsx8NgQw.db3] exists? [true]
+2025-04-17T14:26:04.216546Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: migrating sqlcipher db=[/tmp/VTi965AuxR0wekKjMsx8NgQw.db3] to plaintext header with salt=[/tmp/VTi965AuxR0wekKjMsx8NgQw.db3.sqlcipher_salt]
+2025-04-17T14:26:04.218223Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: writing salt to file salt="cc13d600e79adb4a565f1328cfe73352" file=/tmp/VTi965AuxR0wekKjMsx8NgQw.db3.sqlcipher_salt
+test groups::tests::test_add_inbox ... ok
+2025-04-17T14:26:04.233192Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/VTi965AuxR0wekKjMsx8NgQw.db3] exists? [true]
+2025-04-17T14:26:04.233905Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: Sqlite cipher_version="4.6.1 community", cipher_provider_version="OpenSSL 3.4.1 11 Feb 2025"
+2025-04-17T14:26:04.233934Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: SQLCipher Database validated.
+2025-04-17T14:26:04.235251Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Running DB migrations
+test groups::tests::skip_already_processed_messages ... ok
+test groups::device_sync::message_sync::tests::test_message_history_sync ... ok
+test groups::tests::test_increment_patch_version ... ok
+test client::tests::test_mls_error ... ok
+test groups::tests::test_max_limit_add ... ignored
+2025-04-17T14:26:04.600359Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: sqlite_version=3.46.1
+2025-04-17T14:26:04.600408Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Migrations successful
+2025-04-17T14:26:04.600459Z  INFO xmtp_mls::identity: Initializing identity
+test groups::tests::test_group_options ... ok
+2025-04-17T14:26:04.612354Z DEBUG xmtp_mls::identity: identity in store: None
+2025-04-17T14:26:04.612412Z  INFO get_inbox_ids{account_identifiers=[ApiIdentifier { identifier: "0x23887b6da3544f3cc43b8b8b410bd42922371bed", identifier_kind: Ethereum }] len=1}: xmtp_api::identity: Getting inbox_ids for account identities: [ApiIdentifier { identifier: "0x23887b6da3544f3cc43b8b8b410bd42922371bed", identifier_kind: Ethereum }]
+2025-04-17T14:26:04.612961Z  INFO load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 0}, failed_installations: [] }. New GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}, failed_installations: [] }
+2025-04-17T14:26:04.613079Z DEBUG load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" from None to Some(3185)
+2025-04-17T14:26:04.631357Z DEBUG load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Wrote association state to cache: 82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b 3185
+2025-04-17T14:26:04.631430Z  INFO load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: trying to validate keypackages
+2025-04-17T14:26:04.631494Z DEBUG xmtp_mls::groups::mls_sync: Adding missing installations UpdateGroupMembershipIntentData { membership_updates: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}, removed_members: [], failed_installations: [] } inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8
+2025-04-17T14:26:04.631530Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.634300Z DEBUG xmtp_mls::groups::intents: queued intent inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" intent_kind=UpdateGroupMembership
+2025-04-17T14:26:04.634479Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.636250Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::intents: old group membership: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 0}
+2025-04-17T14:26:04.636289Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::intents: updated group membership: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}
+2025-04-17T14:26:04.636326Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 0}, failed_installations: [] }. New GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}, failed_installations: [] }
+2025-04-17T14:26:04.636486Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" from None to Some(3185)
+2025-04-17T14:26:04.636679Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b 3185
+2025-04-17T14:26:04.636780Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: trying to validate keypackages
+2025-04-17T14:26:04.641474Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] set stored intent [1] to state `published` inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 intent.id=1 intent.kind=UpdateGroupMembership group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.642776Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async:send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.653138Z  INFO xmtp_id::associations::builder: adding verified signature signer=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 missing_signatures=[Address("0x23887b6da3544f3cc43b8b8b410bd42922371bed"), Installation("b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"), Address("0x23887b6da3544f3cc43b8b8b410bd42922371bed")]
+2025-04-17T14:26:04.653202Z DEBUG xmtp_mls::builder: Initialized identity inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"
+2025-04-17T14:26:04.653235Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"]
+2025-04-17T14:26:04.654029Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] published intent [1] of type [UpdateGroupMembership] intent.id=1 intent.kind=UpdateGroupMembership inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.654071Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: Commit sent. Stopping further publishes for this round
+2025-04-17T14:26:04.655662Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:query_group_messages{id_cursor=Some(0) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=0 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.656150Z DEBUG xmtp_mls::groups::device_sync: starting sync worker inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"
+2025-04-17T14:26:04.656205Z  INFO xmtp_db::test_util: Registering triggers
+2025-04-17T14:26:04.666006Z  INFO xmtp_id::associations::builder: adding verified signature signer=0x23887b6da3544f3cc43b8b8b410bd42922371bed missing_signatures=[Address("0x23887b6da3544f3cc43b8b8b410bd42922371bed"), Address("0x23887b6da3544f3cc43b8b8b410bd42922371bed")]
+2025-04-17T14:26:04.666035Z  INFO xmtp_mls::client: registering identity
+2025-04-17T14:26:04.686092Z DEBUG upload_key_package: xmtp_api::mls: upload key packages inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.689519Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: Processing envelope with hash 95c83915e01fcdcf94c877dddd2bf9ef516740b85d0253201a2bfb285ef79f00, id = 15625 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15625
+2025-04-17T14:26:04.689579Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: client [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] is about to process own envelope [15625] for intent [1] inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15625 intent_id=1 intent.kind=UpdateGroupMembership
+2025-04-17T14:26:04.690842Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] Validating commit for intent 1. Message timestamp: 1744899964643786000
+2025-04-17T14:26:04.690988Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::validated_commit: Group context extensions proposal found: GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}, failed_installations: [] }
+2025-04-17T14:26:04.691044Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 0}, failed_installations: [] }. New GroupMembership { members: {"82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b": 3185}, failed_installations: [] }
+2025-04-17T14:26:04.691206Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" from None to Some(3185)
+2025-04-17T14:26:04.691419Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b 3185
+2025-04-17T14:26:04.691574Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b 3185
+2025-04-17T14:26:04.691666Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.692799Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b]-[e992b72e98a44a05192743f7091139e5] processing own message for intent 1 / UpdateGroupMembership, message_epoch: 0 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15625 intent.id=1 intent.kind=UpdateGroupMembership
+2025-04-17T14:26:04.692864Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] merging pending commit for intent 1
+2025-04-17T14:26:04.694444Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.694526Z  INFO sync_until_intent_resolved:sync_with_conn:receive: xmtp_mls::groups::mls_sync: Transaction completed successfully: process for group [e992b72e98a44a05192743f7091139e5] envelope cursor[15625]
+test builder::tests::test_client_creation ... ok
+2025-04-17T14:26:04.699529Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15625) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15625 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.700573Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.701577Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.717074Z  INFO xmtp_mls::groups::device_sync: Sending a sync request for Consent inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.721536Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15625) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15625 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.724037Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15625) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15625 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.724483Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"]
+2025-04-17T14:26:04.729570Z DEBUG xmtp_mls::groups: No queryable content fields, msg not formatted as encoded content
+2025-04-17T14:26:04.729589Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.730913Z DEBUG xmtp_mls::groups::intents: queued intent inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" intent_kind=SendMessage
+2025-04-17T14:26:04.731059Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.736833Z DEBUG publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] set stored intent [2] to state `published` inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 intent.id=2 intent.kind=SendMessage group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.737170Z DEBUG publish_intents:load_mls_group_with_lock_async:send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.739034Z  INFO xmtp_mls::client: creating group
+2025-04-17T14:26:04.758012Z DEBUG send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.758103Z  INFO xmtp_mls::groups::device_sync: Initializing device sync... url: None inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"
+2025-04-17T14:26:04.760512Z  INFO xmtp_mls::client: creating sync group
+2025-04-17T14:26:04.765662Z DEBUG load_mls_group_with_lock_async: xmtp_mls::identity_updates: Fetching identity updates for: ["92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"]
+2025-04-17T14:26:04.766479Z  INFO publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] published intent [2] of type [SendMessage] intent.id=2 intent.kind=SendMessage inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.766578Z  INFO xmtp_mls::groups::device_sync: Sending a sync request for MessageHistory inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.768394Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15625) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15625 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.769040Z  INFO load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 0}, failed_installations: [] }. New GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}, failed_installations: [] }
+2025-04-17T14:26:04.769161Z DEBUG load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" from None to Some(3208)
+2025-04-17T14:26:04.786920Z DEBUG load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Wrote association state to cache: 92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d 3208
+2025-04-17T14:26:04.787013Z  INFO load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: trying to validate keypackages
+2025-04-17T14:26:04.787099Z DEBUG xmtp_mls::groups::mls_sync: Adding missing installations UpdateGroupMembershipIntentData { membership_updates: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}, removed_members: [], failed_installations: [] } inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89
+2025-04-17T14:26:04.787148Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.790553Z DEBUG xmtp_mls::groups::intents: queued intent inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" intent_kind=UpdateGroupMembership
+2025-04-17T14:26:04.790741Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.792900Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::intents: old group membership: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 0}
+2025-04-17T14:26:04.792986Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::intents: updated group membership: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}
+2025-04-17T14:26:04.793021Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 0}, failed_installations: [] }. New GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}, failed_installations: [] }
+2025-04-17T14:26:04.793209Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" from None to Some(3208)
+2025-04-17T14:26:04.793437Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d 3208
+2025-04-17T14:26:04.793572Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: trying to validate keypackages
+2025-04-17T14:26:04.798837Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d] set stored intent [1] to state `published` inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 intent.id=1 intent.kind=UpdateGroupMembership group_id="0402aef6727aadc06433943d13ba0e4c"
+2025-04-17T14:26:04.801116Z DEBUG sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async:send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.802673Z DEBUG xmtp_mls::groups::mls_sync: total welcome message proto bytes=1604
+2025-04-17T14:26:04.802693Z DEBUG xmtp_mls::groups::mls_sync: welcome chunk_size=29417
+2025-04-17T14:26:04.802720Z DEBUG send_welcome_messages: xmtp_api::mls: send welcome messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.803557Z  INFO sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: Processing envelope with hash 92495400f81cd6691f0cf961874030d6f85454716607ac2fc60108a33123ae8e, id = 15645 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15645
+2025-04-17T14:26:04.803614Z  INFO sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: client [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] is about to process own envelope [15645] for intent [2] inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15645 intent_id=2 intent.kind=SendMessage
+2025-04-17T14:26:04.804575Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.804719Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b]-[e992b72e98a44a05192743f7091139e5] processing own message for intent 2 / SendMessage, message_epoch: 1 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15645 intent.id=2 intent.kind=SendMessage
+2025-04-17T14:26:04.805408Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.805490Z  INFO sync_with_conn:receive: xmtp_mls::groups::mls_sync: Transaction completed successfully: process for group [e992b72e98a44a05192743f7091139e5] envelope cursor[15645]
+2025-04-17T14:26:04.807828Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15645) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15645 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.808511Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d] published intent [1] of type [UpdateGroupMembership] intent.id=1 intent.kind=UpdateGroupMembership inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 group_id="0402aef6727aadc06433943d13ba0e4c"
+2025-04-17T14:26:04.808551Z  INFO sync_until_intent_resolved:sync_with_conn:publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: Commit sent. Stopping further publishes for this round
+2025-04-17T14:26:04.811289Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:query_group_messages{id_cursor=Some(0) group_id="0402aef6727aadc06433943d13ba0e4c"}: xmtp_api::mls: query group messages group_id="0402aef6727aadc06433943d13ba0e4c" id_cursor=0 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.813143Z DEBUG xmtp_mls::groups: No queryable content fields, msg not formatted as encoded content
+2025-04-17T14:26:04.813174Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.814420Z DEBUG xmtp_mls::groups::intents: queued intent inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" intent_kind=SendMessage
+2025-04-17T14:26:04.814591Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.817969Z DEBUG publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] set stored intent [3] to state `published` inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 intent.id=3 intent.kind=SendMessage group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.818268Z DEBUG publish_intents:load_mls_group_with_lock_async:send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.818936Z DEBUG sync_welcomes:query_welcome_messages{id_cursor=Some(0) installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"}: xmtp_api::mls: query welcomes installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89" cursor=0 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.821069Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: Processing envelope with hash 8bf80e790e8a80d502528dc4e379be841dc3b74174d2ec36b86f5ce07c02fe9d, id = 15657 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 group_id="0402aef6727aadc06433943d13ba0e4c" cursor=15657
+2025-04-17T14:26:04.821115Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: client [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d] is about to process own envelope [15657] for intent [1] inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 group_id="0402aef6727aadc06433943d13ba0e4c" cursor=15657 intent_id=1 intent.kind=UpdateGroupMembership
+2025-04-17T14:26:04.822385Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d] Validating commit for intent 1. Message timestamp: 1744899964802609000
+2025-04-17T14:26:04.822533Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::validated_commit: Group context extensions proposal found: GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}, failed_installations: [] }
+2025-04-17T14:26:04.822579Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Getting installation diff. Old: GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 0}, failed_installations: [] }. New GroupMembership { members: {"92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d": 3208}, failed_installations: [] }
+2025-04-17T14:26:04.822729Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::identity_updates: Computing diff for "92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" from None to Some(3208)
+2025-04-17T14:26:04.822931Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d 3208
+2025-04-17T14:26:04.823121Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::encrypted_store::association_state: Loaded association state from cache: 92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d 3208
+2025-04-17T14:26:04.823228Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.823871Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d]-[0402aef6727aadc06433943d13ba0e4c] processing own message for intent 1 / UpdateGroupMembership, message_epoch: 0 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id=b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89 group_id="0402aef6727aadc06433943d13ba0e4c" cursor=15657 intent.id=1 intent.kind=UpdateGroupMembership
+2025-04-17T14:26:04.823927Z  INFO sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d] merging pending commit for intent 1
+2025-04-17T14:26:04.825058Z DEBUG sync_until_intent_resolved:sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.825139Z  INFO sync_until_intent_resolved:sync_with_conn:receive: xmtp_mls::groups::mls_sync: Transaction completed successfully: process for group [0402aef6727aadc06433943d13ba0e4c] envelope cursor[15657]
+2025-04-17T14:26:04.829192Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15657) group_id="0402aef6727aadc06433943d13ba0e4c"}: xmtp_api::mls: query group messages group_id="0402aef6727aadc06433943d13ba0e4c" id_cursor=15657 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.830144Z  INFO publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] published intent [3] of type [SendMessage] intent.id=3 intent.kind=SendMessage inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.830240Z  INFO xmtp_mls::groups::device_sync: Device sync initialized. inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id="5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8"
+2025-04-17T14:26:04.830277Z  INFO xmtp_mls::groups::device_sync: Outgoing preference update [HmacKeyUpdate { key: [141, 160, 87, 105, 25, 99, 185, 199, 148, 242, 182, 41, 92, 115, 188, 167, 3, 167, 226, 12, 14, 130, 251, 57, 246, 120, 0, 20, 20, 52, 207, 250] }]
+2025-04-17T14:26:04.831959Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15645) group_id="e992b72e98a44a05192743f7091139e5"}: xmtp_api::mls: query group messages group_id="e992b72e98a44a05192743f7091139e5" id_cursor=15645 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.832443Z DEBUG sync_welcomes:create_from_welcome: xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.832484Z  INFO sync_welcomes:create_from_welcome: xmtp_mls::groups::mls_ext::mls_ext_welcome: Trying to decrypt welcome
+2025-04-17T14:26:04.863140Z DEBUG sync_welcomes:create_from_welcome: xmtp_db::xmtp_openmls_provider: Transaction being rolled back
+2025-04-17T14:26:04.863251Z  INFO sync_welcomes:create_from_welcome: xmtp_mls::groups: Validating initial group membership
+2025-04-17T14:26:04.863405Z DEBUG sync_welcomes:create_from_welcome: xmtp_mls::identity_updates: Fetching identity updates for: ["deadbeef"]
+2025-04-17T14:26:04.864027Z  INFO xmtp_mls::groups::device_sync: Sending a sync request for Consent inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d" installation_id="b72288552570c67f9257f2c341091dd874be6d3f136410fe712001bfac97cd89"
+2025-04-17T14:26:04.867511Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15657) group_id="0402aef6727aadc06433943d13ba0e4c"}: xmtp_api::mls: query group messages group_id="0402aef6727aadc06433943d13ba0e4c" id_cursor=15657 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.868300Z  INFO sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: Processing envelope with hash 25e02c2273e8557b225fc1df3494a0dbf46e2c7c0929ceba40ed7f0770531c24, id = 15659 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15659
+2025-04-17T14:26:04.868365Z  INFO sync_with_conn:receive:process_message{trust_message_order=true}: xmtp_mls::groups::mls_sync: client [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] is about to process own envelope [15659] for intent [3] inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15659 intent_id=3 intent.kind=SendMessage
+2025-04-17T14:26:04.869434Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.869589Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b]-[e992b72e98a44a05192743f7091139e5] processing own message for intent 3 / SendMessage, message_epoch: 1 inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 group_id="e992b72e98a44a05192743f7091139e5" cursor=15659 intent.id=3 intent.kind=SendMessage
+2025-04-17T14:26:04.870224Z DEBUG sync_with_conn:receive:process_message{trust_message_order=true}:load_mls_group_with_lock_async: xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.870321Z  INFO sync_with_conn:receive: xmtp_mls::groups::mls_sync: Transaction completed successfully: process for group [e992b72e98a44a05192743f7091139e5] envelope cursor[15659]
+2025-04-17T14:26:04.871331Z DEBUG xmtp_mls::groups: No queryable content fields, msg not formatted as encoded content
+2025-04-17T14:26:04.871366Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:04.872046Z DEBUG xmtp_mls::groups::intents: queued intent inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" intent_kind=SendMessage
+2025-04-17T14:26:04.872443Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+2025-04-17T14:26:04.875635Z DEBUG publish_intents:load_mls_group_with_lock_async: xmtp_mls::groups::mls_sync: [82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b] set stored intent [4] to state `published` inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b" installation_id=5e8c67a006460e3511002b06e3f03b7c2160015afc73255f5e1fc449b9759ed8 intent.id=4 intent.kind=SendMessage group_id="e992b72e98a44a05192743f7091139e5"
+2025-04-17T14:26:04.876084Z DEBUG publish_intents:load_mls_group_with_lock_async:send_group_messages: xmtp_api::mls: sending [1] group messages inbox_id="82069bbbbaccf23dba5dfab0b43ed3d42c02f7859d930499f6cc90feb59a3e3b"
+2025-04-17T14:26:04.878284Z DEBUG sync_with_conn:receive:query_group_messages{id_cursor=Some(15657) group_id="0402aef6727aadc06433943d13ba0e4c"}: xmtp_api::mls: query group messages group_id="0402aef6727aadc06433943d13ba0e4c" id_cursor=15657 inbox_id="92d69962a66c2899d3ae7521c00a2f140e2c0c3cc7cf3fc09c5d42e9dfe5e40d"
+2025-04-17T14:26:04.878806Z ERROR sync_welcomes: xmtp_mls::client: failed to create group from welcome: client: Association error: Missing identity update
+2025-04-17T14:26:04.878840Z  INFO sync_welcomes: xmtp_mls::client: error is not retryable. Client(Association(MissingIdentityUpdate)):client: Association error: Missing identity update
+test groups::tests::test_create_from_welcome_validation ... ok
+DM_STREAMING TEST
+["d0df2d48d0297df1f4ce50220ab74de8b145d31cb45c5fcf439b208c9efc85ac"]:MembershipDiffWithKeyPackages { new_installations: [], new_key_packages: [], removed_installations: {}, failed_installations: [[228, 162, 119, 156, 146, 96, 95, 90, 213, 213, 100, 134, 215, 151, 131, 85, 62, 155, 77, 178, 132, 253, 177, 189, 125, 168, 141, 215, 45, 226, 212, 90]] }
+test client::tests::double_dms ... ok
+test groups::tests::can_stream_out_of_order_without_forking ... ok
+test groups::tests::test_can_update_gce_after_failed_commit ... ok
+test groups::tests::test_can_set_min_supported_protocol_version_for_commit ... ok
+test groups::tests::test_add_missing_installations ... ok
+test groups::tests::test_dm_stitching ... ok
+test client::tests::should_stream_consent ... ok
+test groups::tests::test_group_mutable_data ... ok
+test groups::tests::test_add_member_conflict ... ok
+test groups::tests::test_group_mutable_data_group_permissions ... ok
+test groups::tests::test_receive_self_message ... ok
+test groups::tests::test_create_group_with_member_all_malformed_installations ... FAILED
+test groups::tests::test_dm_creation_with_user_all_malformed_installations ... FAILED
+test groups::tests::test_can_make_inbox_with_a_bad_key_package_an_admin ... FAILED
+test groups::tests::test_can_update_permissions_after_group_creation ... ok
+test groups::tests::test_group_members_permission_level_update ... ok
+test groups::tests::test_members_func_from_non_creator ... ok
+test groups::tests::test_add_inbox_with_bad_installation_to_group ... ok
+test groups::tests::test_key_update ... ok
+test groups::tests::test_dm_creation_with_user_two_installations_one_malformed ... ok
+test groups::tests::test_client_on_old_version_pauses_after_joining_min_version_group ... ok
+2025-04-17T14:26:06.054356Z  INFO new:new_database: xmtp_db::encrypted_store: Setting up DB connection pool
+2025-04-17T14:26:06.055179Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/D8bdTAL03w2kixtFxEKtObvT.db3] exists? [true]
+2025-04-17T14:26:06.056113Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: migrating sqlcipher db=[/tmp/D8bdTAL03w2kixtFxEKtObvT.db3] to plaintext header with salt=[/tmp/D8bdTAL03w2kixtFxEKtObvT.db3.sqlcipher_salt]
+2025-04-17T14:26:06.057639Z DEBUG new:new_database: xmtp_db::encrypted_store::database::native::sqlcipher_connection: writing salt to file salt="44bd5f0f32a3230d67bc0df9cd05b29b" file=/tmp/D8bdTAL03w2kixtFxEKtObvT.db3.sqlcipher_salt
+test groups::tests::test_add_inbox_with_good_installation_to_group_with_bad_installation ... ok
+test groups::tests::process_messages_abort_on_retryable_error ... ok
+2025-04-17T14:26:06.072457Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: db @ [/tmp/D8bdTAL03w2kixtFxEKtObvT.db3] exists? [true]
+2025-04-17T14:26:06.073945Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: Sqlite cipher_version="4.6.1 community", cipher_provider_version="OpenSSL 3.4.1 11 Feb 2025"
+2025-04-17T14:26:06.073993Z DEBUG new:new_database:init_db: xmtp_db::encrypted_store::database::native::sqlcipher_connection: SQLCipher Database validated.
+2025-04-17T14:26:06.076146Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Running DB migrations
+test groups::tests::test_respects_character_limits_for_group_metadata ... ok
+test groups::tests::test_max_past_epochs ... ok
+test groups::tests::test_get_and_set_consent ... ok
+test groups::tests::test_post_commit ... ok
+test groups::tests::test_send_message ... ok
+test groups::tests::test_group_permissions ... ok
+test groups::tests::test_dm_creation ... ok
+test groups::tests::test_only_super_admins_can_set_min_supported_protocol_version ... ok
+test groups::tests::test_optimistic_send ... ok
+test groups::tests::test_remove_inbox ... ok
+test groups::tests::test_receive_message_from_other ... ok
+test groups::tests::test_parallel_syncs ... ok
+2025-04-17T14:26:06.481654Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: sqlite_version=3.46.1
+2025-04-17T14:26:06.481695Z  INFO new:new_database:init_db: xmtp_db::encrypted_store::store: Migrations successful
+2025-04-17T14:26:06.481744Z  INFO xmtp_mls::identity: Initializing identity
+2025-04-17T14:26:06.495567Z DEBUG xmtp_mls::identity: identity in store: None
+2025-04-17T14:26:06.495624Z  INFO get_inbox_ids{account_identifiers=[ApiIdentifier { identifier: "0xa74ab47fbb3210dfdf3007226f29aa6b3c420584", identifier_kind: Ethereum }] len=1}: xmtp_api::identity: Getting inbox_ids for account identities: [ApiIdentifier { identifier: "0xa74ab47fbb3210dfdf3007226f29aa6b3c420584", identifier_kind: Ethereum }]
+2025-04-17T14:26:06.506537Z  INFO xmtp_id::associations::builder: adding verified signature signer=8a83002c17766b8ff092015075e15abc55bb228700f87d3497e30cf38e7a6d50 missing_signatures=[Address("0xa74ab47fbb3210dfdf3007226f29aa6b3c420584"), Installation("8a83002c17766b8ff092015075e15abc55bb228700f87d3497e30cf38e7a6d50"), Address("0xa74ab47fbb3210dfdf3007226f29aa6b3c420584")]
+2025-04-17T14:26:06.506588Z DEBUG xmtp_mls::builder: Initialized identity inbox_id="e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e" installation_id="8a83002c17766b8ff092015075e15abc55bb228700f87d3497e30cf38e7a6d50"
+2025-04-17T14:26:06.506602Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+2025-04-17T14:26:06.508307Z  INFO xmtp_db::test_util: Registering triggers
+test groups::tests::test_update_group_image_url_square ... ok
+2025-04-17T14:26:06.518140Z  INFO xmtp_id::associations::builder: adding verified signature signer=0xa74ab47fbb3210dfdf3007226f29aa6b3c420584 missing_signatures=[Address("0xa74ab47fbb3210dfdf3007226f29aa6b3c420584"), Address("0xa74ab47fbb3210dfdf3007226f29aa6b3c420584")]
+2025-04-17T14:26:06.518167Z  INFO xmtp_mls::client: registering identity
+2025-04-17T14:26:06.540065Z DEBUG upload_key_package: xmtp_api::mls: upload key packages inbox_id="e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"
+2025-04-17T14:26:06.541529Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction beginning
+2025-04-17T14:26:06.543084Z DEBUG xmtp_db::xmtp_openmls_provider: Transaction being committed
+test groups::tests::test_validate_dm_group ... ok
+2025-04-17T14:26:06.561427Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+2025-04-17T14:26:06.564261Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+test groups::tests::test_update_group_message_expiration_settings ... ok
+2025-04-17T14:26:06.584005Z DEBUG xmtp_db::encrypted_store::association_state: Wrote association state to cache: e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e 3281
+2025-04-17T14:26:06.584142Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+2025-04-17T14:26:06.586053Z DEBUG xmtp_db::encrypted_store::association_state: Loaded association state from cache: e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e 3281
+test groups::tests::test_group_super_admin_list_update ... ok
+2025-04-17T14:26:06.586298Z  INFO xmtp_mls::identity_updates: Associating new wallet with inbox_id e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e
+2025-04-17T14:26:06.595323Z  INFO xmtp_id::associations::builder: adding verified signature signer=8a83002c17766b8ff092015075e15abc55bb228700f87d3497e30cf38e7a6d50 missing_signatures=[Installation("8a83002c17766b8ff092015075e15abc55bb228700f87d3497e30cf38e7a6d50"), Address("0x9cb797c89014ff206a4cfd36db86f20689e63bdb")]
+2025-04-17T14:26:06.599229Z  INFO xmtp_id::associations::builder: adding verified signature signer=0x9cb797c89014ff206a4cfd36db86f20689e63bdb missing_signatures=[Address("0x9cb797c89014ff206a4cfd36db86f20689e63bdb")]
+2025-04-17T14:26:06.614760Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+2025-04-17T14:26:06.616438Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+2025-04-17T14:26:06.645865Z DEBUG xmtp_db::encrypted_store::association_state: Wrote association state to cache: e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e 3288
+2025-04-17T14:26:06.646057Z DEBUG xmtp_mls::identity_updates: Fetching identity updates for: ["e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e"]
+test identity_updates::tests::load_identity_updates_if_needed ... ok
+2025-04-17T14:26:06.649517Z DEBUG xmtp_db::encrypted_store::association_state: Loaded association state from cache: e0e55fb1739cab2e88b60fd046ca1dda960b882a84877bc96223fd740150804e 3288
+test identity_updates::tests::cache_association_state ... ok
+test identity_updates::tests::add_association ... ok
+test identity_updates::tests::create_inbox_round_trip ... ok
+test identity_updates::tests::change_recovery_address ... ok
+test identity_updates::tests::test_is_member_of_association_state ... ok
+test identity_updates::tests::revoke_wallet ... ok
+test groups::tests::test_group_admin_list_update ... ok
+test groups::tests::test_send_message_while_paused_after_welcome_returns_expected_error ... ok
+test groups::tests::test_staged_welcome ... ok
+test groups::tests::test_send_message_after_min_version_update_gets_expected_error ... ok
+test identity_updates::tests::revoke_installation_with_malformed_keypackage ... ok
+test groups::tests::test_remove_by_account_address ... ok
+test groups::tests::test_removed_members_cannot_send_message_to_others ... ok
+test groups::tests::test_update_policies_empty_group ... ok
+test identity_updates::tests::revoke_installation ... ok
+test identity_updates::tests::revoke_good_installation_with_other_malformed_keypackage ... ok
+test subscriptions::stream_conversations::test::test_self_group_creation ... ok
+test subscriptions::stream_conversations::test::test_stream_welcomes ... ok
+test subscriptions::stream_messages::tests::test_stream_messages ... ok
+test identity_updates::tests::get_installation_diff ... ok
+test subscriptions::stream_all::tests::test_dm_stream_all_messages ... ok
+test subscriptions::stream_all::tests::test_stream_all_messages_unchanging_group_list ... ok
+test groups::tests::test_remove_inbox_with_good_installation_from_group_with_bad_installation ... ok
+test groups::tests::test_remove_inbox_with_bad_installation_from_group ... ok
+test subscriptions::stream_all::tests::test_stream_all_messages_changing_group_list ... ok
+test subscriptions::stream_all::tests::test_stream_all_messages_detached_group_changes ... ok
+test groups::tests::test_self_resolve_epoch_mismatch ... ok
+DM_STREAMING TEST
+["ec247477aa6ae92cfae912b0e37bdd42c29a0e71ca6d92885e58ed65e36e19df"]:MembershipDiffWithKeyPackages { new_installations: [], new_key_packages: [], removed_installations: {}, failed_installations: [[234, 55, 104, 199, 182, 136, 44, 152, 152, 96, 111, 81, 66, 192, 56, 190, 103, 171, 131, 184, 11, 230, 227, 165, 137, 35, 182, 76, 95, 82, 239, 5]] }
+test subscriptions::stream_conversations::test::test_dm_streaming ... FAILED
+test groups::tests::test_create_group_with_member_two_installations_one_malformed_keypackage ... FAILED
+test subscriptions::stream_all::tests::test_stream_all_messages_does_not_lose_messages ... ok
+test builder::tests::test_remote_is_valid_signature ... ok
+
+failures:
+
+failures:
+    groups::tests::test_can_make_inbox_with_a_bad_key_package_an_admin
+    groups::tests::test_create_group_with_member_all_malformed_installations
+    groups::tests::test_create_group_with_member_two_installations_one_malformed_keypackage
+    groups::tests::test_dm_creation_with_user_all_malformed_installations
+    subscriptions::stream_conversations::test::test_dm_streaming
+
+test result: FAILED. 135 passed; 5 failed; 1 ignored; 0 measured; 0 filtered out; finished in 21.10s
+

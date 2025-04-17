@@ -130,14 +130,14 @@ pub mod test_util {
         }
 
         pub fn intents_processed(&self) -> i32 {
-            self.raw_query_read(|conn| {
+            self.raw_query_read::<_, StorageError, _>(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_processed FROM test_metadata WHERE rowid = 1",
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )

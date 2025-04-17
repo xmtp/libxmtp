@@ -141,7 +141,7 @@ where
     )
     .await
     .unwrap();
-    let conn = client.inner_client.context().store().conn().unwrap();
+    let conn = client.inner_client.context().db();
     conn.register_triggers();
 
     client
