@@ -47,7 +47,6 @@ use crate::{
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    hpke::HpkeError,
     identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
@@ -56,7 +55,7 @@ use crate::{
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
 use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
+use mls_ext::{DecryptedWelcome, UnwrapWelcomeError, WrapWelcomeError};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -177,8 +176,8 @@ pub enum GroupError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("Errors occurred during sync {0:?}")]
     Sync(Vec<GroupError>),
-    #[error("Hpke error: {0}")]
-    Hpke(#[from] HpkeError),
+    #[error(transparent)]
+    WrapWelcome(#[from] WrapWelcomeError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
@@ -224,6 +223,8 @@ pub enum GroupError {
     TooManyCharacters { length: usize },
     #[error("Group is paused until version {0} is available")]
     GroupPausedUntilUpdate(String),
+    #[error(transparent)]
+    UnwrapWelcome(#[from] UnwrapWelcomeError),
 }
 
 impl RetryableError for GroupError {
@@ -233,7 +234,6 @@ impl RetryableError for GroupError {
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
-            Self::Hpke(hpke) => hpke.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
             Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
@@ -258,6 +258,7 @@ impl RetryableError for GroupError {
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
+            | Self::WrapWelcome(_)
             | Self::CreateMessage(_)
             | Self::TlsError(_)
             | Self::IntentNotCommitted
@@ -266,6 +267,7 @@ impl RetryableError for GroupError {
             | Self::MissingSequenceId
             | Self::AddressNotFound(_)
             | Self::InvalidExtension(_)
+            | Self::UnwrapWelcome(_)
             | Self::MissingMetadataField { .. }
             | Self::DmGroupMetadataForbidden
             | Self::Signature(_)
@@ -664,6 +666,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             );
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
@@ -683,6 +686,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             )?;
             let DecryptedWelcome {
                 staged_welcome,
@@ -2174,7 +2178,7 @@ pub(crate) mod tests {
         sender_mls_group: &mut openmls::prelude::MlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
-        use crate::identity::NewKeyPackageResult;
+        use crate::{groups::mls_ext::WrapperAlgorithm, identity::NewKeyPackageResult};
 
         use super::intents::{Installation, SendWelcomesAction};
         use openmls::prelude::tls_codec::Serialize;
@@ -2182,8 +2186,9 @@ pub(crate) mod tests {
 
         let NewKeyPackageResult { key_package, .. } = new_member_client
             .identity()
-            .new_key_package(&new_member_provider)
+            .new_key_package(&new_member_provider, false)
             .unwrap();
+
         let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
         let (commit, welcome, _) = sender_mls_group
             .add_members(
@@ -2198,6 +2203,7 @@ pub(crate) mod tests {
             vec![Installation {
                 installation_key: new_member_client.installation_public_key().into(),
                 hpke_public_key: hpke_init_key,
+                welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
             }],
             serialized_welcome,
         );
