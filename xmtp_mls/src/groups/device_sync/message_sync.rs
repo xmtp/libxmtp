@@ -220,9 +220,7 @@ pub(crate) mod tests {
             .create_group(None, GroupMetadataOptions::default())
             .expect("create group");
 
-        let result = amal_a
-            .syncable_groups(&amal_a.store().conn().unwrap())
-            .unwrap();
+        let result = amal_a.syncable_groups(&amal_a.context.db()).unwrap();
         assert_eq!(result.len(), 2);
     }
 
@@ -244,8 +242,7 @@ pub(crate) mod tests {
             .expect("sync welcomes");
 
         let amal_sync_group =
-            wait_for_some(|| async { amal.store().conn().unwrap().latest_sync_group().unwrap() })
-                .await;
+            wait_for_some(|| async { amal.context.db().latest_sync_group().unwrap() }).await;
 
         assert!(amal_sync_group.is_some());
 
