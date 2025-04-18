@@ -589,16 +589,15 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider
-            .transaction(|provider| {
-                processed_message = Some(mls_group.process_message(provider, message.clone()));
-                // Rollback the transaction. We want to synchronize with the server before committing.
-                Err::<(), StorageError>(StorageError::IntentionalRollback)
-            })
-            .unwrap_err();
-        if !matches!(result, StorageError::IntentionalRollback) {
-            tracing::debug!("immutable process message failed, {}", result);
-            return Err(result.into());
+        let result = provider.transaction(|provider| {
+            processed_message = Some(mls_group.process_message(provider, message.clone()));
+            // Rollback the transaction. We want to synchronize with the server before committing.
+            Err::<(), StorageError>(StorageError::IntentionalRollback)
+        });
+        if !matches!(result, Err(StorageError::IntentionalRollback)) {
+            return result
+                .inspect_err(|e| tracing::debug!("immutable process message failed {}", e))
+                .map_err(Into::into);
         }
         let processed_message = processed_message.expect("Was just set to Some")?;
 

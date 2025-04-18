@@ -119,9 +119,9 @@ impl_fetch!(StoredGroupIntent, group_intents, ID);
 impl Delete<StoredGroupIntent> for DbConnection {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write::<_, StorageError, _>(|raw_conn| {
+        self.raw_query_write::<_, StorageError, _>(|raw_conn| {
             diesel::delete(dsl::group_intents.find(key)).execute(raw_conn)
-        })?)
+        })
     }
 }
 
@@ -164,11 +164,11 @@ impl DbConnection {
         &self,
         to_save: NewGroupIntent,
     ) -> Result<StoredGroupIntent, StorageError> {
-        Ok(self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
                 .get_result(conn)
-        })?)
+        })
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
@@ -193,8 +193,7 @@ impl DbConnection {
 
         query = query.order(dsl::id.asc());
 
-        Ok(self
-            .raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupIntent>(conn))?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupIntent>(conn))
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add

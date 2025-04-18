@@ -42,7 +42,7 @@ where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
         E: From<ConnectionError>,
     {
-        <Self as ConnectionExt>::raw_query_write::<_, _, E>(self, fun).map_err(Into::into)
+        <Self as ConnectionExt>::raw_query_write::<_, _, E>(self, fun)
     }
 }
 
@@ -82,7 +82,7 @@ where
 // in two connections in the same scope.
 impl From<DbConnection> for XmtpOpenMlsProvider {
     fn from(db: DbConnection) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(db.conn.into())
+        XmtpOpenMlsProvider::new(db.conn)
     }
 }
 

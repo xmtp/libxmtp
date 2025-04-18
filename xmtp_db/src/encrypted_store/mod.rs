@@ -285,9 +285,9 @@ macro_rules! impl_fetch {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
+                self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
                     $table.first(conn).optional()
-                })?)
+                })
             }
         }
     };
@@ -300,9 +300,9 @@ macro_rules! impl_fetch {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                Ok(self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
+                self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
                     $table.find(key.clone()).first(conn).optional()
-                })?)
+                })
             }
         }
     };

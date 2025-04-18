@@ -4,10 +4,10 @@ impl DbConnection {
     /// Same behavior as fetched, but will stitch DM groups
     pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
         let group = self.raw_query_read::<_, StorageError, _>(|conn| {
-            Ok(groups::table
+            groups::table
                 .filter(groups::id.eq(key))
                 .first::<StoredGroup>(conn)
-                .optional()?)
+                .optional()
         })?;
 
         // Is this group a DM?
@@ -21,11 +21,11 @@ impl DbConnection {
 
         // Otherwise, return the stitched DM
         self.raw_query_read(|conn| {
-            Ok(groups::table
+            groups::table
                 .filter(groups::dm_id.eq(dm_id))
                 .order_by(groups::last_message_ns.desc())
                 .first::<StoredGroup>(conn)
-                .optional()?)
+                .optional()
         })
     }
 
@@ -37,7 +37,7 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(Some(members.to_string())))
             .order(dsl::last_message_ns.desc());
 
-        self.raw_query_read(|conn| Ok(query.first(conn).optional()?))
+        self.raw_query_read(|conn| query.first(conn).optional())
     }
 
     /// Load the other DMs that are stitched into this group

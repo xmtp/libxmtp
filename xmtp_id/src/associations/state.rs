@@ -67,7 +67,7 @@ impl std::fmt::Debug for AssociationState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut members = String::new();
         for member in self.members.keys() {
-            write!(members, "{}", format!("{:?}", member))?;
+            write!(members, "{:?}", member)?;
             write!(members, ",")?;
         }
 

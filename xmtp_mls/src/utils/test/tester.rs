@@ -94,7 +94,7 @@ where
                 &client.installation_public_key().to_string(),
                 &format!("{name}_installation"),
             );
-            replace.add(client.inbox_id(), &name);
+            replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();

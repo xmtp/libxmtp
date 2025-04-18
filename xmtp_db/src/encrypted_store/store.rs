@@ -24,7 +24,7 @@ where
             .raw_query_write::<_, _, StorageError>(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
                 conn.run_pending_migrations(MIGRATIONS)
-                    .map_err(|e| diesel::result::Error::QueryBuilderError(e))?;
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
 
                 let sqlite_version =
                     sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;

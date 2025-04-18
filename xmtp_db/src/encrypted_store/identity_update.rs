@@ -59,9 +59,7 @@ impl DbConnection {
             query = query.filter(dsl::sequence_id.le(sequence_id));
         }
 
-        Ok(self.raw_query_read::<_, StorageError, _>(|conn| {
-            query.load::<StoredIdentityUpdate>(conn)
-        })?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredIdentityUpdate>(conn))
     }
 
     /// Batch insert identity updates, ignoring duplicates.
@@ -87,7 +85,7 @@ impl DbConnection {
             .filter(dsl::inbox_id.eq(inbox_id))
             .into_boxed();
 
-        Ok(self.raw_query_read::<_, StorageError, _>(|conn| query.first::<i64>(conn))?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.first::<i64>(conn))
     }
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID

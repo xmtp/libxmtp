@@ -330,7 +330,7 @@ impl DbConnection {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        Ok(self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroup>(conn))?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroup>(conn))
     }
 
     /// Updates group membership state
@@ -353,7 +353,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        Ok(self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))
     }
 
     pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
@@ -495,12 +495,12 @@ impl DbConnection {
             if existing_group.welcome_id == group.welcome_id {
                 tracing::info!("Group welcome id already exists");
                 // Error so OpenMLS db transaction are rolled back on duplicate welcomes
-                return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
+                Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
                     existing_group.welcome_id,
-                )));
+                )))
             } else {
                 tracing::info!("Group already exists");
-                return Ok(existing_group);
+                Ok(existing_group)
             }
         } else {
             tracing::info!("Group is inserted");

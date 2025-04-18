@@ -247,9 +247,9 @@ impl ConnectionExt for EphemeralDbConnection {
         E: From<ConnectionError>,
     {
         let mut conn = self.conn.lock();
-        return fun(&mut *conn)
+        fun(&mut conn)
             .map_err(ConnectionError::from)
-            .map_err(E::from);
+            .map_err(E::from)
     }
 
     fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
@@ -259,9 +259,9 @@ impl ConnectionExt for EphemeralDbConnection {
         Self: Sized,
     {
         let mut conn = self.conn.lock();
-        return fun(&mut *conn)
+        fun(&mut conn)
             .map_err(ConnectionError::from)
-            .map_err(E::from);
+            .map_err(E::from)
     }
 }
 
@@ -350,7 +350,7 @@ impl ConnectionExt for NativeDbConnection {
         if self.in_transaction.load(Ordering::SeqCst) {
             tracing::debug!("read in transaction");
             let mut conn = self.write.lock();
-            return fun(&mut *conn)
+            return fun(&mut conn)
                 .map_err(ConnectionError::from)
                 .map_err(E::from);
         } else if let Some(pool) = &*self.read.read() {
@@ -365,7 +365,7 @@ impl ConnectionExt for NativeDbConnection {
                 .map_err(ConnectionError::from)
                 .map_err(E::from)?;
 
-            return fun(&mut *conn)
+            return fun(&mut conn)
                 .map_err(ConnectionError::from)
                 .map_err(E::from);
         } else {
@@ -423,9 +423,10 @@ mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
 
             store.release_connection().unwrap();
-            match &*store.db.conn() {
-                PersistentOrMem::Persistent(p) => assert!(p.read.read().is_none()),
-                _ => (),
+            if let PersistentOrMem::Persistent(p) = &*store.db.conn() {
+                assert!(p.read.read().is_none())
+            } else {
+                panic!("conn expected")
             }
             store.reconnect().unwrap();
             let fetched_identity2: StoredIdentity = conn.fetch(&()).unwrap().unwrap();

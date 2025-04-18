@@ -18,9 +18,9 @@ impl Delete<StoredKeyStoreEntry> for DbConnection {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {
         use super::schema::openmls_key_store::dsl::*;
-        Ok(self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write::<_, StorageError, _>(|conn| {
             diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(conn)
-        })?)
+        })
     }
 }
 

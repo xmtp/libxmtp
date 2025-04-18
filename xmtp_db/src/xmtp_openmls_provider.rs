@@ -80,7 +80,7 @@ where
                     Err(StorageError::DieselResult(
                         diesel::result::Error::BrokenTransactionManager,
                     )) => Err(err),
-                    Err(rollback) => Err(StorageError::from(rollback).into()),
+                    Err(rollback) => Err(rollback.into()),
                 }
             }
         }

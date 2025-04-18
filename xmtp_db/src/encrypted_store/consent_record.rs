@@ -53,21 +53,19 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        Ok(
-            self.raw_query_read::<_, StorageError, _>(|conn| -> diesel::QueryResult<_> {
-                dsl::consent_records
-                    .filter(dsl::entity.eq(entity))
-                    .filter(dsl::entity_type.eq(entity_type))
-                    .first(conn)
-                    .optional()
-            })?,
-        )
+        self.raw_query_read::<_, StorageError, _>(|conn| -> diesel::QueryResult<_> {
+            dsl::consent_records
+                .filter(dsl::entity.eq(entity))
+                .filter(dsl::entity_type.eq(entity_type))
+                .first(conn)
+                .optional()
+        })
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        Ok(self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read::<_, StorageError, _>(|conn| {
             super::schema::consent_records::table.load(conn)
-        })?)
+        })
     }
 
     pub fn consent_records_paged(
@@ -80,8 +78,7 @@ impl DbConnection {
             .limit(limit)
             .offset(offset);
 
-        Ok(self
-            .raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredConsentRecord>(conn))?)
+        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredConsentRecord>(conn))
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
@@ -145,10 +142,10 @@ impl DbConnection {
 
             // if record was not inserted...
             if maybe_inserted_consent_record.is_none() {
-                return Ok(dsl::consent_records
+                return dsl::consent_records
                     .find((&record.entity_type, &record.entity))
                     .first(conn)
-                    .optional()?);
+                    .optional();
             }
 
             Ok(None)

@@ -304,7 +304,7 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
             self.pragmas()
         ))
         .map_err(diesel::r2d2::Error::QueryError)?;
-        conn.batch_execute(&format!("PRAGMA journal_mode = WAL;"))
+        conn.batch_execute("PRAGMA journal_mode = WAL;")
             .map_err(diesel::r2d2::Error::QueryError)?;
 
         Ok(())

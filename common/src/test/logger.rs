@@ -15,20 +15,20 @@ static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().blue());
 static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().purple());
 
 fn err() -> &'static Style {
-    &*ERROR
+    &ERROR
 }
 
 fn warn() -> &'static Style {
-    &*WARN
+    &WARN
 }
 fn info() -> &'static Style {
-    &*INFO
+    &INFO
 }
 fn debug() -> &'static Style {
-    &*DEBUG
+    &DEBUG
 }
 fn trace() -> &'static Style {
-    &*TRACE
+    &TRACE
 }
 
 fn write_with_level(

@@ -34,7 +34,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
                 &client.inner_client.installation_public_key().to_string(),
                 &format!("{name}_installation"),
             );
-            replace.add(client.inner_client.inbox_id(), &name);
+            replace.add(client.inner_client.inbox_id(), name);
         }
         let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
         let signature_request = client.signature_request().unwrap();
@@ -82,7 +82,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
                 &client.inner_client.installation_public_key().to_string(),
                 &format!("{name}_installation"),
             );
-            replace.add(client.inner_client.inbox_id(), &name);
+            replace.add(client.inner_client.inbox_id(), name);
         }
 
         let signature_request = client.signature_request().unwrap();
