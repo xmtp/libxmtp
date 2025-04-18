@@ -7836,6 +7836,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_db_test"
+version = "1.2.0-dev"
+dependencies = [
+ "derive_builder",
+ "diesel",
+ "parking_lot 0.12.3",
+ "rand 0.8.5",
+ "xmtp_common",
+ "xmtp_db",
+]
+
+[[package]]
 name = "xmtp_id"
 version = "1.2.0-dev"
 dependencies = [

@@ -522,7 +522,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
-        use crate::native::PlatformStorageError;
+        use crate::database::PlatformStorageError;
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
