@@ -2,6 +2,7 @@
 
 use crate::{DbConnection, EncryptedMessageStore, StorageOption};
 use xmtp_common::tmp_path;
+mod impls;
 
 impl EncryptedMessageStore {
     pub fn generate_enc_key() -> [u8; 32] {

@@ -39,6 +39,7 @@ use crate::Store;
 
 pub use database::*;
 
+use diesel::connection::SimpleConnection;
 use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::sync::{
@@ -72,16 +73,6 @@ impl Drop for TransactionGuard<'_> {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }
-}
-
-pub trait Database {
-    type Db: XmtpDb;
-
-    fn init_db(&mut self) -> Result<(), StorageError>;
-    fn db(&self) -> &Self::Db;
-    fn take(self) -> Self::Db
-    where
-        Self: Sized;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -192,8 +183,26 @@ pub trait XmtpDb {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send;
 
+    fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
+        self.validate(opts)?;
+        self.conn()
+            .raw_query_write::<_, _, ConnectionError>(|conn| {
+                conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+                conn.run_pending_migrations(MIGRATIONS)
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+
+                let sqlite_version =
+                    sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
+                tracing::info!("sqlite_version={}", sqlite_version[0].version);
+
+                tracing::info!("Migrations successful");
+                Ok(())
+            })?;
+        Ok(())
+    }
+
     /// Validate a connection is as expected
-    fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), ConnectionError> {
         Ok(())
     }
 
@@ -206,6 +215,9 @@ pub trait XmtpDb {
     /// Release connection to the database, closing it
     fn disconnect(&self) -> Result<(), Self::Error>;
 }
+
+// TODO: at some point should create factory trait or something to avoid using #[cfg], since #[cfg]
+// can become difficult to reason about in higher level contexts
 
 #[cfg(not(target_arch = "wasm32"))]
 pub type EncryptedMessageStore = self::store::EncryptedMessageStore<native::NativeDb>;
@@ -231,8 +243,8 @@ impl EncryptedMessageStore {
     ) -> Result<Self, StorageError> {
         tracing::info!("Setting up DB connection pool");
         let db = native::NativeDb::new(&opts, enc_key)?;
-        let mut store = Self { db, opts };
-        store.init_db()?;
+        db.init(&opts)?;
+        let store = Self { db };
         Ok(store)
     }
 }
@@ -256,8 +268,8 @@ impl EncryptedMessageStore {
         _enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         let db = wasm::WasmDb::new(&opts).await?;
-        let mut this = Self { db, opts };
-        this.init_db()?;
+        db.init(&opts)?;
+        let this = Self { db };
         Ok(this)
     }
 }
@@ -455,8 +467,8 @@ pub(crate) mod tests {
         #[cfg(target_arch = "wasm32")]
         let db = wasm::WasmDb::new(&opts).await.unwrap();
 
-        let store = EncryptedMessageStore { db, opts };
-        store.db.validate(&store.opts).unwrap();
+        let store = EncryptedMessageStore { db };
+        store.db.validate(&opts).unwrap();
 
         store
             .db
@@ -522,7 +534,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
-        use crate::native::PlatformStorageError;
+        use crate::database::PlatformStorageError;
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
