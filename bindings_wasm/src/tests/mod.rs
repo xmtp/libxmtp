@@ -9,13 +9,13 @@ use xmtp_api_http::constants::ApiUrls;
 use xmtp_cryptography::utils::{rng, LocalWallet};
 use xmtp_id::InboxOwner;
 
-async fn create_test_client() -> Client {
+async fn create_test_client(db: Option<String>) -> Client {
   // crate::opfs::Opfs::wipe_files().await.unwrap();
   let wallet = LocalWallet::new(&mut rng());
   let account_address = wallet.get_identifier().unwrap_throw();
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
   let inbox_id = generate_inbox_id(account_address.clone().into());
-  let db = xmtp_common::tmp_path();
+  let db = db.unwrap_or(xmtp_common::tmp_path();
   create_client(
     host.clone(),
     inbox_id.unwrap(),
