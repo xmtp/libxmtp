@@ -36,6 +36,8 @@ pub enum StorageError {
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
     #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
     Connection(#[from] crate::ConnectionError),
 }
 

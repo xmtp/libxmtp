@@ -15,7 +15,7 @@ use crate::{
 // only cover errors that can happen in db access
 impl Distribution<StorageError> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> StorageError {
-        match rng.gen_range(0..=12) {
+        match rng.gen_range(0..=13) {
             0 => StorageError::DieselConnect(rand_diesel_conn_err(rng)),
             1 => StorageError::DieselResult(rand_diesel_result(rng)),
             2 => StorageError::NotFound(rand::random()),
@@ -28,6 +28,9 @@ impl Distribution<StorageError> for Standard {
             10 => rand::random(), // platform
             11 => StorageError::Prost(prost::DecodeError::new("test random decode error")),
             12 => StorageError::Connection(rand::random()),
+            13 => StorageError::Conversion(xmtp_proto::ConversionError::Unspecified(
+                "random test error",
+            )),
             _ => unreachable!(),
         }
     }
@@ -179,11 +182,12 @@ mod wasm {
     use super::*;
     impl Distribution<crate::PlatformStorageError> for Standard {
         fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> crate::PlatformStorageError {
-            match rng.gen_range(0..=1) {
-                0 => crate::PlatformStorageError::SAH(OpfsSAHError::Generic(
+            match rng.gen_range(0..=2) {
+                0 => PlatformStorageError::SAH(sqlite_wasm_rs::export::OpfsSAHError::Generic(
                     "rand test opfs err".to_string(),
                 )),
-                1 => crate::PlatformStorageError(rand_diesel_conn_err(rng)),
+                1 => PlatformStorageError::Connection(rand_diesel_conn_err(rng)),
+                2 => PlatformStorageError::DieselResult(rand_diesel_result(rng)),
                 _ => unreachable!(),
             }
         }

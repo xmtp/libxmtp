@@ -17,7 +17,8 @@ members = [
   "common",
   "xmtp_api_d14n",
   "xmtp_macro",
-  "xmtp_db", "xmtp_db_test",
+  "xmtp_db",
+  "xmtp_db_test",
 ]
 
 # Make the feature resolver explicit.

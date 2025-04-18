@@ -1,261 +1,99 @@
-use derive_builder::Builder;
-use parking_lot::Mutex;
-use rand::{Rng, distributions::Standard, prelude::Distribution};
-use std::{collections::HashMap, sync::Arc};
-use xmtp_db::{ConnectionExt, StorageError};
+use std::sync::Arc;
+use xmtp_db::{DefaultDatabase, EncryptionKey, StorageError, StorageOption, XmtpDb};
 
-const TRANSACTION_START_HOOK: &str = "TRANSACTION_START_HOOK";
-const PRE_READ_HOOK: &str = "PRE_READ_HOOK";
-const PRE_WRITE_HOOK: &str = "PREWRITE_HOOK";
+pub mod chaos;
 
-const POST_READ_HOOK: &str = "POST_READ_HOOK";
-const POST_WRITE_HOOK: &str = "POST_WRITE_HOOK";
+pub type ChaosConnection = chaos::ChaosConnection<xmtp_db::DefaultConnection>;
 
-// --------------------------------------------------------
-// /\/\/\/\/\/\/\/\/\/\||Static Hooks||\/\/\/\/\/\/\/\/\/\/\
-// --------------------------------------------------------
+#[derive(Clone)]
+pub struct ChaosDb<Db = DefaultDatabase>
+where
+    Db: XmtpDb,
+{
+    db: Db,
+    conn: Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
+}
 
-const STATIC_TRANSACTION_START_HOOK: &str = "STATIC_TRANSACTION_START_HOOK";
+impl<Db, E> XmtpDb for ChaosDb<Db>
+where
+    Db: XmtpDb<Error = E>,
+    StorageError: From<E>,
+    <Db as XmtpDb>::Connection: Send + Sync,
+{
+    type Error = StorageError;
 
-const STATIC_PRE_READ_HOOK: &str = "STATIC_PRE_READ_HOOK";
-const STATIC_PRE_WRITE_HOOK: &str = "STATIC_PRE_WRITE_HOOK";
+    type Connection = Arc<chaos::ChaosConnection<Db::Connection>>;
 
-const STATIC_POST_READ_HOOK: &str = "STATIC_POST_READ_HOOK";
-const STATIC_POST_WRITE_HOOK: &str = "STATIC_POST_WRITE_HOOK";
+    fn conn(&self) -> Self::Connection {
+        self.conn.clone()
+    }
 
-type HookFn<C> = Box<dyn Fn(&C)>;
+    fn reconnect(&self) -> Result<(), Self::Error> {
+        Ok(self.db.reconnect()?)
+    }
 
-#[derive(Builder)]
-#[builder(setter(into), build_fn(validate = "Self::validate"))]
-pub struct ChaosConnection<C> {
-    db: C,
-    #[builder(setter(skip), default)]
-    hooks: Arc<Mutex<HashMap<&'static str, Vec<HookFn<C>>>>>,
-    #[builder(setter(skip), default)]
-    static_hooks: Arc<Mutex<HashMap<&'static str, Vec<HookFn<C>>>>>,
-    /// Set a probability for errors to occur when running transactions
-    #[builder(default = "0.0")]
+    fn disconnect(&self) -> Result<(), Self::Error> {
+        Ok(self.db.disconnect()?)
+    }
+}
+
+pub type EncryptedMessageStore = xmtp_db::store::EncryptedMessageStore<ChaosDb>;
+
+pub struct ChaosStoreBuilder<Db> {
     error_frequency: f64,
+    db: Db,
 }
 
-impl<C> ChaosConnection<C>
+impl<Db> ChaosStoreBuilder<Db> {
+    pub fn error_frequency(self, f: f64) -> Self {
+        Self {
+            error_frequency: f,
+            ..self
+        }
+    }
+
+    pub fn db<NewDb>(self, db: NewDb) -> ChaosStoreBuilder<NewDb> {
+        ChaosStoreBuilder {
+            db,
+            error_frequency: self.error_frequency,
+        }
+    }
+}
+
+impl<Db, E> ChaosStoreBuilder<Db>
 where
-    C: Clone,
+    Db: XmtpDb<Error = E> + Clone,
+    StorageError: From<E>,
+    <Db as XmtpDb>::Connection: Clone + Send + Sync,
 {
-    pub fn builder() -> ChaosConnectionBuilder<C> {
-        Default::default()
-    }
-}
+    /// Build the EncryptedMessageStore with Chaos
+    /// Returns a tuple of (ChaosConnection, EncryptedMessageStore)
+    /// the ChaosConnection may be used to add cHaOS
+    pub fn build(
+        self,
+        opts: StorageOption,
+        _enc_key: EncryptionKey,
+    ) -> (
+        Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
+        xmtp_db::store::EncryptedMessageStore<ChaosDb<Db>>,
+    ) {
+        // let store = xmtp_db::store::EncryptedMessageStore::<Db>::new(opts, enc_key);
+        let conn = chaos::ChaosConnection::builder()
+            .db(self.db.conn())
+            .error_frequency(self.error_frequency)
+            .build()
+            .unwrap();
+        let conn = Arc::new(conn);
 
-impl<C> ChaosConnectionBuilder<C> {
-    // validate that the frequency is between the correct values
-    fn validate(&self) -> Result<(), String> {
-        // ensure error frequency is a percentage
-        if let Some(frequency) = self.error_frequency {
-            if !(frequency < 1.0 && frequency > 0.0) {
-                return Err(
-                    "error_frequency must be a value between 0.0 and 1.0 (EX: 0.40)".to_string(),
-                );
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<C> ChaosConnection<C> {
-    pub fn get_mod(&self, hook: &'static str) -> Option<HookFn<C>> {
-        let mut m = self.hooks.lock();
-        m.get_mut(hook).map(|h| h.pop())?
-    }
-
-    pub fn run_hook(&self, hook: &'static str) {
-        if let Some(f) = self.get_mod(hook) {
-            f(&self.db)
-        }
-    }
-
-    pub fn run_static_hook(&self, hook: &'static str) {
-        let h = self.static_hooks.lock();
-        if let Some(f) = h.get(hook) {
-            f.iter().for_each(|h| h(&self.db));
-        }
-    }
-
-    /// Add a hook to run after the next transaction is started
-    pub fn start_transaction_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(TRANSACTION_START_HOOK)
-            .or_default()
-            .push(Box::new(f));
-    }
-
-    /// Add a hook to run before the next read
-    pub fn pre_read_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(PRE_READ_HOOK).or_default().push(Box::new(f))
-    }
-
-    /// Add a hook to run after the next read
-    pub fn post_read_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(POST_READ_HOOK).or_default().push(Box::new(f))
-    }
-
-    /// Add a hook to run before the next read
-    pub fn pre_write_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(PRE_WRITE_HOOK).or_default().push(Box::new(f))
-    }
-
-    /// Add a hook to run after the next read
-    pub fn post_write_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(POST_WRITE_HOOK).or_default().push(Box::new(f))
-    }
-
-    /// Add a static hook to run on transaction start.
-    /// Static hooks run on every invocation of a transaction.
-    /// Static transaction hook is run before the dynamic
-    /// transaction start hook.
-    pub fn static_start_transaction_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(STATIC_TRANSACTION_START_HOOK)
-            .or_default()
-            .push(Box::new(f));
-    }
-
-    /// Add a hook to run before every read
-    /// Static hooks run on every invocation of a rea.
-    /// Static hooks are run before dynamic hooks in the 'PRE' stage,
-    /// but after dynamic hooks in the 'POST' stage.
-    pub fn static_pre_read_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(STATIC_PRE_READ_HOOK).or_default().push(Box::new(f))
-    }
-
-    /// Add a hook to run after every read
-    /// Static hooks run on every invocation of a read.
-    /// Static hooks are run before dynamic hooks in the 'PRE' stage,
-    /// but after dynamic hooks in the 'POST' stage.
-    pub fn static_post_read_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(STATIC_POST_READ_HOOK)
-            .or_default()
-            .push(Box::new(f))
-    }
-
-    /// Add a hook to run before every write
-    /// Static hooks run on every invocation of a write,
-    /// Static hooks are run before dynamic hooks in the 'PRE' stage,
-    /// but after dynamic hooks in the 'POST' stage.
-    pub fn static_pre_write_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(STATIC_PRE_WRITE_HOOK)
-            .or_default()
-            .push(Box::new(f))
-    }
-
-    /// Add a hook to run after every write
-    /// Static hooks run on every invocation of a write,
-    /// Static hooks are run before dynamic hooks in the 'PRE' stage,
-    /// but after dynamic hooks in the 'POST' stage.
-    pub fn static_post_write_hook<F>(&self, f: F)
-    where
-        F: Fn(&C) + 'static,
-    {
-        let mut m = self.hooks.lock();
-        m.entry(STATIC_POST_WRITE_HOOK)
-            .or_default()
-            .push(Box::new(f))
-    }
-
-    pub fn maybe_random_error<T>(&self) -> Result<(), T>
-    where
-        Standard: Distribution<T>,
-        T: std::error::Error + xmtp_common::RetryableError,
-    {
-        let mut rng = rand::thread_rng();
-
-        // Generate a random float between 0 and 1
-        if rng.gen_range::<f64, _>(0.0..1.0) < self.error_frequency {
-            Err(rand::random())
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl<C> ConnectionExt for ChaosConnection<C>
-where
-    C: ConnectionExt,
-{
-    type Connection = C::Connection;
-
-    fn start_transaction(&self) -> Result<xmtp_db::TransactionGuard<'_>, xmtp_db::StorageError> {
-        self.maybe_random_error::<StorageError>()?;
-        let result = self.db.start_transaction();
-        self.run_static_hook(STATIC_TRANSACTION_START_HOOK);
-        self.run_hook(TRANSACTION_START_HOOK);
-        result
-    }
-
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<xmtp_db::ConnectionError>,
-        Self: Sized,
-    {
-        self.run_static_hook(STATIC_PRE_READ_HOOK);
-        self.run_hook(PRE_READ_HOOK);
-        self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_read(fun);
-        // TODO: we could potentially pass T into the POST hook,
-        // and then the test could do some (probably unsafe) casting to
-        // get a specific type out. Unsure if useful?
-        self.run_hook(POST_READ_HOOK);
-        self.run_static_hook(STATIC_POST_READ_HOOK);
-        result
-    }
-
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<xmtp_db::ConnectionError>,
-        Self: Sized,
-    {
-        self.run_static_hook(STATIC_PRE_WRITE_HOOK);
-        self.run_hook(PRE_WRITE_HOOK);
-        self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_write(fun);
-        self.run_hook(POST_WRITE_HOOK);
-        self.run_static_hook(STATIC_PRE_WRITE_HOOK);
-        result
+        let chaos_db = ChaosDb::<Db> {
+            db: self.db,
+            conn: conn.clone(),
+        };
+        chaos_db.init(&opts).unwrap();
+        let store = xmtp_db::store::EncryptedMessageStore::<ChaosDb<Db>>::builder()
+            .db(chaos_db)
+            .build()
+            .unwrap();
+        (conn, store)
     }
 }

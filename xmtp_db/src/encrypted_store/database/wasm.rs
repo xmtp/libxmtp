@@ -227,7 +227,7 @@ impl XmtpDb for WasmDb {
         self.conn.clone()
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
