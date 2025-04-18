@@ -250,7 +250,7 @@ where
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
                     let future = ProcessMessageFuture::new(
                         *this.client,
-                        envelope.map_err(xmtp_proto::ApiError::from)?,
+                        envelope.map_err(|e| SubscribeError::BoxError(Box::new(e)))?,
                     )?;
                     let future = future.process();
                     this.state.set(State::Processing {
@@ -403,7 +403,9 @@ where
                 cursor_id,
                 inbox_id = self.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                "group message not found"
+                "no further processing for streamed message [{}] in group [{}]",
+                &cursor_id,
+                hex::encode(&self.msg.group_id),
             );
 
             Ok(None)

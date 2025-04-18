@@ -54,23 +54,3 @@ impl xmtp_common::retry::RetryableError for GrpcError {
         true
     }
 }
-
-impl xmtp_proto::XmtpApiError for GrpcError {
-    fn api_call(&self) -> Option<xmtp_proto::ApiEndpoint> {
-        None
-    }
-
-    fn code(&self) -> Option<xmtp_proto::Code> {
-        match &self {
-            GrpcError::Status(status) => Some(status.code().into()),
-            _ => None,
-        }
-    }
-
-    fn grpc_message(&self) -> Option<&str> {
-        match &self {
-            GrpcError::Status(status) => Some(status.message()),
-            _ => None,
-        }
-    }
-}

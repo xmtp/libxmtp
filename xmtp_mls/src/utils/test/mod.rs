@@ -3,19 +3,34 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
+<<<<<<< HEAD
 use crate::{builder::ClientBuilder, identity::IdentityStrategy, Client, InboxOwner, XmtpApi};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
+=======
+use std::sync::Arc;
+use tokio::sync::Notify;
+use xmtp_api::ApiIdentifier;
+>>>>>>> origin/main
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
+<<<<<<< HEAD
 #[cfg(any(test, feature = "test-utils"))]
 pub use tester::*;
+=======
+use crate::{
+    builder::{ClientBuilder, SyncWorkerMode},
+    identity::IdentityStrategy,
+    Client, InboxOwner, XmtpApi,
+};
+use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
+>>>>>>> origin/main
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
@@ -61,7 +76,24 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn new_test_client_no_sync(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+            Some(SyncWorkerMode::Disabled),
         )
         .await
     }
@@ -76,7 +108,27 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(crate::configuration::DeviceSyncUrls::DEV_ADDRESS),
+            None,
+            None,
+        )
+        .await
+    }
+
+    pub async fn new_test_client_with_history(
+        owner: &impl InboxOwner,
+        history_sync_url: &str,
+    ) -> FullXmtpClient {
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            Some(history_sync_url),
+            None,
         )
         .await
     }
@@ -94,6 +146,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
         )
         .await
@@ -170,7 +223,8 @@ async fn build_with_verifier<A, V>(
     owner: impl InboxOwner,
     api_client: A,
     scw_verifier: V,
-    device_sync_server_url: Option<&str>,
+    sync_server_url: Option<&str>,
+    sync_worker_mode: Option<SyncWorkerMode>,
 ) -> Client<A, V>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -186,8 +240,12 @@ where
         .api_client(api_client)
         .with_scw_verifier(scw_verifier);
 
-    if let Some(device_sync_server_url) = device_sync_server_url {
-        builder = builder.device_sync_server_url(device_sync_server_url);
+    if let Some(sync_server_url) = sync_server_url {
+        builder = builder.device_sync_server_url(sync_server_url);
+    }
+
+    if let Some(sync_worker_mode) = sync_worker_mode {
+        builder = builder.device_sync_worker_mode(sync_worker_mode);
     }
 
     let client = builder.build().await.unwrap();

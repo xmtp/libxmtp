@@ -1,9 +1,9 @@
 use js_sys::Uint8Array;
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
@@ -98,11 +98,12 @@ fn init_logging(options: LogOptions) -> Result<(), JsError> {
   LOGGER_INIT
     .get_or_init(|| {
       console_error_panic_hook::set_once();
+
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(f.to_str())
+        xmtp_common::filter_directive(f.to_str())
       } else {
-        Ok(tracing_subscriber::filter::LevelFilter::INFO)
-      }?;
+        EnvFilter::builder().parse_lossy("info")
+      };
 
       if options.structured {
         let fmt = tracing_subscriber::fmt::layer()
@@ -340,5 +341,25 @@ impl Client {
   #[wasm_bindgen]
   pub fn conversations(&self) -> Conversations {
     Conversations::new(self.inner_client.clone())
+  }
+
+  #[wasm_bindgen(js_name = syncPreferences)]
+  pub async fn sync_preferences(&self) -> Result<u32, JsError> {
+    let inner = self.inner_client.as_ref();
+
+    let provider = inner
+      .mls_provider()
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let num_groups_synced: usize = inner
+      .sync_all_welcomes_and_history_sync_groups(&provider)
+      .await
+      .map_err(|e| JsError::new(&format!("{}", e)))?;
+
+    let num_groups_synced: u32 = num_groups_synced
+      .try_into()
+      .map_err(|_| JsError::new("Failed to convert usize to u32"))?;
+
+    Ok(num_groups_synced)
   }
 }

@@ -34,7 +34,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-    UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,

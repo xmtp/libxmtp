@@ -34,7 +34,6 @@ pub mod prelude {
         ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, Client, Endpoint, Query};
-    pub use super::XmtpApiError;
 }
 
 pub mod identity_v1 {

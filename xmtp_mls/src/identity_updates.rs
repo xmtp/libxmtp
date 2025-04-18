@@ -738,7 +738,13 @@ pub(crate) mod tests {
         use xmtp_common::assert_logged;
 
         xmtp_common::traced_test!(async {
+<<<<<<< HEAD
             let client = Tester::new().await;
+=======
+            let wallet = generate_local_wallet();
+            let wallet_2 = generate_local_wallet();
+            let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
+>>>>>>> origin/main
             let inbox_id = client.inbox_id();
             client.wait_for_sync_worker_init().await;
 

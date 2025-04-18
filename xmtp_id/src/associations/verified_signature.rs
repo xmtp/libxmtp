@@ -212,8 +212,8 @@ impl VerifiedSignature {
                 Some(account_id.get_chain_id_u64()?),
             ))
         } else {
-            tracing::error!(
-                "Smart contract wallet signature is invalid {:?}",
+            tracing::warn!(
+                "Smart contract wallet signature is invalid. Error: {:?}",
                 response.error
             );
             Err(SignatureError::Invalid)

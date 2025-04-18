@@ -1,7 +1,6 @@
 use crate::v3::*;
 use futures::stream;
 use xmtp_common::RetryableError;
-use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::{
     ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams,
 };
@@ -72,7 +71,7 @@ where
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<C, E> XmtpMlsClient for V3Client<C>
 where
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
     C: Send + Sync + Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
 {
@@ -151,7 +150,7 @@ where
 impl<C, E> XmtpIdentityClient for V3Client<C>
 where
     C: Send + Sync + Client<Error = E>,
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
 
@@ -225,7 +224,7 @@ where
 impl<C, E> XmtpMlsStreams for V3Client<C>
 where
     C: Send + Sync + Client<Error = E>,
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
 

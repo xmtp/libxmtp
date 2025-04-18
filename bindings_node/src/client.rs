@@ -7,10 +7,9 @@ use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing_subscriber::{fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
@@ -98,11 +97,10 @@ fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
       let filter = if let Some(f) = options.level {
-        tracing_subscriber::filter::LevelFilter::from_str(&f.to_string())
+        xmtp_common::filter_directive(&f.to_string())
       } else {
-        Ok(tracing_subscriber::filter::LevelFilter::INFO)
-      }
-      .map_err(ErrorWrapper::from)?;
+        EnvFilter::builder().parse_lossy("info")
+      };
 
       if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()
@@ -126,7 +124,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
 }
 
 /**
- * Create a client
+ * Create a client.
  *
  * Optionally specify a filter for the log level as a string.
  * It can be one of: `debug`, `info`, `warn`, `error` or 'off'.
@@ -332,5 +330,21 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(state.into_iter().map(Into::into).collect())
+  }
+
+  #[napi]
+  pub async fn sync_preferences(&self) -> Result<u32> {
+    let inner = self.inner_client.as_ref();
+
+    let provider = inner.mls_provider().map_err(ErrorWrapper::from)?;
+
+    let num_groups_synced: usize = inner
+      .sync_all_welcomes_and_history_sync_groups(&provider)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    let num_groups_synced: u32 = num_groups_synced.try_into().map_err(ErrorWrapper::from)?;
+
+    Ok(num_groups_synced)
   }
 }
