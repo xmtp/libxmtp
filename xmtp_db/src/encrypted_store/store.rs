@@ -1,14 +1,21 @@
 use super::*;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use derive_builder::Builder;
 
-use diesel::connection::SimpleConnection;
-use diesel_migrations::MigrationHarness;
-
-#[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
+#[derive(Clone, Debug, Builder)]
+#[builder(setter(into))]
 pub struct EncryptedMessageStore<Db> {
-    pub(super) opts: StorageOption,
     pub(super) db: Db,
+}
+
+impl<Db> EncryptedMessageStore<Db> {
+    pub fn builder() -> EncryptedMessageStoreBuilder<Db>
+    where
+        Db: Clone,
+    {
+        Default::default()
+    }
 }
 
 impl<Db, E> EncryptedMessageStore<Db>
@@ -17,25 +24,6 @@ where
     StorageError: From<<<Db as XmtpDb>::Connection as ConnectionExt>::Error>,
     StorageError: From<E>,
 {
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
-        self.db.validate(&self.opts)?;
-        self.db.conn().raw_query_write::<_, _>(|conn| {
-            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-            conn.run_pending_migrations(MIGRATIONS)
-                .map_err(diesel::result::Error::QueryBuilderError)?;
-
-            let sqlite_version =
-                sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-            tracing::info!("sqlite_version={}", sqlite_version[0].version);
-
-            tracing::info!("Migrations successful");
-            Ok(())
-        })?;
-
-        Ok::<_, StorageError>(())
-    }
-
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider<Db::Connection>, StorageError> {
         let conn = self.conn()?;
         Ok(XmtpOpenMlsProvider::new(conn))

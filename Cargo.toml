@@ -18,6 +18,7 @@ members = [
   "xmtp_api_d14n",
   "xmtp_macro",
   "xmtp_db",
+  "xmtp_db_test",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.

@@ -18,27 +18,17 @@ pub enum StorageError {
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error(transparent)]
-    Conversion(#[from] xmtp_proto::ConversionError),
-    #[error(transparent)]
     NotFound(#[from] NotFound),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
     Duplicate(DuplicateItem),
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
-    #[error("generic:{0}")]
-    Generic(String),
     #[error("Transaction was intentionally rolled back")]
     IntentionalRollback,
     #[error("failed to deserialize from db")]
     DbDeserialize,
     #[error("failed to serialize for db")]
     DbSerialize,
-    #[error(transparent)]
-    MissingRequired(#[from] MissingRequired),
     #[error("required fields missing from stored db type {0}")]
     Builder(#[from] derive_builder::UninitializedFieldError),
     #[error(transparent)]
@@ -46,7 +36,11 @@ pub enum StorageError {
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
     #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
     Connection(#[from] crate::ConnectionError),
+    #[error("HMAC key must be 42 bytes")]
+    InvalidHmacLength,
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -106,12 +100,6 @@ pub enum NotFound {
 }
 
 #[derive(Error, Debug)]
-pub enum MissingRequired {
-    #[error("Identifier kind is required when entity type is Identity")]
-    IdentifierKind,
-}
-
-#[derive(Error, Debug)]
 pub enum DuplicateItem {
     #[error("the welcome id {0:?} already exists")]
     WelcomeId(Option<i64>),
@@ -150,22 +138,18 @@ impl RetryableError for StorageError {
             Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Duplicate(d) => retryable!(d),
-            Self::Io(_) => true,
             Self::OpenMlsStorage(storage) => retryable!(storage),
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
             Self::MigrationError(_)
-                | Self::Conversion(_)
-                | Self::NotFound(_)
-                | Self::FromHex(_)
-                | Self::Generic(_) // TODO Audit generic errors and turn into variants
-                | Self::IntentionalRollback
-                | Self::DbDeserialize
-                | Self::DbSerialize
-                | Self::MissingRequired(_)
-                | Self::Builder(_)
-                | Self::Prost(_)
-            => false
+            | Self::Conversion(_)
+            | Self::NotFound(_)
+            | Self::IntentionalRollback
+            | Self::DbDeserialize
+            | Self::DbSerialize
+            | Self::Builder(_)
+            | Self::InvalidHmacLength
+            | Self::Prost(_) => false,
         }
     }
 }

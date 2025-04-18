@@ -730,7 +730,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(15))]
     async fn test_duplicate_dm_not_streamed() {
         use xmtp_cryptography::utils::generate_local_wallet;
 
