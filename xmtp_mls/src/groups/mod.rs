@@ -2168,7 +2168,7 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     use crate::groups::scoped_client::ScopedGroupClient;
-    use crate::utils::Tester;
+    use crate::utils::{LocalTester, Tester};
     use diesel::connection::SimpleConnection;
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
     use futures::future::join_all;
@@ -2553,13 +2553,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_dm_stitching() {
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client_no_sync(&alix_wallet).await;
-        let alix_provider = alix.mls_provider().unwrap();
-        let alix_conn = alix_provider.conn_ref();
-
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client_no_sync(&bo_wallet).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         let bo_dm = bo
             .find_or_create_dm_by_inbox_id(

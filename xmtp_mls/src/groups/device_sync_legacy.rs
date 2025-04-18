@@ -609,38 +609,47 @@ fn encrypt_syncables_with_key(
 mod tests {
     use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
-    use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
+    use crate::{
+        groups::device_sync::handle::SyncMetric,
+        utils::{LocalTester, Tester, XmtpClientTesterBuilder},
+    };
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn v1_sync_still_works() {
         let alix1 = Tester::new().await;
-        let alix2 = alix1.clone().await;
+        let alix2 = alix1.builder.build().await;
 
         alix1.sync_welcomes(&alix1.provider).await?;
-        alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
+        alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
         alix2.get_sync_group(&alix2.provider)?.sync().await?;
-        alix2.worker.wait(SyncMetric::PayloadProcessed, 1).await?;
+        alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
-        assert_eq!(alix1.worker.get(SyncMetric::V1PayloadSent), 0);
-        assert_eq!(alix2.worker.get(SyncMetric::V1PayloadProcessed), 0);
+        assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
+        assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
             .v1_send_sync_request(&alix2.provider, DeviceSyncKind::MessageHistory)
             .await?;
         alix1.sync_device_sync(&alix1.provider).await?;
-        alix1.worker.wait(SyncMetric::V1PayloadSent, 1).await?;
+        alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
 
         alix2.sync_device_sync(&alix2.provider).await?;
-        alix2.worker.wait(SyncMetric::V1PayloadProcessed, 1).await?;
+        alix2
+            .worker()
+            .wait(SyncMetric::V1PayloadProcessed, 1)
+            .await?;
 
         alix2
             .v1_send_sync_request(&alix2.provider, DeviceSyncKind::Consent)
             .await?;
         alix1.sync_device_sync(&alix1.provider).await?;
-        alix1.worker.wait(SyncMetric::V1PayloadSent, 2).await?;
+        alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;
 
         alix2.sync_device_sync(&alix2.provider).await?;
-        alix2.worker.wait(SyncMetric::V1PayloadProcessed, 2).await?;
+        alix2
+            .worker()
+            .wait(SyncMetric::V1PayloadProcessed, 2)
+            .await?;
     }
 }

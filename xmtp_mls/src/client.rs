@@ -2,7 +2,6 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::subscriptions::SyncEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -1121,7 +1120,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::subscriptions::StreamMessages;
-    use crate::utils::Tester;
+    use crate::utils::{LocalTester, Tester};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1430,8 +1429,8 @@ pub(crate) mod tests {
         let alix = Tester::new().await;
         let bo = Tester::new_passkey().await;
 
-        alix.worker.wait_for_init().await.unwrap();
-        bo.worker.wait_for_init().await.unwrap();
+        alix.worker().wait_for_init().await.unwrap();
+        bo.worker().wait_for_init().await.unwrap();
 
         // Create two groups and add Bob
         let alix_bo_group1 = alix

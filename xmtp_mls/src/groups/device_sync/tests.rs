@@ -3,7 +3,7 @@ use xmtp_db::consent_record::ConsentState;
 use super::*;
 use crate::{
     groups::DMMetadataOptions,
-    utils::{LocalTester, Tester},
+    utils::{LocalTester, Tester, XmtpClientTesterBuilder},
 };
 
 #[xmtp_common::test(unwrap_try = "true")]
@@ -15,7 +15,7 @@ async fn basic_sync() {
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
 
     // Create a second client for alix
-    let alix2 = alix1.clone().await;
+    let alix2 = alix1.builder.build().await;
 
     // Have alix1 receive new sync group, and auto-send a sync payload
     alix1.sync_welcomes(&alix1.provider).await?;
@@ -37,6 +37,8 @@ async fn basic_sync() {
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
     use std::time::Duration;
+
+    use crate::utils::XmtpClientTesterBuilder;
 
     let alix1 = Tester::new().await;
     let alix2 = alix1.builder.build().await;
@@ -86,7 +88,7 @@ async fn test_double_sync_works_fine() {
     let bo = Tester::new().await;
     alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = alix1.clone().await;
+    let alix2 = alix1.builder.build().await;
 
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes(&alix1.provider).await?;
@@ -113,7 +115,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
     let bo = Tester::new().await;
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = alix1.clone().await;
+    let alix2 = alix1.builder.build().await;
 
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;

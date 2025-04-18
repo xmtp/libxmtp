@@ -2158,7 +2158,7 @@ pub(crate) mod tests {
             .unwrap();
 
         amal_a
-            .worker
+            .worker()
             .wait(SyncMetric::ConsentSent, 1)
             .await
             .unwrap();

@@ -11,10 +11,7 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::{
-    association_state::StoredAssociationState,
-    user_preferences::{HmacKey, StoredUserPreferences},
-};
+use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
@@ -735,9 +732,8 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
-        use xmtp_common::assert_logged;
-
         use crate::utils::LocalTester;
+        use xmtp_common::assert_logged;
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
@@ -757,10 +753,10 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &client.owner.identifier()
+                &client.builder.owner.identifier()
             );
             assert!(association_state
-                .get(&client.owner.identifier().into())
+                .get(&client.builder.owner.identifier().into())
                 .is_some());
 
             assert_logged!("Loaded association", 5);
@@ -791,7 +787,7 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &client.owner.identifier()
+                &client.builder.owner.identifier()
             );
             assert!(association_state
                 .get(&wallet_2.member_identifier())
