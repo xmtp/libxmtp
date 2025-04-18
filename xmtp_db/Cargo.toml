@@ -69,4 +69,4 @@ tokio = { workspace = true, features = [
 wasm-bindgen-test.workspace = true
 
 [features]
-test-utils = []
+test-utils = ["xmtp_common/test-utils"]

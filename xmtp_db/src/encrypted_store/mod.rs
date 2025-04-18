@@ -88,16 +88,15 @@ pub trait Database {
 pub enum ConnectionError {
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     #[error(transparent)]
-    Native(#[from] NativeStorageError),
+    Platform(#[from] PlatformStorageError),
 }
 
 impl RetryableError for ConnectionError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Database(d) => retryable!(d),
-            Self::Native(n) => retryable!(n),
+            Self::Platform(n) => retryable!(n),
         }
     }
 }
@@ -523,7 +522,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mismatched_encryption_key() {
-        use crate::native::NativeStorageError;
+        use crate::native::PlatformStorageError;
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
@@ -551,8 +550,8 @@ pub(crate) mod tests {
         assert!(
             matches!(
                 res.err(),
-                Some(StorageError::Native(
-                    NativeStorageError::SqlCipherKeyIncorrect
+                Some(StorageError::Platform(
+                    PlatformStorageError::SqlCipherKeyIncorrect
                 ))
             ),
             "Expected SqlCipherKeyIncorrect error"

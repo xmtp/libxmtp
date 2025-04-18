@@ -25,6 +25,8 @@ pub type RawDbConnection = PooledConnection<ConnectionManager>;
 pub use self::sqlcipher_connection::EncryptedConnection;
 use crate::{EncryptionKey, StorageOption, XmtpDb};
 
+use super::PersistentOrMem;
+
 trait XmtpConnection:
     ValidatedConnection + CustomizeConnection<SqliteConnection, r2d2::Error> + dyn_clone::DynClone
 {
@@ -40,7 +42,7 @@ impl<T> XmtpConnection for T where
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
-    fn validate(&self, _opts: &StorageOption) -> Result<(), NativeStorageError> {
+    fn validate(&self, _opts: &StorageOption) -> Result<(), PlatformStorageError> {
         Ok(())
     }
 }
@@ -91,7 +93,7 @@ impl StorageOption {
 }
 
 #[derive(Debug, Error)]
-pub enum NativeStorageError {
+pub enum PlatformStorageError {
     #[error("Pool error: {0}")]
     Pool(#[from] diesel::r2d2::PoolError),
     #[error("Error with connection to Sqlite {0}")]
@@ -116,7 +118,7 @@ pub enum NativeStorageError {
     Boxed(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
-impl RetryableError for NativeStorageError {
+impl RetryableError for PlatformStorageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Pool(_) => true,
@@ -133,12 +135,7 @@ impl RetryableError for NativeStorageError {
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
     customizer: Box<dyn XmtpConnection>,
-    conn: Arc<PersistentOrMem>,
-}
-
-pub enum PersistentOrMem {
-    Persistent(NativeDbConnection),
-    Mem(EphemeralDbConnection),
+    conn: Arc<super::DefaultConnectionInner>,
 }
 
 impl NativeDb {
@@ -146,7 +143,7 @@ impl NativeDb {
     pub(crate) fn new(
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
-    ) -> Result<Self, NativeStorageError> {
+    ) -> Result<Self, PlatformStorageError> {
         let customizer = if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
             Box::new(enc_connection) as Box<dyn XmtpConnection>
@@ -170,44 +167,9 @@ impl NativeDb {
     }
 }
 
-impl ConnectionExt for PersistentOrMem {
-    type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
-        match self {
-            Self::Persistent(p) => p.start_transaction(),
-            Self::Mem(m) => m.start_transaction(),
-        }
-    }
-
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
-        Self: Sized,
-    {
-        match self {
-            Self::Persistent(p) => p.raw_query_read(fun),
-            Self::Mem(m) => m.raw_query_read(fun),
-        }
-    }
-
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
-        Self: Sized,
-    {
-        match self {
-            Self::Persistent(p) => p.raw_query_write(fun),
-            Self::Mem(m) => m.raw_query_write(fun),
-        }
-    }
-}
-
 impl XmtpDb for NativeDb {
     type Connection = crate::DefaultConnection;
-    type Error = NativeStorageError;
+    type Error = PlatformStorageError;
 
     /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Self::Connection {
@@ -243,7 +205,7 @@ pub struct EphemeralDbConnection {
 }
 
 impl EphemeralDbConnection {
-    fn new() -> Result<Self, NativeStorageError> {
+    fn new() -> Result<Self, PlatformStorageError> {
         Ok(Self {
             conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
             in_transaction: Arc::new(AtomicBool::new(false)),
@@ -251,11 +213,11 @@ impl EphemeralDbConnection {
         })
     }
 
-    fn disconnect(&self) -> Result<(), NativeStorageError> {
+    fn disconnect(&self) -> Result<(), PlatformStorageError> {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), NativeStorageError> {
+    fn reconnect(&self) -> Result<(), PlatformStorageError> {
         let mut w = self.conn.lock();
         let conn = SqliteConnection::establish(":memory:")?;
         *w = conn;
@@ -313,7 +275,7 @@ pub struct NativeDbConnection {
 }
 
 impl NativeDbConnection {
-    fn new(path: &str, customizer: Box<dyn XmtpConnection>) -> Result<Self, NativeStorageError> {
+    fn new(path: &str, customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         let read = Pool::builder()
             .connection_customizer(customizer.clone())
             .max_size(crate::configuration::MAX_DB_POOL_SIZE)
@@ -334,14 +296,14 @@ impl NativeDbConnection {
         })
     }
 
-    fn disconnect(&self) -> Result<(), NativeStorageError> {
+    fn disconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::warn!("released sqlite database connection");
         let mut pool_guard = self.read.write();
         pool_guard.take();
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), NativeStorageError> {
+    fn reconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::info!("reconnecting sqlite database connection");
         let builder = Pool::builder().connection_customizer(self.customizer.clone());
 
@@ -399,7 +361,7 @@ impl ConnectionExt for NativeDbConnection {
             );
             let mut conn = pool
                 .get()
-                .map_err(NativeStorageError::from)
+                .map_err(PlatformStorageError::from)
                 .map_err(ConnectionError::from)
                 .map_err(E::from)?;
 
@@ -408,7 +370,7 @@ impl ConnectionExt for NativeDbConnection {
                 .map_err(E::from);
         } else {
             return Err(E::from(ConnectionError::from(
-                NativeStorageError::PoolNeedsConnection,
+                PlatformStorageError::PoolNeedsConnection,
             )));
         };
     }

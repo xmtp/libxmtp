@@ -23,7 +23,6 @@ where
             .conn()
             .raw_query_write::<_, _, StorageError>(|conn| {
                 conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-                tracing::info!("Running DB migrations");
                 conn.run_pending_migrations(MIGRATIONS)
                     .map_err(|e| diesel::result::Error::QueryBuilderError(e))?;
 
