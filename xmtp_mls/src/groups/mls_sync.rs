@@ -28,6 +28,19 @@ use crate::{
     subscriptions::LocalEvents,
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
+
+use xmtp_db::{
+    db_connection::DbConnection,
+    group::StoredGroup,
+    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    sql_key_store,
+    user_preferences::StoredUserPreferences,
+    Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
+};
+use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
+
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -57,17 +70,6 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use xmtp_db::{
-    db_connection::DbConnection,
-    group::{ConversationType, StoredGroup},
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    sql_key_store,
-    user_preferences::StoredUserPreferences,
-    Delete, Fetch, ProviderTransactions, StorageError, StoreOrIgnore,
-};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -342,6 +344,17 @@ where
                     );
                     return Err(last_err.unwrap_or(GroupError::IntentNotCommitted));
                 }
+                Ok(Some(StoredGroupIntent {
+                    id,
+                    state: IntentState::Processed,
+                    ..
+                })) => {
+                    tracing::warn!(
+                        "not retrying intent ID {id}. since it is in state processed. {:?}",
+                        last_err
+                    );
+                    return Ok(());
+                }
                 Ok(Some(StoredGroupIntent { id, state, .. })) => {
                     tracing::warn!("retrying intent ID {id}. intent currently in state {state:?}");
                 }
@@ -563,6 +576,7 @@ where
         mls_group: &mut OpenMlsGroup,
         message: PrivateMessageIn,
         envelope: &GroupMessageV1,
+        allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -637,12 +651,29 @@ where
             );
             let processed_message = mls_group.process_message(provider, message)?;
 
-            let is_updated = provider.conn_ref().update_cursor(
-                &envelope.group_id,
-                EntityKind::Group,
-                *cursor as i64,
-            )?;
-            if !is_updated {
+            let requires_processing = if allow_cursor_increment {
+                tracing::info!(
+                    "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
+                provider.conn_ref().update_cursor(
+                    &envelope.group_id,
+                    EntityKind::Group,
+                    *cursor as i64,
+                )?
+            } else {
+                tracing::info!(
+                    "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
+                let current_cursor = provider
+                    .conn_ref()
+                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                current_cursor < *cursor as i64
+            };
+            if !requires_processing {
                 return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
             }
             let previous_epoch = mls_group.epoch().as_u64();
@@ -827,7 +858,9 @@ where
                                 // and returns a copy of what was inserted
                                 let updates =
                                     UserPreferenceUpdate::process_incoming_preference_update(
-                                        update, provider,
+                                        update,
+                                        &self.client,
+                                        provider,
                                     )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
@@ -840,7 +873,9 @@ where
                             }
                         }
                     }
-                    None => return Err(GroupMessageProcessingError::InvalidPayload),
+                    None => {
+                        return Err(GroupMessageProcessingError::InvalidPayload);
+                    }
                 }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
@@ -893,13 +928,22 @@ where
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
+    ///
+    /// # Parameters
+    /// * `provider` - The OpenMLS provider for database access
+    /// * `envelope` - The message envelope to process
+    /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
+    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
+    ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip(self, provider, envelope), level = "debug")]
     pub(crate) async fn process_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         envelope: &GroupMessageV1,
-        allow_epoch_increment: bool,
+        trust_message_order: bool,
     ) -> Result<(), GroupMessageProcessingError> {
+        let allow_epoch_increment = trust_message_order;
+        let allow_cursor_increment = trust_message_order;
         let cursor = envelope.id;
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
@@ -948,11 +992,29 @@ where
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, provider, &message, envelope).await;
 
                     provider.transaction(|provider| {
-                        let is_updated =
-                            provider
+                        let requires_processing = if allow_cursor_increment {
+                            tracing::info!(
+                                "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
+                                hex::encode(envelope.group_id.as_slice()),
+                                cursor
+                            );
+                            provider.conn_ref().update_cursor(
+                                &envelope.group_id,
+                                EntityKind::Group,
+                                cursor as i64,
+                            )?
+                        } else {
+                            tracing::info!(
+                                "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                                hex::encode(envelope.group_id.as_slice()),
+                                cursor
+                            );
+                            let current_cursor = provider
                                 .conn_ref()
-                                .update_cursor(&envelope.group_id, EntityKind::Group, cursor as i64)?;
-                        if !is_updated {
+                                .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                            current_cursor < cursor as i64
+                        };
+                        if !requires_processing {
                             return Err(ProcessIntentError::AlreadyProcessed(cursor).into());
                         }
 
@@ -979,6 +1041,10 @@ where
                                 tracing::warn!("Intent [{}] moved to error status", intent_id);
                                 Ok(provider.conn_ref().set_group_intent_error(intent_id)?)
                             }
+                            IntentState::Processed => {
+                                tracing::warn!("Intent [{}] moved to Processed status", intent_id);
+                                Ok(provider.conn_ref().set_group_intent_processed(intent_id)?)
+                            }
                         }
                     })
                 }).await?;
@@ -1003,6 +1069,7 @@ where
                         &mut mls_group,
                         message,
                         envelope,
+                        allow_cursor_increment,
                     )
                     .await
                 })
@@ -1172,7 +1239,7 @@ where
                     // If the error is retryable we cannot move on to the next message
                     // otherwise you can get into a forked group state.
                     if is_retryable {
-                        tracing::error!(
+                        tracing::info!(
                             error = %error_message,
                             "Aborting message processing for retryable error: {}",
                             error_message
@@ -1369,8 +1436,7 @@ where
                             installation_id = %self.client.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
-                        let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = provider.conn_ref();
-                        deleter.delete(intent.id)?;
+                        provider.conn_ref().set_group_intent_processed(intent.id)?
                     }
                 }
             }
@@ -1526,8 +1592,7 @@ where
                     }
                 }
             }
-            let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = conn;
-            deleter.delete(intent.id)?;
+            conn.set_group_intent_processed(intent.id)?
         }
 
         Ok(())
@@ -1538,6 +1603,13 @@ where
         provider: &XmtpOpenMlsProvider,
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
+        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
+            return Ok(());
+        };
+        if stored_group.conversation_type == ConversationType::Sync {
+            return Ok(());
+        }
+
         // determine how long of an interval in time to use before updating list
         let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
 
@@ -2070,9 +2142,12 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
-        let amal_a = Tester::new().await;
+        use crate::{
+            groups::device_sync::handle::SyncMetric,
+            utils::{LocalTester, Tester},
+        };
 
+        let amal_a = Tester::new().await;
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
         amal_a
@@ -2093,7 +2168,7 @@ pub(crate) mod tests {
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_deleted(), 5);
+        assert_eq!(provider.conn_ref().intents_processed(), 1);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();

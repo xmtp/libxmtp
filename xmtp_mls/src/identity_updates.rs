@@ -737,6 +737,8 @@ pub(crate) mod tests {
     fn cache_association_state() {
         use xmtp_common::assert_logged;
 
+        use crate::utils::LocalTester;
+
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();

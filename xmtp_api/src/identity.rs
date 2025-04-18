@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
-use super::{ApiClientWrapper, Error};
+use super::ApiClientWrapper;
+use crate::ApiError;
 use crate::{Result, XmtpApi};
 use futures::future::try_join_all;
+use xmtp_common::RetryableError;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
@@ -14,8 +16,6 @@ use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use xmtp_proto::xmtp::identity::associations::{IdentifierKind, IdentityUpdate};
-
-use xmtp_proto::ApiError;
 
 const GET_IDENTITY_UPDATES_CHUNK_SIZE: usize = 50;
 
@@ -53,7 +53,7 @@ where
                 identity_update: Some(update.into()),
             })
             .await
-            .map_err(ApiError::from)?;
+            .map_err(crate::dyn_err)?;
 
         Ok(())
     }
@@ -65,7 +65,7 @@ where
     ) -> Result<impl Iterator<Item = (String, Vec<T>)>>
     where
         T: TryFrom<IdentityUpdateLog>,
-        Error: From<<T as TryFrom<IdentityUpdateLog>>::Error>,
+        <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + Send + Sync + 'static,
     {
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
@@ -76,18 +76,18 @@ where
                     requests: chunk.iter().map(|filter| filter.into()).collect(),
                 })
                 .await
-                .map_err(ApiError::from)?
+                .map_err(crate::dyn_err)?
                 .responses
                 .into_iter()
                 .map(|item| {
                     let deser_items = item
                         .updates
                         .into_iter()
-                        .map(move |update| update.try_into().map_err(Error::from))
+                        .map(move |update| update.try_into().map_err(crate::dyn_err))
                         .collect::<Result<Vec<_>>>()?;
-                    Ok::<_, Error>((item.inbox_id, deser_items))
+                    Ok::<_, ApiError>((item.inbox_id, deser_items))
                 });
-            Ok::<_, Error>(res)
+            Ok::<_, ApiError>(res)
         }))
         .await?
         .into_iter()
@@ -119,7 +119,7 @@ where
             .api_client
             .get_inbox_ids(GetInboxIdsRequest { requests })
             .await
-            .map_err(ApiError::from)?;
+            .map_err(crate::dyn_err)?;
 
         Ok(result
             .responses
@@ -148,8 +148,7 @@ where
         self.api_client
             .verify_smart_contract_wallet_signatures(request)
             .await
-            .map_err(ApiError::from)
-            .map_err(Error::from)
+            .map_err(crate::dyn_err)
     }
 }
 
@@ -183,8 +182,7 @@ pub(crate) mod tests {
         )
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn publish_identity_update() {
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_hexstring();
@@ -201,14 +199,13 @@ pub(crate) mod tests {
         assert!(result.is_ok());
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn get_identity_update_v2() {
         pub struct InboxIdentityUpdate {
             inbox_id: String,
         }
         impl TryFrom<IdentityUpdateLog> for InboxIdentityUpdate {
-            type Error = crate::Error;
+            type Error = crate::ApiError;
             fn try_from(v: IdentityUpdateLog) -> Result<InboxIdentityUpdate, Self::Error> {
                 Ok(InboxIdentityUpdate {
                     inbox_id: v.update.unwrap().inbox_id,
@@ -260,8 +257,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn get_inbox_ids() {
         let mut mock_api = MockApiClient::new();
         let inbox_id = rand_hexstring();

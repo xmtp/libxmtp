@@ -35,7 +35,7 @@ pub enum VerifierError {
     #[error("URLs must be preceeded with eip144:")]
     MalformedEipUrl,
     #[error(transparent)]
-    Api(#[from] xmtp_api::Error),
+    Api(#[from] xmtp_api::ApiError),
 }
 
 #[cfg(not(target_arch = "wasm32"))]

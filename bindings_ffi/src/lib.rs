@@ -4,7 +4,7 @@ pub mod identity;
 pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
-mod worker;
+pub mod worker;
 
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};

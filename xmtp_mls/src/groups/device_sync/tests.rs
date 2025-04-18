@@ -1,7 +1,10 @@
 use xmtp_db::consent_record::ConsentState;
 
 use super::*;
-use crate::{groups::DMMetadataOptions, utils::Tester};
+use crate::{
+    groups::DMMetadataOptions,
+    utils::{LocalTester, Tester},
+};
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
@@ -16,12 +19,12 @@ async fn basic_sync() {
 
     // Have alix1 receive new sync group, and auto-send a sync payload
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
     let alix2_sync_group = alix2.get_sync_group(&alix2.provider)?;
     alix2_sync_group.sync().await?;
-    alix2.worker.wait(SyncMetric::PayloadProcessed, 1).await?;
+    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     // Ensure the DM is present on the second device.
     let alix2_dm = alix2.group(&dm.group_id)?;
@@ -36,7 +39,7 @@ async fn only_one_payload_sent() {
     use std::time::Duration;
 
     let alix1 = Tester::new().await;
-    let alix2 = alix1.clone().await;
+    let alix2 = alix1.builder.build().await;
     let bo = Tester::new().await;
 
     let dm = alix1
@@ -49,10 +52,10 @@ async fn only_one_payload_sent() {
 
     // Wait for alix to send a payload to alix2
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
-    alix1.worker.clear_metric(SyncMetric::PayloadSent);
+    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
+    alix1.worker().clear_metric(SyncMetric::PayloadSent);
 
-    let alix3 = alix1.clone().await;
+    let alix3 = alix1.builder.build().await;
 
     // Have alix1 and 2 fetch the new sync group
     alix1.sync_welcomes(&alix1.provider).await?;
@@ -67,8 +70,8 @@ async fn only_one_payload_sent() {
     assert_eq!(alix1_sg.group_id, alix3_sg.group_id);
 
     // Wait for one of the workers to send a payload
-    let wait1 = alix1.worker.wait(SyncMetric::PayloadSent, 1);
-    let wait2 = alix2.worker.wait(SyncMetric::PayloadSent, 1);
+    let wait1 = alix1.worker().wait(SyncMetric::PayloadSent, 1);
+    let wait2 = alix2.worker().wait(SyncMetric::PayloadSent, 1);
     let timeout1 = xmtp_common::time::timeout(Duration::from_secs(5), wait1).await;
     let timeout2 = xmtp_common::time::timeout(Duration::from_secs(5), wait2).await;
 
@@ -87,17 +90,17 @@ async fn test_double_sync_works_fine() {
 
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
-    alix2.worker.wait(SyncMetric::PayloadProcessed, 1).await?;
+    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     alix2.send_sync_request(&alix2.provider).await?;
     alix1.get_sync_group(&alix1.provider)?.sync().await?;
-    alix1.worker.wait(SyncMetric::PayloadSent, 2).await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
-    alix2.worker.wait(SyncMetric::PayloadProcessed, 2).await?;
+    alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
 
     // Alix2 should be able to talk fine with bo
     alix2.test_talk_in_dm_with(&bo).await?;
@@ -113,16 +116,16 @@ async fn test_hmac_and_consent_prefrence_sync() {
     let alix2 = alix1.clone().await;
 
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker.wait(SyncMetric::PayloadSent, 1).await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
-    alix2.worker.wait(SyncMetric::PayloadProcessed, 1).await?;
+    alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     let alix1_keys = dm.hmac_keys(-1..=1)?;
-    alix1.worker.wait(SyncMetric::HmacSent, 1).await?;
+    alix1.worker().wait(SyncMetric::HmacSent, 1).await?;
 
     alix2.get_sync_group(&alix2.provider)?.sync().await?;
-    alix2.worker.wait(SyncMetric::HmacReceived, 1).await?;
+    alix2.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_keys = alix2_dm.hmac_keys(-1..=1)?;
@@ -132,10 +135,10 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
-    alix1.worker.wait(SyncMetric::ConsentSent, 2).await?;
+    alix1.worker().wait(SyncMetric::ConsentSent, 2).await?;
 
     alix2.sync_device_sync(&alix2.provider).await?;
-    alix2.worker.wait(SyncMetric::ConsentReceived, 1).await?;
+    alix2.worker().wait(SyncMetric::ConsentReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);

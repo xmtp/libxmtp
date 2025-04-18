@@ -74,7 +74,7 @@ pub enum ClientError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("API error: {0}")]
-    Api(#[from] xmtp_api::Error),
+    Api(#[from] xmtp_api::ApiError),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -159,10 +159,15 @@ pub struct Client<ApiClient, V = RemoteSignatureVerifier<ApiClient>> {
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
-
     #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
+    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
+}
+
+impl DeviceSync {
+    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.worker_handle.lock().clone()
+    }
 }
 
 // most of these things are `Arc`'s
@@ -287,9 +292,9 @@ where
             scw_verifier: scw_verifier.into(),
             version_info: Arc::new(VersionInfo::default()),
             device_sync: DeviceSync {
-                worker_handle: Arc::new(parking_lot::Mutex::default()),
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
+                worker_handle: Arc::new(parking_lot::Mutex::default()),
             },
         }
     }
@@ -344,6 +349,10 @@ where
 
     pub fn device_sync_server_url(&self) -> Option<&String> {
         self.device_sync.server_url.as_ref()
+    }
+
+    pub fn device_sync_worker_enabled(&self) -> bool {
+        !matches!(self.device_sync.mode, SyncWorkerMode::Disabled)
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
@@ -928,7 +937,7 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Self>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self, provider, welcome).await;
+        let result = MlsGroup::create_from_welcome(self, provider, welcome, true).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
@@ -964,11 +973,6 @@ where
             .map(|group| {
                 let active_group_count = Arc::clone(&active_group_count);
                 async move {
-                    tracing::info!(
-                        inbox_id = self.inbox_id(),
-                        "[{}] syncing group",
-                        self.inbox_id()
-                    );
                     tracing::info!(
                         inbox_id = self.inbox_id(),
                         "[{}] syncing group",
@@ -1031,6 +1035,22 @@ where
         let groups = provider
             .conn_ref()
             .find_groups(query_args)?
+            .into_iter()
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .collect();
+        let active_groups_count = self.sync_all_groups(groups, provider).await?;
+
+        Ok(active_groups_count)
+    }
+
+    pub async fn sync_all_welcomes_and_history_sync_groups(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<usize, ClientError> {
+        self.sync_welcomes(provider).await?;
+        let groups = provider
+            .conn_ref()
+            .all_sync_groups()?
             .into_iter()
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
             .collect();
@@ -1435,7 +1455,7 @@ pub(crate) mod tests {
             .sync_all_welcomes_and_groups(&bo.mls_provider().unwrap(), None)
             .await
             .unwrap();
-        assert_eq!(bob_received_groups, 2);
+        assert_eq!(bob_received_groups, 3);
 
         // Verify Bob initially has no messages
         let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
@@ -1473,7 +1493,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_unknown, 0);
+        assert_eq!(bob_received_groups_unknown, 1);
 
         // Verify Bob still has no messages
         assert_eq!(
@@ -1509,7 +1529,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(bob_received_groups_all, 2);
+        assert_eq!(bob_received_groups_all, 3);
 
         // Verify Bob now has all messages
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();

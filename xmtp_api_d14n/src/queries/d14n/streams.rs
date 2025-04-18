@@ -1,7 +1,6 @@
 use super::D14nClient;
 use futures::stream;
 use xmtp_common::RetryableError;
-use xmtp_proto::XmtpApiError;
 use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::{ApiClientError, Client};
@@ -12,7 +11,7 @@ impl<C, P, E> XmtpMlsStreams for D14nClient<C, P>
 where
     C: Send + Sync + Client<Error = E>,
     P: Send + Sync + Client,
-    E: XmtpApiError + std::error::Error + RetryableError + Send + Sync + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
 
