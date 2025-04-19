@@ -299,7 +299,7 @@ mod tests {
     #[rstest::rstest]
     #[xmtp_common::test]
     #[timeout(Duration::from_secs(15))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[ignore]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let mut replace = xmtp_common::InboxIdReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;

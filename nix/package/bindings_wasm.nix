@@ -12,8 +12,6 @@
 , craneLib
 , lld
 , mkShell
-, fetchFromGitHub
-, llvmPackages_20
 }:
 let
   inherit (stdenv) hostPlatform;

@@ -13,7 +13,7 @@ pub async fn test_create_client() {
 pub async fn wipe_client_files() {
   xmtp_db::init_sqlite().await;
   Opfs::wipe_files().await.unwrap();
-  let client = create_test_client().await;
+  let _client = create_test_client().await;
   let count = Opfs::get_file_count();
   assert_eq!(count, 1);
 
