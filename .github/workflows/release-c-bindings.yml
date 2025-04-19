@@ -1,0 +1,48 @@
+name: Release Go Bindings
+on:
+  workflow_dispatch:
+  pull_request:
+jobs:
+  build-c-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Update rust toolchains, add target
+        run: |
+          rustup update
+          rustup target add ${{ matrix.target }}
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_c
+      - name: Install cbindgen
+        run: cargo install cbindgen
+      - name: Generate header
+        working-directory: ./bindings_c
+        run: cbindgen --config cbindgen.toml --crate bindings_c --output libxmtpmls.h
+      - name: Build shared library
+        run: |
+          cargo build --release --target ${{ matrix.target }} --package bindings_c
+      - name: Package artifacts
+        run: |
+          mkdir -p dist/${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/libbindings_c.* dist/${{ matrix.target }}/
+          cp bindings_c/libxmtpmls.h dist/${{ matrix.target }}/
+      - name: Upload release artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/*

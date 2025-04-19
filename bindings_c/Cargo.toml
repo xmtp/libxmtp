@@ -1,0 +1,14 @@
+[package]
+name = "bindings_c"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "bindings_c"
+crate-type = ["cdylib"]
+
+[dependencies]
+openmls_rust_crypto = { workspace = true }
+xmtp_mls.workspace = true
+libc = "0.2"
