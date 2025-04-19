@@ -73,6 +73,7 @@ impl DbConnection {
             consent_states,
             include_sync_groups,
             include_duplicate_dms,
+            ..
         } = args.as_ref();
         let mut query = conversation_list
             .select(conversation_list::all_columns())
@@ -84,7 +85,7 @@ impl DbConnection {
             query = query.filter(sql::<diesel::sql_types::Bool>(
                 "id IN (
                     SELECT id FROM (
-                        SELECT id, 
+                        SELECT id,
                             ROW_NUMBER() OVER (PARTITION BY COALESCE(dm_id, id) ORDER BY last_message_ns DESC) AS row_num
                         FROM groups
                     ) AS ranked_groups
@@ -201,6 +202,7 @@ pub(crate) mod tests {
                     Some(i * 1000),
                     Some(ContentType::Text),
                 );
+
                 message.store(conn).unwrap();
             }
 
@@ -350,32 +352,35 @@ pub(crate) mod tests {
             assert_eq!(all_results.len(), 4);
 
             let allowed_results = conn
-                .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_states([ConsentState::Allowed].to_vec()),
-                )
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![ConsentState::Allowed]),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(allowed_results.len(), 2);
 
             let allowed_unknown_results = conn
-                .fetch_conversation_list(
-                    GroupQueryArgs::default()
-                        .consent_states([ConsentState::Allowed, ConsentState::Unknown].to_vec()),
-                )
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(allowed_unknown_results.len(), 3);
 
             let denied_results = conn
-                .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_states([ConsentState::Denied].to_vec()),
-                )
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![ConsentState::Denied]),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(denied_results.len(), 1);
             assert_eq!(denied_results[0].id, test_group_2.id);
 
             let unknown_results = conn
-                .fetch_conversation_list(
-                    GroupQueryArgs::default().consent_states([ConsentState::Unknown].to_vec()),
-                )
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![ConsentState::Unknown]),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);

@@ -43,7 +43,7 @@ impl Modify {
             hex::encode(local_group.created_by)
         ))?;
         let admin = app::client_from_identity(&identity, &network).await?;
-        let group = admin.group(local_group.id.into())?;
+        let group = admin.group(&local_group.id.to_vec())?;
         match action {
             Remove => {
                 if inbox_id.is_none() {

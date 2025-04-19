@@ -13,10 +13,9 @@ use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
-use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
-};
+use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::{Identifier, IdentityExt};
@@ -61,6 +60,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -69,6 +69,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -79,6 +80,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
@@ -511,6 +513,23 @@ impl Conversations {
   }
 
   #[napi]
+  pub async fn sync_device_sync(&self) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .map_err(ErrorWrapper::from)?
+      .sync()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
@@ -535,10 +554,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -559,9 +578,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {

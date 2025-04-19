@@ -3,31 +3,27 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
+use crate::{
+    builder::{ClientBuilder, SyncWorkerMode},
+    identity::IdentityStrategy,
+    Client, InboxOwner, XmtpApi,
+};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
+use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-use crate::{
-    builder::{ClientBuilder, SyncWorkerMode},
-    identity::IdentityStrategy,
-    Client, InboxOwner, XmtpApi,
-};
-use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
+#[cfg(any(test, feature = "test-utils"))]
+pub use tester::*;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
-// TODO: Dev-Versions of URL
-const HISTORY_SERVER_HOST: &str = "localhost";
-const HISTORY_SERVER_PORT: u16 = 5558;
-pub const HISTORY_SYNC_URL: &str =
-    const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
-
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 #[cfg(all(
@@ -69,7 +65,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(HISTORY_SYNC_URL),
+            Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
         )
         .await
@@ -216,7 +212,7 @@ async fn build_with_verifier<A, V>(
     owner: impl InboxOwner,
     api_client: A,
     scw_verifier: V,
-    history_sync_url: Option<&str>,
+    sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
 ) -> Client<A, V>
 where
@@ -233,8 +229,8 @@ where
         .api_client(api_client)
         .with_scw_verifier(scw_verifier);
 
-    if let Some(history_sync_url) = history_sync_url {
-        builder = builder.device_sync_server_url(history_sync_url);
+    if let Some(sync_server_url) = sync_server_url {
+        builder = builder.device_sync_server_url(sync_server_url);
     }
 
     if let Some(sync_worker_mode) = sync_worker_mode {

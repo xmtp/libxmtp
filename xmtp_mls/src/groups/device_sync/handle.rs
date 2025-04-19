@@ -34,11 +34,11 @@ pub enum SyncMetric {
     ConsentReceived,
 
     V1ConsentSent,
-    V1ConsentReceived,
     V1HmacSent,
-    V1HmacReceived,
     V1PayloadSent,
     V1PayloadProcessed,
+    V1ConsentReceived,
+    V1HmacReceived,
     V1RequestSent,
 }
 

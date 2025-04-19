@@ -1,6 +1,7 @@
 use crate::identity::{FfiCollectionExt, FfiCollectionTryExt, FfiIdentifier};
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
+use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
@@ -16,6 +17,7 @@ use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::GroupQueryArgs,
@@ -34,25 +36,28 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::{BackupImporter, BackupMetadata, BackupOptions};
-use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
-use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
+use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
+use xmtp_mls::groups::DMMetadataOptions;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
+        device_sync::{
+            backup::{BackupImporter, BackupMetadata},
+            preference_sync::UserPreferenceUpdate,
+            ENC_KEY_SIZE,
+        },
         group_metadata::GroupMetadata,
+        group_mutable_metadata::MessageDisappearingSettings,
         group_mutable_metadata::MetadataField,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
             PermissionsPolicies, PolicySet,
         },
-        intents::{PermissionPolicyOption, PermissionUpdateType},
+        intents::{PermissionPolicyOption, PermissionUpdateType, UpdateGroupMembershipResult},
         members::PermissionLevel,
         GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
@@ -60,7 +65,7 @@ use xmtp_mls::{
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::ApiBuilder;
-use xmtp_proto::xmtp::device_sync::BackupElementSelection;
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
@@ -125,8 +130,8 @@ pub async fn create_client(
     account_identifier: FfiIdentifier,
     nonce: u64,
     legacy_signed_private_key_proto: Option<Vec<u8>>,
-    history_sync_url: Option<String>,
-    sync_worker_mode: Option<FfiSyncWorkerMode>,
+    device_sync_server_url: Option<String>,
+    device_sync_mode: Option<FfiSyncWorkerMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -165,12 +170,12 @@ pub async fn create_client(
         .with_remote_verifier()?
         .store(store);
 
-    if let Some(url) = &history_sync_url {
-        builder = builder.device_sync_server_url(url);
+    if let Some(sync_worker_mode) = device_sync_mode {
+        builder = builder.device_sync_worker_mode(sync_worker_mode.into());
     }
 
-    if let Some(sync_worker_mode) = sync_worker_mode {
-        builder = builder.device_sync_worker_mode(sync_worker_mode.into());
+    if let Some(url) = &device_sync_server_url {
+        builder = builder.device_sync_server_url(url);
     }
 
     let xmtp_client = builder.build().await?;
@@ -179,8 +184,12 @@ pub async fn create_client(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
+    let worker = FfiSyncWorker {
+        handle: xmtp_client.worker_handle(),
+    };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
+        worker,
         account_identifier,
     }))
 }
@@ -299,6 +308,8 @@ impl FfiSignatureRequest {
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
+    #[allow(dead_code)]
+    worker: FfiSyncWorker,
     #[allow(dead_code)]
     account_identifier: FfiIdentifier,
 }
@@ -567,11 +578,9 @@ impl FfiXmtpClient {
     }
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
-    pub async fn send_sync_request(&self, kind: FfiDeviceSyncKind) -> Result<(), GenericError> {
+    pub async fn send_sync_request(&self) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        self.inner_client
-            .send_sync_request(&provider, kind.into())
-            .await?;
+        self.inner_client.send_sync_request(&provider).await?;
 
         Ok(())
     }
@@ -696,18 +705,16 @@ impl FfiXmtpClient {
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
-        let opts: BackupOptions = opts.into();
-        opts.export_to_file(provider, path, &check_key(key)?)
-            .await?;
+        let options: BackupOptions = opts.into();
+        BackupExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
 
         Ok(())
     }
 
     /// Import a previous backup
     pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
         let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
-        importer.insert(&provider).await?;
+        importer.run(&self.inner_client).await?;
         Ok(())
     }
 
@@ -771,7 +778,14 @@ impl From<FfiBackupOptions> for BackupOptions {
         Self {
             start_ns: value.start_ns,
             end_ns: value.start_ns,
-            elements: value.elements.into_iter().map(Into::into).collect(),
+            elements: value
+                .elements
+                .into_iter()
+                .map(|el| {
+                    let element: BackupElementSelection = el.into();
+                    element.into()
+                })
+                .collect(),
         }
     }
 }
@@ -1327,6 +1341,13 @@ impl FfiConversations {
         Ok(num_groups_synced)
     }
 
+    pub async fn sync_device_sync(&self) -> Result<(), GenericError> {
+        let provider = self.inner_client.mls_provider()?;
+        self.inner_client.sync_device_sync(&provider).await?;
+
+        Ok(())
+    }
+
     pub fn list(
         &self,
         opts: FfiListConversationsOptions,
@@ -1354,9 +1375,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(
-                GroupQueryArgs::from(opts).conversation_type(ConversationType::Group),
-            )?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Group),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -1377,7 +1399,10 @@ impl FfiConversations {
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
-            .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
+            .list_conversations(GroupQueryArgs {
+                conversation_type: Some(ConversationType::Dm),
+                ..GroupQueryArgs::from(opts)
+            })?
             .into_iter()
             .map(|conversation_item| {
                 Arc::new(FfiConversationListItem {
@@ -2977,21 +3002,54 @@ mod tests {
         [2u8; 32]
     }
 
-    async fn register_client(inbox_owner: &FfiWalletInboxOwner, client: &FfiXmtpClient) {
-        register_client_no_panic(inbox_owner, client).await.unwrap()
+    async fn register_client_with_wallet(wallet: &FfiWalletInboxOwner, client: &FfiXmtpClient) {
+        register_client_with_wallet_no_panic(wallet, client)
+            .await
+            .unwrap()
     }
 
-    async fn register_client_no_panic(
-        inbox_owner: &FfiWalletInboxOwner,
+    async fn register_client_with_wallet_no_panic(
+        wallet: &FfiWalletInboxOwner,
         client: &FfiXmtpClient,
     ) -> Result<(), GenericError> {
         let signature_request = client.signature_request().unwrap();
+
         signature_request
             .add_ecdsa_signature(
-                inbox_owner
+                wallet
                     .sign(signature_request.signature_text().await.unwrap())
                     .unwrap(),
             )
+            .await?;
+
+        client.register_identity(signature_request).await?;
+
+        Ok(())
+    }
+
+    async fn register_client_with_passkey(passkey: &PasskeyUser, client: &FfiXmtpClient) {
+        register_client_with_passkey_no_panic(passkey, client)
+            .await
+            .unwrap()
+    }
+
+    async fn register_client_with_passkey_no_panic(
+        passkey: &PasskeyUser,
+        client: &FfiXmtpClient,
+    ) -> Result<(), GenericError> {
+        let signature_request = client.signature_request().unwrap();
+        let challenge = signature_request.signature_text().await.unwrap();
+        let UnverifiedSignature::Passkey(signature) = passkey.sign(&challenge).unwrap() else {
+            unreachable!("Passkeys provide passkey signatures.");
+        };
+
+        signature_request
+            .add_passkey_signature(FfiPasskeySignature {
+                public_key: signature.public_key,
+                signature: signature.signature,
+                authenticator_data: signature.authenticator_data,
+                client_data_json: signature.client_data_json,
+            })
             .await?;
         client.register_identity(signature_request).await?;
 
@@ -3017,6 +3075,7 @@ mod tests {
     ) -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
+
         let nonce = 1;
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
@@ -3039,13 +3098,12 @@ mod tests {
         let conn = client.inner_client.context().store().conn().unwrap();
         conn.register_triggers();
 
-        register_client(&ffi_inbox_owner, &client).await;
         client
     }
 
     async fn new_test_client_no_panic(
         wallet: xmtp_cryptography::utils::LocalWallet,
-        history_sync_url: Option<String>,
+        sync_server_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
         let ident = ffi_inbox_owner.identifier();
@@ -3062,7 +3120,7 @@ mod tests {
             ident,
             nonce,
             None,
-            history_sync_url,
+            sync_server_url,
             None,
         )
         .await?;
@@ -3070,7 +3128,7 @@ mod tests {
         let conn = client.inner_client.context().store().conn().unwrap();
         conn.register_triggers();
 
-        register_client_no_panic(&ffi_inbox_owner, &client).await?;
+        register_client_with_wallet_no_panic(&ffi_inbox_owner, &client).await?;
 
         Ok(client)
     }
@@ -3079,7 +3137,6 @@ mod tests {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
     }
-
     async fn new_test_client_no_sync() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet_and_history_sync_url(
@@ -3181,7 +3238,7 @@ mod tests {
         )
         .await
         .unwrap();
-        register_client(&ffi_inbox_owner, &client_a).await;
+        register_client_with_wallet(&ffi_inbox_owner, &client_a).await;
 
         let installation_pub_key = client_a.inner_client.installation_public_key().to_vec();
         drop(client_a);
@@ -3356,7 +3413,7 @@ mod tests {
         .unwrap();
 
         let signature_request = client.signature_request().unwrap().clone();
-        register_client(&ffi_inbox_owner, &client).await;
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
 
         signature_request
             .add_wallet_signature(&ffi_inbox_owner.wallet)
@@ -3471,7 +3528,7 @@ mod tests {
         .unwrap();
 
         let signature_request = client.signature_request().unwrap().clone();
-        register_client(&ffi_inbox_owner, &client).await;
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
 
         signature_request
             .add_wallet_signature(&ffi_inbox_owner.wallet)
@@ -3632,7 +3689,7 @@ mod tests {
         )
         .await
         .unwrap();
-        register_client(&bola, &client_bola).await;
+        register_client_with_wallet(&bola, &client_bola).await;
 
         let can_message_result2 = client_amal
             .can_message(vec![bola.identifier()])
@@ -3897,6 +3954,9 @@ mod tests {
         let alix_provider = alix.inner_client.mls_provider().unwrap();
         let bo_provider = bo.inner_client.mls_provider().unwrap();
 
+        alix.inner_client.wait_for_sync_worker_init().await;
+        bo.inner_client.wait_for_sync_worker_init().await;
+
         // Stream all group messages
         let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
@@ -3938,11 +3998,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 1);
+        assert_eq!(bo_provider.conn_ref().intents_published(), 2);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix_provider.conn_ref().intents_published(), 3);
+        assert_eq!(alix_provider.conn_ref().intents_published(), 5);
 
         let dm = bo
             .conversations()
@@ -3953,7 +4013,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 3);
+        assert_eq!(bo_provider.conn_ref().intents_published(), 5);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -3963,7 +4023,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 4);
+        assert_eq!(bo_provider.conn_ref().intents_published(), 6);
 
         assert_eq!(message_callbacks.message_count(), 5);
 
@@ -6396,35 +6456,39 @@ mod tests {
             .await
             .unwrap();
 
-        let bo = new_test_client_with_history().await;
+        alix_a.conversations().sync().await.unwrap();
 
-        // wait for the first installation to get invited to the new sync group
-        wait_for_eq(
-            || async {
-                assert!(alix_a.conversations().sync().await.is_ok());
-                alix_a
-                    .inner_client
-                    .store()
-                    .conn()
-                    .unwrap()
-                    .all_sync_groups()
-                    .unwrap()
-                    .len()
-            },
-            2,
-        )
-        .await
-        .unwrap();
+        let bo = new_test_client().await;
 
         // check that they have the same sync group
-        let sync_group_a = wait_for_ok(|| async { alix_a.conversations().get_sync_group() })
+        alix_a
+            .inner_client
+            .test_has_same_sync_group_as(&alix_b.inner_client)
             .await
             .unwrap();
-        let sync_group_b = wait_for_ok(|| async { alix_b.conversations().get_sync_group() })
+        alix_a
+            .worker()
+            .wait(SyncMetric::PayloadSent, 1)
             .await
             .unwrap();
+        alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
-        assert_eq!(sync_group_a.id(), sync_group_b.id());
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker()
+            .wait(SyncMetric::PayloadProcessed, 1)
+            .await
+            .unwrap();
+        alix_a
+            .inner_client
+            .test_has_same_sync_group_as(&alix_b.inner_client)
+            .await
+            .unwrap();
+        alix_b
+            .worker()
+            .wait(SyncMetric::HmacReceived, 1)
+            .await
+            .unwrap();
 
         // create a stream from both installations
         let stream_a_callback = Arc::new(RustStreamCallback::default());
@@ -6439,8 +6503,62 @@ mod tests {
             .await;
         a_stream.wait_for_ready().await;
         b_stream.wait_for_ready().await;
+        alix_b.conversations().sync_device_sync().await.unwrap();
 
+        tracing::error!("============ SETTING STATE TO DENIED.");
         // consent with bo
+        alix_a
+            .set_consent_states(vec![FfiConsent {
+                entity: bo.inbox_id(),
+                entity_type: FfiConsentEntityType::InboxId,
+                state: FfiConsentState::Denied,
+            }])
+            .await
+            .unwrap();
+        tracing::error!("============ DONE SETTING STATE TO DENIED.");
+
+        // Wait for alix_a to send the consent sync out
+        alix_a
+            .worker()
+            .wait(SyncMetric::ConsentSent, 1)
+            .await
+            .unwrap();
+
+        // Have alix_b sync the sync group and wait for the new consent to be processed
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker()
+            .wait(SyncMetric::ConsentReceived, 1)
+            .await
+            .unwrap();
+
+        stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
+        wait_for_ok(|| async {
+            alix_b.conversations().sync_device_sync().await.unwrap();
+            stream_b_callback.wait_for_delivery(Some(1)).await
+        })
+        .await
+        .unwrap();
+
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 1)
+            .await
+            .unwrap();
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 1)
+            .await
+            .unwrap();
+
+        // Consent should be the same
+        let consent_a = alix_a
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        let consent_b = alix_b
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        assert_eq!(consent_a, consent_b);
+
+        // Now we'll allow Bo
         alix_a
             .set_consent_states(vec![FfiConsent {
                 entity: bo.inbox_id(),
@@ -6450,25 +6568,32 @@ mod tests {
             .await
             .unwrap();
 
-        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
-        assert!(result.is_ok());
+        // Wait for alix_a to send out the consent on the sync group
+        alix_a
+            .worker()
+            .wait(SyncMetric::ConsentSent, 2)
+            .await
+            .unwrap();
+        // Have alix_b sync the sync group
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        // Wait for alix_b to process the new consent
+        alix_b
+            .worker()
+            .wait(SyncMetric::ConsentReceived, 2)
+            .await
+            .unwrap();
 
-        wait_for_ok(|| async {
-            alix_b
-                .conversations()
-                .sync_all_conversations(None)
-                .await
-                .unwrap();
+        // This consent should stream
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+            .await
+            .unwrap();
 
-            stream_b_callback.wait_for_delivery(Some(1)).await
-        })
-        .await
-        .unwrap();
-
-        // two outgoing consent updates
-        assert_eq!(stream_a_callback.consent_updates_count(), 1);
-        // and two incoming consent updates
-        assert_eq!(stream_b_callback.consent_updates_count(), 1);
+        // alix_b should now be ALLOWED with bo via device sync
+        let consent_b = alix_b
+            .get_consent_state(FfiConsentEntityType::InboxId, bo.inbox_id())
+            .await
+            .unwrap();
+        assert_eq!(consent_b, FfiConsentState::Allowed);
 
         a_stream.end_and_wait().await.unwrap();
         b_stream.end_and_wait().await.unwrap();
@@ -6476,26 +6601,44 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
-        let alix = Tester::builder()
-            .with_sync_worker()
-            .with_sync_server()
-            .do_not_wait_for_init()
-            .build()
-            .await;
-        let stream_a_callback = Arc::new(RustStreamCallback::default());
+        let alix_a = Tester::new().await;
+        alix_a.worker().wait(SyncMetric::Init, 1).await.unwrap();
 
-        let a_stream = alix
+        let alix_b = alix_a.builder.build().await;
+
+        let stream_b_callback = Arc::new(RustStreamCallback::default());
+        let b_stream = alix_b
             .conversations()
-            .stream_preferences(stream_a_callback.clone())
+            .stream_preferences(stream_b_callback.clone())
             .await;
 
-        let _alix_b = alix.builder.build().await;
+        alix_b.worker().wait(SyncMetric::Init, 1).await.unwrap();
 
-        let result = stream_a_callback.wait_for_delivery(Some(3)).await;
+        alix_a.conversations().sync().await.unwrap();
+        alix_a
+            .worker()
+            .wait(SyncMetric::PayloadSent, 1)
+            .await
+            .unwrap();
+        alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
+
+        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b
+            .worker()
+            .wait(SyncMetric::PayloadProcessed, 1)
+            .await
+            .unwrap();
+        alix_b
+            .worker()
+            .wait(SyncMetric::HmacReceived, 1)
+            .await
+            .unwrap();
+
+        let result = stream_b_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
         let update = {
-            let mut a_updates = stream_a_callback.preference_updates.lock().unwrap();
+            let mut a_updates = stream_b_callback.preference_updates.lock().unwrap();
             assert_eq!(a_updates.len(), 1);
 
             a_updates.pop().unwrap()
@@ -6504,7 +6647,7 @@ mod tests {
         // We got the HMAC update
         assert!(matches!(update, FfiPreferenceUpdate::HMAC { .. }));
 
-        a_stream.end_and_wait().await.unwrap();
+        b_stream.end_and_wait().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -6778,7 +6921,7 @@ mod tests {
         .await
         .unwrap();
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet_a.clone());
-        register_client(&ffi_inbox_owner, &client_a).await;
+        register_client_with_wallet(&ffi_inbox_owner, &client_a).await;
 
         // Step 3: Generate wallet B
         let wallet_b = generate_local_wallet();
@@ -6818,7 +6961,7 @@ mod tests {
         .await
         .unwrap();
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet_b.clone());
-        register_client(&ffi_inbox_owner, &client_b).await;
+        register_client_with_wallet(&ffi_inbox_owner, &client_b).await;
 
         assert!(client_b.inbox_id() == client_a.inbox_id());
 
@@ -6919,7 +7062,7 @@ mod tests {
         .await
         .unwrap();
         let ffi_inbox_owner_a = FfiWalletInboxOwner::with_wallet(wallet_a.clone());
-        register_client(&ffi_inbox_owner_a, &client_a).await;
+        register_client_with_wallet(&ffi_inbox_owner_a, &client_a).await;
 
         // Step 2: Wallet B creates a new client with inbox_id B
         let wallet_b = generate_local_wallet();
@@ -6942,7 +7085,7 @@ mod tests {
         .await
         .unwrap();
         let ffi_inbox_owner_b1 = FfiWalletInboxOwner::with_wallet(wallet_b.clone());
-        register_client(&ffi_inbox_owner_b1, &client_b1).await;
+        register_client_with_wallet(&ffi_inbox_owner_b1, &client_b1).await;
 
         // Step 3: Wallet B creates a second client for inbox_id B
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();

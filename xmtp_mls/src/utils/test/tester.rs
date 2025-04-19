@@ -1,8 +1,10 @@
 #![allow(unused)]
 
+use super::FullXmtpClient;
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
+    configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
     Client,
 };
@@ -29,8 +31,6 @@ use xmtp_id::{
     InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
-
-use super::{FullXmtpClient, HISTORY_SYNC_URL};
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -188,7 +188,7 @@ where
 
     pub fn with_sync_server(self) -> Self {
         Self {
-            sync_url: Some(HISTORY_SYNC_URL.to_string()),
+            sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
             ..self
         }
     }

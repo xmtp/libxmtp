@@ -1,5 +1,6 @@
 extern crate toml;
 extern crate xmtp_mls;
+use anyhow::{bail, Result};
 
 use std::{
     env,
@@ -13,7 +14,7 @@ use toml::Table;
 
 use xmtp_db::{EncryptedMessageStore, StorageOption};
 
-const DIESEL_TOML: &str = "./diesel.toml";
+const DIESEL_TOML: &str = "../xmtp_db/diesel.toml";
 
 /// This binary is used to to generate the schema files from a sqlite database instance and update
 /// the appropriate file. The destination is read from the `diesel.toml` print_schema
@@ -29,11 +30,13 @@ const DIESEL_TOML: &str = "./diesel.toml";
 /// - there is not great handling around tmp database cleanup in error cases.
 /// - https://github.com/diesel-rs/diesel/issues/852 -> BigInts are weird.
 #[tokio::main]
-async fn main() {
-    update_schemas_encrypted_message_store().await.unwrap();
+async fn main() -> Result<()> {
+    update_schemas_encrypted_message_store().await?;
+
+    Ok(())
 }
 
-async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
+async fn update_schemas_encrypted_message_store() -> Result<()> {
     let tmp_db = format!(
         "update-{}.db3",
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -42,8 +45,7 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     {
         // Initialize DB to read the latest table definitions
         let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
-            .await
-            .unwrap();
+            .await?;
     }
 
     let diesel_result = exec_diesel(&tmp_db);
@@ -66,38 +68,35 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     Ok(())
 }
 
-fn get_schema_path() -> Result<String, std::io::Error> {
+fn get_schema_path() -> Result<String> {
     match env::current_exe() {
         Ok(exe_path) => println!("Path of this executable is: {}", exe_path.display()),
         Err(e) => println!("failed to get current exe path: {e}"),
     };
 
+    println!("TOML file is located at: {DIESEL_TOML}");
     let mut file = File::open(DIESEL_TOML)?;
+
     let mut toml_contents = String::new();
     file.read_to_string(&mut toml_contents)?;
-    let toml = toml_contents.parse::<Table>().unwrap();
-    let schema_file_path = toml
-        .get("print_schema")
-        .unwrap()
-        .get("file")
-        .unwrap()
-        .as_str()
-        .unwrap();
+    let toml: Table = toml_contents.parse()?;
+    let print_schema = toml.get("print_schema").unwrap();
+    let schema_file_path = print_schema.get("file").unwrap().as_str().unwrap();
     Ok(format!("./{}", schema_file_path))
 }
 
-fn exec_diesel(db: &str) -> Result<Vec<u8>, String> {
+fn exec_diesel(db: &str) -> Result<Vec<u8>> {
     let schema_defs = Command::new("diesel")
         .args(["print-schema", "--database-url", db])
         .output()
         .expect("failed to execute process");
 
     if !schema_defs.status.success() {
-        return Err(format!(
-            "Diesel-CLI failed to execute {} - {}",
-            schema_defs.status.code().unwrap(),
-            String::from_utf8(schema_defs.stderr).unwrap()
-        ));
+        bail!(
+            "Diesel-CLI failed to execute {:?} - {}",
+            schema_defs.status.code(),
+            String::from_utf8(schema_defs.stderr)?
+        );
     }
 
     Ok(schema_defs.stdout)
