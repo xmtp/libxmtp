@@ -1,5 +1,6 @@
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::group_membership::{GroupMembership, MembershipDiff};
+use super::GroupError;
 use crate::utils::VersionInfo;
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
@@ -57,6 +58,8 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     fn context(&self) -> Arc<XmtpMlsLocalContext> {
         self.context_ref().clone()
     }
+
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError>;
 
     async fn get_installation_diff(
         &self,
@@ -129,6 +132,11 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().clone()
     }
 
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        let _ = self.sync_welcomes(provider).await?;
+        Ok(())
+    }
+
     async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -190,6 +198,11 @@ where
 
     fn version_info(&self) -> &Arc<VersionInfo> {
         &self.version_info
+    }
+
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        let _ = self.sync_welcomes(provider).await?;
+        Ok(())
     }
 
     async fn get_installation_diff(
@@ -294,6 +307,10 @@ where
         (**self).mls_provider()
     }
 
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        (**self).sync_welcomes(provider).await
+    }
+
     async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -389,6 +406,10 @@ where
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
+    }
+
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        (**self).sync_welcomes(provider).await
     }
 
     async fn get_installation_diff(
@@ -487,6 +508,11 @@ where
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
+    }
+
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+        let _ = (**self).sync_welcomes(provider).await?;
+        Ok(())
     }
 
     async fn get_installation_diff(
