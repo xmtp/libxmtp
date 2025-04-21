@@ -198,7 +198,7 @@ where
     }
 
     async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        let _ = self.sync_welcomes(provider).await?;
+        let _ = crate::Client::<ApiClient, Verifier>::sync_welcomes(provider).await?;
         Ok(())
     }
 
