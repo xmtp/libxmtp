@@ -1604,9 +1604,12 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
-            return Ok(());
+            return Err(GroupError::NotFound(NotFound::GroupById(
+                self.group_id.clone(),
+            )));
         };
         if stored_group.conversation_type == ConversationType::Sync {
+            // Sync groups should not add new installations, new installations will create their own.
             return Ok(());
         }
 
@@ -2142,10 +2145,7 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::{
-            groups::device_sync::handle::SyncMetric,
-            utils::{LocalTester, Tester},
-        };
+        use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
 
         let amal_a = Tester::new().await;
         let amal_group_a: Arc<MlsGroup<_>> =

@@ -31,7 +31,7 @@ impl UserPreferenceUpdate {
             .await?;
 
         // TODO: v1 support - remove this on next hammer
-        // Self::v1_sync_across_devices(updates.clone(), client, handle).await?;
+        Self::v1_sync_across_devices(updates.clone(), client).await?;
 
         if let Some(handle) = client.worker_handle() {
             updates.iter().for_each(|update| match update {
@@ -65,8 +65,7 @@ impl UserPreferenceUpdate {
     async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
-        handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<(), ClientError> {
         let provider = client.mls_provider()?;
         let sync_group = client.get_sync_group(&provider)?;
 
@@ -78,9 +77,11 @@ impl UserPreferenceUpdate {
         let contents = updates
             .iter()
             .map(bincode::serialize)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| ClientError::Generic(e.to_string()))?;
         let update_proto = UserPreferenceUpdateProto { contents };
-        let content_bytes = serde_json::to_vec(&update_proto)?;
+        let content_bytes =
+            serde_json::to_vec(&update_proto).map_err(|e| ClientError::Generic(e.to_string()))?;
         sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
@@ -105,10 +106,12 @@ impl UserPreferenceUpdate {
             });
         }
 
-        updates.iter().for_each(|u| match u {
-            Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::V1ConsentSent),
-            Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::V1HmacSent),
-        });
+        if let Some(handle) = client.worker_handle() {
+            updates.iter().for_each(|u| match u {
+                Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::V1ConsentSent),
+                Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::V1HmacSent),
+            });
+        }
 
         Ok(())
     }
@@ -207,7 +210,7 @@ mod tests {
             device_sync::{handle::SyncMetric, preference_sync::UserPreferenceUpdate},
             scoped_client::ScopedGroupClient,
         },
-        utils::tester::{LocalTester, Tester, XmtpClientTesterBuilder},
+        utils::tester::{Tester, XmtpClientTesterBuilder},
     };
     use serde::{Deserialize, Serialize};
     use xmtp_db::{
@@ -240,10 +243,11 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {
-        let amal_a = Tester::new().await;
+        let amal_a = Tester::builder().with_sync_worker().build().await;
         let amal_b = amal_a.builder.build().await;
 
-        amal_a.sync_welcomes(&amal_a.provider).await?;
+        amal_a.test_has_same_sync_group_as(&amal_b).await?;
+
         amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
 
         // Wait for a to process the new hmac key

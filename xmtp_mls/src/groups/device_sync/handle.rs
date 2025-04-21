@@ -24,6 +24,7 @@ where
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum SyncMetric {
     Init,
+    SyncGroupCreated,
     SyncGroupWelcomesProcessed,
     RequestReceived,
     PayloadSent,
@@ -152,6 +153,6 @@ where
 
 impl WorkerHandle<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::Init, 1).await
+        self.wait(SyncMetric::SyncGroupCreated, 1).await
     }
 }

@@ -2168,7 +2168,7 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     use crate::groups::scoped_client::ScopedGroupClient;
-    use crate::utils::{LocalTester, Tester};
+    use crate::utils::Tester;
     use diesel::connection::SimpleConnection;
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
     use futures::future::join_all;

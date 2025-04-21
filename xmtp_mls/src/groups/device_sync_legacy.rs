@@ -611,7 +611,7 @@ mod tests {
 
     use crate::{
         groups::device_sync::handle::SyncMetric,
-        utils::{LocalTester, Tester, XmtpClientTesterBuilder},
+        utils::{Tester, XmtpClientTesterBuilder},
     };
 
     #[xmtp_common::test(unwrap_try = "true")]

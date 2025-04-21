@@ -55,11 +55,15 @@ impl<A, V> ClientBuilder<A, V> {
 }
 
 impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
-    pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local()
+    pub async fn new_api_client() -> TestClient {
+        <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = Self::new_api_client().await;
 
         build_with_verifier(
             owner,

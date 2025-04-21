@@ -32,7 +32,6 @@ use xmtp_common::types::InstallationId;
 use xmtp_common::{retry_async, retryable, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
-use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::Fetch;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
@@ -621,16 +620,6 @@ where
         self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
 
-    pub(crate) async fn create_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<MlsGroup<Self>, ClientError> {
-        let group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
-        SyncCursor::reset(&group.group_id, provider.conn_ref())?;
-        group.update_installations().await?;
-        Ok(group)
-    }
-
     /// Look up a group by its ID
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
@@ -1120,7 +1109,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::subscriptions::StreamMessages;
-    use crate::utils::{LocalTester, Tester};
+    use crate::utils::Tester;
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;

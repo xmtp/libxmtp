@@ -36,7 +36,6 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::DMMetadataOptions;
@@ -7969,7 +7968,7 @@ mod tests {
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
         alix.worker()
-            .wait(SyncMetric::V1ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 2)
             .await
             .unwrap();
 
@@ -7977,7 +7976,7 @@ mod tests {
 
         alix2
             .worker()
-            .wait(SyncMetric::V1ConsentReceived, 1)
+            .wait(SyncMetric::ConsentReceived, 1)
             .await
             .unwrap();
 

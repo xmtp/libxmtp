@@ -26,6 +26,7 @@ impl FfiSyncWorker {
 #[derive(uniffi::Enum)]
 pub enum FfiSyncMetric {
     Init,
+    SyncGroupCreated,
     SyncGroupWelcomesProcessed,
     RequestReceived,
     PayloadSent,
@@ -45,6 +46,7 @@ impl From<FfiSyncMetric> for SyncMetric {
     fn from(value: FfiSyncMetric) -> Self {
         match value {
             FfiSyncMetric::Init => Self::Init,
+            FfiSyncMetric::SyncGroupCreated => Self::SyncGroupCreated,
             FfiSyncMetric::SyncGroupWelcomesProcessed => Self::SyncGroupWelcomesProcessed,
             FfiSyncMetric::RequestReceived => Self::RequestReceived,
             FfiSyncMetric::PayloadSent => Self::PayloadSent,

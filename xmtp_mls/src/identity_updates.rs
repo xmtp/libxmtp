@@ -732,7 +732,6 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
-        use crate::utils::LocalTester;
         use xmtp_common::assert_logged;
 
         xmtp_common::traced_test!(async {

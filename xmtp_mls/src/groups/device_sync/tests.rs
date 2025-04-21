@@ -1,14 +1,17 @@
-use xmtp_db::consent_record::ConsentState;
-
 use super::*;
 use crate::{
     groups::DMMetadataOptions,
-    utils::{LocalTester, Tester, XmtpClientTesterBuilder},
+    utils::{Tester, XmtpClientTesterBuilder},
 };
+use xmtp_db::{consent_record::ConsentState, group_message::MsgQueryArgs};
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
-    let alix1 = Tester::new().await;
+    let alix1 = Tester::builder()
+        .with_sync_server()
+        .with_sync_worker()
+        .build()
+        .await;
     let bo = Tester::new().await;
 
     // Talk with bo
@@ -38,10 +41,13 @@ async fn basic_sync() {
 async fn only_one_payload_sent() {
     use std::time::Duration;
 
-    use crate::utils::XmtpClientTesterBuilder;
-
-    let alix1 = Tester::new().await;
+    let alix1 = Tester::builder()
+        .with_sync_worker()
+        .with_sync_server()
+        .build()
+        .await;
     let alix2 = alix1.builder.build().await;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
     let bo = Tester::new().await;
 
     let dm = alix1
@@ -58,10 +64,8 @@ async fn only_one_payload_sent() {
     alix1.worker().clear_metric(SyncMetric::PayloadSent);
 
     let alix3 = alix1.builder.build().await;
-
-    // Have alix1 and 2 fetch the new sync group
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix2.sync_welcomes(&alix2.provider).await?;
+    alix1.test_has_same_sync_group_as(&alix3).await?;
+    alix2.test_has_same_sync_group_as(&alix3).await?;
 
     let alix1_sg = alix1.get_sync_group(&alix1.provider)?;
     let alix2_sg = alix2.get_sync_group(&alix2.provider)?;
@@ -83,7 +87,11 @@ async fn only_one_payload_sent() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
-    let alix1 = Tester::new().await;
+    let alix1 = Tester::builder()
+        .with_sync_worker()
+        .with_sync_server()
+        .build()
+        .await;
 
     let bo = Tester::new().await;
     alix1.test_talk_in_dm_with(&bo).await?;
@@ -110,7 +118,11 @@ async fn test_double_sync_works_fine() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_hmac_and_consent_prefrence_sync() {
-    let alix1 = Tester::new().await;
+    let alix1 = Tester::builder()
+        .with_sync_worker()
+        .with_sync_server()
+        .build()
+        .await;
 
     let bo = Tester::new().await;
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;

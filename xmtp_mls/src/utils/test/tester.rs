@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use super::FullXmtpClient;
+use super::{build_with_verifier, FullXmtpClient};
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
@@ -24,6 +24,7 @@ use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_id::{
     associations::{
         ident,
+        test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
         Identifier,
     },
@@ -45,24 +46,18 @@ where
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
 }
 
-pub(crate) trait LocalTester {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient>;
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
-    fn builder() -> TesterBuilder<LocalWallet>;
-}
-
-impl LocalTester for Tester<LocalWallet, FullXmtpClient> {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient> {
+impl Tester<LocalWallet, FullXmtpClient> {
+    pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
 
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
+    pub(crate) async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
         Tester::new_with_owner(passkey_user).await
     }
 
-    fn builder() -> TesterBuilder<LocalWallet> {
+    pub(crate) fn builder() -> TesterBuilder<LocalWallet> {
         TesterBuilder::new()
     }
 }
@@ -79,7 +74,16 @@ where
     Owner: InboxOwner + Clone,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
-        let client = ClientBuilder::new_test_client(&self.owner).await;
+        let api_client = ClientBuilder::new_api_client().await;
+        let client = build_with_verifier(
+            &self.owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            self.sync_url.as_ref().map(String::as_str),
+            Some(self.sync_mode),
+        )
+        .await;
+
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {

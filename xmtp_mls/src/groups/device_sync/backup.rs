@@ -54,7 +54,7 @@ impl OptionsToSave for BackupMetadataSave {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{LocalTester, Tester};
+    use crate::utils::Tester;
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
@@ -225,7 +225,7 @@ mod tests {
         })?;
         assert_eq!(groups.len(), 1);
         // It's the same group
-        assert_eq!(groups[1].id, old_group.id);
+        assert_eq!(groups[0].id, old_group.id);
 
         let messages: Vec<StoredGroupMessage> =
             alix2.provider.conn_ref().raw_query_read(|conn| {
