@@ -3,7 +3,8 @@ use crate::configuration::{
     CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
 };
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, Fetch, StorageError, Store};
+use openmls::prelude::OpenMlsCrypto;
+use xmtp_db::{Fetch, StorageError, Store};
 
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
@@ -17,7 +18,6 @@ use openmls::{
 };
 use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
-use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
@@ -29,8 +29,8 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
-use xmtp_db::sql_key_store::{SqlKeyStore, SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use xmtp_db::ProviderTransactions;
+use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
+use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -112,7 +112,7 @@ impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl MlsProviderExt + Copy,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         use IdentityStrategy::*;
@@ -299,7 +299,7 @@ impl Identity {
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl MlsProviderExt + Copy,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
@@ -453,7 +453,10 @@ impl Identity {
         &self.inbox_id
     }
 
-    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, xmtp_db::ConnectionError> {
+    pub fn sequence_id<C>(&self, conn: &DbConnection<C>) -> Result<i64, xmtp_db::ConnectionError>
+    where
+        C: ConnectionExt,
+    {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 
@@ -498,7 +501,7 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::DefaultConnection>>,
+        provider: impl MlsProviderExt,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -538,10 +541,10 @@ impl Identity {
         // This is needed to get to the private key when decrypting welcome messages.
         let public_init_key = kp.key_package().hpke_init_key().tls_serialize_detached()?;
 
-        let hash_ref = serialize_key_package_hash_ref(kp.key_package(), &provider)?;
+        let hash_ref = serialize_key_package_hash_ref(kp.key_package(), provider.crypto())?;
         // Store the hash reference, keyed with the public init key
         provider
-            .storage()
+            .key_store()
             .write::<{ openmls_traits::storage::CURRENT_VERSION }>(
                 KEY_PACKAGE_REFERENCES,
                 &public_init_key,
@@ -552,7 +555,7 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         let stored_identity: Option<StoredIdentity> = provider.conn_ref().fetch(&())?;
@@ -569,16 +572,15 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         let conn = provider.conn_ref();
 
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-        let hash_ref = serialize_key_package_hash_ref(&kp, provider)?;
+        let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
-
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
@@ -591,13 +593,13 @@ impl Identity {
                         self.delete_key_package(provider, kp.key_package_hash_ref)?;
                     }
                     conn.delete_key_package_history_entries_before_id(old_id)?;
-
                     Ok::<_, IdentityError>(())
                 })?;
 
                 Ok(())
             }
             Err(err) => {
+                tracing::info!("Kp err");
                 // Did not upload. Delete the newly created KP.
                 self.delete_key_package(provider, hash_ref)?;
                 conn.delete_key_package_entry_with_id(history_id)?;
@@ -610,11 +612,12 @@ impl Identity {
     /// Delete a key package from the local database.
     pub(crate) fn delete_key_package(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: impl MlsProviderExt + Copy,
         hash_ref: Vec<u8>,
     ) -> Result<(), IdentityError> {
         let openmls_hash_ref = deserialize_key_package_hash_ref(&hash_ref)?;
-        provider.storage().delete_key_package(&openmls_hash_ref)?;
+        tracing::info!("key store");
+        provider.key_store().delete_key_package(&openmls_hash_ref)?;
 
         Ok(())
     }
@@ -622,10 +625,10 @@ impl Identity {
 
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
-    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
+    crypto_provider: &impl OpenMlsCrypto,
 ) -> Result<Vec<u8>, IdentityError> {
     let key_package_hash_ref = kp
-        .hash_ref(provider.crypto())
+        .hash_ref(crypto_provider)
         .map_err(|_| IdentityError::UninitializedIdentity)?;
     let serialized = bincode::serialize(&key_package_hash_ref)
         .map_err(|_| IdentityError::UninitializedIdentity)?;

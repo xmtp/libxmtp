@@ -1,5 +1,5 @@
 use super::{
-    DbConnection,
+    ConnectionExt, DbConnection,
     schema::user_preferences::{self, dsl},
 };
 use crate::{StorageError, Store};
@@ -18,14 +18,17 @@ pub struct StoredUserPreferences {
     pub hmac_key_cycled_at_ns: Option<i64>,
 }
 
-impl Store<DbConnection> for StoredUserPreferences {
+impl<C> Store<C> for StoredUserPreferences
+where
+    C: ConnectionExt,
+{
     type Output = ();
-    fn store(&self, conn: &DbConnection) -> Result<Self::Output, StorageError> {
+    fn store(&self, conn: &C) -> Result<Self::Output, StorageError> {
         conn.raw_query_write(|conn| {
             diesel::update(dsl::user_preferences)
                 .set(self)
                 .execute(conn)
-        })?;
+        }).map_err(xmtp_db::ConnectionError::from)?;
 
         Ok(())
     }
@@ -45,12 +48,14 @@ impl HmacKey {
 }
 
 impl StoredUserPreferences {
-    pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
-        let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
+    pub fn load<C: ConnectionExt>(conn: &DbConnection<C>) -> Result<Self, StorageError> {
+        let pref = conn.raw_query_read(|conn| {
+            dsl::user_preferences.first(conn).optional()
+        })?;
         Ok(pref.unwrap_or_default())
     }
 
-    fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
+    fn store<C: ConnectionExt>(&self, conn: &DbConnection<C>) -> Result<(), StorageError> {
         conn.raw_query_write(|conn| {
             insert_into(dsl::user_preferences)
                 .values(self)
@@ -63,8 +68,8 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_hmac_key(
-        conn: &DbConnection,
+    pub fn store_hmac_key<C: ConnectionExt>(
+        conn: &DbConnection<C>,
         key: &[u8],
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {

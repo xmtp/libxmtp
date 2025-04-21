@@ -449,13 +449,9 @@ impl Conversations {
 
   #[napi]
   pub async fn sync(&self) -> Result<()> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .sync_welcomes(&provider)
+      .sync_welcomes()
       .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
@@ -466,20 +462,12 @@ impl Conversations {
     &self,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<usize> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(ErrorWrapper::from)?;
-    let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
-      states
-        .into_iter()
-        .map(|state: ConsentState| state.into())
-        .collect()
-    });
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, consents)
+      .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -488,13 +476,9 @@ impl Conversations {
 
   #[napi]
   pub async fn sync_device_sync(&self) -> Result<()> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .get_sync_group(&provider)
+      .get_sync_group()
       .await
       .map_err(ErrorWrapper::from)?
       .sync()

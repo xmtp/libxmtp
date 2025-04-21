@@ -1,5 +1,5 @@
-use crate::{ConnectionExt, DbConnection};
-use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
+use crate::{ConnectionExt, DbConnection, StorageError};
+use crate::{MlsProviderExt, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
@@ -24,39 +24,13 @@ impl<C> XmtpOpenMlsProvider<C> {
     pub fn conn_ref(&self) -> &DbConnection<C> {
         self.key_store.conn_ref()
     }
-}
 
-impl XmtpOpenMlsProvider {
-    pub fn new_crypto() -> RustCrypto {
-        RustCrypto::default()
-    }
-}
-
-impl<C> ProviderTransactions<C> for XmtpOpenMlsProvider<C>
-where
-    C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
-{
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
         E: From<<C as ConnectionExt>::Error> + std::error::Error,
         E: From<crate::ConnectionError>,
+        C: ConnectionExt,
     {
         tracing::debug!("Transaction beginning");
 
@@ -90,6 +64,60 @@ where
                 }
             }
         }
+    }
+}
+
+impl XmtpOpenMlsProvider {
+    pub fn new_crypto() -> RustCrypto {
+        RustCrypto::default()
+    }
+}
+
+impl<C> MlsProviderExt for XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
+    type Connection = C;
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
+        E: From<StorageError> + std::error::Error,
+    {
+        XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
+    }
+
+    fn conn_ref(&self) -> &DbConnection<C> {
+        self.key_store.conn_ref()
+    }
+
+    fn key_store(&self) -> &SqlKeyStore<C> {
+        &self.key_store
+    }
+}
+
+impl<C> MlsProviderExt for &XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
+    type Connection = C;
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
+        E: From<StorageError> + std::error::Error,
+    {
+        XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
+    }
+
+    fn conn_ref(&self) -> &DbConnection<C> {
+        self.key_store.conn_ref()
+    }
+
+    fn key_store(&self) -> &SqlKeyStore<C> {
+        &self.key_store
     }
 }
 

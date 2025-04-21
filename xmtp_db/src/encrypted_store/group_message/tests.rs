@@ -63,7 +63,7 @@ async fn it_gets_messages() {
 async fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     let store = EncryptedMessageStore::new_test().await;
-    let conn = DbConnection::new(store.conn().unwrap());
+    let conn = DbConnection::new(store.conn());
     let message = generate_message(None, None, None, None);
     let result = message.store(&conn);
     assert_err!(

@@ -1,7 +1,7 @@
 use crate::XmtpOpenMlsProvider;
 use futures::{Stream, StreamExt};
 use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::StorageError;
+use xmtp_db::{ConnectionExt, StorageError};
 use xmtp_proto::xmtp::device_sync::{
     consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
     BackupElement, BackupElementSelection, BackupOptions,
@@ -21,19 +21,23 @@ pub(super) struct BatchExportStream {
 }
 
 impl BatchExportStream {
-    pub(super) fn new(opts: &BackupOptions, provider: &Arc<XmtpOpenMlsProvider>) -> Self {
+    pub(super) fn new<C>(opts: &BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>) -> Self
+    where
+        C: ConnectionExt + Send + Sync + 'static,
+    {
         let input_streams = opts
             .elements()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave>::new_stream(
-                        provider, opts,
+                    vec![BackupRecordStreamer::<ConsentSave, C>::new_stream(
+                        provider.clone(),
+                        opts,
                     )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put messages before groups.
-                    BackupRecordStreamer::<GroupSave>::new_stream(provider, opts),
-                    BackupRecordStreamer::<GroupMessageSave>::new_stream(provider, opts),
+                    BackupRecordStreamer::<GroupSave, C>::new_stream(provider.clone(), opts),
+                    BackupRecordStreamer::<GroupMessageSave, C>::new_stream(provider.clone(), opts),
                 ],
                 BackupElementSelection::Unspecified => vec![],
             })
@@ -90,32 +94,34 @@ impl Stream for BatchExportStream {
 
 pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
-    fn backup_records(
-        streamer: &BackupRecordStreamer<Self>,
+    fn backup_records<C>(
+        streamer: &BackupRecordStreamer<Self, C>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
-        Self: Sized;
+        Self: Sized,
+        C: ConnectionExt;
 }
 
-pub(crate) struct BackupRecordStreamer<R> {
+pub(crate) struct BackupRecordStreamer<R, C> {
     cursor: i64,
-    provider: Arc<XmtpOpenMlsProvider>,
+    provider: Arc<XmtpOpenMlsProvider<C>>,
     start_ns: Option<i64>,
     end_ns: Option<i64>,
     _phantom: PhantomData<R>,
 }
 
-impl<R> BackupRecordStreamer<R>
+impl<R, C> BackupRecordStreamer<R, C>
 where
     R: BackupRecordProvider + Unpin + 'static,
+    C: ConnectionExt + Send + Sync + 'static,
 {
     pub(super) fn new_stream(
-        provider: &Arc<XmtpOpenMlsProvider>,
+        provider: Arc<XmtpOpenMlsProvider<C>>,
         opts: &BackupOptions,
     ) -> BackupInputStream {
         let stream = Self {
             cursor: 0,
-            provider: provider.clone(),
+            provider,
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             _phantom: PhantomData,
@@ -125,9 +131,10 @@ where
     }
 }
 
-impl<R> Stream for BackupRecordStreamer<R>
+impl<R, C> Stream for BackupRecordStreamer<R, C>
 where
     R: BackupRecordProvider + Unpin + Send,
+    C: ConnectionExt,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn poll_next(

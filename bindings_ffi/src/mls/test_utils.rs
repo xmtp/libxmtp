@@ -45,7 +45,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
             .await?;
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider()?;
+        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.worker_handle();
 
         if let Some(worker) = &worker {
@@ -99,7 +99,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             .unwrap();
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider().unwrap();
+        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.worker_handle();
 
         if let Some(worker) = &worker {
@@ -152,7 +152,7 @@ where
             .await
             .unwrap(),
         Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,
         ident.into(),
         1,

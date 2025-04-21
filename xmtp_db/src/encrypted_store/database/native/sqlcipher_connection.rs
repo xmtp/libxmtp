@@ -322,7 +322,7 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::EncryptedMessageStore;
+    use crate::{EncryptedMessageStore, NativeDb, XmtpTestDb};
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
     use xmtp_common::tmp_path;
@@ -345,12 +345,7 @@ mod tests {
     async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {
-            let _ = EncryptedMessageStore::new(
-                Persistent(db_path.clone()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap();
+            let _ = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
@@ -366,14 +361,14 @@ mod tests {
                 String::from_utf8(plaintext_header.into()).unwrap()
             );
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
     #[tokio::test]
     async fn test_db_migrates() {
         let db_path = tmp_path();
         {
-            let key = EncryptedMessageStore::generate_enc_key();
+            let key = EncryptedMessageStore::<()>::generate_enc_key();
             {
                 let conn = &mut SqliteConnection::establish(&db_path).unwrap();
                 conn.batch_execute(&format!(
@@ -395,9 +390,9 @@ mod tests {
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
             tracing::info!("Creating store with file at {}", &db_path);
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
-                .await
-                .unwrap();
+            let opts = Persistent(db_path.clone());
+            let db = NativeDb::new(&opts, key).unwrap();
+            let _ = EncryptedMessageStore::new(db);
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
@@ -413,6 +408,6 @@ mod tests {
                 String::from_utf8(plaintext_header.into()).unwrap()
             );
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 }

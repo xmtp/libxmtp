@@ -40,22 +40,14 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use super::{
-        super::{EncryptedMessageStore, StorageOption},
-        StoredIdentity,
-    };
-    use crate::Store;
+    use super::StoredIdentity;
+    use crate::{Store, XmtpTestDb};
     use xmtp_common::rand_vec;
 
     #[xmtp_common::test]
     async fn can_only_store_one_identity() {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = &store.conn().unwrap();
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = &store.conn();
 
         StoredIdentity::new("".to_string(), rand_vec::<24>(), rand_vec::<24>())
             .store(conn)

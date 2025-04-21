@@ -98,12 +98,8 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::trace!("write {}", String::from_utf8_lossy(label));
-
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-
         let _ = self.replace_query::<VERSION>(&storage_key, value)?;
-
         Ok(())
     }
 
@@ -1053,23 +1049,14 @@ pub(crate) mod tests {
 
     use super::SqlKeyStore;
     use crate::{
-        EncryptedMessageStore, StorageOption, sql_key_store::SqlKeyStoreError,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
-    use xmtp_common::tmp_path;
     use xmtp_cryptography::configuration::CIPHERSUITE;
 
     #[xmtp_common::test]
     async fn store_read_delete() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let key_store = SqlKeyStore::new(conn);
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
@@ -1117,14 +1104,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn list_append_remove() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
@@ -1200,14 +1181,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn group_state() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let provider = XmtpOpenMlsProvider::new(conn);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]

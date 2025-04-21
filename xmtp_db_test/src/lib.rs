@@ -1,5 +1,7 @@
 use std::sync::Arc;
-use xmtp_db::{DefaultDatabase, EncryptionKey, StorageError, StorageOption, XmtpDb};
+use xmtp_db::{
+    ConnectionError, DbConnection, DefaultDatabase, EncryptionKey, StorageOption, XmtpDb,
+};
 
 pub mod chaos;
 
@@ -14,28 +16,32 @@ where
     conn: Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
 }
 
-impl<Db, E> XmtpDb for ChaosDb<Db>
+impl<Db> XmtpDb for ChaosDb<Db>
 where
-    Db: XmtpDb<Error = E>,
-    StorageError: From<E>,
-    xmtp_db::ConnectionError: From<E>,
+    Db: XmtpDb,
     <Db as XmtpDb>::Connection: Send + Sync,
     <<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error: From<xmtp_db::ConnectionError>,
 {
-    type Error = <Db as XmtpDb>::Error;
-
     type Connection = Arc<chaos::ChaosConnection<Db::Connection>>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn reconnect(&self) -> Result<(), Self::Error> {
+    fn reconnect(&self) -> Result<(), ConnectionError> {
         self.db.reconnect()
     }
 
-    fn disconnect(&self) -> Result<(), Self::Error> {
+    fn disconnect(&self) -> Result<(), ConnectionError> {
         self.db.disconnect()
+    }
+
+    fn opts(&self) -> &StorageOption {
+        todo!()
+    }
+
+    fn db(&self) -> xmtp_db::DbConnection<Self::Connection> {
+        DbConnection::new(self.conn.clone())
     }
 }
 
@@ -62,10 +68,9 @@ impl<Db> ChaosStoreBuilder<Db> {
     }
 }
 
-impl<Db, E> ChaosStoreBuilder<Db>
+impl<Db> ChaosStoreBuilder<Db>
 where
-    Db: XmtpDb<Error = E> + Clone,
-    StorageError: From<E>,
+    Db: XmtpDb + Clone,
     <Db as XmtpDb>::Connection: Clone + Send + Sync,
     xmtp_db::ConnectionError: From<<<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error>,
     <<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error: From<xmtp_db::ConnectionError>,
@@ -81,14 +86,12 @@ where
         Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
         xmtp_db::store::EncryptedMessageStore<ChaosDb<Db>>,
     ) {
-        // let store = xmtp_db::store::EncryptedMessageStore::<Db>::new(opts, enc_key);
         let conn = chaos::ChaosConnection::builder()
             .db(self.db.conn())
             .error_frequency(self.error_frequency)
             .build()
             .unwrap();
         let conn = Arc::new(conn);
-
         let chaos_db = ChaosDb::<Db> {
             db: self.db,
             conn: conn.clone(),

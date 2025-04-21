@@ -25,7 +25,7 @@ use crate::{
     configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     identity_updates::{InstallationDiff, InstallationDiffError},
 };
-use xmtp_db::{db_connection::DbConnection, StorageError};
+use xmtp_db::StorageError;
 
 use xmtp_common::{retry::RetryableError, retryable};
 
@@ -300,10 +300,11 @@ pub struct ValidatedCommit {
 impl ValidatedCommit {
     pub async fn from_staged_commit(
         client: impl ScopedGroupClient,
-        conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
+        let provider = client.mls_provider();
+        let conn = provider.conn_ref();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -383,7 +384,7 @@ impl ValidatedCommit {
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff =
-            ExpectedDiff::from_staged_commit(&client, conn, staged_commit, openmls_group).await?;
+            ExpectedDiff::from_staged_commit(&client, staged_commit, openmls_group).await?;
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
@@ -584,7 +585,6 @@ struct ExpectedDiff {
 impl ExpectedDiff {
     pub(super) async fn from_staged_commit(
         client: impl ScopedGroupClient,
-        conn: &DbConnection,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
@@ -599,7 +599,6 @@ impl ExpectedDiff {
         }
 
         let expected_diff = Self::extract_expected_diff(
-            conn,
             &client,
             staged_commit,
             extensions,
@@ -616,13 +615,14 @@ impl ExpectedDiff {
     /// This requires loading the Inbox state from the network.
     /// Satisfies Rule 2
     async fn extract_expected_diff(
-        conn: &DbConnection,
         client: impl ScopedGroupClient,
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
     ) -> Result<ExpectedDiff, CommitValidationError> {
+        let provider = client.mls_provider();
+        let conn = provider.conn_ref();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);

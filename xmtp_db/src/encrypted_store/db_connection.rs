@@ -7,16 +7,12 @@ use super::{ConnectionExt, TransactionGuard};
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
-// ~~~~ _NOTE_ ~~~~~
-// Do not derive clone here.
-// callers should be able to accomplish everything with one conn/reference.
-#[doc(hidden)]
 pub struct DbConnection<C = crate::DefaultConnection> {
     conn: C,
 }
 
 impl<C> DbConnection<C> {
-    pub(crate) fn new(conn: C) -> DbConnection<C> {
+    pub fn new(conn: C) -> Self {
         Self { conn }
     }
 }
@@ -77,8 +73,8 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-impl From<DbConnection> for XmtpOpenMlsProvider {
-    fn from(db: DbConnection) -> XmtpOpenMlsProvider {
+impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<C> {
+    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<C> {
         XmtpOpenMlsProvider::new(db.conn)
     }
 }

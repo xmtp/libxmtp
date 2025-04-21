@@ -12,7 +12,7 @@ use std::{
 use rand::distributions::{Alphanumeric, DistString};
 use toml::Table;
 
-use xmtp_db::{EncryptedMessageStore, StorageOption};
+use xmtp_db::{EncryptedMessageStore, NativeDb, StorageOption};
 
 const DIESEL_TOML: &str = "diesel.toml";
 
@@ -29,12 +29,11 @@ const DIESEL_TOML: &str = "diesel.toml";
 /// Notes:
 /// - there is not great handling around tmp database cleanup in error cases.
 /// - https://github.com/diesel-rs/diesel/issues/852 -> BigInts are weird.
-#[tokio::main]
-async fn main() {
-    update_schemas_encrypted_message_store().await.unwrap();
+fn main() {
+    update_schemas_encrypted_message_store().unwrap();
 }
 
-async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
+fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
     let tmp_db = format!(
         "update-{}.db3",
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -42,9 +41,8 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
 
     {
         // Initialize DB to read the latest table definitions
-        let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
-            .await
-            .unwrap();
+        let db = NativeDb::new_unencrypted(&StorageOption::Persistent(tmp_db.clone())).unwrap();
+        let _ = EncryptedMessageStore::new(db).unwrap();
     }
 
     let diesel_result = exec_diesel(&tmp_db);

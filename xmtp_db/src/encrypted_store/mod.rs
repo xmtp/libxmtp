@@ -33,12 +33,15 @@ pub mod database;
 
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
+use openmls_traits::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use crate::Store;
+use crate::sql_key_store::SqlKeyStore;
 
 pub use database::*;
+pub use store::*;
 
 use diesel::connection::SimpleConnection;
 use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
@@ -176,10 +179,12 @@ where
         <C as ConnectionExt>::raw_query_write(self, fun)
     }
 }
-pub trait XmtpDb {
-    type Error;
+
+pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
+
+pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
-    type Connection: ConnectionExt + Send;
+    type Connection: ConnectionExt + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError>
     where
@@ -201,6 +206,9 @@ pub trait XmtpDb {
         Ok(())
     }
 
+    /// The Options this databae was created with
+    fn opts(&self) -> &StorageOption;
+
     /// Validate a connection is as expected
     fn validate(&self, _opts: &StorageOption) -> Result<(), ConnectionError> {
         Ok(())
@@ -209,82 +217,15 @@ pub trait XmtpDb {
     /// Returns the Connection implementation for this Database
     fn conn(&self) -> Self::Connection;
 
+    /// Returns a higher-level wrapeped DbConnection from which high-level queries may be
+    /// accessed.
+    fn db(&self) -> DbConnection<Self::Connection>;
+
     /// Reconnect to the database
-    fn reconnect(&self) -> Result<(), Self::Error>;
+    fn reconnect(&self) -> Result<(), ConnectionError>;
 
     /// Release connection to the database, closing it
-    fn disconnect(&self) -> Result<(), Self::Error>;
-}
-
-// TODO: at some point should create factory trait or something to avoid using #[cfg], since #[cfg]
-// can become difficult to reason about in higher level contexts
-
-#[cfg(not(target_arch = "wasm32"))]
-pub type EncryptedMessageStore = self::store::EncryptedMessageStore<native::NativeDb>;
-
-#[cfg(not(target_arch = "wasm32"))]
-impl EncryptedMessageStore {
-    /// Created a new store
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key)).await
-    }
-
-    /// Create a new, unencrypted database
-    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None).await
-    }
-
-    /// This function is private so that an unencrypted database cannot be created by accident
-    #[tracing::instrument(level = "debug", skip_all)]
-    async fn new_database(
-        opts: StorageOption,
-        enc_key: Option<EncryptionKey>,
-    ) -> Result<Self, StorageError> {
-        tracing::info!("Setting up DB connection pool");
-        let db = native::NativeDb::new(&opts, enc_key)?;
-        db.init(&opts)?;
-        let store = Self { db };
-        Ok(store)
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub type EncryptedMessageStore = self::store::EncryptedMessageStore<wasm::WasmDb>;
-
-#[cfg(target_arch = "wasm32")]
-impl EncryptedMessageStore {
-    pub async fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
-        Self::new_database(opts, Some(enc_key)).await
-    }
-
-    pub async fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
-        Self::new_database(opts, None).await
-    }
-
-    /// This function is private so that an unencrypted database cannot be created by accident
-    async fn new_database(
-        opts: StorageOption,
-        _enc_key: Option<EncryptionKey>,
-    ) -> Result<Self, StorageError> {
-        let db = wasm::WasmDb::new(&opts).await?;
-        db.init(&opts)?;
-        let this = Self { db };
-        Ok(this)
-    }
-}
-
-/// Shared Code between WebAssembly and Native using the `XmtpDb` trait
-#[allow(dead_code)]
-fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
-    if list.len() > max_length {
-        tracing::warn!(
-            "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
-            max_length,
-            str_id,
-            list.len()
-        )
-    }
+    fn disconnect(&self) -> Result<(), ConnectionError>;
 }
 
 #[macro_export]
@@ -398,15 +339,34 @@ where
     }
 }
 
-pub trait ProviderTransactions<C>
-where
-    C: ConnectionExt,
-{
+pub trait MlsProviderExt: OpenMlsProvider {
+    type Connection: ConnectionExt;
+
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// with the provided connection
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// provider.transaction(|provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// })
+    /// ```
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<<C as ConnectionExt>::Error> + std::error::Error,
+        F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
+        E: From<<Self::Connection as ConnectionExt>::Error> + std::error::Error,
         E: From<crate::ConnectionError>;
+
+
+    /// Get the underlying DbConnection this provider is using
+    fn conn_ref(&self) -> &DbConnection<Self::Connection>;
+
+    fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
 }
 
 #[cfg(test)]
@@ -416,22 +376,21 @@ pub(crate) mod tests {
     use diesel::sql_types::Blob;
 
     use super::*;
-    use crate::{Fetch, Store, identity::StoredIdentity};
-    use xmtp_common::{rand_vec, tmp_path};
+    use crate::{
+        Fetch, Store, XmtpTestDb,
+        group::{GroupMembershipState, StoredGroup},
+        identity::StoredIdentity,
+    };
+    use xmtp_common::{rand_vec, time::now_ns, tmp_path};
 
     #[xmtp_common::test]
     async fn ephemeral_store() {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = &store.conn().unwrap();
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.conn();
 
         let inbox_id = "inbox_id";
         StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
-            .store(conn)
+            .store(&conn)
             .unwrap();
 
         let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
@@ -442,13 +401,8 @@ pub(crate) mod tests {
     async fn persistent_store() {
         let db_path = tmp_path();
         {
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path.clone()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap();
-            let conn = &store.conn().unwrap();
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = &store.conn();
 
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
@@ -458,7 +412,7 @@ pub(crate) mod tests {
             let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
     #[xmtp_common::test]
@@ -476,7 +430,6 @@ pub(crate) mod tests {
         store.db.validate(&opts).unwrap();
 
         store
-            .db
             .conn()
             .raw_query_write(|conn| {
                 for _ in 0..25 {
@@ -497,7 +450,6 @@ pub(crate) mod tests {
             .unwrap();
 
         store
-            .db
             .conn()
             .raw_query_write(|conn| {
                 conn.run_pending_migrations(MIGRATIONS).unwrap();
@@ -510,24 +462,18 @@ pub(crate) mod tests {
     async fn encrypted_db_with_multiple_connections() {
         let db_path = tmp_path();
         {
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path.clone()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap();
-
-            let conn1 = &store.conn().unwrap();
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn1 = &store.conn();
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
                 .store(conn1)
                 .unwrap();
 
-            let conn2 = &store.conn().unwrap();
+            let conn2 = &store.conn();
             tracing::info!("Getting conn 2");
             let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 }

@@ -173,3 +173,5 @@ chain_urls.json
 .emacs.desktop
 emsdk/**
 emsdk
+result
+archive.xmtp

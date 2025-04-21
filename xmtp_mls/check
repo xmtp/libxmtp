@@ -1,0 +1,1951 @@
+    Checking xmtp_db v1.3.0-dev (/home/insipx/code/xmtp/workspaces/libxmtp/main/xmtp_db)
+error[E0252]: the name `TransactionGuard` is defined multiple times
+ --> xmtp_db/src/encrypted_store/database/native.rs:6:27
+  |
+3 | use crate::TransactionGuard;
+  |     ----------------------- previous import of the type `TransactionGuard` here
+...
+6 | use crate::{StorageError, TransactionGuard};
+  |                           ^^^^^^^^^^^^^^^^ `TransactionGuard` reimported here
+  |
+  = note: `TransactionGuard` must be defined only once in the type namespace of this module
+
+error[E0433]: failed to resolve: use of unresolved module or unlinked crate `xmtp_db`
+  --> xmtp_db/src/encrypted_store/user_preferences.rs:31:20
+   |
+31 |         }).map_err(xmtp_db::ConnectionError::from)?;
+   |                    ^^^^^^^ use of unresolved module or unlinked crate `xmtp_db`
+   |
+   = help: if you wanted to use a crate named `xmtp_db`, use `cargo add xmtp_db` to add it to your `Cargo.toml`
+help: consider importing one of these enums
+   |
+1  + use crate::ConnectionError;
+   |
+1  + use crate::diesel::ConnectionError;
+   |
+1  + use diesel::ConnectionError;
+   |
+help: if you import `ConnectionError`, refer to it directly
+   |
+31 -         }).map_err(xmtp_db::ConnectionError::from)?;
+31 +         }).map_err(ConnectionError::from)?;
+   |
+
+warning: unused import: `TransactionGuard`
+ --> xmtp_db/src/encrypted_store/database/native.rs:6:27
+  |
+6 | use crate::{StorageError, TransactionGuard};
+  |                           ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0277]: the trait bound `encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/xmtp_openmls_provider.rs:76:28
+    |
+76  | impl<C> MlsProviderExt for XmtpOpenMlsProvider<C>
+    |                            ^^^^^^^^^^^^^^^^^^^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |
+note: required for `XmtpOpenMlsProvider<C>` to implement `openmls_traits::OpenMlsProvider`
+   --> xmtp_db/src/xmtp_openmls_provider.rs:124:9
+    |
+124 | impl<C> OpenMlsProvider for XmtpOpenMlsProvider<C>
+    |         ^^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^
+...
+127 |     crate::ConnectionError: From<<C as ConnectionExt>::Error>,
+    |                             --------------------------------- unsatisfied trait bound introduced here
+note: required by a bound in `encrypted_store::MlsProviderExt`
+   --> xmtp_db/src/encrypted_store/mod.rs:342:27
+    |
+342 | pub trait MlsProviderExt: OpenMlsProvider {
+    |                           ^^^^^^^^^^^^^^^ required by this bound in `MlsProviderExt`
+help: consider extending the `where` clause, but there might be an alternative better way to express this requirement
+    |
+78  |     C: ConnectionExt, encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error>
+    |                       ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0276]: impl has stricter requirements than trait
+   --> xmtp_db/src/xmtp_openmls_provider.rs:86:12
+    |
+86  |           E: From<StorageError> + std::error::Error,
+    |              ^^^^^^^^^^^^^^^^^^ impl has extra requirement `E: From<errors::StorageError>`
+    |
+   ::: xmtp_db/src/encrypted_store/mod.rs:359:5
+    |
+359 | /     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+360 | |     where
+361 | |         F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
+362 | |         E: From<<Self::Connection as ConnectionExt>::Error> + std::error::Error,
+363 | |         E: From<crate::ConnectionError>;
+    | |________________________________________- definition of `transaction` from trait
+
+error[E0277]: the trait bound `encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/xmtp_openmls_provider.rs:100:28
+    |
+100 | impl<C> MlsProviderExt for &XmtpOpenMlsProvider<C>
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |
+note: required for `&XmtpOpenMlsProvider<C>` to implement `openmls_traits::OpenMlsProvider`
+   --> xmtp_db/src/xmtp_openmls_provider.rs:145:9
+    |
+145 | impl<C> OpenMlsProvider for &XmtpOpenMlsProvider<C>
+    |         ^^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^
+...
+148 |     crate::ConnectionError: From<<C as ConnectionExt>::Error>,
+    |                             --------------------------------- unsatisfied trait bound introduced here
+note: required by a bound in `encrypted_store::MlsProviderExt`
+   --> xmtp_db/src/encrypted_store/mod.rs:342:27
+    |
+342 | pub trait MlsProviderExt: OpenMlsProvider {
+    |                           ^^^^^^^^^^^^^^^ required by this bound in `MlsProviderExt`
+help: consider extending the `where` clause, but there might be an alternative better way to express this requirement
+    |
+102 |     C: ConnectionExt, encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error>
+    |                       ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0276]: impl has stricter requirements than trait
+   --> xmtp_db/src/xmtp_openmls_provider.rs:110:12
+    |
+110 |           E: From<StorageError> + std::error::Error,
+    |              ^^^^^^^^^^^^^^^^^^ impl has extra requirement `E: From<errors::StorageError>`
+    |
+   ::: xmtp_db/src/encrypted_store/mod.rs:359:5
+    |
+359 | /     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+360 | |     where
+361 | |         F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
+362 | |         E: From<<Self::Connection as ConnectionExt>::Error> + std::error::Error,
+363 | |         E: From<crate::ConnectionError>;
+    | |________________________________________- definition of `transaction` from trait
+
+error[E0277]: the trait bound `errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/encrypted_store/association_state.rs:40:26
+    |
+40  |         .store_or_ignore(conn);
+    |          --------------- ^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |          |
+    |          required by a bound introduced by this call
+    |
+note: required for `StoredAssociationState` to implement `traits::StoreOrIgnore<db_connection::DbConnection<C>>`
+   --> xmtp_db/src/encrypted_store/mod.rs:308:17
+    |
+308 |         impl<C> $crate::StoreOrIgnore<C> for $model
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+311 |             $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
+    |                                   ----------------------------------------- unsatisfied trait bound introduced here
+    |
+   ::: xmtp_db/src/encrypted_store/association_state.rs:21:1
+    |
+21  | impl_store_or_ignore!(StoredAssociationState, association_state);
+    | ----------------------^^^^^^^^^^^^^^^^^^^^^^-------------------- in this macro invocation
+    = note: this error originates in the macro `impl_store_or_ignore` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+25  | impl StoredAssociationState where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                             ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0599]: no method named `fetch` found for reference `&db_connection::DbConnection<C>` in the current scope
+  --> xmtp_db/src/encrypted_store/association_state.rs:64:18
+   |
+64 |             conn.fetch(&(inbox_id.to_string(), sequence_id))?;
+   |                  ^^^^^ method not found in `&DbConnection<C>`
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+note: `traits::Fetch` defines an item `fetch`, perhaps you need to implement it
+  --> xmtp_db/src/traits.rs:16:1
+   |
+16 | pub trait Fetch<Model> {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/association_state.rs:104:95
+    |
+104 |             conn.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+    |                  -----------------------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<T>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+25  | impl StoredAssociationState where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                             ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/encrypted_store/consent_record.rs:78:22
+    |
+78  |             cr.store(conn)?;
+    |                ----- ^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                |
+    |                required by a bound introduced by this call
+    |
+note: required for `encrypted_store::consent_record::StoredConsentRecord` to implement `traits::Store<db_connection::DbConnection<C>>`
+   --> xmtp_db/src/encrypted_store/mod.rs:284:17
+    |
+284 |         impl<C> $crate::Store<C> for $model
+    |                 ^^^^^^^^^^^^^^^^
+...
+287 |             $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
+    |                                   ----------------------------------------- unsatisfied trait bound introduced here
+    |
+   ::: xmtp_db/src/encrypted_store/consent_record.rs:85:1
+    |
+85  | impl_store!(StoredConsentRecord, consent_records);
+    | ------------^^^^^^^^^^^^^^^^^^^------------------ in this macro invocation
+    = note: this error originates in the macro `impl_store` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+51  | impl StoredConsentRecord where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                          ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:94:9
+    |
+93  |       ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+    |            ----------------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>` because of return type
+94  | /         self.raw_query_read(|conn| {
+95  | |             dsl::consent_records
+96  | |                 .filter(dsl::entity.eq(entity))
+97  | |                 .filter(dsl::entity_type.eq(entity_type))
+98  | |                 .first(conn)
+99  | |                 .optional()
+100 | |         })
+    | |__________^ expected `Result<Option<StoredConsentRecord>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(Integer, Integer, Text, BigInt): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/consent_record.rs:98:24
+     |
+98   |                 .first(conn)
+     |                  ----- ^^^^ the trait `SingleValue` is not implemented for `(Integer, Integer, Text, BigInt)`
+     |                  |
+     |                  required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `(Integer, Integer, Text, BigInt)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-2244160329315250567.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:104:9
+    |
+103 |     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    |                                      -------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>` because of return type
+104 |         self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Vec<StoredConsentRecord>, ...>`, found `Result<Vec<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<Vec<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<Vec<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(Integer, Integer, Text, BigInt): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/consent_record.rs:104:79
+     |
+104  |         self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))
+     |                                                                          ---- ^^^^ the trait `SingleValue` is not implemented for `(Integer, Integer, Text, BigInt)`
+     |                                                                          |
+     |                                                                          required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `(Integer, Integer, Text, BigInt)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `schema_gen::consent_records::table` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `diesel::RunQueryDsl::load`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1548:15
+     |
+1546 |     fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
+     |        ---- required by a bound in this associated function
+1547 |     where
+1548 |         Self: LoadQuery<'query, Conn, U>,
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::load`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-2244160329315250567.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:117:9
+    |
+111 |     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    |          -------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>` because of return type
+...
+117 |         self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:125:9
+    |
+124 |       ) -> Result<bool, crate::ConnectionError> {
+    |            ------------------------------------ expected `std::result::Result<bool, encrypted_store::ConnectionError>` because of return type
+125 | /         self.raw_query_write(|conn| {
+126 | |             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+127 | |                 diesel::insert_into(dsl::consent_records)
+128 | |                     .values(&record)
+...   |
+155 | |             Ok(true)
+156 | |         })
+    | |__________^ expected `Result<bool, ConnectionError>`, found `Result<bool, ...>`
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/consent_record.rs:200:11
+    |
+179 |           let changed = self.raw_query_write(|conn| {
+    |  ____________________________-
+180 | |             let existing: Vec<StoredConsentRecord> = query.load(conn)?;
+181 | |             let changed: Vec<_> = records
+182 | |                 .iter()
+...   |
+199 | |             Ok(changed)
+200 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Vec<StoredConsentRecord>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-11557944454730329051.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+87  | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:209:9
+    |
+208 |       ) -> Result<Option<StoredConsentRecord>, crate::ConnectionError> {
+    |            ----------------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>` because of return type
+209 | /         self.raw_query_write(|conn| {
+210 | |             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+211 | |                 diesel::insert_into(dsl::consent_records)
+212 | |                     .values(record)
+...   |
+225 | |             Ok(None)
+226 | |         })
+    | |__________^ expected `Result<Option<StoredConsentRecord>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(Integer, Integer, Text, BigInt): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/consent_record.rs:221:28
+     |
+221  |                     .first(conn)
+     |                      ----- ^^^^ the trait `SingleValue` is not implemented for `(Integer, Integer, Text, BigInt)`
+     |                      |
+     |                      required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::BigInt), Sqlite>`
+     = note: required for `(Integer, Integer, Text, BigInt)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-2244160329315250567.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/consent_record.rs:233:9
+    |
+232 |       ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError> {
+    |            -------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::consent_record::StoredConsentRecord>, encrypted_store::ConnectionError>` because of return type
+233 | /         self.raw_query_read(|conn| {
+234 | |             dsl::consent_records
+235 | |                 .inner_join(
+236 | |                     groups_dsl::groups
+...   |
+243 | |                 .load::<StoredConsentRecord>(conn)
+244 | |         })
+    | |__________^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+87  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/conversation_list.rs:135:81
+    |
+135 |             self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+    |                  ---------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<ConversationListItem>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+61  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/conversation_list.rs:154:93
+    |
+154 |             self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
+    |                  ---------------------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<ConversationListItem>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+61  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/conversation_list.rs:168:94
+    |
+168 |             self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
+    |                  ----------------------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<ConversationListItem>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+61  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/conversation_list.rs:176:79
+    |
+176 |             let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
+    |                                        ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                                        |
+    |                                        this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<ConversationListItem>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+61  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+  --> xmtp_db/src/encrypted_store/group/dms.rs:14:11
+   |
+9  |           let group = self.raw_query_read(|conn| {
+   |  __________________________-
+10 | |             groups::table
+11 | |                 .filter(groups::id.eq(key))
+12 | |                 .first::<StoredGroup>(conn)
+13 | |                 .optional()
+14 | |         })?;
+   | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+   | |__________|
+   |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `Result<Option<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+   = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12791663605019069326.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+6  | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+  --> xmtp_db/src/encrypted_store/group/dms.rs:26:9
+   |
+8  |       pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
+   |                                                   -------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+26 | /         self.raw_query_read(|conn| {
+27 | |             groups::table
+28 | |                 .filter(groups::dm_id.eq(dm_id))
+29 | |                 .order_by(groups::last_message_ns.desc())
+30 | |                 .first::<StoredGroup>(conn)
+31 | |                 .optional()
+32 | |         })
+   | |__________^ expected `encrypted_store::ConnectionError`, found associated type
+   |
+   = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+              found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+   |
+6  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+   |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+  --> xmtp_db/src/encrypted_store/group/dms.rs:43:9
+   |
+35 |     pub fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+   |                                                   -------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+43 |         self.raw_query_read(|conn| query.first(conn).optional())
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Option<StoredGroup>, ...>`, found `Result<Option<_>, ...>`
+   |
+   = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>`
+              found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+   |
+6  | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+   |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group/dms.rs:43:48
+     |
+43   |         self.raw_query_read(|conn| query.first(conn).optional())
+     |                                          ----- ^^^^ the trait `SingleValue` is not implemented for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                                          |
+     |                                          required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15141897385832047937.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+  --> xmtp_db/src/encrypted_store/group/dms.rs:49:84
+   |
+49 |         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+   |                                             ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+   |                                             |
+   |                                             this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+   = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+6  | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+  --> xmtp_db/src/encrypted_store/group/dms.rs:65:87
+   |
+65 |         let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
+   |                                                ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+   |                                                |
+   |                                                this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+   = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+   = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+6  | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+  --> xmtp_db/src/encrypted_store/group/version.rs:13:11
+   |
+9  |           self.raw_query_write(|conn| {
+   |  ______________-
+10 | |             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
+11 | |                 .set(dsl::paused_for_version.eq(Some(min_version.to_string())))
+12 | |                 .execute(conn)
+13 | |         })?;
+   | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+   | |__________|
+   |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+5  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+  --> xmtp_db/src/encrypted_store/group/version.rs:25:11
+   |
+21 |           self.raw_query_write(|conn| {
+   |  ______________-
+22 | |             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
+23 | |                 .set(dsl::paused_for_version.eq::<Option<String>>(None))
+24 | |                 .execute(conn)
+25 | |         })?;
+   | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+   | |__________|
+   |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+5  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+  --> xmtp_db/src/encrypted_store/group/version.rs:41:11
+   |
+36 |           let paused_version = self.raw_query_read(|conn| {
+   |  ___________________________________-
+37 | |             dsl::groups
+38 | |                 .select(dsl::paused_for_version)
+39 | |                 .filter(dsl::id.eq(group_id))
+40 | |                 .first::<Option<String>>(conn)
+41 | |         })?;
+   | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+   | |__________|
+   |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `std::result::Result<std::option::Option<std::string::String>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+5  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/encrypted_store/group.rs:112:28
+    |
+112 |         stored_group.store(conn)?;
+    |                      ----- ^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                      |
+    |                      required by a bound introduced by this call
+    |
+note: required for `encrypted_store::group::StoredGroup` to implement `traits::Store<db_connection::DbConnection<C>>`
+   --> xmtp_db/src/encrypted_store/mod.rs:284:17
+    |
+284 |         impl<C> $crate::Store<C> for $model
+    |                 ^^^^^^^^^^^^^^^^
+...
+287 |             $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
+    |                                   ----------------------------------------- unsatisfied trait bound introduced here
+    |
+   ::: xmtp_db/src/encrypted_store/group.rs:79:1
+    |
+79  | impl_store!(StoredGroup, groups);
+    | ------------^^^^^^^^^^^--------- in this macro invocation
+    = note: this error originates in the macro `impl_store` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+92  | impl StoredGroup where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                  ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:224:72
+    |
+224 |             self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
+    |                  ------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:240:84
+    |
+240 |             self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
+    |                  ------------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:251:85
+    |
+251 |             self.raw_query_read(|conn| inner_joined_query.load::<StoredGroup>(conn))?
+    |                  -------------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:258:79
+    |
+258 |             let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
+    |                                        ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                                        |
+    |                                        this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Vec<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15993477230817236348.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:291:9
+    |
+269 |     ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+    |          ------------------------------------------------ expected `std::result::Result<Vec<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+291 |         self.raw_query_read(|conn| query.load::<StoredGroup>(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:304:11
+    |
+300 |           self.raw_query_write(|conn| {
+    |  ______________-
+301 | |             diesel::update(dsl::groups.find(group_id.as_ref()))
+302 | |                 .set(dsl::membership_state.eq(state))
+303 | |                 .execute(conn)
+304 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), encrypted_store::ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:314:9
+    |
+309 |     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+    |                                      ------------------------------------------------ expected `std::result::Result<Vec<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+314 |         self.raw_query_read(|conn| query.load(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Vec<StoredGroup>, ...>`, found `Result<Vec<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<Vec<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<Vec<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group.rs:314:47
+     |
+314  |         self.raw_query_read(|conn| query.load(conn))
+     |                                          ---- ^^^^ the trait `SingleValue` is not implemented for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                                          |
+     |                                          required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `diesel::RunQueryDsl::load`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1548:15
+     |
+1546 |     fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
+     |        ---- required by a bound in this associated function
+1547 |     where
+1548 |         Self: LoadQuery<'query, Conn, U>,
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::load`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15141897385832047937.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:325:9
+    |
+320 |     ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    |          --------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+325 |         self.raw_query_read(|conn| query.first(conn).optional())
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Option<StoredGroup>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group.rs:325:48
+     |
+325  |         self.raw_query_read(|conn| query.first(conn).optional())
+     |                                          ----- ^^^^ the trait `SingleValue` is not implemented for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                                          |
+     |                                          required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15141897385832047937.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:333:9
+    |
+328 |     pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
+    |                                         --------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>` because of return type
+...
+333 |         self.raw_query_read(|conn| query.first(conn).optional())
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Option<StoredGroup>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group::StoredGroup>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group.rs:333:48
+     |
+333  |         self.raw_query_read(|conn| query.first(conn).optional())
+     |                                          ----- ^^^^ the trait `SingleValue` is not implemented for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                                          |
+     |                                          required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::BigInt, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Nullable<diesel::sql_types::Text>, diesel::sql_types::Bool, diesel::sql_types::Text), Sqlite>`
+     = note: required for `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-15141897385832047937.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:342:66
+    |
+342 |         let groups = self.raw_query_read(|conn| query.load(conn))?;
+    |                           ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                           |
+    |                           this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Option<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12791663605019069326.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:356:66
+    |
+356 |         let groups = self.raw_query_read(|conn| query.load(conn))?;
+    |                           ---------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                           |
+    |                           this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `Result<Option<StoredGroup>, ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+    = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12791663605019069326.txt'
+    = note: consider using `--verbose` to print the full type name to the console
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:374:11
+    |
+368 |           let last_ts: Option<i64> = self.raw_query_read(|conn| {
+    |  _________________________________________-
+369 | |             dsl::groups
+370 | |                 .find(&group_id)
+371 | |                 .select(dsl::rotated_at_ns)
+372 | |                 .first(conn)
+373 | |                 .optional()
+374 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<i64, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:388:11
+    |
+383 |           self.raw_query_write(|conn| {
+    |  ______________-
+384 | |             let now = xmtp_common::time::now_ns();
+385 | |             diesel::update(dsl::groups.find(&group_id))
+386 | |                 .set(dsl::rotated_at_ns.eq(now))
+387 | |                 .execute(conn)
+388 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:400:11
+    |
+394 |           let last_ts = self.raw_query_read(|conn| {
+    |  ____________________________-
+395 | |             dsl::groups
+396 | |                 .find(&group_id)
+397 | |                 .select(dsl::installations_last_checked)
+398 | |                 .first(conn)
+399 | |                 .optional()
+400 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<i64, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:412:11
+    |
+407 |           self.raw_query_write(|conn| {
+    |  ______________-
+408 | |             let now = xmtp_common::time::now_ns();
+409 | |             diesel::update(dsl::groups.find(&group_id))
+410 | |                 .set(dsl::installations_last_checked.eq(now))
+411 | |                 .execute(conn)
+412 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:426:11
+    |
+422 |           self.raw_query_write(|conn| {
+    |  ______________-
+423 | |             diesel::update(dsl::groups.find(&group_id))
+424 | |                 .set(dsl::message_disappear_from_ns.eq(from_ns))
+425 | |                 .execute(conn)
+426 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:440:11
+    |
+436 |           self.raw_query_write(|conn| {
+    |  ______________-
+437 | |             diesel::update(dsl::groups.find(&group_id))
+438 | |                 .set(dsl::message_disappear_in_ns.eq(in_ns))
+439 | |                 .execute(conn)
+440 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:453:11
+    |
+447 |           let maybe_inserted_group: Option<StoredGroup> = self.raw_query_write(|conn| {
+    |  ______________________________________________________________-
+448 | |             diesel::insert_into(dsl::groups)
+449 | |                 .values(&group)
+450 | |                 .on_conflict_do_nothing()
+451 | |                 .get_result(conn)
+452 | |                 .optional()
+453 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<encrypted_store::group::StoredGroup, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:457:84
+    |
+457 |                 self.raw_query_read(|conn| dsl::groups.find(&group.id).first(conn))?;
+    |                      --------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                      |
+    |                      this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<encrypted_store::group::StoredGroup, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:467:19
+    |
+463 |                   self.raw_query_write(|c| {
+    |  ______________________-
+464 | |                     diesel::update(dsl::groups.find(&group.id))
+465 | |                         .set(&group)
+466 | |                         .execute(c)
+467 | |                 })?;
+    | |                  -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________________|
+    |                    this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<encrypted_store::group::StoredGroup, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:488:23
+    |
+484 |                       self.raw_query_write(|c| {
+    |  __________________________-
+485 | |                         diesel::update(dsl::groups.find(&group.id))
+486 | |                             .set(dsl::welcome_id.eq(group.welcome_id))
+487 | |                             .execute(c)
+488 | |                     })?;
+    | |                      -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |______________________|
+    |                        this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<encrypted_store::group::StoredGroup, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:494:76
+    |
+494 |             Ok(self.raw_query_read(|c| dsl::groups.find(group.id).first(c))?)
+    |                     -------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |                     |
+    |                     this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<encrypted_store::group::StoredGroup, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:500:9
+    |
+499 |       pub fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
+    |                                          ---------------------------------------- expected `std::result::Result<Vec<i64>, encrypted_store::ConnectionError>` because of return type
+500 | /         self.raw_query_read(|conn| {
+501 | |             Ok(dsl::groups
+502 | |                 .filter(dsl::welcome_id.is_not_null())
+503 | |                 .select(dsl::welcome_id)
+...   |
+507 | |                 .collect())
+508 | |         })
+    | |__________^ expected `Result<Vec<i64>, ConnectionError>`, found `Result<_, <C as ConnectionExt>::Error>`
+    |
+    = note: expected enum `std::result::Result<Vec<i64>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+help: use the `?` operator to extract the `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>` value, propagating a `Result::Err` value to the caller
+    |
+508 |         })?
+    |           +
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group.rs:523:11
+    |
+516 |           self.raw_query_write(|conn| {
+    |  ______________-
+517 | |             diesel::update(dsl::groups.find(&group_id))
+518 | |                 .set((
+519 | |                     dsl::maybe_forked.eq(true),
+...   |
+522 | |                 .execute(conn)
+523 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group.rs:536:11
+    |
+532 |           self.raw_query_write(|conn| {
+    |  ______________-
+533 | |             diesel::update(dsl::groups.find(&group_id))
+534 | |                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
+535 | |                 .execute(conn)
+536 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), encrypted_store::ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+137 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group.rs:541:9
+    |
+540 |       pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
+    |                                                          ------------------------------------ expected `std::result::Result<bool, encrypted_store::ConnectionError>` because of return type
+541 | /         self.raw_query_read(|conn| {
+542 | |             let dm_id: Option<String> = dsl::groups
+543 | |                 .filter(dsl::id.eq(group_id))
+544 | |                 .select(dsl::dm_id)
+...   |
+560 | |         })
+    | |__________^ expected `Result<bool, ConnectionError>`, found `Result<bool, ...>`
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+137 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_intent.rs:167:9
+    |
+166 |       ) -> Result<StoredGroupIntent, crate::ConnectionError> {
+    |            ------------------------------------------------- expected `std::result::Result<StoredGroupIntent, encrypted_store::ConnectionError>` because of return type
+167 | /         self.raw_query_write(|conn| {
+168 | |             diesel::insert_into(dsl::group_intents)
+169 | |                 .values(to_save)
+170 | |                 .get_result(conn)
+171 | |         })
+    | |__________^ expected `Result<StoredGroupIntent, ...>`, found `Result<_, <C as ConnectionExt>::Error>`
+    |
+    = note: expected enum `std::result::Result<StoredGroupIntent, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+161 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+help: use the `?` operator to extract the `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>` value, propagating a `Result::Err` value to the caller
+    |
+171 |         })?
+    |           +
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group_intent.rs:170:29
+     |
+170  |                 .get_result(conn)
+     |                  ---------- ^^^^ the trait `SingleValue` is not implemented for `(Integer, Integer, Binary, Binary, ..., ..., ..., ..., ..., ..., ...)`
+     |                  |
+     |                  required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Bool), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Integer, diesel::sql_types::Nullable<diesel::sql_types::Binary>, diesel::sql_types::Nullable<diesel::sql_types::BigInt>, diesel::sql_types::Bool), Sqlite>`
+     = note: required for `(Integer, Integer, Binary, Binary, ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `InsertStatement<table, ValuesClause<(..., ..., ..., ..., ...), ...>>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `get_result`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1728:15
+     |
+1726 |     fn get_result<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ---------- required by a bound in this associated function
+1727 |     where
+1728 |         Self: LoadQuery<'query, Conn, U>,
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::get_result`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-5428110151175141662.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_intent.rs:196:9
+    |
+181 |     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
+    |          ------------------------------------------------------ expected `std::result::Result<Vec<StoredGroupIntent>, encrypted_store::ConnectionError>` because of return type
+...
+196 |         self.raw_query_read(|conn| query.load::<StoredGroupIntent>(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+161 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:223:11
+    |
+209 |           let rows_changed = self.raw_query_write(|conn| {
+    |  _________________________________-
+210 | |             diesel::update(dsl::group_intents)
+211 | |                 .filter(dsl::id.eq(intent_id))
+...   |
+222 | |                 .execute(conn)
+223 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:251:11
+    |
+243 |           let rows_changed: usize = self.raw_query_write(|conn| {
+    |  ________________________________________-
+244 | |             diesel::update(dsl::group_intents)
+245 | |                 .filter(dsl::id.eq(intent_id))
+...   |
+250 | |                 .execute(conn)
+251 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:270:11
+    |
+263 |           let rows_changed = self.raw_query_write(|conn| {
+    |  _________________________________-
+264 | |             diesel::update(dsl::group_intents)
+265 | |                 .filter(dsl::id.eq(intent_id))
+...   |
+269 | |                 .execute(conn)
+270 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:298:11
+    |
+283 |           let rows_changed = self.raw_query_write(|conn| {
+    |  _________________________________-
+284 | |             diesel::update(dsl::group_intents)
+285 | |                 .filter(dsl::id.eq(intent_id))
+...   |
+297 | |                 .execute(conn)
+298 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:314:11
+    |
+309 |           let rows_changed = self.raw_query_write(|conn| {
+    |  _________________________________-
+310 | |             diesel::update(dsl::group_intents)
+311 | |                 .filter(dsl::id.eq(intent_id))
+312 | |                 .set(dsl::state.eq(IntentState::Error))
+313 | |                 .execute(conn)
+314 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:334:11
+    |
+329 |           let result = self.raw_query_read(|conn| {
+    |  ___________________________-
+330 | |             dsl::group_intents
+331 | |                 .filter(dsl::payload_hash.eq(payload_hash))
+332 | |                 .first::<StoredGroupIntent>(conn)
+333 | |                 .optional()
+334 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<std::option::Option<StoredGroupIntent>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+   --> xmtp_db/src/encrypted_store/group_intent.rs:348:11
+    |
+343 |           self.raw_query_write(|conn| {
+    |  ______________-
+344 | |             diesel::update(dsl::group_intents)
+345 | |                 .filter(dsl::id.eq(intent_id))
+346 | |                 .set(dsl::publish_attempts.eq(dsl::publish_attempts + 1))
+347 | |                 .execute(conn)
+348 | |         })?;
+    | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    | |__________|
+    |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<(), errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+161 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:317:9
+    |
+268 |     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+    |          ------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+...
+317 |         self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:348:9
+    |
+324 |     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+    |          ------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+...
+348 |         self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/group_message.rs:398:67
+    |
+398 |             self.raw_query_read(|conn| reactions_query.load(conn))?;
+    |                  -------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |                  |
+    |                  this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<Vec<StoredGroupMessageWithReactions>, encrypted_store::ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+262 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:434:9
+    |
+433 |       ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+    |            ---------------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+434 | /         self.raw_query_read(|conn| {
+435 | |             dsl::group_messages
+436 | |                 .filter(dsl::id.eq(id.as_ref()))
+437 | |                 .first(conn)
+438 | |                 .optional()
+439 | |         })
+    | |__________^ expected `Result<Option<StoredGroupMessage>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group_message.rs:437:24
+     |
+437  |                 .first(conn)
+     |                  ----- ^^^^ the trait `SingleValue` is not implemented for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                  |
+     |                  required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12977287752862602181.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:447:9
+    |
+446 |       ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+    |            ---------------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+447 | /         self.raw_query_write(|conn| {
+448 | |             dsl::group_messages
+449 | |                 .filter(dsl::id.eq(id.as_ref()))
+450 | |                 .first(conn)
+451 | |                 .optional()
+452 | |         })
+    | |__________^ expected `Result<Option<StoredGroupMessage>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group_message.rs:450:24
+     |
+450  |                 .first(conn)
+     |                  ----- ^^^^ the trait `SingleValue` is not implemented for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                  |
+     |                  required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12977287752862602181.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:460:9
+    |
+459 |       ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+    |            ---------------------------------------------------------- expected `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+460 | /         self.raw_query_read(|conn| {
+461 | |             dsl::group_messages
+462 | |                 .filter(dsl::group_id.eq(group_id.as_ref()))
+463 | |                 .filter(dsl::sent_at_ns.eq(&timestamp))
+464 | |                 .first(conn)
+465 | |                 .optional()
+466 | |         })
+    | |__________^ expected `Result<Option<StoredGroupMessage>, ...>`, found `Result<Option<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<std::option::Option<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<std::option::Option<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group_message.rs:464:24
+     |
+464  |                 .first(conn)
+     |                  ----- ^^^^ the trait `SingleValue` is not implemented for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                  |
+     |                  required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `first`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1785:22
+     |
+1782 |     fn first<'query, U>(self, conn: &mut Conn) -> QueryResult<U>
+     |        ----- required by a bound in this associated function
+...
+1785 |         Limit<Self>: LoadQuery<'query, Conn, U>,
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::first`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12977287752862602181.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:480:9
+    |
+473 |     ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
+    |          ------------------------------------------------------- expected `std::result::Result<Vec<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>` because of return type
+...
+480 |         self.raw_query_write(|conn| query.load(conn))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<Vec<StoredGroupMessage>, ...>`, found `Result<Vec<_>, ...>`
+    |
+    = note: expected enum `std::result::Result<Vec<encrypted_store::group_message::StoredGroupMessage>, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<Vec<_>, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `(..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...): SingleValue` is not satisfied
+    --> xmtp_db/src/encrypted_store/group_message.rs:480:48
+     |
+480  |         self.raw_query_write(|conn| query.load(conn))
+     |                                           ---- ^^^^ the trait `SingleValue` is not implemented for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)`
+     |                                           |
+     |                                           required by a bound introduced by this call
+     |
+     = help: the following other types implement trait `SingleValue`:
+               Date
+               Interval
+               Json
+               Jsonb
+               Numeric
+               Time
+               Timestamp
+               Timestamptz
+             and 10 others
+     = note: required for `{type error}` to implement `FromStaticSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `{type error}` to implement `FromSqlRow<(diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::Binary, diesel::sql_types::BigInt, diesel::sql_types::Integer, diesel::sql_types::Binary, diesel::sql_types::Text, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Integer, diesel::sql_types::Text, diesel::sql_types::Nullable<diesel::sql_types::Binary>), Sqlite>`
+     = note: required for `(Binary, ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ..., ...)` to implement `load_dsl::private::CompatibleType<{type error}, Sqlite>`
+     = note: required for `SelectStatement<FromClause<table>, ..., ..., ..., ..., ...>` to implement `LoadQuery<'_, <C as encrypted_store::ConnectionExt>::Connection, {type error}>`
+note: required by a bound in `diesel::RunQueryDsl::load`
+    --> /home/insipx/.cargo/git/checkouts/diesel-a2d4519740bc8905/1712c60/diesel/src/query_dsl/mod.rs:1548:15
+     |
+1546 |     fn load<'query, U>(self, conn: &mut Conn) -> QueryResult<Vec<U>>
+     |        ---- required by a bound in this associated function
+1547 |     where
+1548 |         Self: LoadQuery<'query, Conn, U>,
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `RunQueryDsl::load`
+     = note: the full name for the type has been written to '/home/insipx/code/xmtp/workspaces/libxmtp/main/target/debug/deps/xmtp_db-8ff54dd2fbe5ed09.long-type-12977287752862602181.txt'
+     = note: consider using `--verbose` to print the full type name to the console
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:488:9
+    |
+487 |       ) -> Result<usize, crate::ConnectionError> {
+    |            ------------------------------------- expected `std::result::Result<usize, encrypted_store::ConnectionError>` because of return type
+488 | /         self.raw_query_write(|conn| {
+489 | |             diesel::update(dsl::group_messages)
+490 | |                 .filter(dsl::id.eq(msg_id.as_ref()))
+491 | |                 .set((
+...   |
+495 | |                 .execute(conn)
+496 | |         })
+    | |__________^ expected `Result<usize, ConnectionError>`, found `Result<usize, ...>`
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:503:9
+    |
+502 |       ) -> Result<usize, crate::ConnectionError> {
+    |            ------------------------------------- expected `std::result::Result<usize, encrypted_store::ConnectionError>` because of return type
+503 | /         self.raw_query_write(|conn| {
+504 | |             diesel::update(dsl::group_messages)
+505 | |                 .filter(dsl::id.eq(msg_id.as_ref()))
+506 | |                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
+507 | |                 .execute(conn)
+508 | |         })
+    | |__________^ expected `Result<usize, ConnectionError>`, found `Result<usize, ...>`
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+   --> xmtp_db/src/encrypted_store/group_message.rs:512:9
+    |
+511 |       pub fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+    |                                                ------------------------------------- expected `std::result::Result<usize, encrypted_store::ConnectionError>` because of return type
+512 | /         self.raw_query_write(|conn| {
+513 | |             use diesel::prelude::*;
+514 | |             let disappear_from_ns = groups_dsl::message_disappear_from_ns
+515 | |                 .assume_not_null()
+...   |
+553 | |                 .execute(conn)
+554 | |         })
+    | |__________^ expected `Result<usize, ConnectionError>`, found `Result<usize, ...>`
+    |
+    = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+               found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+    |
+262 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+    |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `errors::StorageError`
+  --> xmtp_db/src/encrypted_store/identity_cache.rs:58:75
+   |
+58 |             .raw_query_read(|conn| conditions.load::<IdentityCache>(conn))?
+   |              -------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+   |              |
+   |              this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `std::result::Result<HashMap<std::string::String, std::string::String>, errors::StorageError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+36 | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error>` is not satisfied
+   --> xmtp_db/src/encrypted_store/identity_cache.rs:79:16
+    |
+79  |         .store(self)
+    |          ----- ^^^^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `errors::StorageError`
+    |          |
+    |          required by a bound introduced by this call
+    |
+note: required for `IdentityCache` to implement `traits::Store<db_connection::DbConnection<C>>`
+   --> xmtp_db/src/encrypted_store/mod.rs:284:17
+    |
+284 |         impl<C> $crate::Store<C> for $model
+    |                 ^^^^^^^^^^^^^^^^
+...
+287 |             $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
+    |                                   ----------------------------------------- unsatisfied trait bound introduced here
+    |
+   ::: xmtp_db/src/encrypted_store/identity_cache.rs:33:1
+    |
+33  | impl_store!(IdentityCache, identity_cache);
+    | ------------^^^^^^^^^^^^^----------------- in this macro invocation
+    = note: this error originates in the macro `impl_store` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+36  | impl<C: ConnectionExt> DbConnection<C> where errors::StorageError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+  --> xmtp_db/src/encrypted_store/identity_update.rs:63:9
+   |
+49 |     ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
+   |          --------------------------------------------------------- expected `std::result::Result<Vec<StoredIdentityUpdate>, encrypted_store::ConnectionError>` because of return type
+...
+63 |         self.raw_query_read(|conn| query.load::<StoredIdentityUpdate>(conn))
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `encrypted_store::ConnectionError`, found associated type
+   |
+   = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+              found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+   |
+41 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+   |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+  --> xmtp_db/src/encrypted_store/identity_update.rs:76:11
+   |
+72 |           self.raw_query_write(|conn| {
+   |  ______________-
+73 | |             diesel::insert_or_ignore_into(dsl::identity_updates)
+74 | |                 .values(updates)
+75 | |                 .execute(conn)
+76 | |         })?;
+   | |          -^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+   | |__________|
+   |            this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+   |
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+   = note: required for `std::result::Result<(), encrypted_store::ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+41 | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+   |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0308]: mismatched types
+  --> xmtp_db/src/encrypted_store/identity_update.rs:91:9
+   |
+83 |     ) -> Result<i64, crate::ConnectionError> {
+   |          ----------------------------------- expected `std::result::Result<i64, encrypted_store::ConnectionError>` because of return type
+...
+91 |         self.raw_query_read(|conn| query.first::<i64>(conn))
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Result<i64, ConnectionError>`, found `Result<i64, <C as ConnectionExt>::Error>`
+   |
+   = note: expected enum `std::result::Result<_, encrypted_store::ConnectionError>`
+              found enum `std::result::Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+help: consider constraining the associated type `<C as encrypted_store::ConnectionExt>::Error` to `encrypted_store::ConnectionError`
+   |
+41 | impl<C: ConnectionExt<Error = encrypted_store::ConnectionError>> DbConnection<C> {
+   |                      ++++++++++++++++++++++++++++++++++++++++++
+
+error[E0277]: `?` couldn't convert the error to `encrypted_store::ConnectionError`
+   --> xmtp_db/src/encrypted_store/identity_update.rs:108:78
+    |
+108 |             .raw_query_read(|conn| query.load::<(String, Option<i64>)>(conn))?
+    |              ----------------------------------------------------------------^ the trait `From<<C as encrypted_store::ConnectionExt>::Error>` is not implemented for `encrypted_store::ConnectionError`
+    |              |
+    |              this can't be annotated with `?` because it has type `Result<_, <C as encrypted_store::ConnectionExt>::Error>`
+    |
+    = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+    = note: required for `std::result::Result<HashMap<std::string::String, i64>, encrypted_store::ConnectionError>` to implement `FromResidual<std::result::Result<Infallible, <C as encrypted_store::ConnectionExt>::Error>>`
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+    |
+41  | impl<C: ConnectionExt> DbConnection<C> where encrypted_store::ConnectionError: From<<C as encrypted_store::ConnectionExt>::Error> {
+    |                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+

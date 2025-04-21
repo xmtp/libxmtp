@@ -215,23 +215,30 @@ impl ConnectionExt for WasmDbConnection {
 }
 
 impl XmtpDb for WasmDb {
-    type Error = PlatformStorageError;
     type Connection = super::DefaultConnection;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
+    fn db(&self) -> DbConnection<Self::Connection> {
+        DbConnection::new(self.conn.clone())
+    }
+
     fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), Self::Error> {
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
-    fn disconnect(&self) -> Result<(), Self::Error> {
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
         Ok(())
+    }
+
+    fn opts(&self) -> &StorageOption {
+        &self.opts
     }
 }
 

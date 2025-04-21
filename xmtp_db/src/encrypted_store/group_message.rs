@@ -21,6 +21,7 @@ use xmtp_content_types::{
 #[cfg(test)]
 pub mod tests;
 
+use super::ConnectionExt;
 use super::group::ConversationType;
 use super::schema::groups;
 use super::{
@@ -258,7 +259,7 @@ impl MsgQueryArgs {
     }
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Query for group messages
     pub fn get_group_messages(
         &self,
@@ -459,7 +460,7 @@ impl DbConnection {
         self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
-                .filter(dsl::sent_at_ns.eq(timestamp))
+                .filter(dsl::sent_at_ns.eq(&timestamp))
                 .first(conn)
                 .optional()
         })

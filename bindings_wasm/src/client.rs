@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
 use xmtp_api::ApiDebugWrapper;
 use xmtp_api_http::XmtpHttpApiClient;
-use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
+use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
@@ -160,16 +160,18 @@ pub async fn create_client(
   let store = match encryption_key {
     Some(key) => {
       let key: Vec<u8> = key.to_vec();
-      let key: EncryptionKey = key
+      let _key: EncryptionKey = key
         .try_into()
         .map_err(|_| JsError::new("Malformed 32 byte encryption key"))?;
-      EncryptedMessageStore::new(storage_option, key)
-        .await
+      let db = WasmDb::new(&storage_option).await?;
+      EncryptedMessageStore::new(db)
         .map_err(|e| JsError::new(&format!("Error creating encrypted message store {e}")))?
     }
-    None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .await
-      .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?,
+    None => {
+      let db = WasmDb::new(&storage_option).await?;
+      EncryptedMessageStore::new(db)
+        .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?
+    }
   };
 
   let identity_strategy = IdentityStrategy::new(
@@ -346,12 +348,8 @@ impl Client {
   pub async fn sync_preferences(&self) -> Result<u32, JsError> {
     let inner = self.inner_client.as_ref();
 
-    let provider = inner
-      .mls_provider()
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
-
     let num_groups_synced: usize = inner
-      .sync_all_welcomes_and_history_sync_groups(&provider)
+      .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(|e| JsError::new(&format!("{}", e)))?;
 
