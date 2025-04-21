@@ -409,20 +409,12 @@ where
             "Trying to process streamed welcome"
         );
 
-        let group = retry_async!(
+        retry_async!(
             Retry::default(),
-            (async { MlsGroup::create_from_welcome(client, provider, welcome, false).await })
-        );
+            (async { client.sync_welcomes(provider).await })
+        )?;
 
-        if let Err(e) = group {
-            tracing::info!("Processing welcome failed, trying to load existing..");
-            // try to load it from the store again in case of race
-            return self
-                .load_from_store(id)
-                .map_err(|_| SubscribeError::from(e));
-        }
-
-        Ok((group?, id))
+        self.load_from_store(id)
     }
 
     /// Load a group from disk by its welcome_id
