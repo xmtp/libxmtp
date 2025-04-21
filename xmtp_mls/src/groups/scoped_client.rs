@@ -132,10 +132,7 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().clone()
     }
 
-    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
-        let _ = self.sync_welcomes(provider).await?;
-        Ok(())
-    }
+    async fn sync_welcomes(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError>;
 
     async fn get_installation_diff(
         &self,
