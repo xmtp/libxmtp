@@ -1,5 +1,6 @@
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::group_membership::{GroupMembership, MembershipDiff};
+use super::{GroupError, MlsGroup};
 use crate::utils::VersionInfo;
 use crate::verified_key_package_v2::KeyPackageVerificationError;
 use crate::{
@@ -57,6 +58,11 @@ pub trait LocalScopedGroupClient: Send + Sync + Sized {
     fn context(&self) -> Arc<XmtpMlsLocalContext> {
         self.context_ref().clone()
     }
+
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError>;
 
     async fn get_installation_diff(
         &self,
@@ -129,6 +135,11 @@ pub trait ScopedGroupClient: Sized {
         self.context_ref().clone()
     }
 
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError>;
+
     async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -190,6 +201,13 @@ where
 
     fn version_info(&self) -> &Arc<VersionInfo> {
         &self.version_info
+    }
+
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
+        crate::Client::<ApiClient, Verifier>::sync_welcomes(self, provider).await
     }
 
     async fn get_installation_diff(
@@ -294,6 +312,26 @@ where
         (**self).mls_provider()
     }
 
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
+        // Get inner groups
+        let inner_result = (**self).sync_welcomes(provider).await?;
+
+        // Create new vector with the correct type
+        let mut result = Vec::with_capacity(inner_result.len());
+
+        // For each group in the result
+        for group in inner_result {
+            // Create a new MlsGroup with reference to self
+            let new_group = MlsGroup::new(*self, group.group_id.clone(), group.created_at_ns);
+            result.push(new_group);
+        }
+
+        Ok(result)
+    }
+
     async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -389,6 +427,27 @@ where
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
+    }
+
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
+        // Get inner groups
+        let inner_result = (**self).sync_welcomes(provider).await?;
+
+        // Create new vector with the correct type
+        let mut result = Vec::with_capacity(inner_result.len());
+
+        // For each group in the result
+        for group in inner_result {
+            // Create a new MlsGroup with self as the client
+            let new_group =
+                MlsGroup::new(self.clone(), group.group_id.clone(), group.created_at_ns);
+            result.push(new_group);
+        }
+
+        Ok(result)
     }
 
     async fn get_installation_diff(
@@ -487,6 +546,27 @@ where
 
     fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
         (**self).mls_provider()
+    }
+
+    async fn sync_welcomes(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
+        // Get inner groups
+        let inner_result = (**self).sync_welcomes(provider).await?;
+
+        // Create new vector with the correct type
+        let mut result = Vec::with_capacity(inner_result.len());
+
+        // For each group in the result
+        for group in inner_result {
+            // Create a new MlsGroup with self as the client
+            let new_group =
+                MlsGroup::new(self.clone(), group.group_id.clone(), group.created_at_ns);
+            result.push(new_group);
+        }
+
+        Ok(result)
     }
 
     async fn get_installation_diff(
