@@ -1108,8 +1108,9 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
+    use crate::groups::device_sync::handle::SyncMetric;
     use crate::subscriptions::StreamMessages;
-    use crate::utils::Tester;
+    use crate::utils::{Tester, XmtpClientTesterBuilder};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1768,10 +1769,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn should_stream_consent() {
-        let alix = Tester::new().await;
+        let alix = Tester::builder().with_sync_worker().build().await;
         let bo = Tester::new().await;
-        alix.wait_for_sync_worker_init().await;
-        bo.wait_for_sync_worker_init().await;
 
         let group = alix
             .create_group_with_inbox_ids(
@@ -1789,7 +1788,7 @@ pub(crate) mod tests {
         // first record is denied consent to the group.
         group.update_consent_state(ConsentState::Denied).unwrap();
 
-        xmtp_common::time::sleep(std::time::Duration::from_millis(1000)).await;
+        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
         // second is allowing consent for the group
         alix.set_consent_states(&[StoredConsentRecord {
@@ -1800,9 +1799,9 @@ pub(crate) mod tests {
         .await
         .unwrap();
 
-        xmtp_common::time::sleep(std::time::Duration::from_millis(1000)).await;
+        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        // third denying consent for bo address, and allowing consent for bo inbox id
+        // third allowing consent for bo inbox id
         alix.set_consent_states(&[StoredConsentRecord {
             entity: bo.inbox_id().to_string(),
             entity_type: ConsentType::InboxId,

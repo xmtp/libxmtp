@@ -106,13 +106,6 @@ impl UserPreferenceUpdate {
             });
         }
 
-        if let Some(handle) = client.worker_handle() {
-            updates.iter().for_each(|u| match u {
-                Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::V1ConsentSent),
-                Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::V1HmacSent),
-            });
-        }
-
         Ok(())
     }
 
@@ -152,20 +145,19 @@ impl UserPreferenceUpdate {
         C: ScopedGroupClient,
     {
         let conn = provider.conn_ref();
-
         let proto_content = update_proto.contents;
 
-        let mut updates = Vec::with_capacity(proto_content.len());
+        let mut updates = vec![];
         let mut consent_updates = vec![];
 
         for update in proto_content {
             if let Ok(update) = bincode::deserialize::<UserPreferenceUpdate>(&update) {
-                updates.push(update.clone());
                 match update {
                     UserPreferenceUpdate::ConsentUpdate(consent_record) => {
                         consent_updates.push(consent_record);
                     }
                     UserPreferenceUpdate::HmacKeyUpdate { key } => {
+                        updates.push(Self::HmacKeyUpdate { key: key.clone() });
                         StoredUserPreferences {
                             hmac_key: Some(key),
                             ..StoredUserPreferences::load(conn)?
@@ -184,7 +176,12 @@ impl UserPreferenceUpdate {
 
         // Insert all of the consent records at once.
         if !consent_updates.is_empty() {
-            conn.insert_or_replace_consent_records(&consent_updates)?;
+            let changed = conn.insert_or_replace_consent_records(&consent_updates)?;
+            let changed: Vec<_> = changed
+                .into_iter()
+                .map(|u| Self::ConsentUpdate(u))
+                .collect();
+            updates.extend(changed);
         }
 
         if let Some(handle) = client.worker_handle() {
@@ -204,7 +201,6 @@ impl UserPreferenceUpdate {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{
         groups::{
             device_sync::{handle::SyncMetric, preference_sync::UserPreferenceUpdate},
