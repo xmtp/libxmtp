@@ -471,8 +471,8 @@ where
         }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
-            tracing::info!("Unable to send sync payload - no sync server url present.");
-            return Err(DeviceSyncError::MissingSyncServerUrl);
+            tracing::info!("Not sending message history payload - server url not present.");
+            return Ok(());
         };
 
         let mut request_id = "".to_string();
