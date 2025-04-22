@@ -29,16 +29,25 @@ Start Docker Desktop.
 - To run tests:
 
   ```
-  dev/test
+  cargo test
   ```
 
 - To run WebAssembly tests headless:
+
   ```
-  dev/test-wasm
+  dev/test/wasm
   ```
+
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
+
   ```
-  dev/test-wasm-interactive xmtp_mls
+  dev/test/wasm-interactive xmtp_mls
+  ```
+
+- To run browser SDK tests:
+
+  ```
+  dev/test/browser-sdk
   ```
 
 ## Quick Start (Dev Containers)
