@@ -137,7 +137,7 @@ where
         1,
         None,
         builder.sync_url.clone(),
-        Some(builder.sync_mode.clone().into()),
+        Some(builder.sync_mode.into()),
     )
     .await
     .unwrap();

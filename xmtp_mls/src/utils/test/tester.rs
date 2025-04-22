@@ -79,7 +79,7 @@ where
             &self.owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            self.sync_url.as_ref().map(String::as_str),
+            self.sync_url.as_deref(),
             Some(self.sync_mode),
         )
         .await;

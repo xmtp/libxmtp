@@ -3026,35 +3026,6 @@ mod tests {
         Ok(())
     }
 
-    async fn register_client_with_passkey(passkey: &PasskeyUser, client: &FfiXmtpClient) {
-        register_client_with_passkey_no_panic(passkey, client)
-            .await
-            .unwrap()
-    }
-
-    async fn register_client_with_passkey_no_panic(
-        passkey: &PasskeyUser,
-        client: &FfiXmtpClient,
-    ) -> Result<(), GenericError> {
-        let signature_request = client.signature_request().unwrap();
-        let challenge = signature_request.signature_text().await.unwrap();
-        let UnverifiedSignature::Passkey(signature) = passkey.sign(&challenge).unwrap() else {
-            unreachable!("Passkeys provide passkey signatures.");
-        };
-
-        signature_request
-            .add_passkey_signature(FfiPasskeySignature {
-                public_key: signature.public_key,
-                signature: signature.signature,
-                authenticator_data: signature.authenticator_data,
-                client_data_json: signature.client_data_json,
-            })
-            .await?;
-        client.register_identity(signature_request).await?;
-
-        Ok(())
-    }
-
     /// Create a new test client with a given wallet.
     async fn new_test_client_with_wallet(
         wallet: xmtp_cryptography::utils::LocalWallet,
@@ -3097,6 +3068,8 @@ mod tests {
         let conn = client.inner_client.context().store().conn().unwrap();
         conn.register_triggers();
 
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
         client
     }
 
@@ -3135,25 +3108,6 @@ mod tests {
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         new_test_client_with_wallet(wallet).await
-    }
-    async fn new_test_client_no_sync() -> Arc<FfiXmtpClient> {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            None,
-            Some(FfiSyncWorkerMode::Disabled),
-        )
-        .await
-    }
-
-    async fn new_test_client_with_history() -> Arc<FfiXmtpClient> {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        new_test_client_with_wallet_and_history_sync_url(
-            wallet,
-            Some(HISTORY_SYNC_URL.to_string()),
-            None,
-        )
-        .await
     }
 
     impl FfiConversation {
@@ -3346,7 +3300,6 @@ mod tests {
             .build()
             .await;
         let worker = alex.client.inner_client.worker_handle().unwrap();
-        worker.wait(SyncMetric::V1RequestSent, 1).await.unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3354,20 +3307,19 @@ mod tests {
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
         assert_eq!(stats.send_welcome_messages.get_count(), 0);
-        assert_eq!(stats.send_group_messages.get_count(), 3);
+        assert_eq!(stats.send_group_messages.get_count(), 1);
 
-        let bo = new_test_client();
+        let bo = Tester::new().await;
         let conversation = alex
             .conversations()
             .create_group(
-                vec![bo.await.account_identifier.clone()],
+                vec![bo.account_identifier.clone()],
                 FfiCreateGroupOptions::default(),
             )
             .await
             .unwrap();
         conversation.send(b"Hello there".to_vec()).await.unwrap();
-        worker.wait(SyncMetric::V1ConsentSent, 1).await.unwrap();
-        worker.wait(SyncMetric::V1HmacSent, 1).await.unwrap();
+        worker.wait(SyncMetric::ConsentSent, 1).await.unwrap();
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
@@ -3948,13 +3900,8 @@ mod tests {
     // Looks like this test might be a separate issue
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_can_stream_group_messages_for_updates() {
-        let alix = new_test_client_no_sync().await;
-        let bo = new_test_client_no_sync().await;
-        let alix_provider = alix.inner_client.mls_provider().unwrap();
-        let bo_provider = bo.inner_client.mls_provider().unwrap();
-
-        alix.inner_client.wait_for_sync_worker_init().await;
-        bo.inner_client.wait_for_sync_worker_init().await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         // Stream all group messages
         let message_callbacks = Arc::new(RustStreamCallback::default());
@@ -3988,8 +3935,8 @@ mod tests {
         bo_group.conversation.sync().await.unwrap();
 
         // alix published + processed group creation and name update
-        assert_eq!(alix_provider.conn_ref().intents_published(), 2);
-        assert_eq!(alix_provider.conn_ref().intents_processed(), 2);
+        assert_eq!(alix.provider.conn_ref().intents_published(), 2);
+        assert_eq!(alix.provider.conn_ref().intents_processed(), 2);
 
         bo_group
             .conversation
@@ -3997,11 +3944,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 2);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 2);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix_provider.conn_ref().intents_published(), 5);
+        assert_eq!(alix.provider.conn_ref().intents_published(), 5);
 
         let dm = bo
             .conversations()
@@ -4012,7 +3959,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 5);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 5);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -4022,7 +3969,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo_provider.conn_ref().intents_published(), 6);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 6);
 
         assert_eq!(message_callbacks.message_count(), 5);
 

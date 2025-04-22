@@ -108,6 +108,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: None,
       include_sync_groups: false,
+      activity_after_ns: None,
     }
   }
 }

@@ -184,10 +184,7 @@ impl UserPreferenceUpdate {
         // Insert all of the consent records at once.
         if !consent_updates.is_empty() {
             let changed = conn.insert_or_replace_consent_records(&consent_updates)?;
-            let changed: Vec<_> = changed
-                .into_iter()
-                .map(|u| Self::ConsentUpdate(u))
-                .collect();
+            let changed: Vec<_> = changed.into_iter().map(Self::ConsentUpdate).collect();
             updates.extend(changed);
         }
 
