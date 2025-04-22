@@ -549,6 +549,7 @@ impl Conversations {
     self
       .inner_client
       .get_sync_group(&provider)
+      .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .sync()
       .await

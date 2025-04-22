@@ -163,7 +163,7 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            client.ensure_sync_group(&provider).await?;
+            client.get_sync_group(&provider).await?;
 
             tracing::info!(
                 inbox_id = client.inbox_id(),
@@ -265,7 +265,7 @@ where
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
             tracing::warn!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
             return Ok(());
@@ -362,7 +362,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         // Pull down any new messages
         sync_group.sync_with_conn(provider).await?;
 
@@ -401,7 +401,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         // Pull down any new messages
         sync_group.sync_with_conn(provider).await?;
 
@@ -567,7 +567,7 @@ where
     ) -> Result<(), DeviceSyncError> {
         tracing::info!("Sending a sync request.");
 
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
 
         let request = DeviceSyncRequestProto {
@@ -590,12 +590,12 @@ where
         Ok(())
     }
 
-    fn is_reply_requested_by_installation(
+    async fn is_reply_requested_by_installation(
         &self,
         provider: &XmtpOpenMlsProvider,
         reply: &DeviceSyncReplyProto,
     ) -> Result<bool, DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         let stored_group = provider.conn_ref().find_group(&sync_group.group_id)?;
         let Some(stored_group) = stored_group else {
             return Err(DeviceSyncError::MissingSyncGroup);
@@ -627,7 +627,10 @@ where
         let provider = Arc::new(self.mls_provider()?);
 
         // Check if this reply was asked for by this installation.
-        if !self.is_reply_requested_by_installation(&provider, &reply)? {
+        if !self
+            .is_reply_requested_by_installation(&provider, &reply)
+            .await?
+        {
             // This installation didn't ask for it. Ignore the reply.
             tracing::info!("Sync response was not intended for this installation.");
             return Ok(());

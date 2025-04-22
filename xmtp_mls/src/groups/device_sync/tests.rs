@@ -25,7 +25,7 @@ async fn basic_sync() {
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
-    let alix2_sync_group = alix2.get_sync_group(&alix2.provider)?;
+    let alix2_sync_group = alix2.get_sync_group(&alix2.provider).await?;
     alix2_sync_group.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
@@ -67,9 +67,9 @@ async fn only_one_payload_sent() {
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
 
-    let alix1_sg = alix1.get_sync_group(&alix1.provider)?;
-    let alix2_sg = alix2.get_sync_group(&alix2.provider)?;
-    let alix3_sg = alix3.get_sync_group(&alix3.provider)?;
+    let alix1_sg = alix1.get_sync_group(&alix1.provider).await?;
+    let alix2_sg = alix2.get_sync_group(&alix2.provider).await?;
+    let alix3_sg = alix3.get_sync_group(&alix3.provider).await?;
 
     // They should all have the same sync group
     assert_eq!(alix1_sg.group_id, alix2_sg.group_id);
@@ -102,14 +102,14 @@ async fn test_double_sync_works_fine() {
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     alix2.send_sync_request(&alix2.provider).await?;
-    alix1.get_sync_group(&alix1.provider)?.sync().await?;
+    alix1.get_sync_group(&alix1.provider).await?.sync().await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
 
-    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
 
     // Alix2 should be able to talk fine with bo
@@ -132,13 +132,13 @@ async fn test_hmac_and_consent_prefrence_sync() {
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     let alix1_keys = dm.hmac_keys(-1..=1)?;
     alix1.worker().wait(SyncMetric::HmacSent, 1).await?;
 
-    alix2.get_sync_group(&alix2.provider)?.sync().await?;
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;

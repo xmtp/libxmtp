@@ -524,6 +524,7 @@ impl Conversations {
     self
       .inner_client
       .get_sync_group(&provider)
+      .await
       .map_err(ErrorWrapper::from)?
       .sync()
       .await

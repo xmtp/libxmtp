@@ -169,7 +169,7 @@ where
         provider: &XmtpOpenMlsProvider,
         content: DeviceSyncContent,
     ) -> Result<Vec<u8>, ClientError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         tracing::info!(
             "Sending sync message to group {:?}: {content:?}",
             &sync_group.group_id[..4]
@@ -196,28 +196,14 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub fn get_sync_group(
+    pub async fn get_sync_group(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
         let conn = provider.conn_ref();
-        let sync_group_id = conn
-            .latest_sync_group()?
-            .ok_or(NotFound::SyncGroup(self.installation_public_key()))?
-            .id;
-        let sync_group = self.group_with_conn(conn, &sync_group_id)?;
-
-        Ok(sync_group)
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    async fn ensure_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<MlsGroup<Self>, GroupError> {
-        let sync_group = match self.get_sync_group(provider) {
-            Ok(group) => group,
-            Err(_) => {
+        let sync_group = match conn.latest_sync_group()? {
+            Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
+            None => {
                 let sync_group =
                     MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
                 tracing::info!("Creating sync group: {:?}", sync_group.group_id);

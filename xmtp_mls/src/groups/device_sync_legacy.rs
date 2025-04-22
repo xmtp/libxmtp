@@ -59,7 +59,7 @@ where
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -129,7 +129,7 @@ where
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
         // find the sync group
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
 
         // sync the group
         sync_group.sync_with_conn(provider).await?;
@@ -169,7 +169,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = provider.conn_ref().get_group_messages(
@@ -207,7 +207,7 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: DeviceSyncKind,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider)?;
+        let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs {
@@ -622,7 +622,7 @@ mod tests {
         alix1.sync_welcomes(&alix1.provider).await?;
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-        alix2.get_sync_group(&alix2.provider)?.sync().await?;
+        alix2.get_sync_group(&alix2.provider).await?.sync().await?;
         alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);

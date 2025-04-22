@@ -44,8 +44,8 @@ where
         self.sync_welcomes(&self.mls_provider()?).await?;
         other.sync_welcomes(&other.mls_provider()?).await?;
 
-        let sync_group = self.get_sync_group(&self.mls_provider()?)?;
-        let other_sync_group = other.get_sync_group(&other.mls_provider()?)?;
+        let sync_group = self.get_sync_group(&self.mls_provider()?).await?;
+        let other_sync_group = other.get_sync_group(&other.mls_provider()?).await?;
 
         sync_group.sync().await?;
         other_sync_group.sync().await?;

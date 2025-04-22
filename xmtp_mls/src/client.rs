@@ -1007,11 +1007,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
         // It's possible that this function is called before the sync worker initializes and creates the sync group.
-        let Ok(sync_group) = self.get_sync_group(provider) else {
-            tracing::warn!("Sync group not found.");
-            return Ok(());
-        };
-
+        let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync().await?;
         Ok(())
     }

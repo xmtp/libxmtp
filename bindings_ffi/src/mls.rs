@@ -1559,10 +1559,10 @@ impl FfiConversations {
 
 #[cfg(test)]
 impl FfiConversations {
-    pub fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
+    pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
         let provider = inner.mls_provider()?;
-        let sync_group = inner.get_sync_group(&provider)?;
+        let sync_group = inner.get_sync_group(&provider).await?;
         Ok(sync_group.into())
     }
 }
@@ -7879,10 +7879,12 @@ mod tests {
         let sg1 = alix
             .inner_client
             .get_sync_group(&alix.inner_client.mls_provider().unwrap())
+            .await
             .unwrap();
         let sg2 = alix2
             .inner_client
             .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
+            .await
             .unwrap();
 
         assert_eq!(sg1.group_id, sg2.group_id);

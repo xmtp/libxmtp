@@ -65,7 +65,7 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
     ) -> Result<(), ClientError> {
         let provider = client.mls_provider()?;
-        let sync_group = client.get_sync_group(&provider)?;
+        let sync_group = client.get_sync_group(&provider).await?;
 
         tracing::info!(
             "Outgoing preference update {updates:?} sync group: {:?}",
@@ -251,7 +251,11 @@ mod tests {
         amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
 
         // Wait for a to process the new hmac key
-        amal_b.get_sync_group(&amal_b.provider)?.sync().await?;
+        amal_b
+            .get_sync_group(&amal_b.provider)
+            .await?
+            .sync()
+            .await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;

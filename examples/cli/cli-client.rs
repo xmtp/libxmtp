@@ -477,7 +477,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::ListHistorySyncMessages {} => {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
-            let group = client.get_sync_group(&provider)?;
+            let group = client.get_sync_group(&provider).await?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group.find_messages(&MsgQueryArgs {
