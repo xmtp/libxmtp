@@ -1,0 +1,4 @@
+ALTER TABLE groups
+    ADD COLUMN prob_forked BOOLEAN DEFAULT FALSE;
+ALTER TABLE groups
+    ADD COLUMN fork_details TEXT DEFAULT NULL;

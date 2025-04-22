@@ -373,3 +373,41 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
         })
         .collect()
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+#[warn(dead_code)]
+/// Sets test mode to mimic aead messages state.
+/// If `enable` is `false`, it also clears `TEST_MODE_AEAD_MESSAGE`.
+pub fn set_test_mode_aead_msg(enable: bool) {
+    use std::env;
+    if enable {
+        env::set_var("TEST_MODE_AEAD_MESSAGE", "true");
+    } else {
+        env::set_var("TEST_MODE_AEAD_MESSAGE", "false");
+    }
+}
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_aead_msg() -> bool {
+    use std::env;
+    env::var("TEST_MODE_AEAD_MESSAGE").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+#[warn(dead_code)]
+/// Sets test mode to mimic future wrong epoch state.
+/// If `enable` is `false`, it also clears `TEST_MODE_FUTURE_WRONG_EPOCH`.
+pub fn set_test_mode_future_wrong_epoch(enable: bool) {
+    use std::env;
+    if enable {
+        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "true");
+    } else {
+        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "false");
+    }
+}
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_future_wrong_epoch() -> bool {
+    use std::env;
+    env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
+}

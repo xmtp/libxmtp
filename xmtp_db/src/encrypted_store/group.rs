@@ -68,6 +68,10 @@ pub struct StoredGroup {
     /// The version of the protocol that the group is paused for, None is not paused
     #[builder(default = None)]
     pub paused_for_version: Option<String>,
+    #[builder(default = None)]
+    pub prob_forked: Option<bool>,
+    #[builder(default = None)]
+    pub fork_details: Option<String>,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -523,6 +527,32 @@ impl DbConnection {
             )
         })
     }
+
+    pub fn set_group_prop_forked(&self, group_id: &Vec<u8>, fork_details: String)-> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set((dsl::prob_forked.eq(true),
+                     dsl::fork_details.eq(fork_details)
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn clear_group_forked_status(&self, group_id: &Vec<u8>)-> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set((
+                    dsl::prob_forked.eq(false),
+                    dsl::fork_details.eq::<Option<String>>(None),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
 }
 
 #[repr(i32)]

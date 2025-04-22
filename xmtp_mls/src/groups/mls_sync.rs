@@ -39,9 +39,12 @@ use xmtp_db::{
 };
 use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use openmls::framing::errors::MessageDecryptionError::AeadError;
+use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -64,8 +67,10 @@ use std::{
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
 };
+use ethers::abi::AbiEncode;
 use thiserror::Error;
 use tracing::debug;
+use xmtp_common::time::now_ns;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
@@ -85,6 +90,7 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
+use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -587,6 +593,17 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
+        if is_test_mode_aead_msg() {
+            return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::UnableToDecrypt(AeadError),
+            )));
+        }
+
+        if is_test_mode_future_wrong_epoch() {
+            return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            )));
+        }
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
@@ -1189,6 +1206,8 @@ where
                         msgv1.id,
                         e
                     );
+                    self.process_group_message_error_for_fork_detection(&provider, &msgv1, &e)
+                        .await;
                     Err(e)
                 }
             }
@@ -1320,6 +1339,80 @@ where
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
+    }
+
+    async fn process_group_message_error_for_fork_detection(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        message: &GroupMessageV1,
+        error: &GroupMessageProcessingError,
+    ) {
+        if let OpenMlsProcessMessage(ref err) = &error {
+            if let ProcessMessageError::ValidationError(validation_error) = err {
+                let group_epoch = self.epoch(provider).await.ok();
+                let msg_epoch = GroupEpoch::from(message.id);
+                let group_id = message.group_id.clone();
+                match validation_error {
+                    ValidationError::WrongEpoch => {
+                        if let Some(group_epoch) = group_epoch {
+                            if msg_epoch.as_u64() > group_epoch {
+                                let fork_details = format!("Message epoch [{}] is greater than group epoch [{}], your group may be forked",
+                                                           msg_epoch,
+                                                           group_epoch);
+                                tracing::error!(fork_details);
+                                provider
+                                    .conn_ref()
+                                    .set_group_prop_forked(&group_id, fork_details)
+                                    .unwrap();
+                            }
+                        }
+                    }
+                    ValidationError::UnableToDecrypt(AeadError) => {
+                        let fork_details = format!("Message [{}] unable to decrypt with error [{}] probably the sender is forked", message.id, err);
+                        tracing::error!(fork_details);
+                        provider
+                            .conn_ref()
+                            .set_group_prop_forked(&group_id, fork_details)
+                            .unwrap();
+                        self.save_forked_alert_transcript_message(provider.conn_ref(), &message);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn save_forked_alert_transcript_message(&self, conn: &DbConnection, message: &GroupMessageV1) {
+        tracing::info!(
+            "[{}]: Storing a transcript message for forked group",
+            self.context().inbox_id(),
+        );
+
+        let message_content = format!(
+            "Alert: Message received from a possible forked member: messageId:[{}]",
+            message.id
+        );
+        let msg = StoredGroupMessage {
+            id: xmtp_common::rand_vec::<32>(),
+            group_id: message.group_id.as_slice().to_vec(),
+            decrypted_message_bytes: message_content.into_bytes(),
+            sent_at_ns: now_ns(),
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![],
+            sender_inbox_id: "unknown".to_string(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::Text,
+            version_major: 0,
+            version_minor: 0,
+            authority_id: "unknown".to_string(),
+            reference_id: None,
+        };
+        let _ = msg.store_or_ignore(conn).map_err(|err| {
+            tracing::error!(
+                error = %err,
+                "Failed to store transcript message for forked group"
+            );
+        });
     }
 
     #[tracing::instrument(skip_all)]
