@@ -5894,39 +5894,11 @@ pub(crate) mod tests {
         group_b.send_message(&[2]).await.unwrap();
         set_test_mode_future_wrong_epoch(false);
         group_b.sync().await.unwrap();
-        let messages = group_b.find_messages(&MsgQueryArgs::default()).unwrap();
-        println!("{:?}", messages);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_when_clearing_fork_status_db_is_updated() {
-        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        let group_a = client_a
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group_a
-            .add_members_by_inbox_id(&[client_b.inbox_id()])
-            .await
-            .unwrap();
-
-        client_b
-            .sync_welcomes(&client_b.mls_provider().unwrap())
-            .await
-            .unwrap();
-
-        let binding = client_b.find_groups(GroupQueryArgs::default()).unwrap();
-        let group_b = binding.first().unwrap();
-
-        group_a.send_message(&[1]).await.unwrap();
-        set_test_mode_aead_msg(true);
-        group_b.send_message(&[2]).await.unwrap();
-        set_test_mode_aead_msg(false);
-        group_b.sync().await.unwrap();
-        let messages = group_b.find_messages(&MsgQueryArgs::default()).unwrap();
-        println!("{:?}", messages);
+        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
+        assert_eq!(group_from_db.unwrap().prob_forked,Some(true));
+        client_b.mls_provider().unwrap().conn_ref().clear_group_forked_status(&group_b.group_id).unwrap();
+        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
+        assert_eq!(group_from_db.unwrap().prob_forked,Some(false));
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]
