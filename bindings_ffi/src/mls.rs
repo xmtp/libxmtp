@@ -2808,12 +2808,13 @@ mod tests {
     };
     use ethers::utils::hex;
     use futures::future::join_all;
+    use parking_lot::Mutex;
     use prost::Message;
     use std::{
         collections::HashMap,
         sync::{
             atomic::{AtomicU32, Ordering},
-            Arc, Mutex,
+            Arc,
         },
         time::Duration,
     };
@@ -2905,7 +2906,7 @@ mod tests {
         }
 
         pub fn consent_updates_count(&self) -> usize {
-            self.consent_updates.lock().unwrap().len()
+            self.consent_updates.lock().len()
         }
 
         pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
@@ -2928,7 +2929,7 @@ mod tests {
 
     impl FfiMessageCallback for RustStreamCallback {
         fn on_message(&self, message: FfiMessage) {
-            let mut messages = self.messages.lock().unwrap();
+            let mut messages = self.messages.lock();
             log::info!(
                 inbox_id = self.inbox_id,
                 installation_id = self.installation_id,
@@ -2953,7 +2954,7 @@ mod tests {
                 "received conversation"
             );
             let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
-            let mut convos = self.conversations.lock().unwrap();
+            let mut convos = self.conversations.lock();
             convos.push(group);
             self.notify.notify_one();
         }
@@ -2970,7 +2971,7 @@ mod tests {
                 installation_id = self.installation_id,
                 "received consent update"
             );
-            let mut consent_updates = self.consent_updates.lock().unwrap();
+            let mut consent_updates = self.consent_updates.lock();
             consent_updates.append(&mut consent);
             self.notify.notify_one();
         }
@@ -2987,8 +2988,7 @@ mod tests {
                 installation_id = self.installation_id,
                 "received consent update"
             );
-            let mut preference_updates = self.preference_updates.lock().unwrap();
-            preference_updates.append(&mut preference);
+            self.preference_updates.lock().append(&mut preference);
             self.notify.notify_one();
         }
 
@@ -6541,16 +6541,30 @@ mod tests {
         let alix_a = Tester::builder()
             .with_sync_server()
             .with_sync_worker()
+            .do_not_wait_for_init()
             .build()
             .await;
 
-        let alix_b = alix_a.builder.build().await;
+        let alix_b = Tester::builder()
+            .owner(alix_a.builder.owner.clone())
+            .with_sync_server()
+            .with_sync_worker()
+            .do_not_wait_for_init()
+            .build()
+            .await;
 
         let stream_b_callback = Arc::new(RustStreamCallback::default());
         let b_stream = alix_b
             .conversations()
             .stream_preferences(stream_b_callback.clone())
             .await;
+        alix_b.worker().wait_for_init().await.unwrap();
+
+        alix_a
+            .inner_client
+            .test_has_same_sync_group_as(&alix_b.inner_client)
+            .await
+            .unwrap();
 
         alix_a.conversations().sync().await.unwrap();
         alix_a
@@ -6576,7 +6590,7 @@ mod tests {
         assert!(result.is_ok());
 
         let update = {
-            let mut a_updates = stream_b_callback.preference_updates.lock().unwrap();
+            let mut a_updates = stream_b_callback.preference_updates.lock();
             assert_eq!(a_updates.len(), 2);
 
             // The last update should be the HMAC update
