@@ -46,7 +46,6 @@ default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
 http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
 d14n = ["dep:xmtp_api_d14n"]
-update-schema = ["toml", "anyhow"]
 
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
@@ -90,7 +89,6 @@ xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
-anyhow = { workspace = true, optional = true }
 const_format = { workspace = true, optional = true }
 coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
@@ -98,7 +96,6 @@ fdlimit = { workspace = true, optional = true }
 futures-executor = { version = "0.3", optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
-toml = { version = "0.8.4", optional = true }
 url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }
@@ -192,13 +189,6 @@ diesel = { workspace = true, features = [
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
   "bundled",
 ] }
-
-
-[[bin]]
-doc = false
-name = "update-schema"
-path = "src/bin/update-schema.rs"
-required-features = ["update-schema"]
 
 [[bench]]
 harness = false
