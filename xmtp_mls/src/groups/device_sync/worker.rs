@@ -336,15 +336,16 @@ where
                 }
 
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
+                let mut updated = vec![];
                 for update in updates.clone() {
-                    update.store(provider, handle)?;
+                    updated.extend(update.store(provider, handle)?);
                 }
 
-                let _ =
-                    self.local_events
-                        .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
-                            updates,
-                        )));
+                if !updated.is_empty() {
+                    let _ = self.local_events.send(LocalEvents::SyncEvent(
+                        SyncEvent::PreferencesChanged(updated),
+                    ));
+                }
             }
             DeviceSyncContent::Acknowledge(_) => {
                 return Ok(());

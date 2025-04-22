@@ -38,8 +38,6 @@ impl UserPreferenceUpdate {
                 Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
                 Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
             });
-        } else {
-            tracing::warn!("Worker handle not found. Sync metric not tracked.");
         }
 
         Ok(())
@@ -113,26 +111,35 @@ impl UserPreferenceUpdate {
         self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-    ) -> Result<(), StorageError> {
+    ) -> Result<Vec<Self>, StorageError> {
+        let mut changed = vec![];
         match self {
             Self::ConsentUpdate(consent_record) => {
                 tracing::info!(
                     "Storing consent update from sync group. State: {:?}",
                     consent_record.state
                 );
-                provider
+                let updated = provider
                     .conn_ref()
                     .insert_or_replace_consent_records(&[consent_record])?;
+                changed.extend(
+                    updated
+                        .into_iter()
+                        .map(Self::ConsentUpdate)
+                        .collect::<Vec<_>>(),
+                );
+
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
             Self::HmacKeyUpdate { key } => {
                 tracing::info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
+                changed.push(Self::HmacKeyUpdate { key });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
 
-        Ok(())
+        Ok(changed)
     }
 
     /// Process and insert incoming preference updates over the sync group

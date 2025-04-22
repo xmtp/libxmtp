@@ -2,6 +2,7 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
+use crate::subscriptions::SyncEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -450,10 +451,18 @@ where
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
         if !changed_records.is_empty() {
-            let updates = changed_records
+            let updates: Vec<_> = changed_records
                 .into_iter()
                 .map(UserPreferenceUpdate::ConsentUpdate)
                 .collect();
+
+            // Broadcast the consent update changes
+            let _ = self
+                .local_events
+                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
+                    updates.clone(),
+                )));
+
             UserPreferenceUpdate::sync(updates, self).await?;
         }
 
@@ -1108,7 +1117,6 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
-    use crate::groups::device_sync::handle::SyncMetric;
     use crate::subscriptions::StreamMessages;
     use crate::utils::{Tester, XmtpClientTesterBuilder};
     use diesel::RunQueryDsl;
@@ -1767,7 +1775,7 @@ pub(crate) mod tests {
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = "true")]
     async fn should_stream_consent() {
         let alix = Tester::builder().with_sync_worker().build().await;
         let bo = Tester::new().await;
@@ -1780,6 +1788,7 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
+        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
 
         let receiver = alix.local_events.subscribe();
         let stream = receiver.stream_consent_updates();
@@ -1810,17 +1819,26 @@ pub(crate) mod tests {
         .await
         .unwrap();
 
-        let item = stream.next().await.unwrap().unwrap();
+        // First consent update from creating the group
+        let item = stream.next().await??;
+        assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
+        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].state, ConsentState::Allowed);
+
+        let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
         assert_eq!(item[0].entity, hex::encode(&group.group_id));
         assert_eq!(item[0].state, ConsentState::Denied);
-        let item = stream.next().await.unwrap().unwrap();
+
+        let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::ConversationId);
         assert_eq!(item[0].entity, hex::encode(group.group_id));
         assert_eq!(item[0].state, ConsentState::Allowed);
-        let item = stream.next().await.unwrap().unwrap();
+
+        let item = stream.next().await??;
         assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
