@@ -6390,21 +6390,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
-        let alix_a = Tester::builder().with_sync_worker().build().await;
-
-        // wait for alix_a's sync worker to create a sync group
-        let _ =
-            wait_for_ok(|| async { alix_a.inner_client.get_sync_group(&alix_a.provider) }).await;
+        let alix_a = Tester::builder()
+            .with_sync_worker()
+            .with_sync_server()
+            .build()
+            .await;
 
         let alix_b = alix_a.builder.build().await;
 
-        wait_for_eq(|| async { alix_b.inner_client.identity().is_ready() }, true)
-            .await
-            .unwrap();
-
-        alix_a.conversations().sync().await.unwrap();
-
-        let bo = new_test_client().await;
+        let bo = Tester::new().await;
 
         // check that they have the same sync group
         alix_a
@@ -6451,7 +6445,6 @@ mod tests {
         b_stream.wait_for_ready().await;
         alix_b.conversations().sync_device_sync().await.unwrap();
 
-        tracing::error!("============ SETTING STATE TO DENIED.");
         // consent with bo
         alix_a
             .set_consent_states(vec![FfiConsent {
@@ -6461,7 +6454,6 @@ mod tests {
             }])
             .await
             .unwrap();
-        tracing::error!("============ DONE SETTING STATE TO DENIED.");
 
         // Wait for alix_a to send the consent sync out
         alix_a
@@ -6530,7 +6522,7 @@ mod tests {
             .unwrap();
 
         // This consent should stream
-        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 4)
             .await
             .unwrap();
 
@@ -6547,8 +6539,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
-        let alix_a = Tester::new().await;
-        alix_a.worker().wait(SyncMetric::Init, 1).await.unwrap();
+        let alix_a = Tester::builder()
+            .with_sync_server()
+            .with_sync_worker()
+            .build()
+            .await;
 
         let alix_b = alix_a.builder.build().await;
 
@@ -6557,8 +6552,6 @@ mod tests {
             .conversations()
             .stream_preferences(stream_b_callback.clone())
             .await;
-
-        alix_b.worker().wait(SyncMetric::Init, 1).await.unwrap();
 
         alix_a.conversations().sync().await.unwrap();
         alix_a
@@ -6585,8 +6578,9 @@ mod tests {
 
         let update = {
             let mut a_updates = stream_b_callback.preference_updates.lock().unwrap();
-            assert_eq!(a_updates.len(), 1);
+            assert_eq!(a_updates.len(), 2);
 
+            // The last update should be the HMAC update
             a_updates.pop().unwrap()
         };
 
