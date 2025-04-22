@@ -6538,11 +6538,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
-        let alix_a = Tester::builder()
-            .with_sync_worker()
-            .do_not_wait_for_init()
-            .build()
-            .await;
+        let alix_a = Tester::builder().with_sync_worker().build().await;
 
         let alix_b = Tester::builder()
             .owner(alix_a.builder.owner.clone())
@@ -6564,7 +6560,6 @@ mod tests {
             .await
             .unwrap();
 
-        alix_a.conversations().sync().await.unwrap();
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
         alix_b.conversations().sync_device_sync().await.unwrap();

@@ -30,15 +30,15 @@ impl UserPreferenceUpdate {
             )
             .await?;
 
-        // TODO: v1 support - remove this on next hammer
-        Self::v1_sync_across_devices(updates.clone(), client).await?;
-
         if let Some(handle) = client.worker_handle() {
             updates.iter().for_each(|update| match update {
                 Self::ConsentUpdate(_) => handle.increment_metric(SyncMetric::ConsentSent),
                 Self::HmacKeyUpdate { .. } => handle.increment_metric(SyncMetric::HmacSent),
             });
         }
+
+        // TODO: v1 support - remove this on next hammer
+        // Self::v1_sync_across_devices(updates.clone(), client).await?;
 
         Ok(())
     }

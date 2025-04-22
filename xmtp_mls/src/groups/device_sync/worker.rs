@@ -259,7 +259,6 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    /// Returns number of new messages processed
     async fn process_new_sync_group_messages(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -286,6 +285,7 @@ where
         );
 
         for (msg, content) in messages.iter_with_content() {
+            tracing::info!("Message content: {content:?}");
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
                 tracing::error!("Message processing: {err:?}");
             };

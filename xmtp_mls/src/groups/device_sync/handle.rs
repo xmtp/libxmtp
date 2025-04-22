@@ -2,6 +2,7 @@ use futures::stream::FuturesUnordered;
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
+    fmt::Debug,
     future::Future,
     hash::Hash,
     sync::{
@@ -21,7 +22,7 @@ where
     notify: Notify,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum SyncMetric {
     Init,
     SyncGroupCreated,
@@ -45,7 +46,7 @@ pub enum SyncMetric {
 
 impl<Metric> WorkerHandle<Metric>
 where
-    Metric: PartialEq + Eq + Hash + Clone + Copy,
+    Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
 {
     pub(super) fn new() -> Self {
         Self {
@@ -74,10 +75,10 @@ where
     /// Blocks until metric's specified count is met
     pub async fn wait(
         &self,
-        metric: Metric,
+        metric_key: Metric,
         count: usize,
     ) -> Result<(), xmtp_common::time::Expired> {
-        let metric = self.metrics.lock().entry(metric).or_default().clone();
+        let metric = self.metrics.lock().entry(metric_key).or_default().clone();
 
         let result = xmtp_common::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -89,9 +90,11 @@ where
         })
         .await;
 
-        if metric.load(Ordering::SeqCst) >= count {
+        let val = metric.load(Ordering::SeqCst);
+        if val >= count {
             return Ok(());
         }
+        tracing::error!("Timed out waiting for {metric_key:?} to be >= {count}. Value: {val}");
 
         result
     }
