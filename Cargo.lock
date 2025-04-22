@@ -7805,6 +7805,7 @@ dependencies = [
 name = "xmtp_db"
 version = "1.2.0-dev"
 dependencies = [
+ "anyhow",
  "bincode",
  "derive_builder",
  "diesel",
@@ -7823,6 +7824,7 @@ dependencies = [
  "sqlite-wasm-rs",
  "thiserror 2.0.12",
  "tokio",
+ "toml 0.8.20",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -7886,7 +7888,6 @@ name = "xmtp_mls"
 version = "1.2.0-dev"
 dependencies = [
  "aes-gcm",
- "anyhow",
  "async-compression",
  "async-trait",
  "bincode",
@@ -7935,7 +7936,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "toml 0.8.20",
  "tracing",
  "tracing-subscriber",
  "trait-variant",

@@ -101,7 +101,9 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       created_before_ns: opts.created_before_ns,
       include_duplicate_dms: opts.include_duplicate_dms,
       limit: opts.limit,
-      ..Default::default()
+      allowed_states: None,
+      conversation_type: None,
+      include_sync_groups: false,
     }
   }
 }

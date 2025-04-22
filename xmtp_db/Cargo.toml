@@ -4,6 +4,13 @@ edition = "2024"
 license.workspace = true
 version.workspace = true
 
+[[bin]]
+doc = false
+name = "update-schema"
+path = "src/bin/update-schema.rs"
+required-features = ["update-schema"]
+
+
 [dependencies]
 bincode.workspace = true
 derive_builder.workspace = true
@@ -22,6 +29,15 @@ tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
+
+
+anyhow = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = [
+  "macros",
+  "tracing",
+  "rt-multi-thread",
+] }
+toml = { version = "0.8.4", optional = true }
 
 # TODO: possibly separate these crates
 xmtp_content_types.workspace = true
@@ -69,3 +85,4 @@ wasm-bindgen-test.workspace = true
 
 [features]
 test-utils = []
+update-schema = ["dep:toml", "dep:anyhow", "dep:tokio"]
