@@ -3944,11 +3944,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 2);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix.provider.conn_ref().intents_published(), 5);
+        assert_eq!(alix.provider.conn_ref().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -3959,7 +3959,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 5);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -3969,12 +3969,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 6);
+        assert_eq!(bo.provider.conn_ref().intents_published(), 4);
 
         assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
-
         assert!(stream_messages.is_closed());
     }
 

@@ -134,6 +134,11 @@ where
 {
     #[instrument(level = "trace", skip_all)]
     pub fn start_sync_worker(&self) {
+        if !self.device_sync_worker_enabled() {
+            tracing::info!("Sync worker is disabled.");
+            return;
+        }
+
         let client = self.clone();
         tracing::debug!(
             inbox_id = client.inbox_id(),
