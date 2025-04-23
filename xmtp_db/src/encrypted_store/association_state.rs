@@ -164,20 +164,20 @@ pub(crate) mod tests {
             .unwrap();
 
             let first_association_state: Vec<MockState> =
-                StoredAssociationState::batch_read_from_cache(conn, vec![(
-                    mock.inbox_id.to_string(),
-                    1,
-                )])
+                StoredAssociationState::batch_read_from_cache(
+                    conn,
+                    vec![(mock.inbox_id.to_string(), 1)],
+                )
                 .unwrap();
 
             assert_eq!(first_association_state.len(), 1);
             assert_eq!(&first_association_state[0].inbox_id, &mock.inbox_id);
 
             let both_association_states: Vec<MockState> =
-                StoredAssociationState::batch_read_from_cache(conn, vec![
-                    (mock.inbox_id.clone(), 1),
-                    (mock_2.inbox_id.clone(), 2),
-                ])
+                StoredAssociationState::batch_read_from_cache(
+                    conn,
+                    vec![(mock.inbox_id.clone(), 1), (mock_2.inbox_id.clone(), 2)],
+                )
                 .unwrap();
 
             assert_eq!(both_association_states.len(), 2);

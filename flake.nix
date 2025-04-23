@@ -27,7 +27,7 @@
   outputs = inputs@{ flake-parts, fenix, crane, foundry, rust-manifest, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
-      perSystem = { pkgs, system, ... }:
+      perSystem = { pkgs, system, inputs', ... }:
         let
           util = import inputs.mkshell-util;
           mkShellWrappers = pkgs: util callPackage pkgs;
@@ -41,10 +41,11 @@
               allowUnfree = true;
             };
           };
+          toolchain = (inputs'.fenix.packages.fromManifestFile rust-manifest).defaultToolchain;
           mkToolchain = targets: components: pkgs.fenix.combine [
-            ((pkgs.fenix.fromManifestFile rust-manifest).minimalToolchain)
+            toolchain
             (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (pkgs.fenix.fromManifestFile rust-manifest)."${c}"))
+            (pkgs.lib.forEach components (c: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${c}"))
           ];
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };

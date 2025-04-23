@@ -60,8 +60,11 @@ mod test {
             .unwrap();
 
         let result: FetchKeyPackagesResponse = endpoint.query(&client).await.unwrap();
-        assert_eq!(result, FetchKeyPackagesResponse {
-            key_packages: vec![Default::default()]
-        });
+        assert_eq!(
+            result,
+            FetchKeyPackagesResponse {
+                key_packages: vec![Default::default()]
+            }
+        );
     }
 }
