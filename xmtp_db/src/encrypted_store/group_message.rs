@@ -462,7 +462,7 @@ impl DbConnection {
             .order(dsl::sent_at_ns.asc())
             .offset(offset);
 
-        // Using write connection to avoid potential race-condition
+        // Using write connection here to avoid potential race-conditions
         Ok(self.raw_query_write(|conn| query.load(conn))?)
     }
 

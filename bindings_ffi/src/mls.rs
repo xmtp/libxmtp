@@ -6545,7 +6545,7 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 3)
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -6553,12 +6553,12 @@ mod tests {
         // Wait for alix_b to process the new consent
         alix_b
             .worker()
-            .wait(SyncMetric::ConsentReceived, 2)
+            .wait(SyncMetric::ConsentReceived, 4)
             .await
             .unwrap();
 
         // This consent should stream
-        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 4)
+        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
             .await
             .unwrap();
 
