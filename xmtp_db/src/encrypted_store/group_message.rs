@@ -462,7 +462,8 @@ impl DbConnection {
             .order(dsl::sent_at_ns.asc())
             .offset(offset);
 
-        Ok(self.raw_query_read(|conn| query.load(conn))?)
+        // Using write connection to avoid potential race-condition
+        Ok(self.raw_query_write(|conn| query.load(conn))?)
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(

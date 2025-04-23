@@ -1032,17 +1032,17 @@ where
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(provider, &intent)?;
 
-                                // If it's a sync group message, probe the worker to process.
-                                if let Some(StoredGroup {
-                                    conversation_type: ConversationType::Sync,
-                                    ..
-                                }) = provider.conn_ref().find_group(&self.group_id)?
-                                {
-                                    let _ = self
-                                        .client
-                                        .local_events()
-                                        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
-                                }
+                                //// If it's a sync group message, probe the worker to process.
+                                //if let Some(StoredGroup {
+                                //    conversation_type: ConversationType::Sync,
+                                //    ..
+                                //}) = provider.conn_ref().find_group(&self.group_id)?
+                                //{
+                                //    let _ = self
+                                //        .client
+                                //        .local_events()
+                                //        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                                //}
 
                                 Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
