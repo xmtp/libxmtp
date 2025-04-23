@@ -20,18 +20,10 @@ impl UserPreferenceUpdate {
         client: &Client<C, V>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        tracing::info!("Outgoing preference updates {updates:?}");
-
-        let mut serialized_updates = vec![];
-        for update in &updates {
-            serialized_updates
-                .push(serde_json::to_vec(update).map_err(|e| ClientError::Generic(e.to_string()))?);
-        }
-
         client
             .send_device_sync_message(
                 &provider,
-                DeviceSyncContent::PreferenceUpdates(serialized_updates),
+                DeviceSyncContent::PreferenceUpdates(updates.clone()),
             )
             .await?;
 
@@ -43,7 +35,7 @@ impl UserPreferenceUpdate {
         }
 
         // TODO: v1 support - remove this on next hammer
-        Self::v1_sync_across_devices(updates.clone(), client).await?;
+        // Self::v1_sync_across_devices(updates.clone(), client).await?;
 
         Ok(())
     }

@@ -8,6 +8,7 @@ use crate::{
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
+use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -186,11 +187,6 @@ where
 
         sync_group.sync_until_last_intent_resolved(provider).await?;
 
-        // Notify the worker of this client's own messages being sent out so that it can process them.
-        let _ = self
-            .local_events
-            .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
-
         Ok(message_id)
     }
 
@@ -261,7 +257,7 @@ pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
     Payload(DeviceSyncReplyProto),
     Acknowledge(AcknowledgeKind),
-    PreferenceUpdates(Vec<Vec<u8>>),
+    PreferenceUpdates(Vec<UserPreferenceUpdate>),
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {
@@ -276,7 +272,10 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
-            let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
+            let Ok(content) = serde_json::from_slice(&msg.decrypted_message_bytes) else {
+                tracing::warn!("Failed to decrypt device sync content. {msg:?}");
+                return None;
+            };
             Some((msg, content))
         })
     }

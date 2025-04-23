@@ -2719,7 +2719,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
     fn on_error(&self, error: FfiSubscribeError);
 }
 
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
     HMAC { key: Vec<u8> },
 }
@@ -2809,6 +2809,7 @@ mod tests {
     };
     use ethers::utils::hex;
     use futures::future::join_all;
+    use log::{info_span, Instrument};
     use parking_lot::Mutex;
     use prost::Message;
     use std::{
@@ -6574,13 +6575,20 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
-        let alix_a = Tester::builder().with_sync_worker().build().await;
+        let alix_a_span = info_span!("alix_a");
+        let alix_a = Tester::builder()
+            .with_sync_worker()
+            .build()
+            .instrument(alix_a_span)
+            .await;
 
+        let alix_b_span = info_span!("alix_b");
         let alix_b = Tester::builder()
             .owner(alix_a.builder.owner.clone())
             .with_sync_worker()
             .do_not_wait_for_init()
             .build()
+            .instrument(alix_b_span)
             .await;
 
         let stream_b_callback = Arc::new(RustStreamCallback::default());
@@ -6613,7 +6621,7 @@ mod tests {
 
         let update = {
             let mut a_updates = stream_b_callback.preference_updates.lock();
-            assert_eq!(a_updates.len(), 2);
+            assert_eq!(a_updates.len(), 1);
 
             // The last update should be the HMAC update
             a_updates.pop().unwrap()
