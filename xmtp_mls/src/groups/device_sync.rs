@@ -1,10 +1,5 @@
 use super::{GroupError, MlsGroup};
-use crate::subscriptions::SyncEvent;
-use crate::{
-    client::ClientError,
-    subscriptions::{LocalEvents, SubscribeError},
-    Client,
-};
+use crate::{client::ClientError, subscriptions::SubscribeError, Client};
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
@@ -185,9 +180,17 @@ where
                 })),
             })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
-
         Ok(message_id)
+    }
+
+    async fn sync_device_sync_intents(&self) -> Result<(), ClientError> {
+        let provider = self.mls_provider()?;
+        let sync_group = self.get_sync_group(&provider).await?;
+        sync_group
+            .sync_until_last_intent_resolved(&provider)
+            .await?;
+
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all)]
