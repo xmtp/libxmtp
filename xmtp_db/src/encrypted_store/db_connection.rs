@@ -12,7 +12,7 @@ use std::{
 use super::XmtpDb;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type DbConnection = DbConnectionPrivate<crate::database::RawDbConnection>;
+pub type DbConnection = DbConnectionPrivate<super::RawDbConnection>;
 
 #[cfg(target_arch = "wasm32")]
 pub type DbConnection = DbConnectionPrivate<diesel::prelude::SqliteConnection>;

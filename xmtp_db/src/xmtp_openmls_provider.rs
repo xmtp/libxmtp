@@ -1,15 +1,16 @@
-use crate::StorageError;
-use crate::database::DefaultDatabase;
-use crate::{
-    ProviderTransactions, XmtpDb, db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore,
-};
-use diesel::connection::TransactionManager;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::NativeDb;
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::WasmDb;
+use crate::{db_connection::DbConnectionPrivate, sql_key_store::SqlKeyStore};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use std::marker::PhantomData;
 
-pub type XmtpOpenMlsProvider =
-    XmtpOpenMlsProviderPrivate<DefaultDatabase, crate::database::RawDbConnection>;
+#[cfg(target_arch = "wasm32")]
+pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<WasmDb, crate::RawDbConnection>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type XmtpOpenMlsProvider = XmtpOpenMlsProviderPrivate<NativeDb, crate::RawDbConnection>;
 
 #[derive(Debug)]
 pub struct XmtpOpenMlsProviderPrivate<Db, C> {
@@ -35,57 +36,6 @@ impl<Db, C> XmtpOpenMlsProviderPrivate<Db, C> {
 
     pub fn conn_ref(&self) -> &DbConnectionPrivate<C> {
         self.key_store.conn_ref()
-    }
-}
-
-impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
-where
-    Db: XmtpDb,
-{
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
-    {
-        tracing::debug!("Transaction beginning");
-
-        let conn = self.conn_ref();
-        let _guard = conn.start_transaction::<Db>()?;
-
-        match fun(self) {
-            Ok(value) => {
-                conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })
-                .map_err(StorageError::from)?;
-                tracing::debug!("Transaction being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                tracing::debug!("Transaction being rolled back");
-                match conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                }) {
-                    Ok(()) => Err(err),
-                    Err(diesel::result::Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(StorageError::from(rollback).into()),
-                }
-            }
-        }
     }
 }
 

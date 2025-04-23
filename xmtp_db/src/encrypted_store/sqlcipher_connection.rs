@@ -12,10 +12,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::NativeStorageError;
-use crate::NotFound;
+use crate::{NotFound, native::NativeStorageError};
 
-use crate::{EncryptionKey, StorageOption};
+use super::{EncryptionKey, StorageOption};
 
 pub type Salt = [u8; 16];
 const PLAINTEXT_HEADER_SIZE: usize = 32;
@@ -46,7 +45,7 @@ pub struct EncryptedConnection {
 impl EncryptedConnection {
     /// Creates a file for the salt and stores it
     pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, NativeStorageError> {
-        use crate::StorageOption::*;
+        use super::StorageOption::*;
 
         let salt = match opts {
             Ephemeral => None,
@@ -257,7 +256,7 @@ impl EncryptedConnection {
     }
 }
 
-impl super::ValidatedConnection for EncryptedConnection {
+impl super::native::ValidatedConnection for EncryptedConnection {
     fn validate(&self, opts: &StorageOption) -> Result<(), NativeStorageError> {
         let conn = &mut opts.conn()?;
         let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, Some(conn))?;
