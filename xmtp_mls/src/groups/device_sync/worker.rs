@@ -460,20 +460,21 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
-        tracing::info!("Sending sync payload.");
         let provider = Arc::new(self.mls_provider()?);
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
+                tracing::info!("Sync group was already acknowledged by another installation.");
                 return Ok(());
             }
             result => result?,
         }
 
         let Some(device_sync_server_url) = &self.device_sync.server_url else {
-            tracing::info!("Not sending message history payload - server url not present.");
+            tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
+        tracing::info!("Sending sync payload.");
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
