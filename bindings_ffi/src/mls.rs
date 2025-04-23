@@ -7845,4 +7845,266 @@ mod tests {
             FfiConsentState::Denied
         );
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 11)]
+    async fn test_message_retrieval_performance() {
+        const NUM_GROUPS: usize = 20;
+        const MESSAGES_PER_GROUP: usize = 100; // Can be adjusted as needed
+        const MAX_FIND_MESSAGES_TIME_MS: u64 = 1000; // 1 second max allowed time
+
+        // Create two test clients
+        let alice = new_test_client().await;
+        let bob = new_test_client().await;
+
+        // Create groups and populate them with messages
+        let mut alice_groups = Vec::with_capacity(NUM_GROUPS);
+
+        println!(
+            "Creating {} groups with {} messages each...",
+            NUM_GROUPS, MESSAGES_PER_GROUP
+        );
+        for i in 0..NUM_GROUPS {
+            let group_name = format!("Test Group {}", i);
+
+            // Create a group with metadata
+            let options = FfiCreateGroupOptions {
+                permissions: Some(FfiGroupPermissionsOptions::Default),
+                group_name: Some(group_name),
+                group_image_url_square: Some("https://example.com/image.png".to_string()),
+                group_description: Some("Test group for performance testing".to_string()),
+                custom_permission_policy_set: None,
+                message_disappearing_settings: None,
+            };
+
+            // Alice creates the group and adds Bob
+            let alice_group = alice
+                .conversations()
+                .create_group_with_inbox_ids(vec![bob.inbox_id().to_string()], options)
+                .await
+                .expect("Failed to create group");
+
+            alice_groups.push(alice_group);
+            bob.conversations()
+                .sync_all_conversations(None)
+                .await
+                .expect("Failed to sync all conversations");
+
+            // Wait for bob to receive the welcome message
+            let mut bob_groups = bob
+                .conversations()
+                .list(FfiListConversationsOptions {
+                    created_after_ns: None,
+                    created_before_ns: None,
+                    limit: None,
+                    consent_states: None,
+                    include_duplicate_dms: false,
+                })
+                .expect("Failed to list conversations");
+
+            // Wait until Bob has the group
+            let mut attempts = 0;
+            while bob_groups.len() <= i && attempts < 10 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                bob_groups = bob
+                    .conversations()
+                    .list(FfiListConversationsOptions {
+                        created_after_ns: None,
+                        created_before_ns: None,
+                        limit: None,
+                        consent_states: None,
+                        include_duplicate_dms: false,
+                    })
+                    .expect("Failed to list conversations");
+                attempts += 1;
+            }
+
+            if bob_groups.len() <= i {
+                panic!("Bob did not receive the welcome message for group {}", i);
+            }
+
+            let bob_group = bob_groups
+                .iter()
+                .find(|group| group.conversation.id() == alice_groups[i].id())
+                .unwrap()
+                .conversation
+                .clone();
+
+            // Send messages alternating between Alice and Bob
+            println!(
+                "Populating group {} with {} messages...",
+                i, MESSAGES_PER_GROUP
+            );
+            for j in 0..MESSAGES_PER_GROUP {
+                let msg = format!(
+                    "Message {} from {}",
+                    j,
+                    if j % 2 == 0 { "Alice" } else { "Bob" }
+                );
+
+                if j % 2 == 0 {
+                    alice_groups[i]
+                        .send_text(&msg)
+                        .await
+                        .expect("Failed to send message");
+                } else {
+                    bob_group
+                        .send_text(&msg)
+                        .await
+                        .expect("Failed to send message");
+                }
+
+                if j % 10 == 0 {
+                    // Sync periodically to avoid message queue issues
+                    alice_groups[i].sync().await.expect("Failed to sync group");
+                    bob_group.sync().await.expect("Failed to sync group");
+                }
+            }
+
+            // Final sync to ensure all messages are processed
+            alice_groups[i].sync().await.expect("Failed to sync group");
+            bob_group.sync().await.expect("Failed to sync group");
+
+            println!(
+                "Finished creating group {} with {} messages",
+                i, MESSAGES_PER_GROUP
+            );
+        }
+
+        // Now run the performance tests with Alice
+        println!("\nStarting performance tests with Alice...");
+
+        // 1. Measure syncAllConversations time
+        let sync_start = std::time::Instant::now();
+        let sync_count = alice
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .expect("Failed to sync all conversations");
+        let sync_duration = sync_start.elapsed();
+        println!(
+            "1. syncAllConversations for {} groups took: {:?}",
+            sync_count, sync_duration
+        );
+
+        // 2. Measure listConversations time
+        let list_start = std::time::Instant::now();
+        let alice_groups = alice
+            .conversations()
+            .list(FfiListConversationsOptions {
+                created_after_ns: None,
+                created_before_ns: None,
+                limit: None,
+                consent_states: None,
+                include_duplicate_dms: false,
+            })
+            .expect("Failed to list conversations");
+        let list_duration = list_start.elapsed();
+        println!(
+            "2. listConversations for {} groups took: {:?}",
+            alice_groups.len(),
+            list_duration
+        );
+
+        assert_eq!(
+            alice_groups.len(),
+            NUM_GROUPS,
+            "Expected {} groups, found {}",
+            NUM_GROUPS,
+            alice_groups.len()
+        );
+
+        // 3. Measure find_messages time for each group in parallel
+        println!("3. Running find_messages for each group in parallel...");
+
+        // Start the timer for the total operation
+        let total_find_start = std::time::Instant::now();
+
+        let mut handles = Vec::new();
+        for (i, group) in alice_groups.iter().enumerate() {
+            let group_clone = group.conversation().clone();
+            let handle = tokio::spawn(async move {
+                let find_start = std::time::Instant::now();
+
+                let messages = group_clone
+                    .find_messages(FfiListMessagesOptions {
+                        sent_before_ns: None,
+                        sent_after_ns: None,
+                        limit: None,
+                        delivery_status: None,
+                        direction: None,
+                        content_types: None,
+                    })
+                    .await
+                    .expect("Failed to find messages");
+
+                let duration = find_start.elapsed();
+
+                (i, messages.len(), duration)
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all find_messages operations to complete
+        let results = futures::future::join_all(handles).await;
+        let total_find_duration = total_find_start.elapsed();
+
+        // Calculate and display the total time
+        println!(
+            "  - Total time for finding messages across all groups: {:?}",
+            total_find_duration
+        );
+
+        // Collect and display results
+        let mut success = true;
+        for result in results {
+            match result {
+                Ok((group_idx, message_count, duration)) => {
+                    println!(
+                        "  - Group {}: Found {} messages in {:?}",
+                        group_idx, message_count, duration
+                    );
+
+                    // Check that we found all messages
+                    assert_eq!(
+                        message_count,
+                        MESSAGES_PER_GROUP + 1,
+                        "Expected {} messages in group {}, found {}",
+                        MESSAGES_PER_GROUP + 1,
+                        group_idx,
+                        message_count
+                    );
+
+                    // Check performance requirement
+                    if duration.as_millis() > MAX_FIND_MESSAGES_TIME_MS as u128 {
+                        println!(
+                            "    WARNING: find_messages took longer than {}ms",
+                            MAX_FIND_MESSAGES_TIME_MS
+                        );
+                        success = false;
+                    }
+                }
+                Err(e) => {
+                    println!("  - Error in find_messages: {}", e);
+                    success = false;
+                }
+            }
+        }
+
+        // Add an assertion for the total time as well
+        println!(
+            "Total time for all find_messages operations: {:?}",
+            total_find_duration
+        );
+        let average_time_per_group = total_find_duration.as_millis() as f64 / NUM_GROUPS as f64;
+        println!("Average time per group: {:.2}ms", average_time_per_group);
+
+        // Final assertion for the test
+        assert!(
+            success,
+            "One or more find_messages operations took longer than {}ms",
+            MAX_FIND_MESSAGES_TIME_MS
+        );
+
+        println!("Performance test completed successfully!");
+    }
 }
