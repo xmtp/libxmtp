@@ -27,6 +27,8 @@ use xmtp_proto::{
     prelude::{XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
     traits::ApiClientError,
 };
+
+#[derive(Clone)]
 pub struct ApiDebugWrapper<A> {
     inner: A,
 }
@@ -44,7 +46,7 @@ async fn wrap_err<T, R, F, E>(
 where
     R: FnOnce() -> F,
     F: Future<Output = Result<T, ApiClientError<E>>>,
-    E: std::error::Error + Send + Sync + RetryableError + 'static,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
 {
     let res = req().await;
     if let Err(e) = res {
@@ -67,7 +69,8 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
 where
     A: XmtpMlsClient<Error = ApiClientError<E>> + Send + Sync,
@@ -147,7 +150,8 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsStreams for ApiDebugWrapper<A>
 where
     A: XmtpMlsStreams<Error = ApiClientError<E>> + Send + Sync + 'static,
@@ -183,7 +187,8 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpIdentityClient for ApiDebugWrapper<A>
 where
     A: XmtpIdentityClient<Error = ApiClientError<E>> + Send + Sync,

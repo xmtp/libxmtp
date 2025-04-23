@@ -195,7 +195,7 @@ pub(crate) mod tests {
             .withf(move |req| req.identity_update.as_ref().unwrap().inbox_id.eq(&inbox_id))
             .returning(move |_| Ok(PublishIdentityUpdateResponse {}));
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper.publish_identity_update(identity_update).await;
 
         assert!(result.is_ok());
@@ -236,7 +236,7 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper
             .get_identity_updates_v2(vec![GetIdentityUpdatesV2Filter {
                 inbox_id: inbox_id_clone_2.clone(),
@@ -282,7 +282,7 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper
             .get_inbox_ids(vec![ApiIdentifier {
                 identifier: address.clone(),
