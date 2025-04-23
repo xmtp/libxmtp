@@ -6412,6 +6412,8 @@ mod tests {
             .unwrap();
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
             .worker()
@@ -6577,7 +6579,7 @@ mod tests {
 
         let update = {
             let mut a_updates = stream_b_callback.preference_updates.lock();
-            assert_eq!(a_updates.len(), 1);
+            assert_eq!(a_updates.len(), 2);
 
             // The last update should be the HMAC update
             a_updates.pop().unwrap()

@@ -8,14 +8,12 @@ use crate::{
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
-use preference_sync::UserPreferenceUpdate;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
-use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -177,7 +175,7 @@ where
         );
 
         let content_bytes =
-            bincode::serialize(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
+            serde_json::to_vec(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
@@ -263,7 +261,7 @@ pub enum DeviceSyncContent {
     Request(DeviceSyncRequestProto),
     Payload(DeviceSyncReplyProto),
     Acknowledge(AcknowledgeKind),
-    PreferenceUpdates(Vec<UserPreferenceUpdate>),
+    PreferenceUpdates(Vec<Vec<u8>>),
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {
@@ -278,9 +276,7 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
-            let content: DeviceSyncContent =
-                bincode::deserialize(&msg.decrypted_message_bytes).ok()?;
-
+            let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
             Some((msg, content))
         })
     }

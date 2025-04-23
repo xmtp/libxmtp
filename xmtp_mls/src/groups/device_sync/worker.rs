@@ -332,7 +332,12 @@ where
                 self.process_sync_payload(payload).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            DeviceSyncContent::PreferenceUpdates(updates) => {
+            DeviceSyncContent::PreferenceUpdates(serialized_updates) => {
+                let mut updates: Vec<UserPreferenceUpdate> = vec![];
+                for update in serialized_updates {
+                    updates.push(serde_json::from_slice(&update)?);
+                }
+
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
