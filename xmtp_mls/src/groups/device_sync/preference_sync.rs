@@ -35,7 +35,7 @@ impl UserPreferenceUpdate {
         }
 
         // TODO: v1 support - remove this on next hammer
-        // Self::v1_sync_across_devices(updates.clone(), client).await?;
+        Self::v1_sync_across_devices(updates.clone(), client).await?;
 
         Ok(())
     }

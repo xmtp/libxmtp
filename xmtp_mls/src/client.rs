@@ -1424,9 +1424,6 @@ pub(crate) mod tests {
         let alix = Tester::new().await;
         let bo = Tester::new_passkey().await;
 
-        alix.worker().wait_for_init().await.unwrap();
-        bo.worker().wait_for_init().await.unwrap();
-
         // Create two groups and add Bob
         let alix_bo_group1 = alix
             .create_group(None, GroupMetadataOptions::default())
