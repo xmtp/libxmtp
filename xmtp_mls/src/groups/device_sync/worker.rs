@@ -193,9 +193,12 @@ where
                 .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
             return Ok(());
         }
-        self.client.add_new_installation_to_groups().await?;
+        // self.client.add_new_installation_to_groups().await?;
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
+
+        // Cycle the HMAC
+        UserPreferenceUpdate::cycle_hmac(&self.client).await?;
 
         self.client
             .send_sync_payload(
@@ -204,9 +207,6 @@ where
                 &self.handle,
             )
             .await?;
-
-        // Cycle the HMAC
-        UserPreferenceUpdate::cycle_hmac(&self.client).await?;
 
         Ok(())
     }
