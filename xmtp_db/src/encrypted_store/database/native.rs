@@ -18,7 +18,7 @@ pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
 
-use self::sqlcipher_connection::EncryptedConnection;
+pub use self::sqlcipher_connection::EncryptedConnection;
 use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 trait XmtpConnection:
@@ -136,7 +136,7 @@ impl RetryableError for NativeStorageError {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) pool: Arc<RwLock<Option<Pool>>>,
+    pub(crate) pool: Arc<RwLock<Option<Pool>>>,
     pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
     transaction_lock: Arc<Mutex<()>>,
     customizer: Option<Box<dyn XmtpConnection>>,

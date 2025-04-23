@@ -117,37 +117,28 @@ async fn it_gets_messages_by_time() {
         ];
         assert_ok!(messages.store(conn));
         let message = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    sent_after_ns: Some(1_000),
-                    sent_before_ns: Some(100_000),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                sent_after_ns: Some(1_000),
+                sent_before_ns: Some(100_000),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(message.len(), 1);
         assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
         let messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    sent_before_ns: Some(100_000),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                sent_before_ns: Some(100_000),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(messages.len(), 2);
 
         let messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    sent_after_ns: Some(10_000),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                sent_after_ns: Some(10_000),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(messages.len(), 2);
     })
@@ -177,12 +168,9 @@ async fn it_deletes_middle_message_by_expiration_time() {
         assert_eq!(result, 1); // Ensure exactly 1 message is deleted
 
         let remaining_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                ..Default::default()
+            })
             .unwrap();
 
         // Verify the count and content of the remaining messages
@@ -232,24 +220,18 @@ async fn it_gets_messages_by_kind() {
         }
 
         let application_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    kind: Some(GroupMessageKind::Application),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                kind: Some(GroupMessageKind::Application),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(application_messages.len(), 15);
 
         let membership_changes = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    kind: Some(GroupMessageKind::MembershipChange),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                kind: Some(GroupMessageKind::MembershipChange),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(membership_changes.len(), 15);
     })
@@ -277,13 +259,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(group.last_message_ns.unwrap(), 1_000_000);
 
         let messages_asc = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    direction: Some(SortDirection::Ascending),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                direction: Some(SortDirection::Ascending),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(messages_asc.len(), 4);
         assert_eq!(messages_asc[0].sent_at_ns, 1_000);
@@ -292,13 +271,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(messages_asc[3].sent_at_ns, 1_000_000);
 
         let messages_desc = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    direction: Some(SortDirection::Descending),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                direction: Some(SortDirection::Descending),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(messages_desc.len(), 4);
         assert_eq!(messages_desc[0].sent_at_ns, 1_000_000);
@@ -334,13 +310,10 @@ async fn it_gets_messages_by_content_type() {
 
         // Query for text messages
         let text_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    content_types: Some(vec![ContentType::Text]),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                content_types: Some(vec![ContentType::Text]),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(text_messages.len(), 1);
         assert_eq!(text_messages[0].content_type, ContentType::Text);
@@ -350,13 +323,10 @@ async fn it_gets_messages_by_content_type() {
 
         // Query for membership change messages
         let membership_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    content_types: Some(vec![ContentType::GroupMembershipChange]),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupMembershipChange]),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(membership_messages.len(), 1);
         assert_eq!(
@@ -367,13 +337,10 @@ async fn it_gets_messages_by_content_type() {
 
         // Query for group updated messages
         let updated_messages = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    content_types: Some(vec![ContentType::GroupUpdated]),
-                    ..Default::default()
-                },
-            )
+            .get_group_messages(&group.id, &MsgQueryArgs {
+                content_types: Some(vec![ContentType::GroupUpdated]),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(updated_messages.len(), 1);
         assert_eq!(updated_messages[0].content_type, ContentType::GroupUpdated);
