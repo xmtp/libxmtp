@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::ApiError;
-use crate::{Result, XmtpApi};
+use crate::Result;
 use futures::future::try_join_all;
 use xmtp_common::RetryableError;
+use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
@@ -12,6 +13,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
     PublishIdentityUpdateRequest,
 };
+
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
@@ -45,7 +47,7 @@ pub struct ApiIdentifier {
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpIdentityClient,
 {
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
         self.api_client

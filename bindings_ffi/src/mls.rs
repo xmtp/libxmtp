@@ -162,6 +162,7 @@ pub async fn create_client(
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
+        .enable_api_debug_wrapper()
         .with_remote_verifier()?
         .store(store);
 

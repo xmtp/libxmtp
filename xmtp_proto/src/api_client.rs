@@ -100,6 +100,8 @@ pub struct ApiStats {
     pub send_welcome_messages: Arc<EndpointStats>,
     pub query_group_messages: Arc<EndpointStats>,
     pub query_welcome_messages: Arc<EndpointStats>,
+    pub subscribe_messages: Arc<EndpointStats>,
+    pub subscribe_welcomes: Arc<EndpointStats>,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -110,9 +112,75 @@ pub struct IdentityStats {
     pub verify_smart_contract_wallet_signature: Arc<EndpointStats>,
 }
 
+pub struct AggregateStats {
+    pub mls: ApiStats,
+    pub identity: IdentityStats,
+}
+
+impl std::fmt::Debug for AggregateStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "============ Api Stats ============")?;
+        writeln!(f, "UploadKeyPackage        {}", self.mls.upload_key_package)?;
+        writeln!(f, "FetchKeyPackage         {}", self.mls.fetch_key_package)?;
+        writeln!(
+            f,
+            "SendGroupMessages       {}",
+            self.mls.send_group_messages
+        )?;
+        writeln!(
+            f,
+            "SendWelcomeMessages     {}",
+            self.mls.send_welcome_messages
+        )?;
+        writeln!(
+            f,
+            "QueryGroupMessages      {}",
+            self.mls.query_group_messages
+        )?;
+        writeln!(
+            f,
+            "QueryWelcomeMessages    {}",
+            self.mls.query_welcome_messages
+        )?;
+        writeln!(f, "SubscribeMessages       {}", self.mls.subscribe_messages)?;
+        writeln!(f, "SubscribeWelcomes       {}", self.mls.subscribe_welcomes)?;
+        writeln!(f, "============ Identity ============")?;
+        writeln!(
+            f,
+            "PublishIdentityUpdate    {}",
+            self.identity.publish_identity_update
+        )?;
+        writeln!(
+            f,
+            "GetIdentityUpdatesV2     {}",
+            self.identity.get_identity_updates_v2
+        )?;
+        writeln!(f, "GetInboxIds             {}", self.identity.get_inbox_ids)?;
+        writeln!(
+            f,
+            "VerifySCWSignatures     {}",
+            self.identity.verify_smart_contract_wallet_signature
+        )?;
+        writeln!(f, "============ Stream ============")?;
+        writeln!(
+            f,
+            "SubscribeMessages        {}",
+            self.mls.subscribe_messages
+        )?;
+        writeln!(f, "SubscribeWelcomes       {}", self.mls.subscribe_welcomes)?;
+        Ok(())
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct EndpointStats {
     request_count: AtomicUsize,
+}
+
+impl std::fmt::Display for EndpointStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.request_count.load(Ordering::Relaxed))
+    }
 }
 
 impl EndpointStats {

@@ -20,7 +20,8 @@ use xmtp_proto::{
     },
     ApiEndpoint,
 };
-
+use xmtp_proto::api_client::AggregateStats;
+use xmtp_proto::traits::HasStats;
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
@@ -125,6 +126,15 @@ impl ApiBuilder for ClientBuilder {
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
         })
+    }
+}
+
+impl HasStats for Client {
+    fn aggregate_stats(&self) -> AggregateStats {
+        AggregateStats {
+            mls: self.stats.clone(),
+            identity: self.identity_stats.clone()
+        }
     }
 }
 
@@ -275,6 +285,7 @@ impl XmtpMlsStreams for Client {
         &self,
         req: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+        self.stats.subscribe_messages.count_request();
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_group_messages(self.build_request(req))
@@ -289,6 +300,7 @@ impl XmtpMlsStreams for Client {
         &self,
         req: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+        self.stats.subscribe_welcomes.count_request();
         let client = &mut self.mls_client.clone();
         let res = client
             .subscribe_welcome_messages(self.build_request(req))

@@ -46,11 +46,11 @@ let
             ];
           extraInputs = top;
         });
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" ] [ "rust-docs" "rustfmt-preview" "clippy-preview" ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
-  LLVM_PATH = "${llvmPackages_19.stdenv}";
+  # LLVM_PATH = "${llvmPackages_19.stdenv}";
   # CC_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang";
   # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
   # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
