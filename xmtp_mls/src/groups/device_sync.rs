@@ -15,6 +15,7 @@ use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
+use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -185,7 +186,7 @@ where
                 })),
             })?;
 
-        sync_group.publish_intents(provider).await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
 
         // Notify the worker of this client's own messages being sent out so that it can process them.
         let _ = self
@@ -258,12 +259,11 @@ fn default_backup_options() -> BackupOptions {
 
 // These are the messages that get sent out to the sync group
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[repr(i32)]
 pub enum DeviceSyncContent {
-    Request(DeviceSyncRequestProto) = 0,
-    Payload(DeviceSyncReplyProto) = 1,
-    Acknowledge(AcknowledgeKind) = 2,
-    PreferenceUpdates(Vec<UserPreferenceUpdate>) = 3,
+    Request(DeviceSyncRequestProto),
+    Payload(DeviceSyncReplyProto),
+    Acknowledge(AcknowledgeKind),
+    PreferenceUpdates(Vec<UserPreferenceUpdate>),
 }
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {

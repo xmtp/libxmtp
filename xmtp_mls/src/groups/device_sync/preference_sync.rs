@@ -9,10 +9,9 @@ use xmtp_proto::{
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[repr(i32)]
 pub enum UserPreferenceUpdate {
-    ConsentUpdate(StoredConsentRecord) = 1,
-    HmacKeyUpdate { key: Vec<u8> } = 2,
+    ConsentUpdate(StoredConsentRecord),
+    HmacKeyUpdate { key: Vec<u8> },
 }
 
 impl UserPreferenceUpdate {

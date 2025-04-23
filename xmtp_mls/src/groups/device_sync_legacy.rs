@@ -366,20 +366,7 @@ where
                     }
                 }
                 Syncable::ConsentRecord(consent_record) => {
-                    if let Some(existing_consent_record) =
-                        conn.maybe_insert_consent_record_return_existing(&consent_record)?
-                    {
-                        if existing_consent_record.state != consent_record.state {
-                            tracing::warn!("Existing consent record exists and does not match payload state. Streaming consent_record update to sync group.");
-                            self.local_events
-                                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesOutgoing(
-                                    vec![UserPreferenceUpdate::ConsentUpdate(
-                                        existing_consent_record,
-                                    )],
-                                )))
-                                .map_err(|e| DeviceSyncError::Generic(e.to_string()))?;
-                        }
-                    }
+                    // intentionally blank
                 }
             };
         }
