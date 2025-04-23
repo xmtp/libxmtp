@@ -6389,6 +6389,39 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_long_messages() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        let dm = alix
+            .conversations()
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let data = xmtp_common::rand_vec::<100000>();
+        dm.send(data.clone()).await.unwrap();
+
+        let bo_dm = bo
+            .conversations()
+            .find_or_create_dm_by_inbox_id(alix.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        bo_dm.sync().await.unwrap();
+        let bo_msgs = bo_dm
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
         let alix_a = Tester::builder()
             .with_sync_worker()
