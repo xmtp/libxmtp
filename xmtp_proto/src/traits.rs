@@ -1,11 +1,11 @@
 //! Api Client Traits
 
+use crate::api_client::AggregateStats;
 use http::{request, uri::PathAndQuery};
 use prost::bytes::Bytes;
 use std::borrow::Cow;
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, BoxedRetry, RetryableError};
-use crate::api_client::AggregateStats;
 
 use crate::{ApiEndpoint, ProtoError};
 
@@ -144,7 +144,12 @@ where
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ApiClientError<E: std::error::Error> {
-    #[error("api client at endpoint \"{}\" has error {}. \n {:?} \n", endpoint, source, stats)]
+    #[error(
+        "api client at endpoint \"{}\" has error {}. \n {:?} \n",
+        endpoint,
+        source,
+        stats
+    )]
     ClientWithEndpointAndStats {
         endpoint: String,
         source: E,
@@ -153,7 +158,7 @@ pub enum ApiClientError<E: std::error::Error> {
     #[error("API Error {}, \n {:?} \n", e, stats)]
     ErrorWithStats {
         e: Box<dyn RetryableError + Send + Sync>,
-        stats: AggregateStats
+        stats: AggregateStats,
     },
     /// The client encountered an error.
     #[error("api client at endpoint \"{}\" has error {}", endpoint, source)]

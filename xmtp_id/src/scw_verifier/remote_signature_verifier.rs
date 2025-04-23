@@ -17,7 +17,7 @@ pub struct RemoteSignatureVerifier<C> {
 
 impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
     pub fn new(api: ApiClientWrapper<ApiClient>) -> Self {
-        Self { api: api }
+        Self { api }
     }
 }
 

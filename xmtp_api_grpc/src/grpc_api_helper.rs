@@ -6,7 +6,9 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use xmtp_proto::traits::ApiClientError;
 
 use crate::{create_tls_channel, GrpcBuilderError, GrpcError};
+use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
+use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -20,8 +22,6 @@ use xmtp_proto::{
     },
     ApiEndpoint,
 };
-use xmtp_proto::api_client::AggregateStats;
-use xmtp_proto::traits::HasStats;
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
@@ -133,7 +133,7 @@ impl HasStats for Client {
     fn aggregate_stats(&self) -> AggregateStats {
         AggregateStats {
             mls: self.stats.clone(),
-            identity: self.identity_stats.clone()
+            identity: self.identity_stats.clone(),
         }
     }
 }
