@@ -10,7 +10,6 @@ use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
-use xmtp_db::consent_record::ConsentState;
 use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -181,17 +180,11 @@ where
                 })),
             })?;
 
-        Ok(message_id)
-    }
-
-    async fn sync_device_sync_intents(&self) -> Result<(), ClientError> {
-        let provider = self.mls_provider()?;
-        let sync_group = self.get_sync_group(&provider).await?;
         sync_group
             .sync_until_last_intent_resolved(&provider)
             .await?;
 
-        Ok(())
+        Ok(message_id)
     }
 
     #[instrument(level = "trace", skip_all)]

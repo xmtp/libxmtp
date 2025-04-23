@@ -137,7 +137,6 @@ where
                         self.evt_v1_device_sync_request(message_id).await?;
                     }
                 }
-                self.client.sync_device_sync_intents().await?;
             };
         }
         Ok(())
