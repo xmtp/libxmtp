@@ -218,8 +218,8 @@ where
         //     .await
         //     .unwrap();
         // tracing::info!("Sending random msg");
-        // let grp = self.client.get_sync_group(&provider).await?;
-        // grp.send_message(b"hello there").await.unwrap();
+        let grp = self.client.get_sync_group(&provider).await?;
+        grp.send_message(b"hello there").await.unwrap();
 
         Ok(())
     }
