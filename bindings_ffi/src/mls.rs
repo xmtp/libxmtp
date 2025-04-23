@@ -199,6 +199,7 @@ pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
     account_identifier: FfiIdentifier,
 ) -> Result<Option<String>, GenericError> {
+    init_logger();
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let account_identifier: Identifier = account_identifier.try_into()?;
