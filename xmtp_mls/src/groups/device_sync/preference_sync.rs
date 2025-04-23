@@ -18,9 +18,9 @@ impl UserPreferenceUpdate {
     pub(crate) async fn sync<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
         tracing::info!("Outgoing preference updates {updates:?}");
-        let provider = client.mls_provider()?;
 
         client
             .send_device_sync_message(
@@ -44,14 +44,16 @@ impl UserPreferenceUpdate {
 
     pub(crate) async fn cycle_hmac<C: XmtpApi, V: SmartContractSignatureVerifier>(
         client: &Client<C, V>,
+        provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        tracing::info!("Sending HMAC key to sync group.");
+        tracing::info!("Sending new HMAC key to sync group.");
 
         Self::sync(
             vec![Self::HmacKeyUpdate {
                 key: HmacKey::random_key(),
             }],
             client,
+            provider,
         )
         .await?;
 

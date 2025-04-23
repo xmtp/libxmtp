@@ -308,6 +308,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
+        let provider = self.mls_provider()?;
         let inbox_id = self.inbox_id();
 
         let current_state = retry_async!(
@@ -328,7 +329,7 @@ where
         }
 
         // Cycle the HMAC key
-        UserPreferenceUpdate::cycle_hmac(self).await?;
+        UserPreferenceUpdate::cycle_hmac(self, &provider).await?;
 
         Ok(builder.build())
     }

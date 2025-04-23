@@ -447,6 +447,7 @@ where
         &self,
         records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
+        let provider = self.mls_provider()?;
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
@@ -463,7 +464,7 @@ where
                     updates.clone(),
                 )));
 
-            UserPreferenceUpdate::sync(updates, self).await?;
+            UserPreferenceUpdate::sync(updates, self, &provider).await?;
         }
 
         Ok(())

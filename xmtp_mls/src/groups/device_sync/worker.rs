@@ -182,6 +182,7 @@ where
         // A new sync group from a welcome indicates a new installation.
         // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;
+
         if self
             .client
             .acknowledge_new_sync_group(&provider)
@@ -193,12 +194,9 @@ where
                 .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
             return Ok(());
         }
-        // self.client.add_new_installation_to_groups().await?;
+        self.client.add_new_installation_to_groups().await?;
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
-
-        // Cycle the HMAC
-        UserPreferenceUpdate::cycle_hmac(&self.client).await?;
 
         self.client
             .send_sync_payload(
@@ -207,6 +205,9 @@ where
                 &self.handle,
             )
             .await?;
+
+        // Cycle the HMAC
+        UserPreferenceUpdate::cycle_hmac(&self.client, &provider).await?;
 
         Ok(())
     }
@@ -223,7 +224,8 @@ where
         &self,
         preference_updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        UserPreferenceUpdate::sync(preference_updates, &self.client).await?;
+        let provider = self.client.mls_provider()?;
+        UserPreferenceUpdate::sync(preference_updates, &self.client, &provider).await?;
         Ok(())
     }
 

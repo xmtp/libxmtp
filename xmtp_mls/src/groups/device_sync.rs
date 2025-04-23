@@ -177,7 +177,7 @@ where
         );
 
         let content_bytes =
-            serde_json::to_vec(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
+            bincode::serialize(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
@@ -279,7 +279,7 @@ impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupM
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
             let content: DeviceSyncContent =
-                serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
+                bincode::deserialize(&msg.decrypted_message_bytes).ok()?;
 
             Some((msg, content))
         })
