@@ -210,7 +210,6 @@ where
 
                 sync_group.add_missing_installations(provider).await?;
                 sync_group.sync_with_conn(provider).await?;
-                sync_group.update_consent_state(ConsentState::Allowed)?;
 
                 if let Some(handle) = self.worker_handle() {
                     handle.increment_metric(SyncMetric::SyncGroupCreated);

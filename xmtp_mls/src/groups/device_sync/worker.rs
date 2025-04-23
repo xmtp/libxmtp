@@ -209,17 +209,10 @@ where
         // Cycle the HMAC
         UserPreferenceUpdate::cycle_hmac(&self.client, &provider).await?;
 
-        // tracing::info!("Sending another acknowledgement for the fun of it");
-        // self.client
-        //     .send_device_sync_message(
-        //         &provider,
-        //         DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence),
-        //     )
-        //     .await
-        //     .unwrap();
-        // tracing::info!("Sending random msg");
         let grp = self.client.get_sync_group(&provider).await?;
-        grp.send_message(b"hello there").await.unwrap();
+        grp.send_message(b"message to get hmac to show up")
+            .await
+            .unwrap();
 
         Ok(())
     }
