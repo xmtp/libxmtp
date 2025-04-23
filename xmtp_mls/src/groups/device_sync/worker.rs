@@ -208,11 +208,6 @@ where
         // Cycle the HMAC
         UserPreferenceUpdate::cycle_hmac(&self.client, &provider).await?;
 
-        let grp = self.client.get_sync_group(&provider).await?;
-        grp.send_message(b"message to get hmac to show up")
-            .await
-            .unwrap();
-
         Ok(())
     }
 

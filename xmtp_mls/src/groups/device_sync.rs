@@ -180,9 +180,7 @@ where
                 })),
             })?;
 
-        sync_group
-            .sync_until_last_intent_resolved(&provider)
-            .await?;
+        sync_group.sync_until_last_intent_resolved(provider).await?;
 
         Ok(message_id)
     }

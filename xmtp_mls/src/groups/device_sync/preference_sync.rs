@@ -22,7 +22,7 @@ impl UserPreferenceUpdate {
     ) -> Result<(), ClientError> {
         client
             .send_device_sync_message(
-                &provider,
+                provider,
                 DeviceSyncContent::PreferenceUpdates(updates.clone()),
             )
             .await?;
