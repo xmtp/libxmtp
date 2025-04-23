@@ -1,6 +1,6 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
-use crate::{StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
+use super::{StorageOption, XmtpDb, db_connection::DbConnectionPrivate};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::AnsiTransactionManager, prelude::*};
 use parking_lot::Mutex;
@@ -106,7 +106,7 @@ impl std::fmt::Debug for WasmDb {
 
 impl WasmDb {
     pub async fn new(opts: &StorageOption) -> Result<Self, WasmStorageError> {
-        use crate::StorageOption::*;
+        use super::StorageOption::*;
         init_sqlite().await;
         maybe_resize().await?;
         let conn = match opts {
