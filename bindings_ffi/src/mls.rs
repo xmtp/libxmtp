@@ -6596,6 +6596,7 @@ mod tests {
             .conversations()
             .stream_preferences(stream_b_callback.clone())
             .await;
+        b_stream.wait_for_ready().await;
 
         alix_b.worker().wait_for_init().await.unwrap();
 
