@@ -3226,8 +3226,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_key_update() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let bola_client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
 
         let group = client
             .create_group(None, GroupMetadataOptions::default())
