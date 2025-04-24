@@ -21,8 +21,10 @@ use governor::{Jitter, Quota};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient};
-use xmtp_proto::traits::ApiClientError;
+use xmtp_proto::api_client::{
+    AggregateStats, ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient,
+};
+use xmtp_proto::traits::{ApiClientError, HasStats};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -102,6 +104,15 @@ impl XmtpHttpApiClient {
 
     pub fn libxmtp_version(&self) -> &str {
         &self.libxmtp_version
+    }
+}
+
+impl HasStats for XmtpHttpApiClient {
+    fn aggregate_stats(&self) -> AggregateStats {
+        AggregateStats {
+            mls: self.stats.clone(),
+            identity: self.identity_stats.clone(),
+        }
     }
 }
 
@@ -249,6 +260,7 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Self::Error> {
         self.wait_for_ready().await;
+        self.stats.fetch_key_package.count_request();
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::FETCH_KEY_PACKAGES))
@@ -390,6 +402,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         request: SubscribeGroupMessagesRequest,
     ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
         self.wait_for_ready().await;
+        self.stats.subscribe_messages.count_request();
         Ok(create_grpc_stream::<_, GroupMessage>(
             request,
             self.endpoint(ApiEndpoints::SUBSCRIBE_GROUP_MESSAGES),
@@ -404,6 +417,7 @@ impl XmtpMlsStreams for XmtpHttpApiClient {
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
         self.wait_for_ready().await;
+        self.stats.subscribe_welcomes.count_request();
         tracing::debug!("subscribe_welcome_messages");
         Ok(create_grpc_stream::<_, WelcomeMessage>(
             request,
@@ -424,6 +438,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         request: PublishIdentityUpdateRequest,
     ) -> Result<PublishIdentityUpdateResponse, Self::Error> {
         self.wait_for_ready().await;
+        self.identity_stats.publish_identity_update.count_request();
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::PUBLISH_IDENTITY_UPDATE))
@@ -446,6 +461,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         request: GetIdentityUpdatesV2Request,
     ) -> Result<GetIdentityUpdatesV2Response, Self::Error> {
         self.wait_for_ready().await;
+        self.identity_stats.get_identity_updates_v2.count_request();
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_IDENTITY_UPDATES))
@@ -468,6 +484,7 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         self.wait_for_ready().await;
+        self.identity_stats.get_inbox_ids.count_request();
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::GET_INBOX_IDS))
@@ -488,6 +505,9 @@ impl XmtpIdentityClient for XmtpHttpApiClient {
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error> {
         self.wait_for_ready().await;
+        self.identity_stats
+            .verify_smart_contract_wallet_signature
+            .count_request();
         let res = self
             .http_client
             .post(self.endpoint(ApiEndpoints::VERIFY_SMART_CONTRACT_WALLET_SIGNATURES))

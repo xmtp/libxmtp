@@ -25,7 +25,7 @@ pub async fn get_inbox_id_for_identifier(
     .map_err(ErrorWrapper::from)?;
   let client = client.build().await.map_err(ErrorWrapper::from)?;
   // api rate limit cooldown period
-  let api_client = ApiClientWrapper::new(client.into(), strategies::exponential_cooldown());
+  let api_client = ApiClientWrapper::new(client, strategies::exponential_cooldown());
 
   let identifier: xmtp_id::associations::Identifier = identifier.try_into()?;
   let api_ident: ApiIdentifier = identifier.into();
