@@ -46,7 +46,7 @@ let
             ];
           extraInputs = top;
         });
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" ] [ "rust-docs" "rustfmt-preview" "clippy-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";

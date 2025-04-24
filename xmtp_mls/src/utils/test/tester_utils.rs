@@ -64,7 +64,6 @@ macro_rules! tester {
         };
     };
 
-    // You can add more parameter combinations as needed
     ($name:ident, $($key:ident),+) => {
         let $name = {
             use tracing::Instrument;
