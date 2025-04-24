@@ -249,6 +249,9 @@ mod tests {
 
         amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
 
+        amal_a.sync_device_sync(&amal_a.provider).await?;
+        amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
+
         // Wait for a to process the new hmac key
         amal_b
             .get_sync_group(&amal_b.provider)

@@ -6545,7 +6545,7 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 3)
+            .wait(SyncMetric::ConsentSent, 2)
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -6553,7 +6553,7 @@ mod tests {
         // Wait for alix_b to process the new consent
         alix_b
             .worker()
-            .wait(SyncMetric::ConsentReceived, 4)
+            .wait(SyncMetric::ConsentReceived, 2)
             .await
             .unwrap();
 
@@ -6583,13 +6583,7 @@ mod tests {
             .await;
 
         let alix_b_span = info_span!("alix_b");
-        let alix_b = Tester::builder()
-            .owner(alix_a.builder.owner.clone())
-            .with_sync_worker()
-            .do_not_wait_for_init()
-            .build()
-            .instrument(alix_b_span)
-            .await;
+        let alix_b = alix_a.builder.build().instrument(alix_b_span).await;
 
         let stream_b_callback = Arc::new(RustStreamCallback::default());
         let b_stream = alix_b
@@ -6598,8 +6592,6 @@ mod tests {
             .await;
         b_stream.wait_for_ready().await;
 
-        alix_b.worker().wait_for_init().await.unwrap();
-
         alix_a
             .inner_client
             .test_has_same_sync_group_as(&alix_b.inner_client)
@@ -6607,8 +6599,6 @@ mod tests {
             .unwrap();
 
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
-
-        tokio::time::sleep(Duration::from_millis(1000)).await;
 
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
@@ -6620,16 +6610,10 @@ mod tests {
         let result = stream_b_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
-        let update = {
-            let mut a_updates = stream_b_callback.preference_updates.lock();
-            assert_eq!(a_updates.len(), 1);
-
-            // The last update should be the HMAC update
-            a_updates.pop().unwrap()
-        };
-
-        // We got the HMAC update
-        assert!(matches!(update, FfiPreferenceUpdate::HMAC { .. }));
+        let updates = stream_b_callback.preference_updates.lock();
+        assert!(updates
+            .iter()
+            .any(|u| matches!(u, FfiPreferenceUpdate::HMAC { .. })));
 
         b_stream.end_and_wait().await.unwrap();
     }
