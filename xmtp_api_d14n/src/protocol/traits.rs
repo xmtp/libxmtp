@@ -187,9 +187,7 @@ where
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
         // ensures we only recurse the proto data structure once.
         let mut extractor = (TopicExtractor::new(), PayloadExtractor::new());
-        tracing::debug!("Extracting payload for {:?}", self);
         self.accept(&mut extractor)?;
-        tracing::debug!("Extracted {:?}", extractor);
         let topic = extractor.0.get().map_err(ExtractionError::from)?;
         let payload = extractor.1.get().map_err(ExtractionError::from)?;
         // this should never happen since Self is the same type, but the error is defensive
