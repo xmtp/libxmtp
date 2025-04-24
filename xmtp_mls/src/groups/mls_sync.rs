@@ -1502,10 +1502,9 @@ where
                     message.id, msg_epoch, group_epoch
                 );
                 tracing::error!(fork_details);
-                provider
+                let _ = provider
                     .conn_ref()
-                    .set_group_fork_state(&group_id, fork_details)
-                    .unwrap();
+                    .set_group_fork_state(&group_id, fork_details);
             }
 
             OpenMlsProcessMessage(err) => {
@@ -1518,11 +1517,10 @@ where
                         message.id, err
                     );
                     tracing::error!(fork_details);
-                    provider
+                    let _ = provider
                         .conn_ref()
-                        .set_group_fork_state(&group_id, fork_details)
-                        .unwrap();
-                    self.save_forked_alert_transcript_message(provider.conn_ref(), &message);
+                        .set_group_fork_state(&group_id, fork_details);
+                    self.save_forked_alert_transcript_message(provider.conn_ref(), message);
                 }
             }
 
