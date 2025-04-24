@@ -1,3 +1,5 @@
+mod sqlcipher_connection;
+
 use crate::NotFound;
 /// Native SQLite connection using SqlCipher
 use crate::encrypted_store::DbConnectionPrivate;
@@ -16,7 +18,8 @@ pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
 pub type Pool = r2d2::Pool<ConnectionManager>;
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
 
-use super::{EncryptionKey, StorageOption, XmtpDb, sqlcipher_connection::EncryptedConnection};
+pub use self::sqlcipher_connection::EncryptedConnection;
+use crate::{EncryptionKey, StorageOption, XmtpDb};
 
 trait XmtpConnection:
     ValidatedConnection
@@ -133,7 +136,7 @@ impl RetryableError for NativeStorageError {
 #[derive(Clone)]
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
-    pub(super) pool: Arc<RwLock<Option<Pool>>>,
+    pub(crate) pool: Arc<RwLock<Option<Pool>>>,
     pub(super) write_conn: Arc<Mutex<RawDbConnection>>,
     transaction_lock: Arc<Mutex<()>>,
     customizer: Option<Box<dyn XmtpConnection>>,
@@ -142,7 +145,7 @@ pub struct NativeDb {
 
 impl NativeDb {
     /// This function is private so that an unencrypted database cannot be created by accident
-    pub(super) fn new(
+    pub(crate) fn new(
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, NativeStorageError> {
