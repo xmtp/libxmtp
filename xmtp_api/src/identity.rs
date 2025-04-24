@@ -50,9 +50,10 @@ where
     ApiClient: XmtpIdentityClient,
 {
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
+        let update: IdentityUpdate = update.into();
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
-                identity_update: Some(update.into()),
+                identity_update: Some(update),
             })
             .await
             .map_err(crate::dyn_err)?;

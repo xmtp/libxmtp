@@ -37,6 +37,7 @@ where
         })?;
 
         let envelopes = update.client_envelopes()?;
+        tracing::info!("ENVELOPE: {:?}", envelopes);
         PublishClientEnvelopes::builder()
             .envelopes(envelopes)
             .build()?

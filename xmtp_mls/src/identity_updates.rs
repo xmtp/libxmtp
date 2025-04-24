@@ -712,7 +712,7 @@ pub(crate) mod tests {
         let wallet_ident = wallet.identifier();
         let wallet2_ident = wallet_2.identifier();
 
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
 
         let mut add_association_request = client
             .associate_identity(wallet2_ident.clone())
