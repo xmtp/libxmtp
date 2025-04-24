@@ -26,6 +26,7 @@ where
 {
     type Error = ApiClientError<E>;
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
@@ -45,6 +46,7 @@ where
         Ok(identity_v1::PublishIdentityUpdateResponse {})
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn get_identity_updates_v2(
         &self,
         request: identity_v1::GetIdentityUpdatesRequest,
@@ -80,6 +82,7 @@ where
         Ok(identity_v1::GetIdentityUpdatesResponse { responses })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn get_inbox_ids(
         &self,
         request: identity_v1::GetInboxIdsRequest,
@@ -118,6 +121,7 @@ where
         })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn verify_smart_contract_wallet_signatures(
         &self,
         _request: identity_v1::VerifySmartContractWalletSignaturesRequest,

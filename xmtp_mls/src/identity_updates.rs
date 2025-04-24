@@ -267,6 +267,7 @@ where
             .identity()
             .installation_keys
             .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+
         signature_request
             .add_signature(
                 UnverifiedSignature::new_installation_key(signature, installation_public_key),
@@ -724,7 +725,6 @@ pub(crate) mod tests {
             .apply_signature_request(add_association_request)
             .await
             .unwrap();
-
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
         let members = association_state.members_by_parent(&wallet_ident.clone().into());
