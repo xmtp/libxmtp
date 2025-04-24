@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ethers::signers::LocalWallet;
 use xmtp_common::tmp_path;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::test::tester::*;
+use xmtp_mls::utils::test::tester_utils::*;
 
 use crate::inbox_owner::FfiInboxOwner;
 

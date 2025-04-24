@@ -2838,7 +2838,7 @@ mod tests {
         groups::{
             device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
         },
-        utils::tester::{PasskeyUser, Tester},
+        utils::{PasskeyUser, Tester},
         InboxOwner,
     };
     use xmtp_proto::xmtp::mls::message_contents::{

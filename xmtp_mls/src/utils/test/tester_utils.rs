@@ -46,6 +46,38 @@ where
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
 }
 
+#[macro_export]
+macro_rules! tester {
+    ($name:ident) => {
+        let $name = {
+            use tracing::Instrument;
+            let span = tracing::info_span!(stringify!($name));
+            Tester::new().instrument(span).await
+        };
+    };
+
+    ($name:ident, from = $existing:ident) => {
+        let $name = {
+            use tracing::Instrument;
+            let span = tracing::info_span!(stringify!($name));
+            $existing.builder.build().instrument(span).await
+        };
+    };
+
+    // You can add more parameter combinations as needed
+    ($name:ident, $($key:ident),+) => {
+        let $name = {
+            use tracing::Instrument;
+            let span = tracing::info_span!(stringify!($name));
+            Tester::builder()
+                $(.$key())+
+                .build()
+                .instrument(span)
+                .await
+        };
+    };
+}
+
 impl Tester<LocalWallet, FullXmtpClient> {
     pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();

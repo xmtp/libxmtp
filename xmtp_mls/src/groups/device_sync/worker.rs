@@ -182,17 +182,15 @@ where
         // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;
 
-        if self
-            .client
-            .acknowledge_new_sync_group(&provider)
-            .await
-            .is_err()
-        {
+        let result = self.client.acknowledge_new_sync_group(&provider).await;
+        if matches!(result, Err(DeviceSyncError::AlreadyAcknowledged)) {
             // We do not want to process the new installation if another installation is already processing it.
             self.handle
                 .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
             return Ok(());
         }
+        result?;
+
         self.client.add_new_installation_to_groups().await?;
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);

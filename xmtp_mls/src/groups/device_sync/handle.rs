@@ -68,7 +68,7 @@ where
         self.notify.notify_waiters();
     }
 
-    pub fn reset(&self) {
+    pub fn reset_metrics(&self) {
         *self.metrics.lock() = HashMap::new();
     }
 

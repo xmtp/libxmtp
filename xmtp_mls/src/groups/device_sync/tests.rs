@@ -39,14 +39,12 @@ async fn basic_sync() {
 #[xmtp_common::test(unwrap_try = "true")]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
+    use crate::tester;
     use std::time::Duration;
 
-    let alix1 = Tester::builder()
-        .with_sync_worker()
-        .with_sync_server()
-        .build()
-        .await;
-    let alix2 = alix1.builder.build().await;
+    tester!(alix1, with_sync_worker, with_sync_server);
+    tester!(alix2, from = alix1);
+
     alix1.test_has_same_sync_group_as(&alix2).await?;
     let bo = Tester::new().await;
 
@@ -63,23 +61,18 @@ async fn only_one_payload_sent() {
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
     alix1.worker().clear_metric(SyncMetric::PayloadSent);
 
-    let alix3 = alix1.builder.build().await;
+    tester!(alix3, from = alix1);
+    alix1.worker().reset_metrics();
+    alix2.worker().reset_metrics();
+
+    // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
 
-    let alix1_sg = alix1.get_sync_group(&alix1.provider).await?;
-    let alix2_sg = alix2.get_sync_group(&alix2.provider).await?;
-    let alix3_sg = alix3.get_sync_group(&alix3.provider).await?;
-
-    // They should all have the same sync group
-    assert_eq!(alix1_sg.group_id, alix2_sg.group_id);
-    assert_eq!(alix1_sg.group_id, alix3_sg.group_id);
-
-    // Wait for one of the workers to send a payload
     let wait1 = alix1.worker().wait(SyncMetric::PayloadSent, 1);
+    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(3), wait1).await;
     let wait2 = alix2.worker().wait(SyncMetric::PayloadSent, 1);
-    let timeout1 = xmtp_common::time::timeout(Duration::from_secs(5), wait1).await;
-    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(5), wait2).await;
+    let timeout2 = xmtp_common::time::timeout(Duration::from_secs(3), wait2).await;
 
     // We want one of them to timeout (only one payload sent)
     assert_ne!(timeout1.is_ok(), timeout2.is_ok());

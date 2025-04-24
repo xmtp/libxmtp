@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 #[cfg(any(test, feature = "test-utils"))]
-pub mod tester;
+pub mod tester_utils;
 
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
@@ -19,7 +19,7 @@ use xmtp_id::{
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 #[cfg(any(test, feature = "test-utils"))]
-pub use tester::*;
+pub use tester_utils::*;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 

@@ -267,10 +267,7 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
         self.into_iter().filter_map(|msg| {
-            let Ok(content) = serde_json::from_slice(&msg.decrypted_message_bytes) else {
-                tracing::warn!("Failed to decrypt device sync content. {msg:?}");
-                return None;
-            };
+            let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
             Some((msg, content))
         })
     }
