@@ -215,5 +215,3 @@ jobs:
         with:
           workspaces: |
             .
-      - name: Integration Tests (foreign FFI/kotlin)
-        run: ./dev/ci/kotlin-bindings

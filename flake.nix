@@ -18,6 +18,7 @@
       flake = false;
     };
     mvn2nix.url = "github:fzakaria/mvn2nix";
+    nix2container.url = "github:nlewo/nix2container";
   };
 
   outputs = inputs@{ self, flake-parts, fenix, crane, foundry, rust-manifest, mvn2nix, ... }:
