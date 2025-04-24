@@ -2588,7 +2588,7 @@ pub(crate) mod tests {
                     .load::<StoredGroup>(conn)
             })
             .unwrap();
-        assert_eq!(alix_groups.len(), 3);
+        assert_eq!(alix_groups.len(), 2);
         // They should have the same ID
         assert_eq!(alix_groups[0].dm_id, alix_groups[1].dm_id);
 

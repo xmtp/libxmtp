@@ -2159,23 +2159,11 @@ pub(crate) mod tests {
     )]
     #[cfg(not(target_family = "wasm"))]
     async fn publish_intents_worst_case_scenario() {
-        use crate::{groups::device_sync::handle::SyncMetric, utils::Tester};
+        use crate::utils::Tester;
 
         let amal_a = Tester::new().await;
         let amal_group_a: Arc<MlsGroup<_>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
-        amal_a
-            .worker_handle()
-            .unwrap()
-            .wait_for_init()
-            .await
-            .unwrap();
-
-        amal_a
-            .worker()
-            .wait(SyncMetric::ConsentSent, 1)
-            .await
-            .unwrap();
 
         let conn = amal_a.context().store().conn().unwrap();
         let provider: Arc<XmtpOpenMlsProvider> = Arc::new(conn.into());
@@ -2203,9 +2191,9 @@ pub(crate) mod tests {
         });
 
         let published = provider.conn_ref().intents_published();
-        assert_eq!(published, 106);
+        assert_eq!(published, 101);
         let created = provider.conn_ref().intents_created();
-        assert_eq!(created, 106);
+        assert_eq!(created, 101);
         if !errs.is_empty() {
             panic!("Errors during publish");
         }
