@@ -40,6 +40,7 @@ use xmtp_db::{
 use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
+use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -67,7 +68,6 @@ use std::{
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
 };
-use ethers::abi::AbiEncode;
 use thiserror::Error;
 use tracing::debug;
 use xmtp_common::time::now_ns;
@@ -90,7 +90,6 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
-use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -143,6 +142,10 @@ pub enum GroupMessageProcessingError {
     Client(#[from] ClientError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
+    #[error("Message epoch is too old")]
+    OldEpoch(u64, u64),
+    #[error("Message epoch is greater than group epoch")]
+    FutureEpoch(u64, u64),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -170,7 +173,9 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
             | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused => false,
+            | Self::GroupPaused
+            | Self::OldEpoch(_, _)
+            | Self::FutureEpoch(_, _) => false,
         }
     }
 }
@@ -379,7 +384,7 @@ where
         group_epoch: GroupEpoch,
         message_epoch: GroupEpoch,
         max_past_epochs: usize,
-    ) -> bool {
+    ) -> Result<(), GroupMessageProcessingError> {
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
                 inbox_id,
@@ -393,7 +398,10 @@ where
                 group_epoch.as_u64(),
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::OldEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         } else if message_epoch.as_u64() > group_epoch.as_u64() {
             // Should not happen, logging proactively
             tracing::error!(
@@ -407,9 +415,12 @@ where
                 group_epoch,
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::FutureEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         }
-        true
+        Ok(())
     }
 
     // This function is intended to isolate the async validation code to
@@ -500,15 +511,14 @@ where
             }
 
             IntentKind::SendMessage => {
-                if !Self::is_valid_epoch(
+                Self::is_valid_epoch(
                     self.context().inbox_id(),
                     intent.id,
                     group_epoch,
                     message_epoch,
                     MAX_PAST_EPOCHS,
-                ) {
-                    return Err(Ok(IntentState::ToPublish));
-                }
+                )
+                .map_err(Err)?;
             }
         }
 
@@ -574,6 +584,8 @@ where
         Ok(IntentState::Committed)
     }
 
+    #[allow(dead_code)]
+    #[cfg(any(test, feature = "test-utils"))]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn validate_and_process_external_message(
         &self,
@@ -601,9 +613,8 @@ where
         }
 
         if is_test_mode_future_wrong_epoch() {
-            return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-                ValidationError::WrongEpoch,
-            )));
+            //this is just a mock for testing, the whole function only appears in tests
+            return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
         }
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
@@ -670,6 +681,141 @@ where
             let requires_processing = if allow_cursor_increment {
                 tracing::info!(
                     "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true", 
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
+                provider.conn_ref().update_cursor(
+                    &envelope.group_id,
+                    EntityKind::Group,
+                    *cursor as i64,
+                )?
+            } else {
+                tracing::info!(
+                    "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                    hex::encode(envelope.group_id.as_slice()),
+                    *cursor
+                );
+                let current_cursor = provider
+                    .conn_ref()
+                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                current_cursor < *cursor as i64
+            };
+            if !requires_processing {
+                return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
+            }
+            let previous_epoch = mls_group.epoch().as_u64();
+
+            self.process_external_message(
+                provider,
+                mls_group,
+                processed_message,
+                envelope,
+                validated_commit,
+            )?;
+            let new_epoch = mls_group.epoch().as_u64();
+            if new_epoch > previous_epoch {
+                tracing::info!(
+                    "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
+                    self.client.inbox_id(),
+                    cursor,
+                    previous_epoch,
+                    new_epoch
+                );
+            }
+            Ok::<_, GroupMessageProcessingError>(())
+        })?;
+
+        Ok(())
+    }
+
+    #[allow(unused_variables, dead_code)]
+    #[cfg(not(any(test, feature = "test-utils")))]
+    #[tracing::instrument(level = "trace", skip_all)]
+    async fn validate_and_process_external_message(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        mls_group: &mut OpenMlsGroup,
+        message: PrivateMessageIn,
+        envelope: &GroupMessageV1,
+        allow_cursor_increment: bool,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let GroupMessageV1 {
+            created_ns: envelope_timestamp_ns,
+            id: ref cursor,
+            ..
+        } = *envelope;
+
+        // We need to process the message twice to avoid an async transaction.
+        // We'll process for the first time, get the processed message,
+        // and roll the transaction back, so we can fetch updates from the server before
+        // being ready to process the message for a second time.
+        let mut processed_message = None;
+
+        let result = provider.transaction(|provider| {
+            processed_message = Some(mls_group.process_message(provider, message.clone()));
+            // Rollback the transaction. We want to synchronize with the server before committing.
+            Err::<(), StorageError>(StorageError::IntentionalRollback)
+        });
+        if !matches!(result, Err(StorageError::IntentionalRollback)) {
+            result?;
+        }
+        let processed_message = processed_message.expect("Was just set to Some")?;
+
+        // Reload the mlsgroup to clear the it's internal cache
+        *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
+            GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)),
+        )?;
+
+        let (sender_inbox_id, sender_installation_id) =
+            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
+
+        tracing::info!(
+            inbox_id = self.client.inbox_id(),
+            installation_id = %self.client.installation_id(),sender_inbox_id = sender_inbox_id,
+            sender_installation_id = hex::encode(&sender_installation_id),
+            group_id = hex::encode(&self.group_id),
+            current_epoch = mls_group.epoch().as_u64(),
+            msg_epoch = processed_message.epoch().as_u64(),
+            msg_group_id = hex::encode(processed_message.group_id().as_slice()),
+            cursor,
+            "[{}] extracted sender inbox id: {}",
+            self.client.inbox_id(),
+            sender_inbox_id
+        );
+
+        let validated_commit = match &processed_message.content() {
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                let validated_commit = ValidatedCommit::from_staged_commit(
+                    &self.client,
+                    provider.conn_ref(),
+                    staged_commit,
+                    mls_group,
+                )
+                .await?;
+
+                Some(validated_commit)
+            }
+            _ => None,
+        };
+
+        provider.transaction(|provider| {
+            tracing::debug!(
+                inbox_id = self.client.inbox_id(),
+                installation_id = %self.client.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                current_epoch = mls_group.epoch().as_u64(),
+                msg_epoch = processed_message.epoch().as_u64(),
+                cursor = ?cursor,
+                "[{}] processing message in transaction epoch = {}, cursor = {:?}",
+                self.client.inbox_id(),
+                mls_group.epoch().as_u64(),
+                cursor
+            );
+            let processed_message = mls_group.process_message(provider, message)?;
+
+            let requires_processing = if allow_cursor_increment {
+                tracing::info!(
+                    "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
                     hex::encode(envelope.group_id.as_slice()),
                     *cursor
                 );
@@ -1348,38 +1494,39 @@ where
         message: &GroupMessageV1,
         error: &GroupMessageProcessingError,
     ) {
-        if let OpenMlsProcessMessage(ref err) = &error {
-            if let ProcessMessageError::ValidationError(validation_error) = err {
-                let group_epoch = self.epoch(provider).await.ok();
-                let msg_epoch = GroupEpoch::from(message.id);
-                let group_id = message.group_id.clone();
-                match validation_error {
-                    ValidationError::WrongEpoch => {
-                        if let Some(group_epoch) = group_epoch {
-                            if msg_epoch.as_u64() > group_epoch {
-                                let fork_details = format!("Message epoch [{}] is greater than group epoch [{}], your group may be forked",
-                                                           msg_epoch,
-                                                           group_epoch);
-                                tracing::error!(fork_details);
-                                provider
-                                    .conn_ref()
-                                    .set_group_prop_forked(&group_id, fork_details)
-                                    .unwrap();
-                            }
-                        }
-                    }
-                    ValidationError::UnableToDecrypt(AeadError) => {
-                        let fork_details = format!("Message [{}] unable to decrypt with error [{}] probably the sender is forked", message.id, err);
-                        tracing::error!(fork_details);
-                        provider
-                            .conn_ref()
-                            .set_group_prop_forked(&group_id, fork_details)
-                            .unwrap();
-                        self.save_forked_alert_transcript_message(provider.conn_ref(), &message);
-                    }
-                    _ => {}
+        let group_id = message.group_id.clone();
+        match &error {
+            GroupMessageProcessingError::FutureEpoch(msg_epoch, group_epoch) => {
+                let fork_details = format!(
+                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                    message.id, msg_epoch, group_epoch
+                );
+                tracing::error!(fork_details);
+                provider
+                    .conn_ref()
+                    .set_group_fork_state(&group_id, fork_details)
+                    .unwrap();
+            }
+
+            OpenMlsProcessMessage(err) => {
+                if let ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+                    AeadError,
+                )) = err
+                {
+                    let fork_details = format!(
+                        "Message [{}] unable to decrypt with error [{}]; probably the sender is forked",
+                        message.id, err
+                    );
+                    tracing::error!(fork_details);
+                    provider
+                        .conn_ref()
+                        .set_group_fork_state(&group_id, fork_details)
+                        .unwrap();
+                    self.save_forked_alert_transcript_message(provider.conn_ref(), &message);
                 }
             }
+
+            _ => {}
         }
     }
 
@@ -1393,19 +1540,22 @@ where
             "Alert: Message received from a possible forked member: messageId:[{}]",
             message.id
         );
+        let group_id = self.group_id.as_slice();
+        let message_id =
+            calculate_message_id(group_id, message.data.as_slice(), &now_ns().to_string());
         let msg = StoredGroupMessage {
-            id: xmtp_common::rand_vec::<32>(),
+            id: message_id,
             group_id: message.group_id.as_slice().to_vec(),
             decrypted_message_bytes: message_content.into_bytes(),
             sent_at_ns: now_ns(),
             kind: GroupMessageKind::Application,
-            sender_installation_id: vec![],
-            sender_inbox_id: "unknown".to_string(),
+            sender_installation_id: vec![], //since sender is unknown
+            sender_inbox_id: "unknown".to_string(), //since sender is unknown
             delivery_status: DeliveryStatus::Published,
             content_type: ContentType::Text,
             version_major: 0,
             version_minor: 0,
-            authority_id: "unknown".to_string(),
+            authority_id: "unknown".to_string(), //since sender is unknown
             reference_id: None,
         };
         let _ = msg.store_or_ignore(conn).map_err(|err| {

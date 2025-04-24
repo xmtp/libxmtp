@@ -376,8 +376,7 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
 
 #[cfg(any(test, feature = "test-utils"))]
 #[warn(dead_code)]
-/// Sets test mode to mimic aead messages state.
-/// If `enable` is `false`, it also clears `TEST_MODE_AEAD_MESSAGE`.
+/// Sets test mode to mimic UnableToDecrypt AEAD messages state.
 pub fn set_test_mode_aead_msg(enable: bool) {
     use std::env;
     if enable {
@@ -396,7 +395,6 @@ pub fn is_test_mode_aead_msg() -> bool {
 #[cfg(any(test, feature = "test-utils"))]
 #[warn(dead_code)]
 /// Sets test mode to mimic future wrong epoch state.
-/// If `enable` is `false`, it also clears `TEST_MODE_FUTURE_WRONG_EPOCH`.
 pub fn set_test_mode_future_wrong_epoch(enable: bool) {
     use std::env;
     if enable {

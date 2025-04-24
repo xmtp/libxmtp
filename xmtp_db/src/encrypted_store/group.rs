@@ -69,7 +69,7 @@ pub struct StoredGroup {
     #[builder(default = None)]
     pub paused_for_version: Option<String>,
     #[builder(default = None)]
-    pub prob_forked: Option<bool>,
+    pub fork_state: Option<bool>,
     #[builder(default = None)]
     pub fork_details: Option<String>,
 }
@@ -528,23 +528,25 @@ impl DbConnection {
         })
     }
 
-    pub fn set_group_prop_forked(&self, group_id: &Vec<u8>, fork_details: String)-> Result<(), StorageError> {
+    pub fn set_group_fork_state(
+        &self,
+        group_id: &Vec<u8>,
+        fork_details: String,
+    ) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
-                .set((dsl::prob_forked.eq(true),
-                     dsl::fork_details.eq(fork_details)
-                ))
+                .set((dsl::fork_state.eq(true), dsl::fork_details.eq(fork_details)))
                 .execute(conn)
         })?;
 
         Ok(())
     }
 
-    pub fn clear_group_forked_status(&self, group_id: &Vec<u8>)-> Result<(), StorageError> {
+    pub fn clear_group_forked_state(&self, group_id: &Vec<u8>) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set((
-                    dsl::prob_forked.eq(false),
+                    dsl::fork_state.eq(false),
                     dsl::fork_details.eq::<Option<String>>(None),
                 ))
                 .execute(conn)
@@ -552,7 +554,6 @@ impl DbConnection {
 
         Ok(())
     }
-
 }
 
 #[repr(i32)]

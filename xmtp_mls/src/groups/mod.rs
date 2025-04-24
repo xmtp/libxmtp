@@ -5860,11 +5860,49 @@ pub(crate) mod tests {
         group_b.send_message(&[2]).await.unwrap();
         set_test_mode_aead_msg(false);
         group_b.sync().await.unwrap();
-        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
-        assert_eq!(group_from_db.unwrap().prob_forked,Some(true));
-        client_b.mls_provider().unwrap().conn_ref().clear_group_forked_status(&group_b.group_id).unwrap();
-        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
-        assert_eq!(group_from_db.unwrap().prob_forked,Some(false));
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert_eq!(group_from_db.unwrap().fork_state, Some(true));
+        client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .clear_group_forked_state(&group_b.group_id)
+            .unwrap();
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        group_a.send_message(&[1]).await.unwrap();
+        group_b.send_message(&[2]).await.unwrap();
+        group_b.sync().await.unwrap();
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .clear_group_forked_state(&group_b.group_id)
+            .unwrap();
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -5894,11 +5932,27 @@ pub(crate) mod tests {
         group_b.send_message(&[2]).await.unwrap();
         set_test_mode_future_wrong_epoch(false);
         group_b.sync().await.unwrap();
-        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
-        assert_eq!(group_from_db.unwrap().prob_forked,Some(true));
-        client_b.mls_provider().unwrap().conn_ref().clear_group_forked_status(&group_b.group_id).unwrap();
-        let group_from_db = client_b.mls_provider().unwrap().conn_ref().find_group(&group_b.group_id).unwrap();
-        assert_eq!(group_from_db.unwrap().prob_forked,Some(false));
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        println!("{:?}", group_from_db);
+        assert_eq!(group_from_db.unwrap().fork_state, Some(true));
+        client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .clear_group_forked_state(&group_b.group_id)
+            .unwrap();
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]
