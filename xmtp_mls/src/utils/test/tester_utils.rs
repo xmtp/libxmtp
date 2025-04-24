@@ -59,14 +59,26 @@ macro_rules! tester {
     ($name:ident, from = $existing:ident) => {
         let $name = {
             use tracing::Instrument;
+            use $crate::utils::XmtpClientTesterBuilder;
             let span = tracing::info_span!(stringify!($name));
             $existing.builder.build().instrument(span).await
         };
     };
 
+    ($name:ident, $($key:ident = $value:expr),+) => {
+            let $name = {
+                let span = tracing::info_span!(stringify!($name));
+                $existing.clone()
+                    $(.$key($value))+
+                    .instrument(span)
+                    .await
+            };
+        };
+
     ($name:ident, $($key:ident),+) => {
         let $name = {
             use tracing::Instrument;
+            use $crate::utils::XmtpClientTesterBuilder;
             let span = tracing::info_span!(stringify!($name));
             Tester::builder()
                 $(.$key())+

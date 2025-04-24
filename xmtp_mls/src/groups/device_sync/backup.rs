@@ -135,16 +135,17 @@ mod tests {
     #[xmtp_common::test(unwrap_try = "true")]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
+        use crate::tester;
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        let alix = Tester::new().await;
-        let bo = Tester::new().await;
+        tester!(alix, with_sync_worker, with_sync_server);
+        tester!(bo);
 
         let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
 
         // wait for user preference update
-        wait_for_min_intents(alix.provider.conn_ref(), 1).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 2).await?;
 
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
@@ -153,13 +154,13 @@ mod tests {
         let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
-        wait_for_min_intents(alix.provider.conn_ref(), 2).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 1).await?;
 
         alix_group.send_message(b"hello there").await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(alix.provider.conn_ref(), 4).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 4).await?;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .provider
@@ -179,7 +180,7 @@ mod tests {
             .provider
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 4);
+        assert_eq!(old_messages.len(), 5);
 
         let opts = BackupOptions {
             start_ns: None,

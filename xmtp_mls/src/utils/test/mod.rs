@@ -8,9 +8,10 @@ use crate::{
     identity::IdentityStrategy,
     Client, InboxOwner, XmtpApi,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
+use xmtp_common::time::Expired;
 use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
@@ -309,12 +310,15 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 
 /// wait for a minimum amount of intents to be published
 /// TODO: Should wrap with a timeout
-pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
+pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) -> Result<(), Expired> {
     let mut published = conn.intents_published() as usize;
-    while published < n {
-        xmtp_common::yield_().await;
-        published = conn.intents_published() as usize;
-    }
+    xmtp_common::time::timeout(Duration::from_secs(5), async {
+        while published < n {
+            xmtp_common::yield_().await;
+            published = conn.intents_published() as usize;
+        }
+    })
+    .await
 }
 
 #[cfg(any(test, feature = "test-utils"))]

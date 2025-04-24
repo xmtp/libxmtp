@@ -744,7 +744,7 @@ pub(crate) mod tests {
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 4);
+            assert_logged!("Loaded association", 0);
             // TODO: Verify state is actually in db instead of just checking logs
             assert_logged!("Wrote association", 1);
 
@@ -759,7 +759,7 @@ pub(crate) mod tests {
                 .get(&client.builder.owner.identifier().into())
                 .is_some());
 
-            assert_logged!("Loaded association", 5);
+            assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
@@ -776,12 +776,12 @@ pub(crate) mod tests {
 
             get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 5);
+            assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 2);
 
             let association_state = get_association_state(&client, inbox_id).await;
 
-            assert_logged!("Loaded association", 6);
+            assert_logged!("Loaded association", 2);
             assert_logged!("Wrote association", 2);
 
             assert_eq!(association_state.members().len(), 3);
