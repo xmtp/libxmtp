@@ -6610,10 +6610,12 @@ mod tests {
         let result = stream_b_callback.wait_for_delivery(Some(3)).await;
         assert!(result.is_ok());
 
-        let updates = stream_b_callback.preference_updates.lock();
-        assert!(updates
-            .iter()
-            .any(|u| matches!(u, FfiPreferenceUpdate::HMAC { .. })));
+        {
+            let updates = stream_b_callback.preference_updates.lock();
+            assert!(updates
+                .iter()
+                .any(|u| matches!(u, FfiPreferenceUpdate::HMAC { .. })));
+        }
 
         b_stream.end_and_wait().await.unwrap();
     }
