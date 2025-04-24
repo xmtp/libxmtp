@@ -20,6 +20,28 @@ members = [
   "xmtp_db",
 ]
 
+# Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
+# Excludes `bindings_wasm` by default, since those bindings only build for the WASM target.
+default-members = [
+  "examples/cli",
+  "mls_validation_service",
+  "xmtp_cryptography",
+  "xmtp_api_grpc",
+  "xmtp_api_http",
+  "xmtp_proto",
+  "xmtp_mls",
+  "xmtp_api",
+  "xmtp_id",
+  "bindings_node",
+  "bindings_ffi",
+  "xmtp_debug",
+  "xmtp_content_types",
+  "common",
+  "xmtp_api_d14n",
+  "xmtp_macro",
+  "xmtp_db",
+]
+
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
 resolver = "2"

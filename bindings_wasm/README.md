@@ -3,9 +3,13 @@
 > [!INFO]
 > These bindings are not intended to be used directly, use the associated SDK instead.
 
-## Useful commands
+## Setup
 
-Requires the emscripten toolchain to build
+1. Install the [emscripten toolchain](https://emscripten.org/docs/getting_started/downloads.html): `brew install emscripten`. `emscripten` is used to compile from Rust to WebAssembly.
+2. Install LLVM: `brew install llvm`, and then follow the instructions to add it to your PATH. Emscripten depends on LLVM's Clang (as opposed to Apple's Clang).
+
+
+## Useful commands
 
 - `yarn`: Installs all dependencies (required before building)
 - `yarn build`: Build a release version of the WASM bindings for the current

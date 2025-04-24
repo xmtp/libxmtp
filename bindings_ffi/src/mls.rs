@@ -6,7 +6,7 @@ use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
-use xmtp_api::{strategies, ApiClientWrapper, ApiIdentifier};
+use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
@@ -69,7 +69,7 @@ use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
 #[cfg(test)]
 mod test_utils;
 
-pub type RustXmtpClient = MlsClient<TonicApiClient>;
+pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct XmtpApiClient(TonicApiClient);
@@ -162,6 +162,7 @@ pub async fn create_client(
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
+        .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .store(store);
 
@@ -191,6 +192,7 @@ pub async fn get_inbox_id_for_identifier(
     api: Arc<XmtpApiClient>,
     account_identifier: FfiIdentifier,
 ) -> Result<Option<String>, GenericError> {
+    init_logger();
     let mut api =
         ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let account_identifier: Identifier = account_identifier.try_into()?;
@@ -207,7 +209,7 @@ pub async fn get_inbox_id_for_identifier(
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-    scw_verifier: RemoteSignatureVerifier<TonicApiClient>,
+    scw_verifier: RemoteSignatureVerifier<ApiDebugWrapper<TonicApiClient>>,
 }
 
 #[derive(uniffi::Record, Clone)]

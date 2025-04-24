@@ -5,6 +5,9 @@ pub mod mls;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+pub mod debug_wrapper;
+pub use debug_wrapper::*;
+
 use std::sync::Arc;
 
 use xmtp_common::{retryable, ExponentialBackoff, Retry, RetryableError};
@@ -56,17 +59,25 @@ impl RetryableError for ApiError {
 #[derive(Clone, Debug)]
 pub struct ApiClientWrapper<ApiClient> {
     // todo: this should be private to impl
-    pub api_client: Arc<ApiClient>,
+    pub api_client: ApiClient,
     pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient> {
-    pub fn new(api_client: Arc<ApiClient>, retry_strategy: Retry<ExponentialBackoff>) -> Self {
+    pub fn new(api_client: ApiClient, retry_strategy: Retry<ExponentialBackoff>) -> Self {
         Self {
             api_client,
             retry_strategy: retry_strategy.into(),
             inbox_id: None,
+        }
+    }
+
+    pub fn attach_debug_wrapper(self) -> ApiClientWrapper<ApiDebugWrapper<ApiClient>> {
+        ApiClientWrapper {
+            api_client: ApiDebugWrapper::new(self.api_client),
+            retry_strategy: self.retry_strategy,
+            inbox_id: self.inbox_id,
         }
     }
 
