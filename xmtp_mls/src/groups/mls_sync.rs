@@ -40,7 +40,6 @@ use xmtp_db::{
 use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
-use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -595,6 +594,8 @@ where
         envelope: &GroupMessageV1,
         allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
+        use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
+
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -1353,7 +1354,7 @@ where
                         msgv1.id,
                         e
                     );
-                    self.process_group_message_error_for_fork_detection(&provider, &msgv1, &e)
+                    self.process_group_message_error_for_fork_detection(&provider, msgv1, &e)
                         .await;
                     Err(e)
                 }
