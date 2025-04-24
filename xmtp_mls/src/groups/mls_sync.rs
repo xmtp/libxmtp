@@ -1354,7 +1354,7 @@ where
                         msgv1.id,
                         e
                     );
-                    self.process_group_message_error_for_fork_detection(&provider, msgv1, &e)
+                    self.process_group_message_error_for_fork_detection(provider, msgv1, &e)
                         .await;
                     Err(e)
                 }
