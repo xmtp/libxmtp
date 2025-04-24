@@ -29,8 +29,10 @@ Start Docker Desktop.
 - To run tests:
 
   ```
-  cargo test
+  RUST_LOG=off cargo test
   ```
+
+  Many team members also install and use `cargo nextest` for better test isolation and log output behavior.
 
 - To run WebAssembly tests headless:
 

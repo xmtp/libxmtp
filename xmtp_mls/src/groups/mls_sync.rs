@@ -564,6 +564,7 @@ where
             }
         } else if let Some(id) = crate::utils::id::calculate_message_id_for_intent(intent)? {
             conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+            return Ok(IntentState::Processed);
         }
 
         Ok(IntentState::Committed)
