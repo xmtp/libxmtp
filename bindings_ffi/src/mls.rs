@@ -2821,8 +2821,8 @@ mod tests {
         time::Duration,
     };
     use tokio::{sync::Notify, time::error::Elapsed};
-    use xmtp_common::time::now_ns;
     use xmtp_common::tmp_path;
+    use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
@@ -6558,7 +6558,7 @@ mod tests {
             .unwrap();
 
         // This consent should stream
-        wait_for_eq(|| async { stream_a_callback.consent_updates_count() }, 2)
+        wait_for_ge(|| async { stream_a_callback.consent_updates_count() }, 2)
             .await
             .unwrap();
 

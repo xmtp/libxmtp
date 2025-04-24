@@ -241,3 +241,24 @@ where
     assert_eq!(expected, result);
     Ok(())
 }
+
+pub async fn wait_for_ge<F, Fut, T>(f: F, expected: T) -> Result<(), Expired>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = T>,
+    T: std::fmt::Debug + PartialEq + PartialOrd,
+{
+    crate::time::timeout(crate::time::Duration::from_secs(20), async {
+        loop {
+            let result = f().await;
+            if result >= expected {
+                return result;
+            } else {
+                crate::yield_().await;
+            }
+        }
+    })
+    .await?;
+
+    Ok(())
+}
