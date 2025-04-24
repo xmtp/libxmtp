@@ -21,6 +21,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 /// Envelope Visitor type for ergonomic handling of serialized nested envelope types.
 ///
@@ -109,11 +110,29 @@ pub trait EnvelopeVisitor<'env> {
         Ok(())
     }
 
+    /// Visit an Identity Updates Request
     fn visit_identity_updates_request(
         &mut self,
         _u: &get_identity_updates_request::Request,
     ) -> Result<(), Self::Error> {
         tracing::debug!("visit_identity_updates_request");
+        Ok(())
+    }
+
+    /// Visit an empty type in a fixed-length array
+    /// Useful is client expects a constant length between
+    /// requests and responses
+    fn visit_none(&mut self) -> Result<(), Self::Error> {
+        tracing::debug!("visit_none");
+        Ok(())
+    }
+
+    /// Visit a Newest Envelope Response
+    fn visit_newest_envelope_response(
+        &mut self,
+        _u: &get_newest_envelope_response::Response,
+    ) -> Result<(), Self::Error> {
+        tracing::debug!("visit_newest_envelope_response");
         Ok(())
     }
 }

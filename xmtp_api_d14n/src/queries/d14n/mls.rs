@@ -1,4 +1,5 @@
 use super::D14nClient;
+use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
 use crate::protocol::KeyPackageExtractor;
@@ -11,6 +12,7 @@ use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -50,17 +52,17 @@ where
             .map(|key| TopicKind::KeyPackagesV1.build(key))
             .collect();
 
-        let result: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
             .query(&self.message_client)
             .await?;
 
         let mut extractor = KeyPackageExtractor::new();
-        result.envelopes.accept(&mut extractor)?;
-        Ok(mls_v1::FetchKeyPackagesResponse {
-            key_packages: extractor.get(),
-        })
+        result.results.accept(&mut extractor)?;
+        let key_packages = extractor.get();
+        tracing::info!("KEY PACKAGES {:?}", key_packages);
+        Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

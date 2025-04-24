@@ -127,6 +127,11 @@ impl EnvelopeVisitor<'_> for KeyPackageExtractor {
         Ok(())
     }
 
+    fn visit_none(&mut self) -> Result<(), Self::Error> {
+        // TODO: Handle empty key package response (when key package is None)
+        Ok(())
+    }
+
     fn visit_upload_key_package(
         &mut self,
         req: &UploadKeyPackageRequest,

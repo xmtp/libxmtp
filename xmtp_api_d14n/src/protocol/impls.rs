@@ -14,6 +14,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 // enables combining arbitrary # of visitors into one, ext: process = (ValidateMessage::new(), ExtractMessage::new());
 // Therefore not re-doing deserialization for each processing step.
@@ -91,6 +92,20 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
 
     fn visit_identity_update(&mut self, u: &IdentityUpdate) -> Result<(), Self::Error> {
         for_tuples!( #( Tuple.visit_identity_update(u)?; )* );
+        Ok(())
+    }
+
+    fn visit_none(&mut self) -> Result<(), Self::Error> {
+        for_tuples!( #( Tuple.visit_none()?; )* );
+        Ok(())
+    }
+
+    /// Visit a Newest Envelope Response
+    fn visit_newest_envelope_response(
+        &mut self,
+        u: &get_newest_envelope_response::Response,
+    ) -> Result<(), Self::Error> {
+        for_tuples!( #( Tuple.visit_newest_envelope_response(u)?; )* );
         Ok(())
     }
 }
