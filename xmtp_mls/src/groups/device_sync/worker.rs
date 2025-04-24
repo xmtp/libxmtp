@@ -271,7 +271,7 @@ where
             return Ok(());
         };
 
-        let messages = sync_group.sync_messages(cursor.offset)?;
+        let messages = sync_group.get_sync_group_messages(cursor.offset)?;
         let installation_id = self.installation_id();
         let external_count = messages
             .iter()

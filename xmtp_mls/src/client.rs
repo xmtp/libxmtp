@@ -1822,20 +1822,20 @@ pub(crate) mod tests {
 
         let item = stream.next().await??;
         assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
+        assert_eq!(item[0].entity, hex::encode(&group.group_id));
+        assert_eq!(item[0].state, ConsentState::Denied);
+
+        let item = stream.next().await??;
+        assert_eq!(item.len(), 1);
+        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
+        assert_eq!(item[0].entity, hex::encode(group.group_id));
+        assert_eq!(item[0].state, ConsentState::Allowed);
+
+        let item = stream.next().await??;
+        assert_eq!(item.len(), 1);
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
-
-        // let item = stream.next().await??;
-        // assert_eq!(item.len(), 1);
-        // assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        // assert_eq!(item[0].entity, hex::encode(&group.group_id));
-        // assert_eq!(item[0].state, ConsentState::Denied);
-
-        // let item = stream.next().await??;
-        // assert_eq!(item.len(), 1);
-        // assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        // assert_eq!(item[0].entity, hex::encode(group.group_id));
-        // assert_eq!(item[0].state, ConsentState::Allowed);
     }
 }

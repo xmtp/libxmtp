@@ -1048,12 +1048,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(messages)
     }
 
-    pub(crate) fn sync_messages(
+    pub(crate) fn get_sync_group_messages(
         &self,
         sent_after_ns: i64,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
-        let messages = conn.sync_messages(&self.group_id, sent_after_ns)?;
+        let messages = conn.get_sync_group_messages(&self.group_id, sent_after_ns)?;
         Ok(messages)
     }
 

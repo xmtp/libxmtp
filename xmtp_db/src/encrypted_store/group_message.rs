@@ -452,7 +452,7 @@ impl DbConnection {
         })?)
     }
 
-    pub fn sync_messages(
+    pub fn get_sync_group_messages(
         &self,
         group_id: &[u8],
         offset: i64,
