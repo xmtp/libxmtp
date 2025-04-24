@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use wasm_bindgen::JsValue;
+use xmtp_api::ApiDebugWrapper;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
@@ -20,7 +21,7 @@ use crate::identity::Identifier;
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 
-pub type RustXmtpClient = MlsClient<XmtpHttpApiClient>;
+pub type RustXmtpClient = MlsClient<ApiDebugWrapper<XmtpHttpApiClient>>;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -182,11 +183,13 @@ pub async fn create_client(
   let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .store(store)
       .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .store(store),
   };

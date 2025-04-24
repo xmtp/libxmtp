@@ -10,6 +10,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
@@ -18,7 +19,7 @@ use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
 
-pub type RustXmtpClient = MlsClient<TonicApiClient>;
+pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
@@ -182,6 +183,8 @@ pub async fn create_client(
   let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .enable_api_debug_wrapper()
+      .map_err(ErrorWrapper::from)?
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store)
@@ -189,6 +192,8 @@ pub async fn create_client(
 
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
+      .enable_api_debug_wrapper()
+      .map_err(ErrorWrapper::from)?
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
       .store(store),
