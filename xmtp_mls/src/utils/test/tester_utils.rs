@@ -51,6 +51,7 @@ macro_rules! tester {
     ($name:ident) => {
         let $name = {
             use tracing::Instrument;
+            use $crate::utils::Tester;
             let span = tracing::info_span!(stringify!($name));
             Tester::new().instrument(span).await
         };
