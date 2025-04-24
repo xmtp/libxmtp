@@ -236,7 +236,6 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         reply: DeviceSyncReplyProto,
-        handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
         let conn = provider.conn_ref();
 
@@ -268,7 +267,9 @@ where
             Box::pin(group.sync_with_conn(provider)).await?;
         }
 
-        handle.increment_metric(SyncMetric::V1PayloadProcessed);
+        if let Some(handle) = self.worker_handle() {
+            handle.increment_metric(SyncMetric::V1PayloadProcessed);
+        }
 
         Ok(())
     }
@@ -598,15 +599,16 @@ mod tests {
 
     use crate::{
         groups::device_sync::handle::SyncMetric,
+        tester,
         utils::{Tester, XmtpClientTesterBuilder},
     };
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn v1_sync_still_works() {
-        let alix1 = Tester::new().await;
-        let alix2 = alix1.builder.build().await;
+        tester!(alix1, with_sync_worker, with_sync_server);
+        tester!(alix2, from = alix1);
+        alix1.test_has_same_sync_group_as(&alix2).await?;
 
-        alix1.sync_welcomes(&alix1.provider).await?;
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
         alix2.get_sync_group(&alix2.provider).await?.sync().await?;

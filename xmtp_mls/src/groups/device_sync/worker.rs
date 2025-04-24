@@ -33,7 +33,8 @@ use xmtp_proto::{
     xmtp::{
         device_sync::{BackupElementSelection, BackupOptions},
         mls::message_contents::{
-            DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+            DeviceSyncKind, DeviceSyncReply as DeviceSyncReplyProto,
+            DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
 };
@@ -231,9 +232,7 @@ where
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Payload(reply) = content {
-                self.client
-                    .v1_process_sync_reply(&provider, reply, &self.handle)
-                    .await?;
+                self.client.v1_process_sync_reply(&provider, reply).await?;
             }
         }
         Ok(())
@@ -459,6 +458,13 @@ where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
+        if let Some(request) = &request {
+            if request.kind() != DeviceSyncKind::Unspecified {
+                // This is a v1 request
+                return Ok(());
+            }
+        }
+
         let provider = Arc::new(self.mls_provider()?);
 
         match acknowledge().await {
@@ -623,6 +629,11 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
+        if reply.kind() != DeviceSyncKind::Unspecified {
+            // This is a legacy payload, the legacy function will process it.
+            return Ok(());
+        }
+
         tracing::info!("Inspecting sync payload.");
         let provider = Arc::new(self.mls_provider()?);
 
