@@ -1,9 +1,14 @@
 use super::*;
 use crate::{
     groups::DMMetadataOptions,
+    tester,
     utils::{Tester, XmtpClientTesterBuilder},
 };
-use xmtp_db::{consent_record::ConsentState, group_message::MsgQueryArgs};
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::{ConversationType, StoredGroup},
+    group_message::MsgQueryArgs,
+};
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
@@ -149,4 +154,31 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
+}
+
+#[xmtp_common::test(unwrap_try = "true")]
+async fn test_new_devices_not_added_to_old_sync_groups() {
+    use diesel::prelude::*;
+    use xmtp_db::schema::groups::dsl;
+
+    tester!(alix1, with_sync_worker);
+    tester!(alix2, from = alix1);
+
+    alix1.test_has_same_sync_group_as(&alix2).await?;
+
+    // alix1 should have it's own created sync group and alix2's sync group
+    let alix1_sync_groups: Vec<StoredGroup> = alix1.provider.conn_ref().raw_query_read(|conn| {
+        dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .load(conn)
+    })?;
+    assert_eq!(alix1_sync_groups.len(), 2);
+
+    // alix2 should not be added to alix1's old sync group
+    let alix2_sync_groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
+        dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .load(conn)
+    })?;
+    assert_eq!(alix2_sync_groups.len(), 1);
 }
