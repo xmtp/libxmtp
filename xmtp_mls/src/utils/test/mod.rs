@@ -3,9 +3,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
-use openmls::framing::errors::MessageDecryptionError::AeadError;
-use openmls::group::ValidationError::WrongEpoch;
-use openmls::group::{ProcessMessageError, ValidationError};
+use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;

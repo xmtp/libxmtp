@@ -2122,7 +2122,6 @@ pub(crate) mod tests {
     use crate::groups::{
         MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     };
-    use crate::utils::{set_test_mode_aead_msg, set_test_mode_future_wrong_epoch};
     use crate::{
         builder::ClientBuilder,
         groups::{
@@ -5836,6 +5835,8 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
+        use crate::utils::set_test_mode_future_wrong_epoch;
+
         let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
