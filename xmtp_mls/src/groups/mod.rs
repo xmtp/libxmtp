@@ -5929,9 +5929,8 @@ pub(crate) mod tests {
 
         group_a.send_message(&[1]).await.unwrap();
         set_test_mode_future_wrong_epoch(true);
-        group_b.send_message(&[2]).await.unwrap();
-        set_test_mode_future_wrong_epoch(false);
         group_b.sync().await.unwrap();
+        set_test_mode_future_wrong_epoch(false);
         let group_from_db = client_b
             .mls_provider()
             .unwrap()

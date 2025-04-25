@@ -4,6 +4,7 @@
 pub mod tester;
 
 use openmls::framing::errors::MessageDecryptionError::AeadError;
+use openmls::group::ValidationError::WrongEpoch;
 use openmls::group::{ProcessMessageError, ValidationError};
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -415,7 +416,7 @@ pub fn is_test_mode_future_wrong_epoch() -> bool {
     env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
 }
 
-pub fn maybe_mock_decryption_error_for_tests() -> Result<(), GroupMessageProcessingError> {
+pub fn maybe_mock_fork_errors_for_tests() -> Result<(), GroupMessageProcessingError> {
     if is_test_mode_aead_msg() {
         return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::UnableToDecrypt(AeadError),
@@ -423,7 +424,15 @@ pub fn maybe_mock_decryption_error_for_tests() -> Result<(), GroupMessageProcess
     }
 
     if is_test_mode_future_wrong_epoch() {
-        //this is just a mock for testing, the whole function only appears in tests
+        return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            WrongEpoch,
+        )));
+    }
+    Ok(())
+}
+
+pub fn maybe_mock_future_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
+    if is_test_mode_future_wrong_epoch() {
         return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
     }
     Ok(())

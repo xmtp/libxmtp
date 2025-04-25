@@ -384,6 +384,12 @@ where
         message_epoch: GroupEpoch,
         max_past_epochs: usize,
     ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            use crate::utils::maybe_mock_future_epoch_for_tests;
+            maybe_mock_future_epoch_for_tests()?;
+        }
+
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
                 inbox_id,
@@ -517,7 +523,7 @@ where
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 )
-                .map_err(Err)?;
+                .map_err(|_| Ok(IntentState::ToPublish))?;
             }
         }
 
@@ -594,8 +600,8 @@ where
     ) -> Result<(), GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
-            use crate::utils::maybe_mock_decryption_error_for_tests;
-            maybe_mock_decryption_error_for_tests()?;
+            use crate::utils::maybe_mock_fork_errors_for_tests;
+            maybe_mock_fork_errors_for_tests()?;
         }
 
         let GroupMessageV1 {
@@ -1213,7 +1219,7 @@ where
                         e
                     );
                     self.process_group_message_error_for_fork_detection(provider, msgv1, &e)
-                        .await;
+                        .await?;
                     Err(e)
                 }
             }
@@ -1352,38 +1358,85 @@ where
         provider: &XmtpOpenMlsProvider,
         message: &GroupMessageV1,
         error: &GroupMessageProcessingError,
-    ) {
+    ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
-        match &error {
-            GroupMessageProcessingError::FutureEpoch(msg_epoch, group_epoch) => {
+
+        match error {
+            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::UnableToDecrypt(AeadError),
+            )) => {
                 let fork_details = format!(
-                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                    message.id, msg_epoch, group_epoch
+                    "Message [{}] unable to decrypt with error [{}]; probably the sender is forked",
+                    message.id, error
                 );
                 tracing::error!(fork_details);
                 let _ = provider
                     .conn_ref()
                     .mark_group_as_possibly_forked(&group_id, fork_details);
+                self.save_forked_alert_transcript_message(provider.conn_ref(), message);
+                Ok(())
             }
 
-            OpenMlsProcessMessage(err) => {
-                if let ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
-                    AeadError,
-                )) = err
+            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+                ValidationError::WrongEpoch,
+            )) => {
+                let group_epoch = match self.epoch(provider).await {
+                    Ok(epoch) => epoch,
+                    Err(_) => {
+                        tracing::info!(
+                            "WrongEpoch encountered but group_epoch could not be calculated"
+                        );
+                        return Ok(());
+                    }
+                };
+
+                let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
+                    Ok(msg) => msg,
+                    Err(_) => {
+                        tracing::info!(
+                            "WrongEpoch encountered but failed to deserialize the message"
+                        );
+                        return Ok(());
+                    }
+                };
+
+                let protocol_message = match mls_message_in.extract() {
+                    MlsMessageBodyIn::PrivateMessage(msg) => msg,
+                    _ => {
+                        tracing::info!(
+                            "WrongEpoch encountered but failed to extract PrivateMessage"
+                        );
+                        return Ok(());
+                    }
+                };
+
+                let message_epoch = protocol_message.epoch();
+
+                let epoch_validation_result = Self::is_valid_epoch(
+                    self.context().inbox_id(),
+                    0,
+                    GroupEpoch::from(group_epoch),
+                    message_epoch,
+                    MAX_PAST_EPOCHS,
+                );
+
+                if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) =
+                    &epoch_validation_result
                 {
                     let fork_details = format!(
-                        "Message [{}] unable to decrypt with error [{}]; probably the sender is forked",
-                        message.id, err
+                        "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                        message.id, message_epoch, group_epoch
                     );
                     tracing::error!(fork_details);
                     let _ = provider
                         .conn_ref()
                         .mark_group_as_possibly_forked(&group_id, fork_details);
-                    self.save_forked_alert_transcript_message(provider.conn_ref(), message);
                 }
+
+                epoch_validation_result
             }
 
-            _ => {}
+            _ => Ok(()),
         }
     }
 
