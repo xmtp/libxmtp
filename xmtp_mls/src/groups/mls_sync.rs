@@ -583,8 +583,6 @@ where
         Ok(IntentState::Committed)
     }
 
-    #[allow(dead_code)]
-    #[cfg(any(test, feature = "test-utils"))]
     #[tracing::instrument(level = "trace", skip_all)]
     async fn validate_and_process_external_message(
         &self,
@@ -594,7 +592,11 @@ where
         envelope: &GroupMessageV1,
         allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
-        use crate::utils::{is_test_mode_aead_msg, is_test_mode_future_wrong_epoch};
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            use crate::utils::maybe_mock_decryption_error_for_tests;
+            maybe_mock_decryption_error_for_tests()?;
+        }
 
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -607,16 +609,7 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        if is_test_mode_aead_msg() {
-            return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-                ValidationError::UnableToDecrypt(AeadError),
-            )));
-        }
 
-        if is_test_mode_future_wrong_epoch() {
-            //this is just a mock for testing, the whole function only appears in tests
-            return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
-        }
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
@@ -682,141 +675,6 @@ where
             let requires_processing = if allow_cursor_increment {
                 tracing::info!(
                     "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true", 
-                    hex::encode(envelope.group_id.as_slice()),
-                    *cursor
-                );
-                provider.conn_ref().update_cursor(
-                    &envelope.group_id,
-                    EntityKind::Group,
-                    *cursor as i64,
-                )?
-            } else {
-                tracing::info!(
-                    "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
-                    hex::encode(envelope.group_id.as_slice()),
-                    *cursor
-                );
-                let current_cursor = provider
-                    .conn_ref()
-                    .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                current_cursor < *cursor as i64
-            };
-            if !requires_processing {
-                return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
-            }
-            let previous_epoch = mls_group.epoch().as_u64();
-
-            self.process_external_message(
-                provider,
-                mls_group,
-                processed_message,
-                envelope,
-                validated_commit,
-            )?;
-            let new_epoch = mls_group.epoch().as_u64();
-            if new_epoch > previous_epoch {
-                tracing::info!(
-                    "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
-                    self.client.inbox_id(),
-                    cursor,
-                    previous_epoch,
-                    new_epoch
-                );
-            }
-            Ok::<_, GroupMessageProcessingError>(())
-        })?;
-
-        Ok(())
-    }
-
-    #[allow(unused_variables, dead_code)]
-    #[cfg(not(any(test, feature = "test-utils")))]
-    #[tracing::instrument(level = "trace", skip_all)]
-    async fn validate_and_process_external_message(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        mls_group: &mut OpenMlsGroup,
-        message: PrivateMessageIn,
-        envelope: &GroupMessageV1,
-        allow_cursor_increment: bool,
-    ) -> Result<(), GroupMessageProcessingError> {
-        let GroupMessageV1 {
-            created_ns: envelope_timestamp_ns,
-            id: ref cursor,
-            ..
-        } = *envelope;
-
-        // We need to process the message twice to avoid an async transaction.
-        // We'll process for the first time, get the processed message,
-        // and roll the transaction back, so we can fetch updates from the server before
-        // being ready to process the message for a second time.
-        let mut processed_message = None;
-
-        let result = provider.transaction(|provider| {
-            processed_message = Some(mls_group.process_message(provider, message.clone()));
-            // Rollback the transaction. We want to synchronize with the server before committing.
-            Err::<(), StorageError>(StorageError::IntentionalRollback)
-        });
-        if !matches!(result, Err(StorageError::IntentionalRollback)) {
-            result?;
-        }
-        let processed_message = processed_message.expect("Was just set to Some")?;
-
-        // Reload the mlsgroup to clear the it's internal cache
-        *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
-            GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)),
-        )?;
-
-        let (sender_inbox_id, sender_installation_id) =
-            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
-
-        tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),sender_inbox_id = sender_inbox_id,
-            sender_installation_id = hex::encode(&sender_installation_id),
-            group_id = hex::encode(&self.group_id),
-            current_epoch = mls_group.epoch().as_u64(),
-            msg_epoch = processed_message.epoch().as_u64(),
-            msg_group_id = hex::encode(processed_message.group_id().as_slice()),
-            cursor,
-            "[{}] extracted sender inbox id: {}",
-            self.client.inbox_id(),
-            sender_inbox_id
-        );
-
-        let validated_commit = match &processed_message.content() {
-            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let validated_commit = ValidatedCommit::from_staged_commit(
-                    &self.client,
-                    provider.conn_ref(),
-                    staged_commit,
-                    mls_group,
-                )
-                .await?;
-
-                Some(validated_commit)
-            }
-            _ => None,
-        };
-
-        provider.transaction(|provider| {
-            tracing::debug!(
-                inbox_id = self.client.inbox_id(),
-                installation_id = %self.client.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                current_epoch = mls_group.epoch().as_u64(),
-                msg_epoch = processed_message.epoch().as_u64(),
-                cursor = ?cursor,
-                "[{}] processing message in transaction epoch = {}, cursor = {:?}",
-                self.client.inbox_id(),
-                mls_group.epoch().as_u64(),
-                cursor
-            );
-            let processed_message = mls_group.process_message(provider, message)?;
-
-            let requires_processing = if allow_cursor_increment {
-                tracing::info!(
-                    "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
                     hex::encode(envelope.group_id.as_slice()),
                     *cursor
                 );
@@ -1505,7 +1363,7 @@ where
                 tracing::error!(fork_details);
                 let _ = provider
                     .conn_ref()
-                    .set_group_fork_state(&group_id, fork_details);
+                    .mark_group_as_possibly_forked(&group_id, fork_details);
             }
 
             OpenMlsProcessMessage(err) => {
@@ -1520,7 +1378,7 @@ where
                     tracing::error!(fork_details);
                     let _ = provider
                         .conn_ref()
-                        .set_group_fork_state(&group_id, fork_details);
+                        .mark_group_as_possibly_forked(&group_id, fork_details);
                     self.save_forked_alert_transcript_message(provider.conn_ref(), message);
                 }
             }

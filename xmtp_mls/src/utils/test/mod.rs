@@ -3,6 +3,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
+use openmls::framing::errors::MessageDecryptionError::AeadError;
+use openmls::group::{ProcessMessageError, ValidationError};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
@@ -30,11 +32,14 @@ pub const HISTORY_SYNC_URL: &str =
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
+use crate::groups::mls_sync::GroupMessageProcessingError;
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 #[cfg(all(
     any(feature = "http-api", target_arch = "wasm32"),
     not(feature = "d14n")
 ))]
 use xmtp_api_http::XmtpHttpApiClient;
+
 #[cfg(all(
     any(feature = "http-api", target_arch = "wasm32"),
     not(feature = "d14n")
@@ -408,4 +413,18 @@ pub fn set_test_mode_future_wrong_epoch(enable: bool) {
 pub fn is_test_mode_future_wrong_epoch() -> bool {
     use std::env;
     env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+pub fn maybe_mock_decryption_error_for_tests() -> Result<(), GroupMessageProcessingError> {
+    if is_test_mode_aead_msg() {
+        return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            ValidationError::UnableToDecrypt(AeadError),
+        )));
+    }
+
+    if is_test_mode_future_wrong_epoch() {
+        //this is just a mock for testing, the whole function only appears in tests
+        return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
+    }
+    Ok(())
 }

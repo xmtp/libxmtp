@@ -5866,12 +5866,12 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        assert_eq!(group_from_db.unwrap().fork_state, Some(true));
+        assert!(group_from_db.unwrap().maybe_forked);
         client_b
             .mls_provider()
             .unwrap()
             .conn_ref()
-            .clear_group_forked_state(&group_b.group_id)
+            .clear_fork_flag_for_group(&group_b.group_id)
             .unwrap();
         let group_from_db = client_b
             .mls_provider()
@@ -5879,7 +5879,7 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        assert!(!group_from_db.unwrap().maybe_forked);
         group_a.send_message(&[1]).await.unwrap();
         group_b.send_message(&[2]).await.unwrap();
         group_b.sync().await.unwrap();
@@ -5889,12 +5889,12 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        assert!(!group_from_db.unwrap().maybe_forked);
         client_b
             .mls_provider()
             .unwrap()
             .conn_ref()
-            .clear_group_forked_state(&group_b.group_id)
+            .clear_fork_flag_for_group(&group_b.group_id)
             .unwrap();
         let group_from_db = client_b
             .mls_provider()
@@ -5902,7 +5902,7 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        assert!(!group_from_db.unwrap().maybe_forked);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -5939,12 +5939,12 @@ pub(crate) mod tests {
             .find_group(&group_b.group_id)
             .unwrap();
         println!("{:?}", group_from_db);
-        assert_eq!(group_from_db.unwrap().fork_state, Some(true));
+        assert!(group_from_db.unwrap().maybe_forked);
         client_b
             .mls_provider()
             .unwrap()
             .conn_ref()
-            .clear_group_forked_state(&group_b.group_id)
+            .clear_fork_flag_for_group(&group_b.group_id)
             .unwrap();
         let group_from_db = client_b
             .mls_provider()
@@ -5952,7 +5952,7 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        assert_eq!(group_from_db.unwrap().fork_state, Some(false));
+        assert!(!group_from_db.unwrap().maybe_forked);
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]

@@ -1,4 +1,4 @@
 ALTER TABLE groups
-DROP COLUMN fork_state;
+DROP COLUMN maybe_forked;
 ALTER TABLE groups
 DROP COLUMN fork_details;

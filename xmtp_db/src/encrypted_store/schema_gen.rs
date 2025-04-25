@@ -67,8 +67,8 @@ diesel::table! {
         message_disappear_from_ns -> Nullable<BigInt>,
         message_disappear_in_ns -> Nullable<BigInt>,
         paused_for_version -> Nullable<Text>,
-        fork_state -> Nullable<Bool>,
-        fork_details -> Nullable<Text>,
+        maybe_forked -> Bool,
+        fork_details -> Text,
     }
 }
 

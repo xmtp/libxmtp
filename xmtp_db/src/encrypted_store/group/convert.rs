@@ -26,8 +26,8 @@ impl TryFrom<GroupSave> for StoredGroup {
             message_disappear_from_ns: value.message_disappear_from_ns,
             message_disappear_in_ns: value.message_disappear_in_ns,
             paused_for_version: None, // TODO: Add this to the backup
-            fork_state: None,
-            fork_details: None,
+            maybe_forked: false,
+            fork_details: String::new(),
         })
     }
 }
