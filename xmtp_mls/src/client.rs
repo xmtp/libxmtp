@@ -1115,7 +1115,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::subscriptions::StreamMessages;
-    use crate::utils::{Tester, XmtpClientTesterBuilder};
+    use crate::utils::{LocalTesterBuilder, Tester};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;

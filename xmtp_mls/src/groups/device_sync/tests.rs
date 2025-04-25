@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     groups::DMMetadataOptions,
     tester,
-    utils::{Tester, XmtpClientTesterBuilder},
+    utils::{LocalTesterBuilder, Tester},
 };
 use xmtp_db::{
     consent_record::ConsentState,
