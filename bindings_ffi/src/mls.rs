@@ -7960,4 +7960,72 @@ mod tests {
             FfiConsentState::Denied
         );
     }
+
+    #[tokio::test]
+    async fn test_sync_messages() {
+        // Step 1: Setup alixClient (alix) and bo client (bo)
+        let alix = Tester::builder()
+            .with_sync_server()
+            .with_sync_worker()
+            .build()
+            .await;
+        let bo = Tester::new().await;
+
+        // Step 2: Create a group conversation with bo
+        let alix_group = alix
+            .conversations()
+            .create_group_with_inbox_ids(vec![bo.inbox_id()], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Step 3: Send a message ("hi") in the group
+        alix_group.send_text("hi").await.unwrap();
+
+        // Step 4: Check initial message count (should be 2: welcome + "hi")
+        let initial_messages = alix_group.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        assert_eq!(initial_messages.len(), 2);
+
+        // Step 5: Create second client (alix2)
+        let alix2 = alix.builder.build().await;
+
+        // Step 6: Ensure alix2 has 2 installations
+        let state = alix2.inbox_state(true).await.unwrap();
+        assert_eq!(state.installations.len(), 2);
+
+        // Step 7: Sync conversations for both clients
+        alix.conversations().sync_all_conversations(None).await.unwrap();
+        alix2.conversations().sync_all_conversations(None).await.unwrap();
+
+        // Step 8: Verify sync groups are the same
+        let sg1 = alix
+            .inner_client
+            .get_sync_group(&alix.inner_client.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let sg2 = alix2
+            .inner_client
+            .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(sg1.group_id, sg2.group_id);
+
+        // Step 9: Sync welcomes for alix2 (like syncing consent/welcomes in the other test)
+        alix2.inner_client.sync_welcomes(&alix2.inner_client.mls_provider().unwrap()).await.unwrap();
+
+        // Step 10: Sync preferences and group (matching Kotlin's sync)
+        alix.sync_preferences().await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        alix2.sync_preferences().await.unwrap();
+        sg2.sync().await.unwrap(); // Sync group directly (replaces delay)
+
+        // Step 11: Check message count in alix2's view of the group
+        let alix_group2 = alix2
+            .conversation(alix_group.id())
+            .unwrap();
+
+        let messages_in_alix2 = alix_group2.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        assert_eq!(messages_in_alix2.len(), 2);
+    }
+
 }
