@@ -7978,32 +7978,54 @@ mod tests {
 
         alix_group.send_text("hi").await.unwrap();
 
-        let initial_messages = alix_group.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        let initial_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
         assert_eq!(initial_messages.len(), 2);
 
         let alix2 = alix.builder.build().await;
 
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
-        
+
         // Doesn't fail on the not finding the group if you send a message after the new installation is created.
         // alix_group.send_text("hi").await.unwrap();
 
-        alix.conversations().sync_all_conversations(None).await.unwrap();
-        alix2.conversations().sync_all_conversations(None).await.unwrap();
-
-        let alix_group2 = alix2
-            .conversation(alix_group.id())
+        alix.inner_client
+            .test_has_same_sync_group_as(&alix2.inner_client)
+            .await
+            .unwrap();
+        alix.worker()
+            .wait(SyncMetric::SyncGroupWelcomesProcessed, 1)
+            .await
             .unwrap();
 
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let alix_group2 = alix2.conversation(alix_group.id()).unwrap();
+
         alix.sync_preferences().await.unwrap();
-        alix_group.sync().await.unwrap();
-
         alix2.sync_preferences().await.unwrap();
-        alix_group2.sync().await.unwrap(); 
 
-        let messages_in_alix2 = alix_group2.find_messages(FfiListMessagesOptions::default()).await.unwrap();
-        assert_eq!(messages_in_alix2.len(), 2);
+        alix2
+            .worker()
+            .wait(SyncMetric::PayloadProcessed, 1)
+            .await
+            .unwrap();
+
+        let messages_in_alix2 = alix_group2
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages_in_alix2.len(), 1);
     }
-
 }
