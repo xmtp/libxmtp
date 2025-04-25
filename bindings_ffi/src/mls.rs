@@ -4023,11 +4023,11 @@ mod tests {
         let debug_info = group.inner.debug_info().await.unwrap();
         // Ensure the group is included
         assert_eq!(debug_info.epoch, 1, "Group epoch should be 1");
-        assert_eq!(
-            debug_info.maybe_forked, false,
-            "Group is not marked as forked"
+        assert!(!debug_info.maybe_forked, "Group is not marked as forked");
+        assert!(
+            debug_info.fork_details.is_empty(),
+            "Group has no fork details"
         );
-        assert_eq!(debug_info.fork_details, "", "Group has no fork details");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
