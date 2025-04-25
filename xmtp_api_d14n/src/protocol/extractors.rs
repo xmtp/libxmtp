@@ -1,16 +1,19 @@
 use hex::FromHexError;
 use openmls::framing::errors::ProtocolMessageError;
 use xmtp_common::{RetryableError, retryable};
+use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::{ConversionError, mls_v1};
 
 use super::EnvelopeError;
 use super::{TopicKind, traits::EnvelopeVisitor};
+use itertools::Itertools;
 use openmls::prelude::KeyPackageVerifyError;
 use openmls::{
     framing::MlsMessageIn,
     prelude::{KeyPackageIn, ProtocolMessage, tls_codec::Deserialize},
 };
 use openmls_rust_crypto::RustCrypto;
+use std::collections::HashMap;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
@@ -316,6 +319,63 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
 
     fn visit_identity_update(&mut self, update: &IdentityUpdate) -> Result<(), Self::Error> {
         self.push(Payload::IdentityUpdate(update.clone()));
+        Ok(())
+    }
+}
+
+/// Extract Identity Updates from Envelopes
+#[derive(Default)]
+pub struct IdentityUpdateExtractor {
+    originator_sequence_id: u64,
+    server_timestamp_ns: u64,
+    updates: Vec<IdentityUpdate>,
+}
+
+impl IdentityUpdateExtractor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// All inbox ids represented by the envelopes
+    pub fn inbox_ids(&self) -> Vec<String> {
+        self.updates
+            .iter()
+            .cloned()
+            .unique_by(|u| u.inbox_id.clone())
+            .map(|u| u.inbox_id)
+            .collect()
+    }
+
+    pub fn get(self) -> HashMap<String, Vec<IdentityUpdateLog>> {
+        let mut updates = HashMap::new();
+        for update in self.updates.into_iter() {
+            updates
+                .entry(update.inbox_id.clone())
+                .or_insert_with(Vec::new)
+                .push(IdentityUpdateLog {
+                    sequence_id: self.originator_sequence_id,
+                    server_timestamp_ns: self.server_timestamp_ns,
+                    update: Some(update),
+                });
+        }
+        updates
+    }
+}
+
+impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
+    type Error = PayloadExtractionError; // mostly is infallible
+
+    fn visit_unsigned_originator(
+        &mut self,
+        envelope: &UnsignedOriginatorEnvelope,
+    ) -> Result<(), Self::Error> {
+        self.originator_sequence_id = envelope.originator_sequence_id;
+        self.server_timestamp_ns = envelope.originator_ns as u64;
+        Ok(())
+    }
+
+    fn visit_identity_update(&mut self, u: &IdentityUpdate) -> Result<(), Self::Error> {
+        self.updates.push(u.clone());
         Ok(())
     }
 }

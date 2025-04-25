@@ -102,7 +102,7 @@ impl TryFrom<OriginatorEnvelope> for IdentityUpdateLog {
                 return Err(ConversionError::Missing {
                     item: "identity_update",
                     r#type: std::any::type_name::<OriginatorEnvelope>(),
-                })
+                });
             }
         };
 
