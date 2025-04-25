@@ -1,5 +1,5 @@
 use crate::client::RustXmtpClient;
-use crate::conversations::{HmacKey, MessageDisappearingSettings};
+use crate::conversations::{ConversationDebugInfo, HmacKey, MessageDisappearingSettings};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
@@ -676,6 +676,19 @@ impl Conversation {
       .collect::<Vec<HmacKey>>();
 
     Ok(crate::to_value(&keys)?)
+  }
+
+  #[wasm_bindgen(js_name = getDebugInfo)]
+  pub async fn get_debug_info(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+    let debug_info = group
+      .debug_info()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?
+      .into_iter()
+      .map(Into::into)
+      .collect::<Vec<ConversationDebugInfo>>();
+    Ok(crate::to_value(&debug_info)?)
   }
 }
 
