@@ -163,7 +163,7 @@ impl MessageDisappearingSettings {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
   #[wasm_bindgen(js_name = epoch)]
   pub epoch: u64,
@@ -173,24 +173,12 @@ pub struct ConversationDebugInfo {
   pub fork_details: String,
 }
 
-#[wasm_bindgen]
 impl ConversationDebugInfo {
-  #[wasm_bindgen(constructor)]
-  pub fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
     Self {
-      epoch,
-      maybe_forked,
-      fork_details,
-    }
-  }
-}
-
-impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
-  fn from(value: XmtpConversationDebugInfo) -> Self {
-    Self {
-      epoch: value.epoch,
-      maybe_forked: value.maybe_forked,
-      fork_details: value.fork_details,
+      epoch: xmtp_debug_info.epoch,
+      maybe_forked: xmtp_debug_info.maybe_forked,
+      fork_details: xmtp_debug_info.fork_details,
     }
   }
 }

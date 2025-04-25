@@ -684,11 +684,9 @@ impl Conversation {
     let debug_info = group
       .debug_info()
       .await
-      .map_err(|e| JsError::new(&format!("{e}")))?
-      .into_iter()
-      .map(Into::into)
-      .collect::<Vec<ConversationDebugInfo>>();
-    Ok(crate::to_value(&debug_info)?)
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(crate::to_value(&ConversationDebugInfo::new(debug_info))?)
   }
 }
 
