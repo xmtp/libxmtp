@@ -1,3 +1,6 @@
+//! Better human-readable debug implementations
+//! generated with ai
+
 use super::unverified::*;
 
 // UnverifiedIdentityUpdate Debug implementation

@@ -375,6 +375,7 @@ impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
     }
 
     fn visit_identity_update(&mut self, u: &IdentityUpdate) -> Result<(), Self::Error> {
+        tracing::info!("Identity Update {}", u);
         self.updates.push(u.clone());
         Ok(())
     }
