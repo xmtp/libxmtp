@@ -379,7 +379,6 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-#[warn(dead_code)]
 /// Sets test mode to mimic future wrong epoch state.
 pub fn set_test_mode_future_wrong_epoch(enable: bool) {
     use std::env;
