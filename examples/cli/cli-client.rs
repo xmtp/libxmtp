@@ -314,7 +314,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 inbox_id = client.inbox_id(),
                 recovery_address = format!("{recovery:?}"),
                 installation_ids = &ids.as_value(),
-                addressess = &addrs.as_value(),
+                addresses = &addrs.as_value(),
                 "identity info",
             );
         }
