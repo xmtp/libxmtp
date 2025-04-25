@@ -7985,6 +7985,9 @@ mod tests {
 
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
+        
+        // Doesn't fail on the not finding the group if you send a message after the new installation is created.
+        // alix_group.send_text("hi").await.unwrap();
 
         alix.conversations().sync_all_conversations(None).await.unwrap();
         alix2.conversations().sync_all_conversations(None).await.unwrap();
