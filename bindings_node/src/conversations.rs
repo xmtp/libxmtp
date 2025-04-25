@@ -26,7 +26,7 @@ use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 use serde::{Deserialize, Serialize};
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_mls::groups::GroupDebugInfo as XmtpGroupDebugInfo;
+use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 
 #[napi]
 #[derive(Debug)]
@@ -158,8 +158,8 @@ pub struct ConversationDebugInfo {
   pub fork_details: String,
 }
 
-impl From<XmtpGroupDebugInfo> for ConversationDebugInfo {
-  fn from(value: XmtpGroupDebugInfo) -> Self {
+impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
+  fn from(value: XmtpConversationDebugInfo) -> Self {
     Self {
       epoch: BigInt::from(value.epoch),
       maybe_forked: value.maybe_forked,

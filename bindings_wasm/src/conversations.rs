@@ -16,7 +16,7 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
-  DMMetadataOptions, GroupDebugInfo, GroupMetadataOptions, HmacKey as XmtpHmacKey,
+  DMMetadataOptions, ConversationDebugInfo as XmtpConversationDebugInfo, GroupMetadataOptions, HmacKey as XmtpHmacKey,
   PreconfiguredPolicies,
 };
 
@@ -185,8 +185,8 @@ impl ConversationDebugInfo {
   }
 }
 
-impl From<GroupDebugInfo> for ConversationDebugInfo {
-  fn from(value: GroupDebugInfo) -> Self {
+impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
+  fn from(value: XmtpConversationDebugInfo) -> Self {
     Self {
       epoch: value.epoch,
       maybe_forked: value.maybe_forked,

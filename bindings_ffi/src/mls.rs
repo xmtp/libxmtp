@@ -40,7 +40,7 @@ use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::{DMMetadataOptions, GroupDebugInfo, HmacKey};
+use xmtp_mls::groups::{DMMetadataOptions, ConversationDebugInfo, HmacKey};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -1662,8 +1662,8 @@ impl FfiConversationDebugInfo {
     }
 }
 
-impl From<GroupDebugInfo> for FfiConversationDebugInfo {
-    fn from(value: GroupDebugInfo) -> Self {
+impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
+    fn from(value: ConversationDebugInfo) -> Self {
         FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
     }
 }

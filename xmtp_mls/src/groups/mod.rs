@@ -328,7 +328,7 @@ pub struct HmacKey {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct GroupDebugInfo {
+pub struct ConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
@@ -1591,7 +1591,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         .await
     }
 
-    pub async fn debug_info(&self) -> Result<GroupDebugInfo, GroupError> {
+    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let provider = self.client.mls_provider()?;
         let epoch =
             self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
@@ -1605,7 +1605,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             }
         };
 
-        Ok(GroupDebugInfo {
+        Ok(ConversationDebugInfo {
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
