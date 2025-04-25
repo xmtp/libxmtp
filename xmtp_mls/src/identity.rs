@@ -493,6 +493,7 @@ impl Identity {
     }
 
     /// Generate a new key package and store the associated keys in the database.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) fn new_key_package(
         &self,
         provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
@@ -546,7 +547,7 @@ impl Identity {
             )?;
         Ok(kp.key_package().clone())
     }
-
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -563,6 +564,7 @@ impl Identity {
         Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: &XmtpOpenMlsProvider,
