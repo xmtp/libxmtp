@@ -382,24 +382,6 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
 
 #[cfg(any(test, feature = "test-utils"))]
 #[warn(dead_code)]
-/// Sets test mode to mimic UnableToDecrypt AEAD messages state.
-pub fn set_test_mode_aead_msg(enable: bool) {
-    use std::env;
-    if enable {
-        env::set_var("TEST_MODE_AEAD_MESSAGE", "true");
-    } else {
-        env::set_var("TEST_MODE_AEAD_MESSAGE", "false");
-    }
-}
-#[cfg(any(test, feature = "test-utils"))]
-/// Checks if test mode is enabled.
-pub fn is_test_mode_aead_msg() -> bool {
-    use std::env;
-    env::var("TEST_MODE_AEAD_MESSAGE").unwrap_or_else(|_| "false".to_string()) == "true"
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-#[warn(dead_code)]
 /// Sets test mode to mimic future wrong epoch state.
 pub fn set_test_mode_future_wrong_epoch(enable: bool) {
     use std::env;
@@ -416,13 +398,7 @@ pub fn is_test_mode_future_wrong_epoch() -> bool {
     env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
 }
 
-pub fn maybe_mock_fork_errors_for_tests() -> Result<(), GroupMessageProcessingError> {
-    if is_test_mode_aead_msg() {
-        return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-            ValidationError::UnableToDecrypt(AeadError),
-        )));
-    }
-
+pub fn maybe_mock_wrong_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
     if is_test_mode_future_wrong_epoch() {
         return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             WrongEpoch,

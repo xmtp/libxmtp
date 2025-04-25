@@ -43,7 +43,6 @@ use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use openmls::framing::errors::MessageDecryptionError::AeadError;
 use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::{
     credentials::BasicCredential,
@@ -69,7 +68,6 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
-use xmtp_common::time::now_ns;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
@@ -158,8 +156,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CommitValidation(err) => err.is_retryable(),
             Self::ClearPendingCommit(err) => err.is_retryable(),
             Self::Client(err) => err.is_retryable(),
-            Self::FutureEpoch(_,_) => true,
-            Self::OldEpoch(_,_) => true,
+            Self::FutureEpoch(_, _) => true,
+            Self::OldEpoch(_, _) => true,
             Self::WrongCredentialType(_)
             | Self::Codec(_)
             | Self::AlreadyProcessed(_)
@@ -600,8 +598,8 @@ where
     ) -> Result<(), GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
-            use crate::utils::maybe_mock_fork_errors_for_tests;
-            maybe_mock_fork_errors_for_tests()?;
+            use crate::utils::maybe_mock_wrong_epoch_for_tests;
+            maybe_mock_wrong_epoch_for_tests()?;
         }
 
         let GroupMessageV1 {
@@ -1361,20 +1359,27 @@ where
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
 
-        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(ValidationError::WrongEpoch)) = error {
+        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            ValidationError::WrongEpoch,
+        )) = error
+        {
             let group_epoch = match self.epoch(provider).await {
                 Ok(epoch) => epoch,
                 Err(_) => {
-                    tracing::info!("WrongEpoch encountered but group_epoch could not be calculated");
+                    tracing::info!(
+                        "WrongEpoch encountered but group_epoch could not be calculated"
+                    );
                     return Ok(());
                 }
             };
 
-            let mls_message_in = MlsMessageIn::tls_deserialize_exact(&message.data)
-                .map_err(|_| {
+            let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
+                Ok(msg) => msg,
+                Err(_) => {
                     tracing::info!("WrongEpoch encountered but failed to deserialize the message");
-                })
-                .ok_or(())?;
+                    return Ok(());
+                }
+            };
 
             let protocol_message = match mls_message_in.extract() {
                 MlsMessageBodyIn::PrivateMessage(msg) => msg,
