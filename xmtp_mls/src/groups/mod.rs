@@ -5937,7 +5937,6 @@ pub(crate) mod tests {
             .conn_ref()
             .find_group(&group_b.group_id)
             .unwrap();
-        println!("{:?}", group_from_db);
         assert!(group_from_db.unwrap().maybe_forked);
         client_b
             .mls_provider()

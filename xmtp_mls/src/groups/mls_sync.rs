@@ -158,6 +158,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CommitValidation(err) => err.is_retryable(),
             Self::ClearPendingCommit(err) => err.is_retryable(),
             Self::Client(err) => err.is_retryable(),
+            Self::FutureEpoch(_,_) => true,
+            Self::OldEpoch(_,_) => true,
             Self::WrongCredentialType(_)
             | Self::Codec(_)
             | Self::AlreadyProcessed(_)
@@ -172,9 +174,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
             | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused
-            | Self::OldEpoch(_, _)
-            | Self::FutureEpoch(_, _) => false,
+            | Self::GroupPaused => false,
         }
     }
 }
@@ -1361,119 +1361,54 @@ where
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
 
-        match error {
-            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-                ValidationError::UnableToDecrypt(AeadError),
-            )) => {
+        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(ValidationError::WrongEpoch)) = error {
+            let group_epoch = match self.epoch(provider).await {
+                Ok(epoch) => epoch,
+                Err(_) => {
+                    tracing::info!("WrongEpoch encountered but group_epoch could not be calculated");
+                    return Ok(());
+                }
+            };
+
+            let mls_message_in = MlsMessageIn::tls_deserialize_exact(&message.data)
+                .map_err(|_| {
+                    tracing::info!("WrongEpoch encountered but failed to deserialize the message");
+                })
+                .ok_or(())?;
+
+            let protocol_message = match mls_message_in.extract() {
+                MlsMessageBodyIn::PrivateMessage(msg) => msg,
+                _ => {
+                    tracing::info!("WrongEpoch encountered but failed to extract PrivateMessage");
+                    return Ok(());
+                }
+            };
+
+            let message_epoch = protocol_message.epoch();
+            let epoch_validation_result = Self::is_valid_epoch(
+                self.context().inbox_id(),
+                0,
+                GroupEpoch::from(group_epoch),
+                message_epoch,
+                MAX_PAST_EPOCHS,
+            );
+
+            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
                 let fork_details = format!(
-                    "Message [{}] unable to decrypt with error [{}]; probably the sender is forked",
-                    message.id, error
+                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                    message.id, message_epoch, group_epoch
                 );
                 tracing::error!(fork_details);
                 let _ = provider
                     .conn_ref()
                     .mark_group_as_possibly_forked(&group_id, fork_details);
-                self.save_forked_alert_transcript_message(provider.conn_ref(), message);
-                Ok(())
+                return epoch_validation_result;
             }
 
-            OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-                ValidationError::WrongEpoch,
-            )) => {
-                let group_epoch = match self.epoch(provider).await {
-                    Ok(epoch) => epoch,
-                    Err(_) => {
-                        tracing::info!(
-                            "WrongEpoch encountered but group_epoch could not be calculated"
-                        );
-                        return Ok(());
-                    }
-                };
-
-                let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
-                    Ok(msg) => msg,
-                    Err(_) => {
-                        tracing::info!(
-                            "WrongEpoch encountered but failed to deserialize the message"
-                        );
-                        return Ok(());
-                    }
-                };
-
-                let protocol_message = match mls_message_in.extract() {
-                    MlsMessageBodyIn::PrivateMessage(msg) => msg,
-                    _ => {
-                        tracing::info!(
-                            "WrongEpoch encountered but failed to extract PrivateMessage"
-                        );
-                        return Ok(());
-                    }
-                };
-
-                let message_epoch = protocol_message.epoch();
-
-                let epoch_validation_result = Self::is_valid_epoch(
-                    self.context().inbox_id(),
-                    0,
-                    GroupEpoch::from(group_epoch),
-                    message_epoch,
-                    MAX_PAST_EPOCHS,
-                );
-
-                if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) =
-                    &epoch_validation_result
-                {
-                    let fork_details = format!(
-                        "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                        message.id, message_epoch, group_epoch
-                    );
-                    tracing::error!(fork_details);
-                    let _ = provider
-                        .conn_ref()
-                        .mark_group_as_possibly_forked(&group_id, fork_details);
-                }
-
-                epoch_validation_result
-            }
-
-            _ => Ok(()),
+            return Ok(());
         }
-    }
 
-    fn save_forked_alert_transcript_message(&self, conn: &DbConnection, message: &GroupMessageV1) {
-        tracing::info!(
-            "[{}]: Storing a transcript message for forked group",
-            self.context().inbox_id(),
-        );
-
-        let message_content = format!(
-            "Alert: Message received from a possible forked member: messageId:[{}]",
-            message.id
-        );
-        let group_id = self.group_id.as_slice();
-        let message_id =
-            calculate_message_id(group_id, message.data.as_slice(), &now_ns().to_string());
-        let msg = StoredGroupMessage {
-            id: message_id,
-            group_id: message.group_id.as_slice().to_vec(),
-            decrypted_message_bytes: message_content.into_bytes(),
-            sent_at_ns: now_ns(),
-            kind: GroupMessageKind::Application,
-            sender_installation_id: vec![], //since sender is unknown
-            sender_inbox_id: "unknown".to_string(), //since sender is unknown
-            delivery_status: DeliveryStatus::Published,
-            content_type: ContentType::Text,
-            version_major: 0,
-            version_minor: 0,
-            authority_id: "unknown".to_string(), //since sender is unknown
-            reference_id: None,
-        };
-        let _ = msg.store_or_ignore(conn).map_err(|err| {
-            tracing::error!(
-                error = %err,
-                "Failed to store transcript message for forked group"
-            );
-        });
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
