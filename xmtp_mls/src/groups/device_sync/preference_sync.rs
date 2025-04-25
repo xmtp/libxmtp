@@ -209,7 +209,7 @@ mod tests {
             device_sync::{handle::SyncMetric, preference_sync::UserPreferenceUpdate},
             scoped_client::ScopedGroupClient,
         },
-        utils::{Tester, XmtpClientTesterBuilder},
+        utils::{LocalTesterBuilder, Tester},
     };
     use serde::{Deserialize, Serialize};
     use xmtp_db::{

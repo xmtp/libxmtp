@@ -48,45 +48,30 @@ where
 
 #[macro_export]
 macro_rules! tester {
-    ($name:ident) => {
+    ($name:ident $(, $rest:tt)*) => {
+        let builder = $crate::utils::Tester::builder();
+        tester!(@process builder ; $name $(, $rest)*)
+    };
+
+    ($name:ident, from = $existing:ident $(, $rest:tt)*) => {
+        tester!(@process $existing.builder ; $name $(, $rest)*)
+    };
+
+    (@process $builder:expr ; $name:ident) => {
         let $name = {
             use tracing::Instrument;
-            use $crate::utils::Tester;
+            use $crate::utils::LocalTesterBuilder;
             let span = tracing::info_span!(stringify!($name));
-            Tester::new().instrument(span).await
+            $builder.build().instrument(span).await
         };
     };
 
-    ($name:ident, from = $existing:ident) => {
-        let $name = {
-            use tracing::Instrument;
-            use $crate::utils::XmtpClientTesterBuilder;
-            let span = tracing::info_span!(stringify!($name));
-            $existing.builder.build().instrument(span).await
-        };
+    (@process $builder:expr ; $name:ident, $key:ident = $value:expr $(, $rest:tt)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $rest)*)
     };
 
-    ($name:ident, $($key:ident = $value:expr),+) => {
-            let $name = {
-                let span = tracing::info_span!(stringify!($name));
-                $existing.clone()
-                    $(.$key($value))+
-                    .instrument(span)
-                    .await
-            };
-        };
-
-    ($name:ident, $($key:ident),+) => {
-        let $name = {
-            use tracing::Instrument;
-            use $crate::utils::XmtpClientTesterBuilder;
-            let span = tracing::info_span!(stringify!($name));
-            Tester::builder()
-                $(.$key())+
-                .build()
-                .instrument(span)
-                .await
-        };
+    (@process $builder:expr ; $name:ident, $key:ident $(, $rest:tt)*) => {
+        tester!(@process $builder.$key() ; $name $(, $rest)*)
     };
 }
 
@@ -106,14 +91,14 @@ impl Tester<LocalWallet, FullXmtpClient> {
     }
 }
 
-pub(crate) trait XmtpClientTesterBuilder<Owner, C>
+pub(crate) trait LocalTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
 {
     async fn build(&self) -> Tester<Owner, C>;
 }
 
-impl<Owner> XmtpClientTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
+impl<Owner> LocalTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
 where
     Owner: InboxOwner + Clone,
 {
