@@ -783,7 +783,17 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn debug_info(&self) -> Result<ConversationDebugInfo> {
-    self.debug_info().map(Into::into)
+  pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
+    let group = MlsGroup::new(
+      self.inner_client.clone(),
+      self.group_id.clone(),
+      self.created_at_ns,
+    );
+
+    group
+      .debug_info()
+      .await
+      .map(Into::into)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))
   }
 }

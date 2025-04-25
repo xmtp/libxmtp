@@ -40,7 +40,7 @@ use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::{DMMetadataOptions, ConversationDebugInfo, HmacKey};
+use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions, HmacKey};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,

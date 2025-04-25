@@ -16,8 +16,8 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
-  DMMetadataOptions, ConversationDebugInfo as XmtpConversationDebugInfo, GroupMetadataOptions, HmacKey as XmtpHmacKey,
-  PreconfiguredPolicies,
+  ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
+  HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
