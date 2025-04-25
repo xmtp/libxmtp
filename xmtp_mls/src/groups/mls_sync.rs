@@ -156,8 +156,6 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CommitValidation(err) => err.is_retryable(),
             Self::ClearPendingCommit(err) => err.is_retryable(),
             Self::Client(err) => err.is_retryable(),
-            Self::FutureEpoch(_, _) => true,
-            Self::OldEpoch(_, _) => true,
             Self::WrongCredentialType(_)
             | Self::Codec(_)
             | Self::AlreadyProcessed(_)
@@ -172,7 +170,9 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
             | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused => false,
+            | Self::GroupPaused
+            | Self::FutureEpoch(_, _)
+            | Self::OldEpoch(_, _) => false,
         }
     }
 }
