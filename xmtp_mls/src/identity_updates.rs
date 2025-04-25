@@ -87,6 +87,7 @@ where
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_latest_association_state(
         &self,
         conn: &DbConnection,
@@ -213,6 +214,7 @@ where
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
     /// If no nonce is provided, use 0
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn create_inbox(
         &self,
         identifier: Identifier,
@@ -250,6 +252,7 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn associate_identity(
         &self,
         new_identifier: Identifier,
@@ -403,6 +406,7 @@ where
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
     /// between the two membership states.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -483,7 +487,7 @@ where
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,

@@ -30,7 +30,6 @@ where
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
         let envelopes = request.client_envelopes()?;
-        tracing::info!("{:?}", envelopes);
         PublishClientEnvelopes::builder()
             .envelopes(envelopes)
             .build()?
