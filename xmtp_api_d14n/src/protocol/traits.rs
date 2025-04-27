@@ -156,10 +156,12 @@ impl RetryableError for EnvelopeError {
     }
 }
 
+// TODO: Make topic type instead of bytes
+// topic not fixed length
 /// A Generic Higher-Level Envelope
 pub trait Envelope<'env> {
     /// Get the topic for an envelope
-    fn topic(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
+    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError>;
     /// Get the payload for an envelope
     fn payload(&self) -> Result<Vec<Payload>, EnvelopeError>;
     /// Build the ClientEnvelope
@@ -172,7 +174,7 @@ impl<'env, T> Envelope<'env> for T
 where
     T: ProtocolEnvelope<'env> + std::fmt::Debug,
 {
-    fn topic(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
+    fn topics(&self) -> Result<Vec<Vec<u8>>, EnvelopeError> {
         let mut extractor = TopicExtractor::new();
         self.accept(&mut extractor)?;
         Ok(extractor.get()?)
@@ -187,9 +189,7 @@ where
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError> {
         // ensures we only recurse the proto data structure once.
         let mut extractor = (TopicExtractor::new(), PayloadExtractor::new());
-        tracing::debug!("Extracting payload for {:?}", self);
         self.accept(&mut extractor)?;
-        tracing::debug!("Extracted {:?}", extractor);
         let topic = extractor.0.get().map_err(ExtractionError::from)?;
         let payload = extractor.1.get().map_err(ExtractionError::from)?;
         // this should never happen since Self is the same type, but the error is defensive
