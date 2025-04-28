@@ -7636,6 +7636,7 @@ dependencies = [
  "futures",
  "hex",
  "impl-trait-for-tuples",
+ "itertools 0.14.0",
  "once_cell",
  "openmls",
  "openmls_rust_crypto",
