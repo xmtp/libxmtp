@@ -384,7 +384,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups = self.raw_query_read(|conn| query.load(conn))?;
+        let groups = self.raw_query_write(|conn| query.load(conn))?;
 
         if groups.len() > 1 {
             tracing::warn!(
