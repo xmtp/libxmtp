@@ -187,6 +187,11 @@ pub trait Envelope<'env> {
     fn client_envelopes(&self) -> Result<Vec<ClientEnvelope>, EnvelopeError>;
 }
 
+pub trait Extractor {
+    type Output;
+    fn get(self) -> Self::Output;
+}
+
 /// Allows us to call these methods straight on the protobuf types without any
 /// parsing/matching first.
 impl<'env, T> Envelope<'env> for T

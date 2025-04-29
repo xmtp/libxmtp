@@ -107,7 +107,6 @@ where
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        tracing::info!("cached {:?}", updates);
         let last_sequence_id = updates
             .last()
             .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
@@ -129,7 +128,6 @@ where
             // deserialize identity update payload
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        tracing::info!("UPDATES {:?}", unverified_updates);
         let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
 
         let association_state = get_state(updates)?;
@@ -514,7 +512,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .get_identity_updates_v2(filters)
         .await?
         .collect::<HashMap<_, Vec<InboxUpdate>>>();
-
     let to_store = updates
         .iter()
         .flat_map(move |(inbox_id, updates)| {

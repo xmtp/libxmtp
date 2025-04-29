@@ -110,6 +110,7 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
     }
 }
 
+// run extractors of the same type in sequence
 impl<'a, T> EnvelopeVisitor<'a> for Vec<T>
 where
     T: EnvelopeVisitor<'a>,

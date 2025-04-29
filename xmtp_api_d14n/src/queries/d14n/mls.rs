@@ -2,10 +2,14 @@ use super::D14nClient;
 use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
+use crate::protocol::GroupMessageExtractor;
 use crate::protocol::KeyPackageExtractor;
+use crate::protocol::SequencedExtractor;
+use crate::protocol::TopicKind;
+use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
+use crate::protocol::traits::Extractor;
 use crate::protocol::traits::ProtocolEnvelope;
-use crate::protocol::{MessageExtractor, TopicKind};
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
@@ -61,7 +65,6 @@ where
         let mut extractor = KeyPackageExtractor::new();
         result.results.accept(&mut extractor)?;
         let key_packages = extractor.get();
-        tracing::info!("KEY PACKAGES {:?}", key_packages);
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
     }
 
@@ -108,11 +111,13 @@ where
             .query(&self.message_client)
             .await?;
 
-        let mut extractor = MessageExtractor::default();
-        response.envelopes.accept(&mut extractor)?;
+        let messages = SequencedExtractor::builder()
+            .envelopes(response.envelopes)
+            .build::<GroupMessageExtractor>()
+            .get()?;
 
         Ok(mls_v1::QueryGroupMessagesResponse {
-            messages: extractor.group_messages,
+            messages,
             paging_info: None,
         })
     }
@@ -129,11 +134,14 @@ where
             .build()?
             .query(&self.message_client)
             .await?;
-        let mut extractor = MessageExtractor::default();
-        response.envelopes.accept(&mut extractor)?;
+
+        let messages = SequencedExtractor::builder()
+            .envelopes(response.envelopes)
+            .build::<WelcomeMessageExtractor>()
+            .get()?;
 
         Ok(mls_v1::QueryWelcomeMessagesResponse {
-            messages: extractor.welcome_messages,
+            messages,
             paging_info: None,
         })
     }
