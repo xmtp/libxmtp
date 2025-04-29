@@ -41,7 +41,7 @@ async fn only_one_payload_sent() {
     use std::time::Duration;
 
     tester!(alix1, sync_worker, sync_server, stream);
-    tester!(alix2, from = alix1);
+    tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
     tester!(bo);
@@ -59,7 +59,7 @@ async fn only_one_payload_sent() {
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
     alix1.worker().clear_metric(SyncMetric::PayloadSent);
 
-    tester!(alix3, from = alix1);
+    tester!(alix3, from: alix1);
     alix1.worker().reset_metrics();
     alix2.worker().reset_metrics();
 
@@ -79,7 +79,7 @@ async fn only_one_payload_sent() {
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
     tester!(alix1, sync_worker, sync_server, stream);
-    tester!(alix2, from = alix1);
+    tester!(alix2, from: alix1);
     tester!(bo);
 
     alix1.test_talk_in_dm_with(&bo).await?;
@@ -100,7 +100,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
-    tester!(alix2, from = alix1);
+    tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
 
@@ -132,7 +132,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     use xmtp_db::schema::groups::dsl;
 
     tester!(alix1, sync_worker);
-    tester!(alix2, from = alix1);
+    tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
 

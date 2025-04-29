@@ -57,7 +57,7 @@ macro_rules! tester {
         tester!(@process builder ; $name $(, $rest)*)
     };
 
-    ($name:ident, from = $existing:ident $(, $rest:tt)*) => {
+    ($name:ident, from: $existing:ident $(, $rest:tt)*) => {
         tester!(@process $existing.builder ; $name $(, $rest)*)
     };
 
@@ -70,7 +70,7 @@ macro_rules! tester {
         };
     };
 
-    (@process $builder:expr ; $name:ident, $key:ident = $value:expr $(, $rest:tt)*) => {
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $rest:tt)*) => {
         tester!(@process $builder.$key($value) ; $name $(, $rest)*)
     };
 
