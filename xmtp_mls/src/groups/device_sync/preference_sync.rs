@@ -242,7 +242,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {
-        let amal_a = Tester::builder().with_sync_worker().build().await;
+        let amal_a = Tester::builder().sync_worker().build().await;
         let amal_b = amal_a.builder.build().await;
 
         amal_a.test_has_same_sync_group_as(&amal_b).await?;

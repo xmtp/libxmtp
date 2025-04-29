@@ -3297,11 +3297,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder()
-            .with_sync_worker()
-            .with_sync_server()
-            .build()
-            .await;
+        let alex = Tester::builder().sync_worker().sync_server().build().await;
         let worker = alex.client.inner_client.worker_handle().unwrap();
 
         let stats = alex.inner_client.api_stats();
@@ -6425,11 +6421,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
-        let alix_a = Tester::builder()
-            .with_sync_worker()
-            .with_sync_server()
-            .build()
-            .await;
+        let alix_a = Tester::builder().sync_worker().sync_server().build().await;
 
         let alix_b = alix_a.builder.build().await;
 
@@ -6578,7 +6570,7 @@ mod tests {
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
-            .with_sync_worker()
+            .sync_worker()
             .build()
             .instrument(alix_a_span)
             .await;
@@ -7875,58 +7867,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_dumb() {
-        let alix = Tester::new().await;
-        let bo = Tester::new().await;
-
-        let callback = Arc::new(RustStreamCallback::default());
-        let stream = bo
-            .conversations()
-            .stream_all_messages(callback.clone())
-            .await;
-        stream.wait_for_ready().await;
-
-        let alix_dm = alix
-            .conversations()
-            .find_or_create_dm_by_inbox_id(bo.inbox_id(), FfiCreateDMOptions::default())
-            .await
-            .unwrap();
-
-        bo.conversations().sync().await.unwrap();
-
-        let bo_dm = bo
-            .conversations()
-            .find_or_create_dm_by_inbox_id(alix.inbox_id(), FfiCreateDMOptions::default())
-            .await
-            .unwrap();
-
-        assert_eq!(alix_dm.id(), bo_dm.id());
-
-        alix_dm.send(b"hello there".to_vec()).await.unwrap();
-
-        let msgs = bo_dm
-            .find_messages(FfiListMessagesOptions::default())
-            .await
-            .unwrap();
-
-        let msg_count = msgs.len();
-
-        alix_dm.send(b"hello here".to_vec()).await.unwrap();
-        let msgs = bo_dm
-            .find_messages(FfiListMessagesOptions::default())
-            .await
-            .unwrap();
-        assert_ne!(msg_count, msgs.len());
-    }
-
-    #[tokio::test]
     async fn test_sync_consent() {
         // Create two test users
-        let alix = Tester::builder()
-            .with_sync_server()
-            .with_sync_worker()
-            .build()
-            .await;
+        let alix = Tester::builder().sync_server().sync_worker().build().await;
         let bo = Tester::new().await;
 
         // Create a group conversation

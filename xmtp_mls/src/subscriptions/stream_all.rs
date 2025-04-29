@@ -115,12 +115,10 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
-        tracing::error!("CCCCCC");
 
         if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
             if let Some(Ok(msg)) = &msg {
-                tracing::error!("BBBBBB");
-                if true || self.sync_groups.contains(&msg.group_id) {
+                if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .client
                         .local_events()

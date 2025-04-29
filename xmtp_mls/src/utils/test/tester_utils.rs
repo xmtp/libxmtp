@@ -190,6 +190,7 @@ where
     pub sync_mode: SyncWorkerMode,
     pub sync_url: Option<String>,
     pub wait_for_init: bool,
+    pub stream: bool,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -205,6 +206,7 @@ impl Default for TesterBuilder<LocalWallet> {
             sync_mode: SyncWorkerMode::Disabled,
             sync_url: None,
             wait_for_init: true,
+            stream: false,
         }
     }
 }
@@ -222,6 +224,7 @@ where
             sync_mode: self.sync_mode,
             sync_url: self.sync_url,
             wait_for_init: self.wait_for_init,
+            stream: self.stream,
         }
     }
 
@@ -229,16 +232,23 @@ where
         self.owner(PasskeyUser::new().await)
     }
 
-    pub fn with_sync_worker(self) -> Self {
+    pub fn sync_worker(self) -> Self {
         Self {
             sync_mode: SyncWorkerMode::Enabled,
             ..self
         }
     }
 
-    pub fn with_sync_server(self) -> Self {
+    pub fn sync_server(self) -> Self {
         Self {
             sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
+            ..self
+        }
+    }
+
+    pub fn stream(self) -> Self {
+        Self {
+            stream: true,
             ..self
         }
     }

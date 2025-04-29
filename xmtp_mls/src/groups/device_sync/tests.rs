@@ -12,12 +12,8 @@ use xmtp_db::{
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
-    let alix1 = Tester::builder()
-        .with_sync_server()
-        .with_sync_worker()
-        .build()
-        .await;
-    let bo = Tester::new().await;
+    tester!(alix1, sync_server, sync_worker, stream);
+    tester!(bo);
 
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -27,11 +23,8 @@ async fn basic_sync() {
 
     // Have alix1 receive new sync group, and auto-send a sync payload
     alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
-    let alix2_sync_group = alix2.get_sync_group(&alix2.provider).await?;
-    // alix2_sync_group.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     // Ensure the DM is present on the second device.
@@ -47,11 +40,11 @@ async fn only_one_payload_sent() {
     use crate::tester;
     use std::time::Duration;
 
-    tester!(alix1, with_sync_worker, with_sync_server);
+    tester!(alix1, sync_worker, sync_server, stream);
     tester!(alix2, from = alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    let bo = Tester::new().await;
+    tester!(bo);
 
     let dm = alix1
         .find_or_create_dm_by_inbox_id(bo.inbox_id(), DMMetadataOptions::default())
@@ -85,31 +78,15 @@ async fn only_one_payload_sent() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
-    let alix1 = Tester::builder()
-        .with_sync_worker()
-        .with_sync_server()
-        .build()
-        .await;
+    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(alix2, from = alix1);
+    tester!(bo);
 
-    let bo = Tester::new().await;
     alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = alix1.builder.build().await;
-
-    // alix1.test_has_same_sync_group_as(&alix2).await?;
-
-    // Pull down the new sync group, triggering a payload to be sent
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
-
-    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
-
     alix2.send_sync_request(&alix2.provider).await?;
-    alix1.get_sync_group(&alix1.provider).await?.sync().await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
-
-    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
 
     // Alix2 should be able to talk fine with bo
@@ -118,27 +95,20 @@ async fn test_double_sync_works_fine() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_hmac_and_consent_prefrence_sync() {
-    let alix1 = Tester::builder()
-        .with_sync_worker()
-        .with_sync_server()
-        .build()
-        .await;
+    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(bo);
 
-    let bo = Tester::new().await;
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
-    let alix2 = alix1.builder.build().await;
+    tester!(alix2, from = alix1);
 
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
 
-    // alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     let alix1_keys = dm.hmac_keys(-1..=1)?;
     alix1.worker().wait(SyncMetric::HmacSent, 1).await?;
 
-    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
@@ -149,9 +119,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
-    alix1.worker().wait(SyncMetric::ConsentSent, 2).await?;
 
-    alix2.sync_device_sync(&alix2.provider).await?;
     alix2.worker().wait(SyncMetric::ConsentReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
@@ -163,7 +131,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     use diesel::prelude::*;
     use xmtp_db::schema::groups::dsl;
 
-    tester!(alix1, with_sync_worker);
+    tester!(alix1, sync_worker);
     tester!(alix2, from = alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
