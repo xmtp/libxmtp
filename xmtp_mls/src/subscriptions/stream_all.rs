@@ -1,9 +1,10 @@
 use std::{
+    collections::HashSet,
     pin::Pin,
     task::{ready, Context, Poll},
 };
 
-use crate::subscriptions::stream_messages::MessagesApiSubscription;
+use crate::subscriptions::{stream_messages::MessagesApiSubscription, LocalEvents, SyncEvent};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     Client,
@@ -11,7 +12,7 @@ use crate::{
 
 use futures::stream::Stream;
 use xmtp_db::{
-    group::{ConversationType, GroupQueryArgs},
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
     group_message::StoredGroupMessage,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -32,6 +33,7 @@ pin_project! {
         #[pin] messages: Messages,
         client: &'a C,
         conversation_type: Option<ConversationType>,
+        sync_groups: HashSet<Vec<u8>>
     }
 }
 
@@ -50,21 +52,34 @@ where
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        let active_conversations = async {
+        let (active_conversations, sync_groups) = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
 
-            let active_conversations = provider
-                .conn_ref()
-                .find_groups(GroupQueryArgs {
-                    conversation_type,
-                    ..Default::default()
-                })?
+            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+                conversation_type,
+                include_duplicate_dms: true,
+                include_sync_groups: conversation_type.is_none(),
+                ..Default::default()
+            })?;
+
+            let sync_groups = groups
+                .iter()
+                .filter_map(|g| match g {
+                    StoredGroup {
+                        conversation_type: ConversationType::Sync,
+                        ..
+                    } => Some(g.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            let active_conversations = groups
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
                 .collect();
-            Ok::<_, SubscribeError>(active_conversations)
+
+            Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }
         .await?;
 
@@ -78,6 +93,7 @@ where
             conversation_type,
             messages,
             conversations,
+            sync_groups,
         })
     }
 }
@@ -99,8 +115,19 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
+        tracing::error!("CCCCCC");
 
         if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
+            if let Some(Ok(msg)) = &msg {
+                tracing::error!("BBBBBB");
+                if true || self.sync_groups.contains(&msg.group_id) {
+                    let _ = self
+                        .client
+                        .local_events()
+                        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                }
+            };
+
             return Ready(msg);
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {

@@ -6,9 +6,11 @@ use crate::{
     client::ClientError,
     configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    subscriptions::SubscribeError,
     Client,
 };
 use ethers::signers::LocalWallet;
+use futures::Stream;
 use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
@@ -19,8 +21,9 @@ use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_common::StreamHandle;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
-use xmtp_db::XmtpOpenMlsProvider;
+use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
 use xmtp_id::{
     associations::{
         ident,
@@ -41,9 +44,10 @@ where
     Owner: InboxOwner,
 {
     pub builder: TesterBuilder<Owner>,
-    pub client: Client,
+    pub client: Arc<Client>,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
 }
 
 #[macro_export]
@@ -100,7 +104,7 @@ where
 
 impl<Owner> LocalTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
 where
-    Owner: InboxOwner + Clone,
+    Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
         let api_client = ClientBuilder::new_api_client().await;
@@ -112,6 +116,7 @@ where
             Some(self.sync_mode),
         )
         .await;
+        let client = Arc::new(client);
 
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
@@ -122,12 +127,17 @@ where
         }
         client.sync_welcomes(&provider).await;
 
-        Tester {
+        let mut tester = Tester {
             builder: self.clone(),
             client,
             provider: Arc::new(provider),
             worker,
-        }
+            stream_handle: None,
+        };
+
+        tester.stream().await;
+
+        tester
     }
 }
 
@@ -137,6 +147,13 @@ where
 {
     pub(crate) async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
+    }
+
+    async fn stream(&mut self) {
+        let handle =
+            FullXmtpClient::stream_all_messages_with_callback(self.client.clone(), None, |_| {});
+        let handle = Box::new(handle) as Box<_>;
+        self.stream_handle = Some(handle);
     }
 }
 

@@ -31,7 +31,7 @@ async fn basic_sync() {
 
     // Have alix2 receive payload and process it
     let alix2_sync_group = alix2.get_sync_group(&alix2.provider).await?;
-    alix2_sync_group.sync().await?;
+    // alix2_sync_group.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     // Ensure the DM is present on the second device.
@@ -96,6 +96,8 @@ async fn test_double_sync_works_fine() {
 
     let alix2 = alix1.builder.build().await;
 
+    // alix1.test_has_same_sync_group_as(&alix2).await?;
+
     // Pull down the new sync group, triggering a payload to be sent
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
@@ -130,7 +132,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
     alix1.sync_welcomes(&alix1.provider).await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
+    // alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
     let alix1_keys = dm.hmac_keys(-1..=1)?;

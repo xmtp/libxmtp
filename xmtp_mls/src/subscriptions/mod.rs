@@ -294,6 +294,7 @@ where
             let stream = client.stream_all_messages(conversation_type).await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
+
             while let Some(message) = stream.next().await {
                 callback(message)
             }

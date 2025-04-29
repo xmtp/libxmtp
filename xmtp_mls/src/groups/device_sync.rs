@@ -170,8 +170,8 @@ where
             &sync_group.group_id[..4]
         );
 
-        let content_bytes =
-            serde_json::to_vec(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
+        let content_bytes = serde_json::to_vec_pretty(&content)
+            .map_err(|err| ClientError::Generic(err.to_string()))?;
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
