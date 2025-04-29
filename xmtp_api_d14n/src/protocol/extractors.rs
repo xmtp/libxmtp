@@ -4,16 +4,15 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::{ConversionError, mls_v1};
 
-use super::EnvelopeError;
+use super::{EnvelopeError, Extractor, ProtocolEnvelope};
 use super::{TopicKind, traits::EnvelopeVisitor};
-use itertools::Itertools;
 use openmls::prelude::KeyPackageVerifyError;
 use openmls::{
     framing::MlsMessageIn,
     prelude::{KeyPackageIn, ProtocolMessage, tls_codec::Deserialize},
 };
 use openmls_rust_crypto::RustCrypto;
-use std::collections::HashMap;
+use std::marker::PhantomData;
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_request;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
@@ -26,6 +25,59 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
+
+/// Build a [`SequencedExtractor`]
+#[derive(Default)]
+pub struct SequencedExtractorBuilder<Envelope> {
+    envelopes: Vec<Envelope>,
+}
+
+impl<Envelope> SequencedExtractorBuilder<Envelope> {
+    pub fn envelopes<E>(self, envelopes: Vec<E>) -> SequencedExtractorBuilder<E> {
+        SequencedExtractorBuilder::<E> { envelopes }
+    }
+
+    pub fn build<Extractor>(self) -> SequencedExtractor<Envelope, Extractor> {
+        SequencedExtractor {
+            envelopes: self.envelopes,
+            _marker: PhantomData,
+        }
+    }
+}
+
+/// Extract data from a sequence of envelopes, preserving
+/// per-envelope data like Sequence ID
+// TODO: Could probably act on a generic of impl Iterator
+// but could be a later improvement
+pub struct SequencedExtractor<Envelope, Extractor> {
+    envelopes: Vec<Envelope>,
+    _marker: PhantomData<Extractor>,
+}
+
+impl SequencedExtractor<(), ()> {
+    pub fn builder() -> SequencedExtractorBuilder<()> {
+        SequencedExtractorBuilder::default()
+    }
+}
+
+impl<'a, Envelope, E> Extractor for SequencedExtractor<Envelope, E>
+where
+    E: Extractor + EnvelopeVisitor<'a> + Default,
+    Envelope: ProtocolEnvelope<'a>,
+    EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+{
+    type Output = Result<Vec<<E as Extractor>::Output>, EnvelopeError>;
+
+    fn get(self) -> Self::Output {
+        let mut out = Vec::with_capacity(self.envelopes.len());
+        for envelope in self.envelopes.into_iter() {
+            let mut extractor = E::default();
+            envelope.accept(&mut extractor)?;
+            out.push(extractor.get());
+        }
+        Ok(out)
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum ExtractionError {
@@ -44,16 +96,66 @@ impl RetryableError for ExtractionError {
     }
 }
 
-/// Type to extract Group and Welcome Messages from Originator Envelopes
+/// Type to extract a Welcome Message from Originator Envelopes
 #[derive(Default)]
-pub struct MessageExtractor {
+pub struct WelcomeMessageExtractor {
     originator_sequence_id: u64,
     created_ns: u64,
-    pub group_messages: Vec<mls_v1::GroupMessage>,
-    pub welcome_messages: Vec<mls_v1::WelcomeMessage>,
+    welcome_message: mls_v1::WelcomeMessage,
 }
 
-impl EnvelopeVisitor<'_> for MessageExtractor {
+impl Extractor for WelcomeMessageExtractor {
+    type Output = mls_v1::WelcomeMessage;
+
+    fn get(self) -> Self::Output {
+        self.welcome_message
+    }
+}
+
+impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
+    type Error = ConversionError;
+
+    fn visit_unsigned_originator(
+        &mut self,
+        envelope: &UnsignedOriginatorEnvelope,
+    ) -> Result<(), Self::Error> {
+        self.originator_sequence_id = envelope.originator_sequence_id;
+        self.created_ns = envelope.originator_ns as u64;
+        Ok(())
+    }
+
+    fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
+        let message = mls_v1::welcome_message::Version::V1(mls_v1::welcome_message::V1 {
+            id: self.originator_sequence_id,
+            created_ns: self.created_ns,
+            installation_key: message.installation_key.clone(),
+            data: message.data.clone(),
+            hpke_public_key: message.hpke_public_key.clone(),
+        });
+        self.welcome_message = mls_v1::WelcomeMessage {
+            version: Some(message),
+        };
+        Ok(())
+    }
+}
+
+/// Type to extract a Group Message from Originator Envelopes
+#[derive(Default)]
+pub struct GroupMessageExtractor {
+    originator_sequence_id: u64,
+    created_ns: u64,
+    group_message: mls_v1::GroupMessage,
+}
+
+impl Extractor for GroupMessageExtractor {
+    type Output = mls_v1::GroupMessage;
+
+    fn get(self) -> Self::Output {
+        self.group_message
+    }
+}
+
+impl EnvelopeVisitor<'_> for GroupMessageExtractor {
     type Error = ConversionError;
 
     fn visit_unsigned_originator(
@@ -83,23 +185,9 @@ impl EnvelopeVisitor<'_> for MessageExtractor {
             sender_hmac: message.sender_hmac.clone(),
             should_push: message.should_push,
         });
-        self.group_messages.push(mls_v1::GroupMessage {
+        self.group_message = mls_v1::GroupMessage {
             version: Some(message),
-        });
-        Ok(())
-    }
-
-    fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        let message = mls_v1::welcome_message::Version::V1(mls_v1::welcome_message::V1 {
-            id: self.originator_sequence_id,
-            created_ns: self.created_ns,
-            installation_key: message.installation_key.clone(),
-            data: message.data.clone(),
-            hpke_public_key: message.hpke_public_key.clone(),
-        });
-        self.welcome_messages.push(mls_v1::WelcomeMessage {
-            version: Some(message),
-        });
+        };
         Ok(())
     }
 }
@@ -124,6 +212,11 @@ impl EnvelopeVisitor<'_> for KeyPackageExtractor {
 
     fn visit_client(&mut self, e: &ClientEnvelope) -> Result<(), Self::Error> {
         tracing::debug!("client: {:?}", e);
+        Ok(())
+    }
+
+    fn visit_none(&mut self) -> Result<(), Self::Error> {
+        // TODO: Handle empty key package response (when key package is None)
         Ok(())
     }
 
@@ -328,37 +421,28 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
 pub struct IdentityUpdateExtractor {
     originator_sequence_id: u64,
     server_timestamp_ns: u64,
-    updates: Vec<IdentityUpdate>,
+    update: IdentityUpdate,
 }
 
+impl Extractor for IdentityUpdateExtractor {
+    type Output = (String, IdentityUpdateLog);
+
+    fn get(self) -> Self::Output {
+        (
+            self.update.inbox_id.clone(),
+            IdentityUpdateLog {
+                sequence_id: self.originator_sequence_id,
+                server_timestamp_ns: self.server_timestamp_ns,
+                update: Some(self.update),
+            },
+        )
+    }
+}
+
+/// extract an update from a single envelope
 impl IdentityUpdateExtractor {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// All inbox ids represented by the envelopes
-    pub fn inbox_ids(&self) -> Vec<String> {
-        self.updates
-            .iter()
-            .cloned()
-            .unique_by(|u| u.inbox_id.clone())
-            .map(|u| u.inbox_id)
-            .collect()
-    }
-
-    pub fn get(self) -> HashMap<String, Vec<IdentityUpdateLog>> {
-        let mut updates = HashMap::new();
-        for update in self.updates.into_iter() {
-            updates
-                .entry(update.inbox_id.clone())
-                .or_insert_with(Vec::new)
-                .push(IdentityUpdateLog {
-                    sequence_id: self.originator_sequence_id,
-                    server_timestamp_ns: self.server_timestamp_ns,
-                    update: Some(update),
-                });
-        }
-        updates
     }
 }
 
@@ -375,7 +459,7 @@ impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
     }
 
     fn visit_identity_update(&mut self, u: &IdentityUpdate) -> Result<(), Self::Error> {
-        self.updates.push(u.clone());
+        self.update = u.clone();
         Ok(())
     }
 }
