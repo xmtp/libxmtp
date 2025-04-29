@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{StorageError, impl_store};
+use xmtp_common::fmt;
 
 use super::{
     db_connection::DbConnection,
@@ -9,7 +10,7 @@ use super::{
 use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Eq)]
 #[diesel(table_name = identity_updates)]
 #[diesel(primary_key(inbox_id, sequence_id))]
 pub struct StoredIdentityUpdate {
@@ -17,6 +18,17 @@ pub struct StoredIdentityUpdate {
     pub sequence_id: i64,
     pub server_timestamp_ns: i64,
     pub payload: Vec<u8>,
+}
+
+impl std::fmt::Debug for StoredIdentityUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredIdentityUpdate")
+            .field("inbox_id", &self.inbox_id)
+            .field("sequence_id", &self.sequence_id)
+            .field("server_timestamp_ns", &self.server_timestamp_ns)
+            .field("payload", &fmt::truncate_hex(hex::encode(&self.payload)))
+            .finish()
+    }
 }
 
 impl StoredIdentityUpdate {

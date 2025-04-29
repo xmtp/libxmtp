@@ -24,7 +24,7 @@ impl TryFrom<StoredIdentityUpdate> for UnverifiedIdentityUpdate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedIdentityUpdate {
     pub inbox_id: String,
     pub client_timestamp_ns: u64,
@@ -83,7 +83,7 @@ impl UnverifiedIdentityUpdate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum UnverifiedAction {
     CreateInbox(UnverifiedCreateInbox),
     AddAssociation(UnverifiedAddAssociation),
@@ -176,7 +176,7 @@ impl UnverifiedAction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedCreateInbox {
     pub(crate) unsigned_action: UnsignedCreateInbox,
     pub(crate) initial_identifier_signature: UnverifiedSignature,
@@ -194,7 +194,7 @@ impl UnverifiedCreateInbox {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedAddAssociation {
     pub(crate) unsigned_action: UnsignedAddAssociation,
     pub(crate) new_member_signature: UnverifiedSignature,
@@ -214,7 +214,7 @@ impl UnverifiedAddAssociation {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedRevokeAssociation {
     pub(crate) recovery_identifier_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedRevokeAssociation,
@@ -232,7 +232,7 @@ impl UnverifiedRevokeAssociation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedChangeRecoveryAddress {
     pub(crate) recovery_identifier_signature: UnverifiedSignature,
     pub(crate) unsigned_action: UnsignedChangeRecoveryAddress,
@@ -250,7 +250,7 @@ impl UnverifiedChangeRecoveryAddress {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum UnverifiedSignature {
     InstallationKey(UnverifiedInstallationKeySignature),
     RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature),
@@ -350,7 +350,7 @@ impl UnverifiedSignature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedInstallationKeySignature {
     pub(crate) signature_bytes: Vec<u8>,
     /// The Signature Verifying Key
@@ -375,7 +375,7 @@ impl UnverifiedInstallationKeySignature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedPasskeySignature {
     // This json string contains the challenge we sent out
     pub public_key: Vec<u8>,
@@ -384,7 +384,7 @@ pub struct UnverifiedPasskeySignature {
     pub client_data_json: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedRecoverableEcdsaSignature {
     pub(crate) signature_bytes: Vec<u8>,
 }
@@ -398,14 +398,14 @@ impl UnverifiedRecoverableEcdsaSignature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
     pub(crate) block_number: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct NewUnverifiedSmartContractWalletSignature {
     pub(crate) signature_bytes: Vec<u8>,
     pub(crate) account_id: AccountId,
@@ -432,7 +432,7 @@ impl UnverifiedSmartContractWalletSignature {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct UnverifiedLegacyDelegatedSignature {
     pub(crate) legacy_key_signature: UnverifiedRecoverableEcdsaSignature,
     pub(crate) signed_public_key_proto: LegacySignedPublicKeyProto,

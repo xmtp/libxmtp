@@ -9,6 +9,7 @@ pub(super) mod state;
 pub mod test_utils;
 pub mod unsigned_actions;
 pub mod unverified;
+mod unverified_fmt;
 pub mod verified_signature;
 
 pub use self::association_log::*;

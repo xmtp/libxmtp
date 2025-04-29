@@ -6,7 +6,7 @@ mod generated {
 pub use generated::*;
 
 mod error;
-mod impls;
+mod fmt;
 
 pub use error::*;
 
