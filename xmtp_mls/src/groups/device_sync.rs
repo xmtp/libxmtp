@@ -3,8 +3,6 @@ use crate::{client::ClientError, subscriptions::SubscribeError, Client};
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
-use preference_sync::UserPreferenceUpdate;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::instrument;
@@ -17,6 +15,8 @@ use xmtp_db::{
     xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
 };
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
+use xmtp_proto::xmtp::device_sync::content::device_sync_content::Content as ContentProto;
+use xmtp_proto::xmtp::device_sync::content::DeviceSyncContent as DeviceSyncContentProto;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
@@ -24,7 +24,6 @@ use xmtp_proto::{
         mls::message_contents::{
             plaintext_envelope::v2::MessageType,
             plaintext_envelope::{Content, V1, V2},
-            DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
             PlaintextEnvelope,
         },
     },
@@ -162,8 +161,12 @@ where
     async fn send_device_sync_message(
         &self,
         provider: &XmtpOpenMlsProvider,
-        content: DeviceSyncContent,
+        content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
+        let content = DeviceSyncContent {
+            content: Some(content),
+        };
+
         let sync_group = self.get_sync_group(provider).await?;
         tracing::info!(
             "Sending sync message to group {:?}: {content:?}",
@@ -246,29 +249,15 @@ fn default_backup_options() -> BackupOptions {
     }
 }
 
-// These are the messages that get sent out to the sync group
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum DeviceSyncContent {
-    Request(DeviceSyncRequestProto),
-    Payload(DeviceSyncReplyProto),
-    Acknowledge(AcknowledgeKind),
-    PreferenceUpdates(Vec<UserPreferenceUpdate>),
-}
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum AcknowledgeKind {
-    SyncGroupPresence,
-    Request { request_id: String },
-}
-
 pub trait IterWithContent<A, B> {
     fn iter_with_content(self) -> impl Iterator<Item = (A, B)>;
 }
 
-impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
-    fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
+impl IterWithContent<StoredGroupMessage, DeviceSyncContentProto> for Vec<StoredGroupMessage> {
+    fn iter_with_content(
+        self,
+    ) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContentProto)> {
         self.into_iter().filter_map(|msg| {
-            let str = String::from_utf8_lossy(&msg.decrypted_message_bytes);
-            tracing::error!("{str}");
             let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
             Some((msg, content))
         })

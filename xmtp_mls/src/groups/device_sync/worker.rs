@@ -1,15 +1,16 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
     preference_sync::UserPreferenceUpdate,
-    DeviceSyncContent, DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
+    DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
 };
 use crate::{
     configuration::WORKER_RESTART_DELAY,
     groups::{
         device_sync::{
             backup::{exporter::BackupExporter, BackupImporter},
-            default_backup_options, AcknowledgeKind,
+            default_backup_options,
         },
+        device_sync_legacy::DeviceSyncContent as DeviceSyncContentLegacy,
         scoped_client::ScopedGroupClient,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncEvent},
@@ -31,7 +32,10 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
-        device_sync::{BackupElementSelection, BackupOptions},
+        device_sync::{
+            content::{device_sync_content::Content as ContentProto, DeviceSyncContent as DeviceSyncContentProto}, BackupElementSelection,
+            BackupOptions,
+        },
         mls::message_contents::{
             DeviceSyncKind, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
@@ -230,7 +234,8 @@ where
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let content: DeviceSyncContentProto =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Payload(reply) = content {
                 self.client.v1_process_sync_reply(&provider, reply).await?;
             }
@@ -558,6 +563,10 @@ where
             result => result?,
         }
 
+        DeviceSyncContentProto {
+            content: Some(ContentProto)
+        }
+
         // Send the message out over the network
         self.send_device_sync_message(&provider, DeviceSyncContent::Payload(reply))
             .await?;
@@ -590,7 +599,9 @@ where
             ..Default::default()
         };
 
-        self.send_device_sync_message(provider, DeviceSyncContent::Request(request))
+        self.send_device_sync_message(provider, DeviceSyncContentProto {
+            content: Some(ContentProto::Request(request))
+        })
             .await?;
 
         Ok(())
