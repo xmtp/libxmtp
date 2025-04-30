@@ -1,8 +1,7 @@
 //! General Blanket Implementations for protocol traits
 
-use super::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
+use super::{EnvelopeError, EnvelopeVisitor};
 use impl_trait_for_tuples::impl_for_tuples;
-use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
@@ -188,7 +187,12 @@ where
         Ok(())
     }
 }
-
+/*
+* WARN: ProtocolEnvelope implementation for a Vec<T>
+* should be avoided, since it may cause Envelope
+* to implicity act on a collection when a single envelope is expected.
+* Theres a way to seal this trait implementation to
+* avoid external implementations which should be done.
 impl<'env, T> ProtocolEnvelope<'env> for Vec<T>
 where
     T: ProtocolEnvelope<'env>,
@@ -210,3 +214,4 @@ where
         Ok(())
     }
 }
+*/
