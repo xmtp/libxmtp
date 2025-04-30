@@ -1355,7 +1355,6 @@ where
         error: &GroupMessageProcessingError,
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
-        tracing::info!("##### ");
         if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::WrongEpoch,
         )) = error
