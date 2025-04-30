@@ -163,7 +163,7 @@ where
         provider: &XmtpOpenMlsProvider,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
-        let content = DeviceSyncContent {
+        let content = DeviceSyncContentProto {
             content: Some(content),
         };
 

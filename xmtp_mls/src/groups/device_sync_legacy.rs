@@ -2,7 +2,7 @@
 // TODO: Delete this on the next hammer version.
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::DeviceSyncError;
-use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use crate::groups::device_sync::preference_sync::preference_sync_legacy::UserPreferenceUpdate;
 use crate::subscriptions::SyncEvent;
 use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
@@ -32,6 +32,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum AcknowledgeKind {
+    SyncGroupPresence,
+    Request { request_id: String },
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
