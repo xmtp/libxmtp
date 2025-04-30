@@ -2580,7 +2580,8 @@ pub(crate) mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -2685,7 +2686,8 @@ pub(crate) mod tests {
                 .decrypted_message_bytes
         );
     }
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_create_group_with_member_all_malformed_installations() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -2746,7 +2748,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_dm_creation_with_user_two_installations_one_malformed() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         // 1) Prepare clients
@@ -2852,7 +2855,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_dm_creation_with_user_all_malformed_installations() {
         use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -2907,7 +2911,8 @@ pub(crate) mod tests {
         );
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_add_inbox_with_bad_installation_to_group() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         use xmtp_id::associations::test_utils::WalletTestExt;
@@ -2950,7 +2955,8 @@ pub(crate) mod tests {
         assert_eq!(alix_groups.len(), 1);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         use xmtp_id::associations::test_utils::WalletTestExt;
@@ -2992,7 +2998,8 @@ pub(crate) mod tests {
         assert_eq!(alix_groups.len(), 1);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_remove_inbox_with_good_installation_from_group_with_bad_installation() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         use xmtp_id::associations::test_utils::WalletTestExt;
@@ -3039,7 +3046,8 @@ pub(crate) mod tests {
         assert_eq!(group.members().await.unwrap().len(), 2);
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_remove_inbox_with_bad_installation_from_group() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
         use xmtp_id::associations::test_utils::WalletTestExt;
@@ -5736,7 +5744,8 @@ pub(crate) mod tests {
         assert!(result.is_ok());
     }
 
-    #[xmtp_common::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
         use crate::utils::set_test_mode_upload_malformed_keypackage;
 

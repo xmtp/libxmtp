@@ -16,7 +16,7 @@ pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
     #[builder(default = None)]
-    paging_info: Option<PagingInfo>
+    paging_info: Option<PagingInfo>,
 }
 
 impl QueryEnvelope {
