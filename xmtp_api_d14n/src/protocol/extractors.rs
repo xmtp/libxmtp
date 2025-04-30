@@ -4,7 +4,7 @@ use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::{ConversionError, mls_v1};
 
-use super::{EnvelopeError, Extractor, ProtocolEnvelope};
+use super::{EnvelopeCollection, EnvelopeError, Extractor, ProtocolEnvelope};
 use super::{TopicKind, traits::EnvelopeVisitor};
 use openmls::prelude::KeyPackageVerifyError;
 use openmls::{
@@ -25,6 +25,41 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;
+
+/// Extract Data from a collection of envelopes
+/// Does not preserve sequenced data, use [`SequencedExtractor`]
+/// to preserve SequenceID/OriginatorID
+/// runs with one extractor.
+pub struct CollectionExtractor<Envelopes, Extractor> {
+    envelopes: Envelopes,
+    extractor: Extractor,
+}
+
+impl<Envelopes, Extractor> CollectionExtractor<Envelopes, Extractor> {
+    pub fn new(envelopes: Envelopes, extractor: Extractor) -> Self {
+        Self {
+            envelopes,
+            extractor,
+        }
+    }
+}
+
+impl<'a, Envelopes, E> Extractor for CollectionExtractor<Envelopes, E>
+where
+    Envelopes: EnvelopeCollection<'a> + IntoIterator,
+    <Envelopes as IntoIterator>::Item: ProtocolEnvelope<'a>,
+    E: Extractor + EnvelopeVisitor<'a>,
+    EnvelopeError: From<<E as EnvelopeVisitor<'a>>::Error>,
+{
+    type Output = Result<<E as Extractor>::Output, EnvelopeError>;
+
+    fn get(mut self) -> Self::Output {
+        for envelope in self.envelopes.into_iter() {
+            envelope.accept(&mut self.extractor)?;
+        }
+        Ok(self.extractor.get())
+    }
+}
 
 /// Build a [`SequencedExtractor`]
 #[derive(Default)]
@@ -192,12 +227,22 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
     }
 }
 
+/// Key Packages Extractor
+/// This Extractor can be applied to multiple envelopes without losing state
 #[derive(Default, Clone)]
-pub struct KeyPackageExtractor {
+pub struct KeyPackagesExtractor {
     key_packages: Vec<KeyPackage>,
 }
 
-impl KeyPackageExtractor {
+impl Extractor for KeyPackagesExtractor {
+    type Output = Vec<KeyPackage>;
+
+    fn get(self) -> Self::Output {
+        self.key_packages
+    }
+}
+
+impl KeyPackagesExtractor {
     pub fn new() -> Self {
         Default::default()
     }
@@ -207,7 +252,7 @@ impl KeyPackageExtractor {
     }
 }
 
-impl EnvelopeVisitor<'_> for KeyPackageExtractor {
+impl EnvelopeVisitor<'_> for KeyPackagesExtractor {
     type Error = ConversionError;
 
     fn visit_client(&mut self, e: &ClientEnvelope) -> Result<(), Self::Error> {
@@ -238,7 +283,7 @@ impl EnvelopeVisitor<'_> for KeyPackageExtractor {
 /// Extract Topics from Envelopes
 #[derive(Default, Clone, Debug)]
 pub struct TopicExtractor {
-    topics: Option<Vec<Vec<u8>>>,
+    topic: Option<Vec<u8>>,
 }
 
 impl TopicExtractor {
@@ -246,18 +291,17 @@ impl TopicExtractor {
         Default::default()
     }
 }
+impl Extractor for TopicExtractor {
+    type Output = Result<Vec<u8>, TopicExtractionError>;
+
+    fn get(self) -> Self::Output {
+        self.topic.ok_or(TopicExtractionError::Failed)
+    }
+}
 
 impl TopicExtractor {
-    pub fn get(self) -> Result<Vec<Vec<u8>>, TopicExtractionError> {
-        self.topics.ok_or(TopicExtractionError::Failed)
-    }
-
-    pub fn push(&mut self, t: Vec<u8>) {
-        if let Some(topics) = &mut self.topics {
-            topics.push(t);
-        } else {
-            self.topics = Some(vec![t])
-        }
+    pub fn get(self) -> Result<Vec<u8>, TopicExtractionError> {
+        self.topic.ok_or(TopicExtractionError::Failed)
     }
 }
 
@@ -295,12 +339,12 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
     fn visit_group_message_v1(&mut self, message: &GroupMessageV1) -> Result<(), Self::Error> {
         let msg_result = MlsMessageIn::tls_deserialize(&mut message.data.as_slice())?;
         let protocol_message: ProtocolMessage = msg_result.try_into_protocol_message()?;
-        self.push(TopicKind::GroupMessagesV1.build(protocol_message.group_id().as_slice()));
+        self.topic = Some(TopicKind::GroupMessagesV1.build(protocol_message.group_id().as_slice()));
         Ok(())
     }
 
     fn visit_welcome_message_v1(&mut self, message: &WelcomeMessageV1) -> Result<(), Self::Error> {
-        self.push(TopicKind::WelcomeMessagesV1.build(message.installation_key.as_slice()));
+        self.topic = Some(TopicKind::WelcomeMessagesV1.build(message.installation_key.as_slice()));
         Ok(())
     }
 
@@ -317,13 +361,13 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         let rust_crypto = RustCrypto::default();
         let kp = kp_in.validate(&rust_crypto, super::MLS_PROTOCOL_VERSION)?;
         let installation_key = kp.leaf_node().signature_key().as_slice();
-        self.push(TopicKind::KeyPackagesV1.build(installation_key));
+        self.topic = Some(TopicKind::KeyPackagesV1.build(installation_key));
         Ok(())
     }
 
     fn visit_identity_update(&mut self, update: &IdentityUpdate) -> Result<(), Self::Error> {
         let decoded_id = hex::decode(&update.inbox_id)?;
-        self.push(TopicKind::IdentityUpdatesV1.build(&decoded_id));
+        self.topic = Some(TopicKind::IdentityUpdatesV1.build(&decoded_id));
         Ok(())
     }
 
@@ -332,7 +376,7 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         update: &get_identity_updates_request::Request,
     ) -> Result<(), Self::Error> {
         let decoded_id = hex::decode(&update.inbox_id)?;
-        self.push(TopicKind::IdentityUpdatesV1.build(&decoded_id));
+        self.topic = Some(TopicKind::IdentityUpdatesV1.build(&decoded_id));
         Ok(())
     }
 }
@@ -340,7 +384,7 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
 /// Extract Topics from Envelopes
 #[derive(Default, Clone, Debug)]
 pub struct PayloadExtractor {
-    payloads: Option<Vec<Payload>>,
+    payload: Option<Payload>,
 }
 
 impl PayloadExtractor {
@@ -348,16 +392,8 @@ impl PayloadExtractor {
         Default::default()
     }
 
-    pub fn get(self) -> Result<Vec<Payload>, PayloadExtractionError> {
-        self.payloads.ok_or(PayloadExtractionError::Failed)
-    }
-
-    pub fn push(&mut self, p: Payload) {
-        if let Some(payloads) = &mut self.payloads {
-            payloads.push(p);
-        } else {
-            self.payloads = Some(vec![p])
-        }
+    pub fn get(self) -> Result<Payload, PayloadExtractionError> {
+        self.payload.ok_or(PayloadExtractionError::Failed)
     }
 }
 
@@ -390,7 +426,7 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
         message: &GroupMessageInput,
     ) -> Result<(), Self::Error> {
         tracing::debug!("Group Message Input");
-        self.push(Payload::GroupMessage(message.clone()));
+        self.payload = Some(Payload::GroupMessage(message.clone()));
         Ok(())
     }
 
@@ -398,7 +434,7 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
         &mut self,
         message: &WelcomeMessageInput,
     ) -> Result<(), Self::Error> {
-        self.push(Payload::WelcomeMessage(message.clone()));
+        self.payload = Some(Payload::WelcomeMessage(message.clone()));
         Ok(())
     }
 
@@ -406,12 +442,12 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
         &mut self,
         kp: &UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        self.push(Payload::UploadKeyPackage(kp.clone()));
+        self.payload = Some(Payload::UploadKeyPackage(kp.clone()));
         Ok(())
     }
 
     fn visit_identity_update(&mut self, update: &IdentityUpdate) -> Result<(), Self::Error> {
-        self.push(Payload::IdentityUpdate(update.clone()));
+        self.payload = Some(Payload::IdentityUpdate(update.clone()));
         Ok(())
     }
 }

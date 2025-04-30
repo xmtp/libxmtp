@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use super::D14nClient;
 use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::traits::Envelope;
-use crate::protocol::traits::Extractor;
+use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use xmtp_common::RetryableError;
@@ -41,9 +40,9 @@ where
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
         })?;
 
-        let envelopes = update.client_envelopes()?;
+        let envelopes = update.client_envelope()?;
         PublishClientEnvelopes::builder()
-            .envelopes(envelopes)
+            .envelope(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
