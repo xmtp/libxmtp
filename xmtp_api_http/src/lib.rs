@@ -163,13 +163,11 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
 
     fn set_libxmtp_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.libxmtp_version = Some(version.clone());
-        self.headers.insert("x-libxmtp-version", version.parse()?);
         Ok(())
     }
 
     fn set_app_version(&mut self, version: String) -> Result<(), Self::Error> {
         self.app_version = Some(version.clone());
-        self.headers.insert("x-app-version", version.parse()?);
         Ok(())
     }
 
@@ -182,14 +180,18 @@ impl ApiBuilder for XmtpHttpApiClientBuilder {
         self.tls = tls;
     }
 
-    async fn build(self) -> Result<Self::Output, Self::Error> {
-        let http_client = self.reqwest.default_headers(self.headers).build()?;
+    async fn build(mut self) -> Result<Self::Output, Self::Error> {
         let libxmtp_version = self
             .libxmtp_version
             .unwrap_or(env!("CARGO_PKG_VERSION").to_string());
         let app_version = self
             .app_version
             .ok_or(HttpClientBuilderError::MissingAppVersion)?;
+
+        self.headers
+            .insert("x-libxmtp-version", libxmtp_version.parse()?);
+        self.headers.insert("x-app-version", app_version.parse()?);
+        let http_client = self.reqwest.default_headers(self.headers).build()?;
 
         let limiter = self.limiter.unwrap_or_else(|| {
             let limit = NonZeroU32::new(1900).expect("1900 is greater than 0");
