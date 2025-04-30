@@ -144,11 +144,7 @@ mod tests {
         groups::{device_sync::handle::SyncMetric, scoped_client::ScopedGroupClient},
         utils::{LocalTesterBuilder, Tester},
     };
-    use serde::{Deserialize, Serialize};
-    use xmtp_db::{
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-        user_preferences::StoredUserPreferences,
-    };
+    use xmtp_db::user_preferences::StoredUserPreferences;
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {

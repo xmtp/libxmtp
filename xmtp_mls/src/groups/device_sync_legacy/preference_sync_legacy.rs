@@ -65,7 +65,7 @@ where
                     consent_updates.push(consent_record);
                 }
                 UserPreferenceUpdate::Hmac { key } => {
-                    updates.push(update.into());
+                    updates.push(update);
                     StoredUserPreferences::store_hmac_key(conn, &key)?;
                 }
             }

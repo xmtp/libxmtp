@@ -18,7 +18,6 @@ use diesel::{
     dsl::sql,
     expression::AsExpression,
     prelude::*,
-    query_dsl::methods::OrderDsl,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
@@ -150,7 +149,7 @@ impl DbConnection {
 
         let mut query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
-            .order_by(dsl::created_at_ns.asc())
+            .order(dsl::created_at_ns.asc())
             .into_boxed();
 
         if !include_duplicate_dms {
@@ -225,7 +224,7 @@ impl DbConnection {
                             )),
                     )
                     .select(dsl::groups::all_columns())
-                    .order_by(dsl::created_at_ns.asc());
+                    .order(dsl::created_at_ns.asc());
 
                 self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             } else {
@@ -238,7 +237,7 @@ impl DbConnection {
                     )
                     .filter(consent_dsl::state.eq_any(consent_states.clone()))
                     .select(dsl::groups::all_columns())
-                    .order_by(dsl::created_at_ns.asc());
+                    .order(dsl::created_at_ns.asc());
 
                 self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             }
@@ -272,7 +271,7 @@ impl DbConnection {
 
         let mut query = groups::table
             .filter(groups::conversation_type.ne(ConversationType::Sync))
-            .order_by(groups::id)
+            .order(groups::id)
             .into_boxed();
 
         if let Some(start_ns) = created_after_ns {
@@ -304,7 +303,7 @@ impl DbConnection {
 
     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order_by(dsl::created_at_ns.desc())
+            .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         Ok(self.raw_query_read(|conn| query.load(conn))?)
@@ -324,7 +323,7 @@ impl DbConnection {
     /// Return a single group that matches the given ID
     pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order_by(dsl::created_at_ns.asc())
+            .order(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
         let groups = self.raw_query_read(|conn| query.load(conn))?;
@@ -338,7 +337,7 @@ impl DbConnection {
         welcome_id: i64,
     ) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order_by(dsl::created_at_ns.asc())
+            .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
         let groups = self.raw_query_read(|conn| query.load(conn))?;
@@ -374,7 +373,7 @@ impl DbConnection {
         let last_ts = self.raw_query_read(|conn| {
             let ts = group_messages_dsl::group_messages
                 .filter(group_messages_dsl::group_id.eq(group_id))
-                .order_by(group_messages_dsl::sent_at_ns.asc())
+                .order(group_messages_dsl::sent_at_ns.asc())
                 .select(group_messages_dsl::sent_at_ns)
                 .first(conn)
                 .optional()?;
