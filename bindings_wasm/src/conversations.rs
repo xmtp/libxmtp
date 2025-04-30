@@ -16,7 +16,8 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+  ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
+  HmacKey as XmtpHmacKey, PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
@@ -158,6 +159,27 @@ impl MessageDisappearingSettings {
   #[wasm_bindgen(constructor)]
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
     Self { from_ns, in_ns }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
+pub struct ConversationDebugInfo {
+  #[wasm_bindgen(js_name = epoch)]
+  pub epoch: u64,
+  #[wasm_bindgen(js_name = maybeForked)]
+  pub maybe_forked: bool,
+  #[wasm_bindgen(js_name = forkDetails)]
+  pub fork_details: String,
+}
+
+impl ConversationDebugInfo {
+  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
+    Self {
+      epoch: xmtp_debug_info.epoch,
+      maybe_forked: xmtp_debug_info.maybe_forked,
+      fork_details: xmtp_debug_info.fork_details,
+    }
   }
 }
 

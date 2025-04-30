@@ -40,7 +40,7 @@ use xmtp_mls::groups::device_sync::ENC_KEY_SIZE;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::groups::intents::UpdateGroupMembershipResult;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::{DMMetadataOptions, HmacKey};
+use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions, HmacKey};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -1645,6 +1645,29 @@ impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
     }
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiConversationDebugInfo {
+    pub epoch: u64,
+    pub maybe_forked: bool,
+    pub fork_details: String,
+}
+
+impl FfiConversationDebugInfo {
+    fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+        Self {
+            epoch,
+            maybe_forked,
+            fork_details,
+        }
+    }
+}
+
+impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
+    fn from(value: ConversationDebugInfo) -> Self {
+        FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
+    }
+}
+
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
     fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -2255,6 +2278,11 @@ impl FfiConversation {
         let provider = self.inner.mls_provider()?;
         let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
+    }
+
+    pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
+        let debug_info = self.inner.debug_info().await?;
+        Ok(debug_info.into())
     }
 }
 
@@ -3972,6 +4000,34 @@ mod tests {
         stream_messages.end_and_wait().await.unwrap();
 
         assert!(stream_messages.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_debug_info_returns_correct_values() {
+        // Step 1: Setup test client Alix and bo
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Step 2: Create a group and add messages
+        let alix_conversations = alix.conversations();
+
+        // Create a group
+        let group = alix_conversations
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let debug_info = group.inner.debug_info().await.unwrap();
+        // Ensure the group is included
+        assert_eq!(debug_info.epoch, 1, "Group epoch should be 1");
+        assert!(!debug_info.maybe_forked, "Group is not marked as forked");
+        assert!(
+            debug_info.fork_details.is_empty(),
+            "Group has no fork details"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
