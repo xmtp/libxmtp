@@ -8,9 +8,10 @@ use super::{
         groups::{self, dsl},
         user_preferences,
     },
+    user_preferences::SyncCursor,
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, impl_fetch, impl_store};
+use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
@@ -93,19 +94,25 @@ impl StoredGroup {
         StoredGroupBuilder::default()
     }
 
-    pub fn new_sync_group(
+    pub fn create_sync_group(
+        conn: &DbConnection,
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-    ) -> Self {
-        StoredGroup::builder()
+    ) -> Result<Self, StorageError> {
+        let stored_group = StoredGroup::builder()
             .id(id)
             .conversation_type(ConversationType::Sync)
             .created_at_ns(created_at_ns)
             .membership_state(membership_state)
             .added_by_inbox_id("")
             .build()
-            .expect("No fields should be uninitialized")
+            .expect("No fields should be uninitialized");
+
+        stored_group.store(conn)?;
+        SyncCursor::reset(&stored_group.id, conn)?;
+
+        Ok(stored_group)
     }
 }
 
@@ -895,12 +902,11 @@ pub(crate) mod tests {
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
-            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
+            let sync_group =
+                StoredGroup::create_sync_group(conn, id, created_at_ns, membership_state).unwrap();
 
             let conversation_type = sync_group.conversation_type;
             assert_eq!(conversation_type, ConversationType::Sync);
-
-            sync_group.store(conn).unwrap();
 
             let found = conn.primary_sync_group().unwrap();
             assert!(found.is_some());
@@ -1007,14 +1013,5 @@ pub(crate) mod tests {
             assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
         })
         .await
-    }
-
-    #[xmtp_common::test]
-    fn new_sync_group_does_not_panic() {
-        let _ = StoredGroup::new_sync_group(
-            xmtp_common::rand_vec::<24>(),
-            100,
-            GroupMembershipState::Allowed,
-        );
     }
 }

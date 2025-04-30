@@ -867,10 +867,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id, now_ns(), GroupMembershipState::Allowed);
+        let stored_group = StoredGroup::create_sync_group(
+            provider.conn_ref(),
+            group_id,
+            now_ns(),
+            GroupMembershipState::Allowed,
+        )?;
 
-        stored_group.store(provider.conn_ref())?;
         let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
 
         Ok(group)
