@@ -3,7 +3,11 @@ use super::{
     Sqlite,
     consent_record::ConsentState,
     db_connection::DbConnection,
-    schema::groups::{self, dsl},
+    schema::{
+        group_messages::dsl as group_messages_dsl,
+        groups::{self, dsl},
+        user_preferences,
+    },
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError, impl_fetch, impl_store};
@@ -14,6 +18,7 @@ use diesel::{
     dsl::sql,
     expression::AsExpression,
     prelude::*,
+    query_dsl::methods::OrderDsl,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
@@ -131,7 +136,6 @@ impl DbConnection {
         args: A,
     ) -> Result<Vec<StoredGroup>, StorageError> {
         use crate::schema::consent_records::dsl as consent_dsl;
-        use crate::schema::groups::dsl as groups_dsl;
         let GroupQueryArgs {
             allowed_states,
             created_after_ns,
@@ -144,9 +148,9 @@ impl DbConnection {
             activity_after_ns,
         } = args.as_ref();
 
-        let mut query = groups_dsl::groups
-            .filter(groups_dsl::conversation_type.ne(ConversationType::Sync))
-            .order(groups_dsl::created_at_ns.asc())
+        let mut query = dsl::groups
+            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .order_by(dsl::created_at_ns.asc())
             .into_boxed();
 
         if !include_duplicate_dms {
@@ -168,7 +172,7 @@ impl DbConnection {
         }
 
         if let Some(allowed_states) = allowed_states {
-            query = query.filter(groups_dsl::membership_state.eq_any(allowed_states));
+            query = query.filter(dsl::membership_state.eq_any(allowed_states));
         }
 
         // activity_after_ns takes precedence over created_after_ns
@@ -177,23 +181,23 @@ impl DbConnection {
             // or have sent a message after the specified time.
             if let Some(created_after_ns) = created_after_ns {
                 query = query.filter(
-                    groups_dsl::last_message_ns
+                    dsl::last_message_ns
                         .gt(activity_after_ns)
-                        .or(groups_dsl::created_at_ns.gt(created_after_ns)),
+                        .or(dsl::created_at_ns.gt(created_after_ns)),
                 );
             } else {
-                query = query.filter(groups_dsl::last_message_ns.gt(activity_after_ns));
+                query = query.filter(dsl::last_message_ns.gt(activity_after_ns));
             }
         } else if let Some(created_after_ns) = created_after_ns {
-            query = query.filter(groups_dsl::created_at_ns.gt(created_after_ns));
+            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
         }
 
         if let Some(created_before_ns) = created_before_ns {
-            query = query.filter(groups_dsl::created_at_ns.lt(created_before_ns));
+            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
         }
 
         if let Some(conversation_type) = conversation_type {
-            query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
+            query = query.filter(dsl::conversation_type.eq(conversation_type));
         }
 
         let mut groups = if let Some(consent_states) = consent_states {
@@ -220,8 +224,8 @@ impl DbConnection {
                                     .collect::<Vec<_>>(),
                             )),
                     )
-                    .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc());
+                    .select(dsl::groups::all_columns())
+                    .order_by(dsl::created_at_ns.asc());
 
                 self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             } else {
@@ -233,8 +237,8 @@ impl DbConnection {
                                 .eq(consent_dsl::entity)),
                     )
                     .filter(consent_dsl::state.eq_any(consent_states.clone()))
-                    .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc());
+                    .select(dsl::groups::all_columns())
+                    .order_by(dsl::created_at_ns.asc());
 
                 self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
             }
@@ -246,8 +250,7 @@ impl DbConnection {
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
         // Then query for those separately
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
-            let query =
-                groups_dsl::groups.filter(groups_dsl::conversation_type.eq(ConversationType::Sync));
+            let query = dsl::groups.filter(dsl::conversation_type.eq(ConversationType::Sync));
             let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
             groups.append(&mut sync_groups);
         }
@@ -301,25 +304,27 @@ impl DbConnection {
 
     pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order(dsl::created_at_ns.desc())
+            .order_by(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
-    pub fn latest_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order(dsl::created_at_ns.desc())
-            .filter(dsl::conversation_type.eq(ConversationType::Sync))
-            .limit(1);
+            .inner_join(
+                user_preferences::dsl::user_preferences
+                    .on(user_preferences::dsl::primary_sync_group_id.eq(dsl::id.nullable())),
+            )
+            .select(dsl::groups::all_columns());
 
-        Ok(self.raw_query_read(|conn| query.load(conn))?.pop())
+        Ok(self.raw_query_read(|conn| query.first(conn).optional())?)
     }
 
     /// Return a single group that matches the given ID
     pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order(dsl::created_at_ns.asc())
+            .order_by(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
         let groups = self.raw_query_read(|conn| query.load(conn))?;
@@ -333,7 +338,7 @@ impl DbConnection {
         welcome_id: i64,
     ) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .order(dsl::created_at_ns.asc())
+            .order_by(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
         let groups = self.raw_query_read(|conn| query.load(conn))?;
@@ -360,6 +365,33 @@ impl DbConnection {
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
             group_id,
         )))
+    }
+
+    pub fn get_group_oldest_message_timestamp_ns(
+        &self,
+        group_id: &[u8],
+    ) -> Result<i64, StorageError> {
+        let last_ts = self.raw_query_read(|conn| {
+            let ts = group_messages_dsl::group_messages
+                .filter(group_messages_dsl::group_id.eq(group_id))
+                .order_by(group_messages_dsl::sent_at_ns.asc())
+                .select(group_messages_dsl::sent_at_ns)
+                .first(conn)
+                .optional()?;
+            Ok::<Option<i64>, StorageError>(ts)
+        })?;
+
+        let last_ts = match last_ts {
+            Some(last_ts) => last_ts,
+            None => {
+                let group = self.find_group(group_id)?.ok_or(StorageError::NotFound(
+                    NotFound::GroupById(group_id.to_vec()),
+                ))?;
+                group.created_at_ns
+            }
+        };
+
+        Ok(last_ts)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
@@ -783,7 +815,7 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.latest_sync_group().unwrap();
+            let synced_groups = conn.primary_sync_group().unwrap();
             assert!(synced_groups.is_none());
 
             // test that dm groups are included
@@ -871,7 +903,7 @@ pub(crate) mod tests {
 
             sync_group.store(conn).unwrap();
 
-            let found = conn.latest_sync_group().unwrap();
+            let found = conn.primary_sync_group().unwrap();
             assert!(found.is_some());
             assert_eq!(found.unwrap().conversation_type, ConversationType::Sync);
 

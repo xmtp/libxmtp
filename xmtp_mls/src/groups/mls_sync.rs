@@ -1618,16 +1618,6 @@ where
         provider: &XmtpOpenMlsProvider,
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
-        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
-            return Err(GroupError::NotFound(NotFound::GroupById(
-                self.group_id.clone(),
-            )));
-        };
-        if stored_group.conversation_type == ConversationType::Sync {
-            // Sync groups should not add new installations, new installations will create their own.
-            return Ok(());
-        }
-
         // determine how long of an interval in time to use before updating list
         let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
 

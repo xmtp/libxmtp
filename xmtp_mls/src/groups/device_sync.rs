@@ -8,18 +8,24 @@ use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
-use xmtp_db::user_preferences::SyncCursor;
 use xmtp_db::{
-    group::GroupQueryArgs, group_message::StoredGroupMessage,
-    xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
+    group::GroupQueryArgs,
+    group_message::StoredGroupMessage,
+    user_preferences::{StoredUserPreferences, SyncCursor},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    NotFound, StorageError,
 };
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
-use xmtp_proto::xmtp::device_sync::content::device_sync_content::Content as ContentProto;
-use xmtp_proto::xmtp::device_sync::content::DeviceSyncContent as DeviceSyncContentProto;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
-        device_sync::{BackupElementSelection, BackupOptions},
+        device_sync::{
+            content::{
+                device_sync_content::Content as ContentProto,
+                DeviceSyncContent as DeviceSyncContentProto, SyncGroupContest,
+            },
+            BackupElementSelection, BackupOptions,
+        },
         mls::message_contents::{
             plaintext_envelope::{Content, V1},
             PlaintextEnvelope,
@@ -156,16 +162,60 @@ where
         }
     }
 
+    /// Will check if a sync group should be contested and send a contest message if so.
+    /// Returns true if contested.
+    async fn maybe_contest_sync_group(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        group_id: &[u8],
+        cited_message_id: Option<&[u8]>,
+    ) -> Result<bool, ClientError> {
+        let prefs = StoredUserPreferences::load(provider.conn_ref())?;
+
+        let Some(primary_sync_group_id) = prefs.primary_sync_group_id else {
+            // Nothing to contest.
+            return Ok(false);
+        };
+        if primary_sync_group_id == group_id {
+            // They're the same group. Nothing to contest.
+            return Ok(false);
+        }
+
+        let oldest_message_timestamp = provider
+            .conn_ref()
+            .get_group_oldest_message_timestamp_ns(group_id)?;
+        self.send_device_sync_message(
+            provider,
+            Some(group_id.to_vec()),
+            ContentProto::SyncGroupContest(SyncGroupContest {
+                group_id: primary_sync_group_id,
+                oldest_message_timestamp,
+                cited_message_id: cited_message_id.map(|id| id.to_vec()),
+            }),
+        )
+        .await?;
+
+        Ok(true)
+    }
+
+    /// Sends a device sync message.
+    /// If the `group_id` is `None`, the message will be sent
+    /// to the primary sync group ID.
     async fn send_device_sync_message(
         &self,
         provider: &XmtpOpenMlsProvider,
+        group_id: Option<Vec<u8>>,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
         let content = DeviceSyncContentProto {
             content: Some(content),
         };
 
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = match group_id {
+            Some(group_id) => self.group_with_conn(provider.conn_ref(), &group_id)?,
+            None => self.get_sync_group(provider).await?,
+        };
+
         tracing::info!(
             "Sending sync message to group {:?}: {content:?}",
             &sync_group.group_id[..4]
@@ -192,7 +242,15 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
         let conn = provider.conn_ref();
-        let sync_group = match conn.latest_sync_group()? {
+        let mut sync_group = conn.primary_sync_group()?;
+        if sync_group.is_none() {
+            // If there is no sync group, try to see if there
+            // is a new group for us on the network before creating one.
+            self.sync_welcomes(provider).await?;
+            sync_group = conn.primary_sync_group()?;
+        }
+
+        let sync_group = match sync_group {
             Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
             None => {
                 let sync_group =

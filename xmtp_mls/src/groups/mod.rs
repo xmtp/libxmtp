@@ -811,8 +811,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
-                    SyncCursor::reset(mls_group.group_id().as_slice(), provider.conn_ref())?;
-                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+                    let group_id = mls_group.group_id().to_vec();
+                    SyncCursor::reset(&group_id, provider.conn_ref())?;
+                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome(group_id)));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)

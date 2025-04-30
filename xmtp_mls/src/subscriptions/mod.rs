@@ -53,7 +53,7 @@ pub enum LocalEvents {
 
 #[derive(Debug, Clone)]
 pub enum SyncEvent {
-    NewSyncGroupFromWelcome,
+    NewSyncGroupFromWelcome(Vec<u8>),
     NewSyncGroupMsg,
     PreferencesOutgoing(Vec<UserPreferenceUpdate>),
     PreferencesChanged(Vec<UserPreferenceUpdate>),
