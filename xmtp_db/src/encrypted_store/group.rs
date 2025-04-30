@@ -485,7 +485,7 @@ impl DbConnection {
                 .optional()?;
 
             if maybe_inserted_group.is_none() {
-                let existing_group: StoredGroup = dsl::groups.find(group.id).first(conn)?;
+                let existing_group: StoredGroup = dsl::groups.find(&group.id).first(conn)?;
                 if existing_group.welcome_id == group.welcome_id {
                     tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
@@ -494,6 +494,16 @@ impl DbConnection {
                     )));
                 } else {
                     tracing::info!("Group already exists");
+                    // If the welcome id is greater than the existing group welcome, update the welcome id
+                    // on the existing group
+                    if group.welcome_id.is_some()
+                        && (existing_group.welcome_id.is_none()
+                            || group.welcome_id > existing_group.welcome_id)
+                    {
+                        diesel::update(dsl::groups.find(&group.id))
+                            .set(dsl::welcome_id.eq(group.welcome_id))
+                            .execute(conn)?;
+                    }
                     return Ok(existing_group);
                 }
             } else {
