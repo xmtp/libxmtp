@@ -2,14 +2,15 @@ use super::D14nClient;
 use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
+use crate::protocol::CollectionExtractor;
 use crate::protocol::GroupMessageExtractor;
-use crate::protocol::KeyPackageExtractor;
+use crate::protocol::KeyPackagesExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
+use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
-use crate::protocol::traits::ProtocolEnvelope;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
@@ -35,9 +36,9 @@ where
         &self,
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
-        let envelopes = request.client_envelopes()?;
+        let envelopes = request.client_envelope()?;
         PublishClientEnvelopes::builder()
-            .envelopes(envelopes)
+            .envelope(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
@@ -61,10 +62,8 @@ where
             .build()?
             .query(&self.message_client)
             .await?;
-
-        let mut extractor = KeyPackageExtractor::new();
-        result.results.accept(&mut extractor)?;
-        let key_packages = extractor.get();
+        let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
+        let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
     }
 
