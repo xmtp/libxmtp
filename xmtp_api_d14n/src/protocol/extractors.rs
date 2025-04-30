@@ -134,6 +134,7 @@ impl RetryableError for ExtractionError {
 /// Type to extract a Welcome Message from Originator Envelopes
 #[derive(Default)]
 pub struct WelcomeMessageExtractor {
+    originator_node_id: u32,
     originator_sequence_id: u64,
     created_ns: u64,
     welcome_message: mls_v1::WelcomeMessage,
@@ -154,6 +155,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
+        self.originator_node_id = envelope.originator_node_id;
         self.originator_sequence_id = envelope.originator_sequence_id;
         self.created_ns = envelope.originator_ns as u64;
         Ok(())
@@ -177,6 +179,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
 /// Type to extract a Group Message from Originator Envelopes
 #[derive(Default)]
 pub struct GroupMessageExtractor {
+    originator_node_id: u32,
     originator_sequence_id: u64,
     created_ns: u64,
     group_message: mls_v1::GroupMessage,
@@ -197,6 +200,7 @@ impl EnvelopeVisitor<'_> for GroupMessageExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
+        self.originator_node_id = envelope.originator_node_id;
         self.originator_sequence_id = envelope.originator_sequence_id;
         self.created_ns = envelope.originator_ns as u64;
         Ok(())
@@ -455,6 +459,7 @@ impl EnvelopeVisitor<'_> for PayloadExtractor {
 /// Extract Identity Updates from Envelopes
 #[derive(Default)]
 pub struct IdentityUpdateExtractor {
+    originator_node_id: u32,
     originator_sequence_id: u64,
     server_timestamp_ns: u64,
     update: IdentityUpdate,
@@ -489,6 +494,7 @@ impl EnvelopeVisitor<'_> for IdentityUpdateExtractor {
         &mut self,
         envelope: &UnsignedOriginatorEnvelope,
     ) -> Result<(), Self::Error> {
+        self.originator_node_id = envelope.originator_node_id;
         self.originator_sequence_id = envelope.originator_sequence_id;
         self.server_timestamp_ns = envelope.originator_ns as u64;
         Ok(())
