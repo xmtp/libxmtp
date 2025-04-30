@@ -131,6 +131,7 @@ where
 
         let response = QueryEnvelope::builder()
             .topic(topic)
+            .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;

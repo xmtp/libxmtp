@@ -2,7 +2,9 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_proto::mls_v1::PagingInfo;
 use xmtp_proto::traits::{BodyError, Endpoint};
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::EnvelopesQuery;
 use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
@@ -13,6 +15,8 @@ use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelope
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
+    #[builder(default = None)]
+    paging_info: Option<PagingInfo>
 }
 
 impl QueryEnvelope {
@@ -33,13 +37,20 @@ impl Endpoint for QueryEnvelope {
     }
 
     fn body(&self) -> Result<Bytes, BodyError> {
+        let limit = self.paging_info.map_or(0, |info| info.limit);
+        //todo: replace with returned node_id
+        let node_id = 100;
+        let last_seen = self.paging_info.map(|info| Cursor {
+            node_id_to_sequence_id: [(node_id, info.id_cursor)].into(),
+        });
+
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {
                 topics: self.topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: None,
+                last_seen,
             }),
-            limit: 0,
+            limit,
         };
         tracing::debug!("{:?}", query);
         Ok(query.encode_to_vec().into())
