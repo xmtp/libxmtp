@@ -3,11 +3,13 @@ use crate::{client::ClientError, subscriptions::SubscribeError, Client};
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
-use std::sync::Arc;
+use prost::Message;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
+use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     group::GroupQueryArgs,
     group_message::StoredGroupMessage,
@@ -28,7 +30,7 @@ use xmtp_proto::{
         },
         mls::message_contents::{
             plaintext_envelope::{Content, V1},
-            PlaintextEnvelope,
+            ContentTypeId, EncodedContent, PlaintextEnvelope,
         },
     },
 };
@@ -221,8 +223,25 @@ where
             &sync_group.group_id[..4]
         );
 
-        let content_bytes = serde_json::to_vec_pretty(&content)
+        let mut content_bytes = vec![];
+        content
+            .encode(&mut content_bytes)
             .map_err(|err| ClientError::Generic(err.to_string()))?;
+
+        let encoded_content = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: "xmtp.org".to_string(),
+                type_id: "application/x-protobuf".to_string(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: content_bytes,
+        };
+        let content_bytes = encoded_content_to_bytes(encoded_content);
+
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
@@ -312,8 +331,8 @@ pub trait IterWithContent<A, B> {
 impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
     fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, ContentProto)> {
         self.into_iter().filter_map(|msg| {
-            let content: DeviceSyncContentProto =
-                serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
+            let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
+            let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;
             Some((msg, content.content?))
         })
     }

@@ -403,8 +403,8 @@ where
             .get_group_oldest_message_timestamp_ns(&sync_group.group_id)?;
         if oldest_message_timestamp < contest.oldest_message_timestamp {
             // Our group is older. Contest back so they update their primary sync group id.
+            tracing::info!("Our group is older than group in contest. Retorting with new contest.");
 
-            tracing::info!("Our group is older than group in contest. Sending contest back.");
             self.maybe_contest_sync_group(&provider, &contest.group_id, None)
                 .await?;
         } else {
