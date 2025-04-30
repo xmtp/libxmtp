@@ -3,6 +3,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester;
 
+use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
 use std::sync::Arc;
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
@@ -30,11 +31,14 @@ pub const HISTORY_SYNC_URL: &str =
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
+use crate::groups::mls_sync::GroupMessageProcessingError;
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 #[cfg(all(
     any(feature = "http-api", target_arch = "wasm32"),
     not(feature = "d14n")
 ))]
 use xmtp_api_http::XmtpHttpApiClient;
+
 #[cfg(all(
     any(feature = "http-api", target_arch = "wasm32"),
     not(feature = "d14n")
@@ -372,4 +376,37 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
             }
         })
         .collect()
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+/// Sets test mode to mimic future wrong epoch state.
+pub fn set_test_mode_future_wrong_epoch(enable: bool) {
+    use std::env;
+    if enable {
+        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "true");
+    } else {
+        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "false");
+    }
+}
+#[cfg(any(test, feature = "test-utils"))]
+/// Checks if test mode is enabled.
+pub fn is_test_mode_future_wrong_epoch() -> bool {
+    use std::env;
+    env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+pub fn maybe_mock_wrong_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
+    if is_test_mode_future_wrong_epoch() {
+        return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            WrongEpoch,
+        )));
+    }
+    Ok(())
+}
+
+pub fn maybe_mock_future_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
+    if is_test_mode_future_wrong_epoch() {
+        return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
+    }
+    Ok(())
 }

@@ -5832,6 +5832,56 @@ pub(crate) mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
+        use crate::utils::set_test_mode_future_wrong_epoch;
+
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let group_a = client_a
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group_a
+            .add_members_by_inbox_id(&[client_b.inbox_id()])
+            .await
+            .unwrap();
+
+        client_b
+            .sync_welcomes(&client_b.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        let binding = client_b.find_groups(GroupQueryArgs::default()).unwrap();
+        let group_b = binding.first().unwrap();
+
+        group_a.send_message(&[1]).await.unwrap();
+        set_test_mode_future_wrong_epoch(true);
+        group_b.sync().await.unwrap();
+        set_test_mode_future_wrong_epoch(false);
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert!(group_from_db.unwrap().maybe_forked);
+        client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .clear_fork_flag_for_group(&group_b.group_id)
+            .unwrap();
+        let group_from_db = client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .find_group(&group_b.group_id)
+            .unwrap();
+        assert!(!group_from_db.unwrap().maybe_forked);
+    }
+
     #[xmtp_common::test(flavor = "multi_thread")]
     async fn can_stream_out_of_order_without_forking() {
         let wallet_a = generate_local_wallet();

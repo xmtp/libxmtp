@@ -39,9 +39,11 @@ use xmtp_db::{
 };
 use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -137,6 +139,10 @@ pub enum GroupMessageProcessingError {
     Client(#[from] ClientError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
+    #[error("Message epoch is too old")]
+    OldEpoch(u64, u64),
+    #[error("Message epoch is greater than group epoch")]
+    FutureEpoch(u64, u64),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -164,7 +170,9 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
             | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused => false,
+            | Self::GroupPaused
+            | Self::FutureEpoch(_, _)
+            | Self::OldEpoch(_, _) => false,
         }
     }
 }
@@ -367,13 +375,16 @@ where
         Err(last_err.unwrap_or(GroupError::SyncFailedToWait))
     }
 
-    fn is_valid_epoch(
+    fn validate_message_epoch(
         inbox_id: InboxIdRef<'_>,
         intent_id: i32,
         group_epoch: GroupEpoch,
         message_epoch: GroupEpoch,
         max_past_epochs: usize,
-    ) -> bool {
+    ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        utils::maybe_mock_future_epoch_for_tests()?;
+
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
                 inbox_id,
@@ -387,7 +398,10 @@ where
                 group_epoch.as_u64(),
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::OldEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         } else if message_epoch.as_u64() > group_epoch.as_u64() {
             // Should not happen, logging proactively
             tracing::error!(
@@ -401,9 +415,12 @@ where
                 group_epoch,
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::FutureEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         }
-        true
+        Ok(())
     }
 
     // This function is intended to isolate the async validation code to
@@ -494,15 +511,14 @@ where
             }
 
             IntentKind::SendMessage => {
-                if !Self::is_valid_epoch(
+                Self::validate_message_epoch(
                     self.context().inbox_id(),
                     intent.id,
                     group_epoch,
                     message_epoch,
                     MAX_PAST_EPOCHS,
-                ) {
-                    return Err(Ok(IntentState::ToPublish));
-                }
+                )
+                .map_err(|_| Ok(IntentState::ToPublish))?;
             }
         }
 
@@ -577,6 +593,12 @@ where
         envelope: &GroupMessageV1,
         allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            use crate::utils::maybe_mock_wrong_epoch_for_tests;
+            maybe_mock_wrong_epoch_for_tests()?;
+        }
+
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -588,6 +610,7 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
+
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
@@ -1190,6 +1213,8 @@ where
                         msgv1.id,
                         e
                     );
+                    self.process_group_message_error_for_fork_detection(provider, msgv1, &e)
+                        .await?;
                     Err(e)
                 }
             }
@@ -1321,6 +1346,74 @@ where
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
+    }
+
+    async fn process_group_message_error_for_fork_detection(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        message: &GroupMessageV1,
+        error: &GroupMessageProcessingError,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let group_id = message.group_id.clone();
+        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            ValidationError::WrongEpoch,
+        )) = error
+        {
+            let group_epoch = match self.epoch(provider).await {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    tracing::info!(
+                        "WrongEpoch encountered but group_epoch could not be calculated, error:{}",
+                        error
+                    );
+                    return Ok(());
+                }
+            };
+
+            let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
+                Ok(msg) => msg,
+                Err(error) => {
+                    tracing::info!(
+                        "WrongEpoch encountered but failed to deserialize the message, error:{}",
+                        error
+                    );
+                    return Ok(());
+                }
+            };
+
+            let protocol_message = match mls_message_in.extract() {
+                MlsMessageBodyIn::PrivateMessage(msg) => msg,
+                _ => {
+                    tracing::info!("WrongEpoch encountered but failed to extract PrivateMessage");
+                    return Ok(());
+                }
+            };
+
+            let message_epoch = protocol_message.epoch();
+            let epoch_validation_result = Self::validate_message_epoch(
+                self.context().inbox_id(),
+                0,
+                GroupEpoch::from(group_epoch),
+                message_epoch,
+                MAX_PAST_EPOCHS,
+            );
+
+            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
+                let fork_details = format!(
+                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                    message.id, message_epoch, group_epoch
+                );
+                tracing::error!(fork_details);
+                let _ = provider
+                    .conn_ref()
+                    .mark_group_as_maybe_forked(&group_id, fork_details);
+                return epoch_validation_result;
+            }
+
+            return Ok(());
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
