@@ -125,6 +125,7 @@ where
 
         let unverified_updates = updates
             .into_iter()
+            // deserialize identity update payload
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
         let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
@@ -511,7 +512,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .get_identity_updates_v2(filters)
         .await?
         .collect::<HashMap<_, Vec<InboxUpdate>>>();
-
     let to_store = updates
         .iter()
         .flat_map(move |(inbox_id, updates)| {

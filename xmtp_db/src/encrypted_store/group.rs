@@ -528,7 +528,7 @@ impl DbConnection {
         })
     }
 
-    pub fn mark_group_as_possibly_forked(
+    pub fn mark_group_as_maybe_forked(
         &self,
         group_id: &Vec<u8>,
         fork_details: String,

@@ -1,12 +1,17 @@
+use std::collections::HashMap;
+
 use super::D14nClient;
 use crate::protocol::IdentityUpdateExtractor;
+use crate::protocol::SequencedExtractor;
 use crate::protocol::traits::Envelope;
-use crate::protocol::traits::ProtocolEnvelope;
+use crate::protocol::traits::Extractor;
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
+use itertools::Itertools;
 use xmtp_common::RetryableError;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
+use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
@@ -67,11 +72,14 @@ where
             .query(&self.message_client)
             .await?;
 
-        let mut extractor = IdentityUpdateExtractor::new();
-        result.envelopes.accept(&mut extractor)?;
+        let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
+            .envelopes(result.envelopes)
+            .build::<IdentityUpdateExtractor>()
+            .get()?
+            .into_iter()
+            .into_group_map();
 
-        let responses = extractor
-            .get()
+        let responses = updates
             .into_iter()
             .map(|(inbox_id, updates)| Response { updates, inbox_id })
             .collect();
