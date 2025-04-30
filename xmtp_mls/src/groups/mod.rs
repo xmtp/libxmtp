@@ -1,5 +1,5 @@
 pub mod device_sync;
-mod device_sync_legacy;
+pub mod device_sync_legacy;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -1616,7 +1616,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()
-            .map(UserPreferenceUpdate::ConsentUpdate)
+            .map(UserPreferenceUpdate::Consent)
             .collect();
 
         if !new_records.is_empty() {

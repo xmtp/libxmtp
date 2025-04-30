@@ -1,6 +1,6 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
-    preference_sync::{store_preference_updates, store_preferences},
+    preference_sync::{store_preference_updates, UserPreferenceUpdate},
     DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
 };
 use crate::{
@@ -10,7 +10,6 @@ use crate::{
             backup::{exporter::BackupExporter, BackupImporter},
             default_backup_options,
         },
-        device_sync_legacy::DeviceSyncContent as DeviceSyncContentLegacy,
         scoped_client::ScopedGroupClient,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncEvent},
@@ -46,6 +45,7 @@ use xmtp_proto::{
             DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
+    ConversionError,
 };
 
 pub struct SyncWorker<ApiClient, V> {
@@ -192,30 +192,17 @@ where
         // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;
 
-        let result = self.client.acknowledge_new_sync_group(&provider).await;
-        if matches!(result, Err(DeviceSyncError::AlreadyAcknowledged)) {
-            // We do not want to process the new installation if another installation is already processing it.
-            self.handle
-                .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
-            return Ok(());
-        }
-        result?;
-
         self.client.add_new_installation_to_groups().await?;
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
-        self.client
-            .send_sync_reply(
-                None,
-                || async { self.client.acknowledge_new_sync_group(&provider).await },
-                &self.handle,
-            )
-            .await?;
-
         // Cycle the HMAC
         self.client.cycle_hmac(&provider).await?;
 
+        Ok(())
+    }
+
+    async fn contest_sync_group(&self) -> Result<(), DeviceSyncError> {
         Ok(())
     }
 
@@ -229,30 +216,40 @@ where
 
     async fn evt_preferences_outgoing(
         &self,
-        preference_updates: Vec<UserPreferenceUpdateProto>,
+        updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
-        UserPreferenceUpdate::sync(preference_updates, &self.client, &provider).await?;
+        self.client.sync_preferences(&provider, updates).await?;
         Ok(())
     }
 
+    /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
             let content: DeviceSyncContentProto =
                 serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Payload(reply) = content {
+            let content = content
+                .content
+                .ok_or(ConversionError::Unspecified("content"))?;
+
+            if let ContentProto::Reply(reply) = content {
                 self.client.v1_process_sync_reply(&provider, reply).await?;
             }
         }
         Ok(())
     }
 
+    /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Request(request) = content {
+            let content: DeviceSyncContentProto =
+                serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            let content = content
+                .content
+                .ok_or(ConversionError::Unspecified("content"))?;
+            if let ContentProto::Request(request) = content {
                 self.client
                     .v1_reply_to_sync_request(&provider, request, &self.handle)
                     .await?;
@@ -311,14 +308,10 @@ where
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
         msg: &StoredGroupMessage,
-        content: DeviceSyncContentProto,
+        content: ContentProto,
     ) -> Result<(), DeviceSyncError> {
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
-        let Some(content) = content.content else {
-            tracing::warn!("Device sync message was missing content. Skipping.");
-            return Ok(());
-        };
 
         match content {
             device_sync_content::Content::Request(request) => {

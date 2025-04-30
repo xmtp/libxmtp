@@ -1,8 +1,9 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
+use super::device_sync::preference_sync::UserPreferenceUpdate;
 use super::device_sync::DeviceSyncError;
-use crate::groups::device_sync::preference_sync::preference_sync_legacy::UserPreferenceUpdate;
+use super::scoped_client::ScopedGroupClient;
 use crate::subscriptions::SyncEvent;
 use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
@@ -10,6 +11,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -17,6 +19,7 @@ use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
+use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -28,10 +31,13 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+    UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+pub(crate) mod preference_sync_legacy;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AcknowledgeKind {

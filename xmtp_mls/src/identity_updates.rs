@@ -1,9 +1,6 @@
 use crate::{
     client::ClientError,
-    groups::{
-        device_sync::preference_sync::UserPreferenceUpdate,
-        group_membership::{GroupMembership, MembershipDiff},
-    },
+    groups::group_membership::{GroupMembership, MembershipDiff},
     Client, XmtpApi,
 };
 use futures::future::try_join_all;
@@ -329,7 +326,7 @@ where
         }
 
         // Cycle the HMAC key
-        UserPreferenceUpdate::cycle_hmac(self, &provider).await?;
+        self.cycle_hmac(&provider).await?;
 
         Ok(builder.build())
     }

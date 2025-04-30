@@ -454,7 +454,7 @@ where
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records
                 .into_iter()
-                .map(UserPreferenceUpdate::ConsentUpdate)
+                .map(UserPreferenceUpdate::Consent)
                 .collect();
 
             // Broadcast the consent update changes
@@ -464,7 +464,7 @@ where
                     updates.clone(),
                 )));
 
-            UserPreferenceUpdate::sync(updates, self, &provider).await?;
+            self.sync_preferences(&provider, updates).await?;
         }
 
         Ok(())

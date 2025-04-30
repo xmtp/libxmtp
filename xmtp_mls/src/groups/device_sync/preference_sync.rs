@@ -1,50 +1,46 @@
 use super::*;
 use crate::Client;
-use xmtp_db::user_preferences::HmacKey;
-use xmtp_db::user_preferences::StoredUserPreferences;
+use serde::{Deserialize, Serialize};
+use xmtp_db::consent_record::StoredConsentRecord;
+use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::xmtp::device_sync::content::user_preference_update;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
-    device_sync_content::Content as ContentProto, PreferenceUpdates,
-    UserPreferenceUpdate as UserPreferenceUpdateProto,
+    device_sync_content::Content as ContentProto, user_preference_update::Update as UpdateProto,
+    PreferenceUpdates, UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
+use xmtp_proto::ConversionError;
 
-pub(crate) mod preference_sync_legacy;
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum UserPreferenceUpdate {
+    Consent(StoredConsentRecord),
+    Hmac { key: Vec<u8> },
+}
 
 impl<ApiClient, V> Client<ApiClient, V>
 where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    pub(super) async fn sync(
+    pub(crate) async fn sync_preferences(
         &self,
-        updates: Vec<UserPreferenceUpdateProto>,
         provider: &XmtpOpenMlsProvider,
+        updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), ClientError> {
         self.send_device_sync_message(
             provider,
             ContentProto::PreferenceUpdates(PreferenceUpdates {
-                updates: updates.clone(),
+                updates: updates.clone().into_iter().map(From::from).collect(),
             }),
         )
         .await?;
 
         if let Some(handle) = self.worker_handle() {
-            updates.iter().for_each(|update| {
-                if let UserPreferenceUpdateProto {
-                    update: Some(update),
-                } = update
-                {
-                    match update {
-                        user_preference_update::Update::ConsentUpdate(_) => {
-                            handle.increment_metric(SyncMetric::ConsentSent)
-                        }
-                        user_preference_update::Update::HmacKeyUpdate(_) => {
-                            handle.increment_metric(SyncMetric::HmacSent)
-                        }
-                    }
+            updates.iter().for_each(|update| match update {
+                UserPreferenceUpdate::Consent(_) => {
+                    handle.increment_metric(SyncMetric::ConsentSent)
                 }
+                UserPreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),
             });
         }
 
@@ -61,15 +57,11 @@ where
     ) -> Result<(), ClientError> {
         tracing::info!("Sending new HMAC key to sync group.");
 
-        self.sync(
-            vec![UserPreferenceUpdateProto {
-                update: Some(user_preference_update::Update::HmacKeyUpdate(
-                    HmacKeyUpdateProto {
-                        key: HmacKey::random_key(),
-                    },
-                )),
-            }],
+        self.sync_preferences(
             provider,
+            vec![UserPreferenceUpdate::Hmac {
+                key: HmacKey::random_key(),
+            }],
         )
         .await?;
 
@@ -81,37 +73,68 @@ pub(super) fn store_preference_updates(
     updates: Vec<UserPreferenceUpdateProto>,
     provider: &XmtpOpenMlsProvider,
     handle: &WorkerHandle<SyncMetric>,
-) -> Result<Vec<UserPreferenceUpdateProto>, StorageError> {
+) -> Result<Vec<UserPreferenceUpdate>, StorageError> {
     let mut changed = vec![];
-    for update in updates {
+    for update in updates.into_iter().filter_map(|u| u.update) {
         match update {
-            Self::ConsentUpdate(consent_record) => {
+            UpdateProto::Consent(consent_record) => {
                 tracing::info!(
                     "Storing consent update from sync group. State: {:?}",
                     consent_record.state
                 );
                 let updated = provider
                     .conn_ref()
-                    .insert_or_replace_consent_records(&[consent_record])?;
+                    .insert_or_replace_consent_records(&[consent_record.try_into()?])?;
                 changed.extend(
                     updated
                         .into_iter()
-                        .map(Self::ConsentUpdate)
+                        .map(UserPreferenceUpdate::Consent)
                         .collect::<Vec<_>>(),
                 );
 
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
-            Self::HmacKeyUpdate { key } => {
+            UpdateProto::Hmac(HmacKeyUpdateProto { key }) => {
                 tracing::info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
-                changed.push(Self::HmacKeyUpdate { key });
+                changed.push(UserPreferenceUpdate::Hmac { key });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
     }
 
     Ok(changed)
+}
+
+impl TryFrom<UserPreferenceUpdateProto> for UserPreferenceUpdate {
+    type Error = ConversionError;
+    fn try_from(update: UserPreferenceUpdateProto) -> Result<Self, Self::Error> {
+        let Some(update) = update.update else {
+            return Err(ConversionError::Unspecified("update"));
+        };
+        update.try_into()
+    }
+}
+impl TryFrom<UpdateProto> for UserPreferenceUpdate {
+    type Error = ConversionError;
+    fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
+        let update = match update {
+            UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
+            UpdateProto::Hmac(HmacKeyUpdateProto { key }) => Self::Hmac { key },
+        };
+        Ok(update)
+    }
+}
+
+impl From<UserPreferenceUpdate> for UserPreferenceUpdateProto {
+    fn from(update: UserPreferenceUpdate) -> Self {
+        UserPreferenceUpdateProto {
+            update: Some(match update {
+                UserPreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
+                UserPreferenceUpdate::Hmac { key } => UpdateProto::Hmac(HmacKeyUpdateProto { key }),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]

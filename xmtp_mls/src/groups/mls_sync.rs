@@ -8,7 +8,10 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
+use crate::groups::{
+    device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
+    group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
 use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncEvent};
@@ -17,8 +20,7 @@ use crate::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
-        intents::UpdateMetadataIntentData,
+        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -822,7 +824,7 @@ where
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content = DeviceSyncContent::Payload(history_reply);
+                                let content = DeviceSyncContent::Reply(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -857,12 +859,11 @@ where
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
                                 // and returns a copy of what was inserted
-                                let updates =
-                                    UserPreferenceUpdate::process_incoming_preference_update(
-                                        update,
-                                        &self.client,
-                                        provider,
-                                    )?;
+                                let updates = process_incoming_preference_update(
+                                    update,
+                                    &self.client,
+                                    provider,
+                                )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
                                 let _ = self.client.local_events().send(LocalEvents::SyncEvent(

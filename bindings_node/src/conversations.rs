@@ -172,14 +172,10 @@ pub enum UserPreferenceUpdate {
 impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
-      }
-      XmtpUserPreferenceUpdate::ConsentUpdate(consent) => {
-        Tag::V(UserPreferenceUpdate::ConsentUpdate {
-          consent: Consent::from(consent),
-        })
-      }
+      XmtpUserPreferenceUpdate::Hmac { key } => Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key }),
+      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
+        consent: Consent::from(consent),
+      }),
     }
   }
 }

@@ -12,12 +12,11 @@ use diesel::{insert_into, prelude::*};
 #[diesel(primary_key(id))]
 pub struct StoredUserPreferences {
     pub id: i32,
-    /// Randomly generated hmac key root
+    /// HMAC key root
     pub hmac_key: Option<Vec<u8>>,
-
     // Sync cursor
-    pub sync_cursor_group_id: Option<Vec<u8>>,
-    pub sync_cursor_offset: i64,
+    pub primary_sync_group_id: Option<Vec<u8>>,
+    pub sync_group_cursor: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,20 +99,20 @@ impl StoredUserPreferences {
     pub fn sync_cursor(conn: &DbConnection) -> Result<Option<SyncCursor>, StorageError> {
         let pref = Self::load(conn)?;
 
-        let Some(group_id) = pref.sync_cursor_group_id else {
+        let Some(group_id) = pref.primary_sync_group_id else {
             return Ok(None);
         };
 
         Ok(Some(SyncCursor {
             group_id,
-            offset: pref.sync_cursor_offset,
+            offset: pref.sync_group_cursor,
         }))
     }
 
     pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
         let mut pref = Self::load(conn)?;
-        pref.sync_cursor_group_id = Some(cursor.group_id.clone());
-        pref.sync_cursor_offset = cursor.offset;
+        pref.primary_sync_group_id = Some(cursor.group_id.clone());
+        pref.sync_group_cursor = cursor.offset;
         pref.store(conn)
     }
 }

@@ -88,7 +88,7 @@ impl LocalEvents {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
+                        UserPreferenceUpdate::Consent(cr) => Some(cr),
                         _ => None,
                     })
                     .collect();
@@ -105,7 +105,7 @@ impl LocalEvents {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
+                        UserPreferenceUpdate::Consent(_) => None,
                         _ => Some(pu),
                     })
                     .collect();

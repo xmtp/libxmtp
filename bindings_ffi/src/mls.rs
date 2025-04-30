@@ -1583,10 +1583,10 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
     fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::HmacKeyUpdate { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            UserPreferenceUpdate::Hmac { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
-            UserPreferenceUpdate::ConsentUpdate(_) => Err(GenericError::Generic {
+            UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
                 err: "Consent updates should be filtered out.".to_string(),
             }),
         }
