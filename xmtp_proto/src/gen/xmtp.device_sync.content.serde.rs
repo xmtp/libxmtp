@@ -441,6 +441,9 @@ impl serde::Serialize for SyncGroupContest {
         if self.oldest_message_timestamp != 0 {
             len += 1;
         }
+        if self.cited_message_id.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.SyncGroupContest", len)?;
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -451,6 +454,11 @@ impl serde::Serialize for SyncGroupContest {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("oldestMessageTimestamp", ToString::to_string(&self.oldest_message_timestamp).as_str())?;
+        }
+        if let Some(v) = self.cited_message_id.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("citedMessageId", pbjson::private::base64::encode(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -466,12 +474,15 @@ impl<'de> serde::Deserialize<'de> for SyncGroupContest {
             "groupId",
             "oldest_message_timestamp",
             "oldestMessageTimestamp",
+            "cited_message_id",
+            "citedMessageId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             GroupId,
             OldestMessageTimestamp,
+            CitedMessageId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -495,6 +506,7 @@ impl<'de> serde::Deserialize<'de> for SyncGroupContest {
                         match value {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             "oldestMessageTimestamp" | "oldest_message_timestamp" => Ok(GeneratedField::OldestMessageTimestamp),
+                            "citedMessageId" | "cited_message_id" => Ok(GeneratedField::CitedMessageId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -516,6 +528,7 @@ impl<'de> serde::Deserialize<'de> for SyncGroupContest {
             {
                 let mut group_id__ = None;
                 let mut oldest_message_timestamp__ = None;
+                let mut cited_message_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::GroupId => {
@@ -534,11 +547,20 @@ impl<'de> serde::Deserialize<'de> for SyncGroupContest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::CitedMessageId => {
+                            if cited_message_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("citedMessageId"));
+                            }
+                            cited_message_id__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(SyncGroupContest {
                     group_id: group_id__.unwrap_or_default(),
                     oldest_message_timestamp: oldest_message_timestamp__.unwrap_or_default(),
+                    cited_message_id: cited_message_id__,
                 })
             }
         }

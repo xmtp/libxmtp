@@ -356,6 +356,7 @@ where
             device_sync_content::Content::SyncGroupContest(SyncGroupContest {
                 group_id,
                 oldest_message_timestamp,
+                cited_message_id,
             }) => {}
         }
 
