@@ -1,6 +1,7 @@
 use super::*;
 use crate::Client;
 use xmtp_db::user_preferences::HmacKey;
+use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::content::user_preference_update;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
@@ -74,6 +75,43 @@ where
 
         Ok(())
     }
+}
+
+pub(super) fn store_preference_updates(
+    updates: Vec<UserPreferenceUpdateProto>,
+    provider: &XmtpOpenMlsProvider,
+    handle: &WorkerHandle<SyncMetric>,
+) -> Result<Vec<UserPreferenceUpdateProto>, StorageError> {
+    let mut changed = vec![];
+    for update in updates {
+        match update {
+            Self::ConsentUpdate(consent_record) => {
+                tracing::info!(
+                    "Storing consent update from sync group. State: {:?}",
+                    consent_record.state
+                );
+                let updated = provider
+                    .conn_ref()
+                    .insert_or_replace_consent_records(&[consent_record])?;
+                changed.extend(
+                    updated
+                        .into_iter()
+                        .map(Self::ConsentUpdate)
+                        .collect::<Vec<_>>(),
+                );
+
+                handle.increment_metric(SyncMetric::ConsentReceived);
+            }
+            Self::HmacKeyUpdate { key } => {
+                tracing::info!("Storing new HMAC key from sync group");
+                StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
+                changed.push(Self::HmacKeyUpdate { key });
+                handle.increment_metric(SyncMetric::HmacReceived);
+            }
+        }
+    }
+
+    Ok(changed)
 }
 
 #[cfg(test)]

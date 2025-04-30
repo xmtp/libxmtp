@@ -9,7 +9,6 @@ use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
 use xmtp_db::user_preferences::SyncCursor;
-use xmtp_db::Store;
 use xmtp_db::{
     group::GroupQueryArgs, group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
@@ -22,8 +21,7 @@ use xmtp_proto::{
     xmtp::{
         device_sync::{BackupElementSelection, BackupOptions},
         mls::message_contents::{
-            plaintext_envelope::v2::MessageType,
-            plaintext_envelope::{Content, V1, V2},
+            plaintext_envelope::{Content, V1},
             PlaintextEnvelope,
         },
     },
@@ -253,13 +251,12 @@ pub trait IterWithContent<A, B> {
     fn iter_with_content(self) -> impl Iterator<Item = (A, B)>;
 }
 
-impl IterWithContent<StoredGroupMessage, DeviceSyncContentProto> for Vec<StoredGroupMessage> {
-    fn iter_with_content(
-        self,
-    ) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContentProto)> {
+impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
+    fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, ContentProto)> {
         self.into_iter().filter_map(|msg| {
-            let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
-            Some((msg, content))
+            let content: DeviceSyncContentProto =
+                serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
+            Some((msg, content.content?))
         })
     }
 }
