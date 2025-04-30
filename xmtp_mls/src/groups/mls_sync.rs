@@ -375,7 +375,7 @@ where
         Err(last_err.unwrap_or(GroupError::SyncFailedToWait))
     }
 
-    fn is_valid_epoch(
+    fn validate_message_epoch(
         inbox_id: InboxIdRef<'_>,
         intent_id: i32,
         group_epoch: GroupEpoch,
@@ -383,10 +383,7 @@ where
         max_past_epochs: usize,
     ) -> Result<(), GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
-        {
-            use crate::utils::maybe_mock_future_epoch_for_tests;
-            maybe_mock_future_epoch_for_tests()?;
-        }
+        utils::maybe_mock_future_epoch_for_tests()?;
 
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
@@ -514,7 +511,7 @@ where
             }
 
             IntentKind::SendMessage => {
-                Self::is_valid_epoch(
+                Self::validate_message_epoch(
                     self.context().inbox_id(),
                     intent.id,
                     group_epoch,
@@ -1358,16 +1355,17 @@ where
         error: &GroupMessageProcessingError,
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
-
+        tracing::info!("##### ");
         if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::WrongEpoch,
         )) = error
         {
             let group_epoch = match self.epoch(provider).await {
                 Ok(epoch) => epoch,
-                Err(_) => {
+                Err(error) => {
                     tracing::info!(
-                        "WrongEpoch encountered but group_epoch could not be calculated"
+                        "WrongEpoch encountered but group_epoch could not be calculated, error:{}",
+                        error
                     );
                     return Ok(());
                 }
@@ -1375,8 +1373,11 @@ where
 
             let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
                 Ok(msg) => msg,
-                Err(_) => {
-                    tracing::info!("WrongEpoch encountered but failed to deserialize the message");
+                Err(error) => {
+                    tracing::info!(
+                        "WrongEpoch encountered but failed to deserialize the message, error:{}",
+                        error
+                    );
                     return Ok(());
                 }
             };
@@ -1390,7 +1391,7 @@ where
             };
 
             let message_epoch = protocol_message.epoch();
-            let epoch_validation_result = Self::is_valid_epoch(
+            let epoch_validation_result = Self::validate_message_epoch(
                 self.context().inbox_id(),
                 0,
                 GroupEpoch::from(group_epoch),
@@ -1406,7 +1407,7 @@ where
                 tracing::error!(fork_details);
                 let _ = provider
                     .conn_ref()
-                    .mark_group_as_possibly_forked(&group_id, fork_details);
+                    .mark_group_as_maybe_forked(&group_id, fork_details);
                 return epoch_validation_result;
             }
 
