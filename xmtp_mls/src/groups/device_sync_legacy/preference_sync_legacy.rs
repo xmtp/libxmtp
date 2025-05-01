@@ -108,7 +108,7 @@ where
 
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
-    pub(super) async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(crate) async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
         updates: Vec<Self>,
         client: &Client<C, V>,
     ) -> Result<(), ClientError> {
@@ -153,6 +153,15 @@ impl LegacyUserPreferenceUpdate {
         }
 
         Ok(())
+    }
+}
+
+impl From<UserPreferenceUpdate> for LegacyUserPreferenceUpdate {
+    fn from(update: UserPreferenceUpdate) -> Self {
+        match update {
+            UserPreferenceUpdate::Consent(rec) => Self::ConsentUpdate(rec),
+            UserPreferenceUpdate::Hmac { key, .. } => Self::HmacKeyUpdate { key },
+        }
     }
 }
 

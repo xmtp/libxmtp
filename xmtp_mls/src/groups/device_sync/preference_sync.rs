@@ -1,6 +1,6 @@
 use super::*;
+use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
 use crate::Client;
-use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::device_sync::content::{
 };
 use xmtp_proto::ConversionError;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UserPreferenceUpdate {
     Consent(StoredConsentRecord),
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
@@ -47,8 +47,8 @@ where
         }
 
         // TODO: v1 support - remove this on next hammer
-        // preference_sync_legacy::UserPreferenceUpdate::v1_sync_across_devices(updates.clone(), self)
-        // .await?;
+        let legacy_updates = updates.into_iter().map(Into::into).collect();
+        LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
 
         Ok(())
     }

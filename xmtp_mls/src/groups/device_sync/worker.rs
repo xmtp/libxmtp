@@ -11,6 +11,7 @@ use crate::{
             backup::{exporter::BackupExporter, BackupImporter},
             default_backup_options,
         },
+        device_sync_legacy::DeviceSyncContent,
         scoped_client::ScopedGroupClient,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
@@ -33,7 +34,6 @@ use xmtp_proto::{
         device_sync::{
             content::{
                 device_sync_content::Content as ContentProto, DeviceSyncAcknowledge,
-                DeviceSyncContent as DeviceSyncContentProto,
                 PreferenceUpdates as PreferenceUpdatesProto,
             },
             BackupElementSelection, BackupOptions,
@@ -43,7 +43,6 @@ use xmtp_proto::{
             DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
-    ConversionError,
 };
 
 pub struct SyncWorker<ApiClient, V> {
@@ -92,9 +91,10 @@ where
                         );
                         break;
                     } else {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
                         // Wait before restarting.
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                        tracing::info!("Restarting sync worker...");
                     }
                 }
             }
@@ -122,6 +122,8 @@ where
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
+
+            tracing::info!("New event: {event:?}");
 
             if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
@@ -227,15 +229,10 @@ where
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: DeviceSyncContentProto =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            let content = content
-                .content
-                .ok_or(ConversionError::Unspecified("content"))?;
-
-            if let ContentProto::Reply(reply) = content {
+            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            if let DeviceSyncContent::Reply(reply) = content {
                 self.client.v1_process_sync_reply(&provider, reply).await?;
-            }
+            };
         }
         Ok(())
     }
@@ -244,12 +241,8 @@ where
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
-            let content: DeviceSyncContentProto =
-                serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            let content = content
-                .content
-                .ok_or(ConversionError::Unspecified("content"))?;
-            if let ContentProto::Request(request) = content {
+            let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
+            if let DeviceSyncContent::Request(request) = content {
                 self.client
                     .v1_reply_to_sync_request(&provider, request, &self.handle)
                     .await?;

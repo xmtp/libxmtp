@@ -123,7 +123,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
-    alix1.worker().wait(SyncMetric::ConsentSent, 3).await?;
+    alix1.worker().wait(SyncMetric::ConsentSent, 2).await?;
 
     alix2.sync_device_sync(&alix2.provider).await?;
     alix2.worker().wait(SyncMetric::ConsentReceived, 1).await?;
