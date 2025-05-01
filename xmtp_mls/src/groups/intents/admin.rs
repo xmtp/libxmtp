@@ -1,0 +1,150 @@
+use crate::configuration::MUTABLE_METADATA_EXTENSION_ID;
+use crate::groups::group_mutable_metadata::GroupMutableMetadata;
+use crate::groups::mls_ext::GroupIntent;
+
+use super::IntentError;
+use crate::groups::mls_ext::MlsGroupExt;
+use crate::groups::mls_ext::PublishIntentData;
+use crate::GroupError;
+use openmls::group::MlsGroup;
+use openmls::prelude::{Extension, Extensions, UnknownExtension};
+use prost::{bytes::Bytes, Message};
+use tls_codec::Serialize;
+use xmtp_proto::xmtp::mls::database::{
+    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+    UpdateAdminListsData,
+};
+
+#[repr(i32)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum AdminListActionType {
+    Add = 1,         // Matches ADD_ADMIN in Protobuf
+    Remove = 2,      // Matches REMOVE_ADMIN in Protobuf
+    AddSuper = 3,    // Matches ADD_SUPER_ADMIN in Protobuf
+    RemoveSuper = 4, // Matches REMOVE_SUPER_ADMIN in Protobuf
+}
+
+impl TryFrom<i32> for AdminListActionType {
+    type Error = IntentError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(AdminListActionType::Add),
+            2 => Ok(AdminListActionType::Remove),
+            3 => Ok(AdminListActionType::AddSuper),
+            4 => Ok(AdminListActionType::RemoveSuper),
+            _ => Err(IntentError::UnknownAdminListAction),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateAdminListIntentData {
+    pub action_type: AdminListActionType,
+    pub inbox_id: String,
+}
+
+impl UpdateAdminListIntentData {
+    pub fn new(action_type: AdminListActionType, inbox_id: String) -> Self {
+        Self {
+            action_type,
+            inbox_id,
+        }
+    }
+}
+
+impl From<UpdateAdminListIntentData> for Vec<u8> {
+    fn from(intent: UpdateAdminListIntentData) -> Self {
+        let mut buf = Vec::new();
+        let action_type = intent.action_type as i32;
+
+        UpdateAdminListsData {
+            version: Some(UpdateAdminListsVersion::V1(UpdateAdminListsV1 {
+                admin_list_update_type: action_type,
+                inbox_id: intent.inbox_id,
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+impl TryFrom<Vec<u8>> for UpdateAdminListIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdateAdminListsData::decode(Bytes::from(data))?;
+
+        let action_type: AdminListActionType = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => {
+                AdminListActionType::try_from(v1.admin_list_update_type)?
+            }
+            None => return Err(IntentError::MissingUpdateAdminVersion),
+        };
+        let inbox_id = match msg.version {
+            Some(UpdateAdminListsVersion::V1(ref v1)) => v1.inbox_id.clone(),
+            None => return Err(IntentError::MissingUpdateAdminVersion),
+        };
+
+        Ok(Self::new(action_type, inbox_id))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl GroupIntent for UpdateAdminListIntentData {
+    async fn publish_data(
+        self: Box<Self>,
+        provider: &xmtp_db::XmtpOpenMlsProvider,
+        context: &crate::client::XmtpMlsLocalContext,
+        group: &mut MlsGroup,
+        should_push: bool,
+    ) -> Result<Option<crate::groups::mls_ext::PublishIntentData>, crate::groups::GroupError> {
+        let mutable_metadata_extensions = self.build_extensions(group)?;
+
+        let (commit, _, _) = group.update_group_context_extensions(
+            provider,
+            mutable_metadata_extensions,
+            &context.identity.installation_keys,
+        )?;
+        let commit_bytes = commit.tls_serialize_detached()?;
+
+        PublishIntentData::builder()
+            .payload(commit_bytes)
+            .staged_commit(group.get_and_clear_pending_commit(provider)?)
+            .should_push(should_push)
+            .build()
+            .map_err(GroupError::from)
+            .map(Option::Some)
+    }
+
+    fn build_extensions(&self, group: &MlsGroup) -> Result<Extensions, GroupError> {
+        let existing_metadata: GroupMutableMetadata = group.try_into()?;
+        let attributes = existing_metadata.attributes.clone();
+        let mut admin_list = existing_metadata.admin_list;
+        let mut super_admin_list = existing_metadata.super_admin_list;
+        match self.action_type {
+            AdminListActionType::Add => {
+                if !admin_list.contains(&self.inbox_id) {
+                    admin_list.push(self.inbox_id.clone());
+                }
+            }
+            AdminListActionType::Remove => admin_list.retain(|x| x != &self.inbox_id),
+            AdminListActionType::AddSuper => {
+                if !super_admin_list.contains(&self.inbox_id) {
+                    super_admin_list.push(self.inbox_id.clone());
+                }
+            }
+            AdminListActionType::RemoveSuper => super_admin_list.retain(|x| x != &self.inbox_id),
+        }
+        let new_mutable_metadata: Vec<u8> =
+            GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
+        let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+        let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+        let mut extensions = group.extensions().clone();
+        extensions.add_or_replace(extension);
+        Ok(extensions)
+    }
+}
