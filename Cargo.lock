@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "chrono",
  "futures",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "chrono",
  "console_error_panic_hook",
@@ -7434,7 +7434,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "ctor",
@@ -7452,7 +7452,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "ctor",
@@ -7474,7 +7474,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7496,7 +7496,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7519,7 +7519,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "chrono",
  "clap",
@@ -7553,7 +7553,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -7587,7 +7587,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "hex",
  "libsecp256k1",
@@ -7605,7 +7605,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "bincode",
  "curve25519-dalek",
@@ -7633,7 +7633,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "bincode",
  "derive_builder",
@@ -7664,7 +7664,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7701,7 +7701,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7712,7 +7712,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -7780,7 +7780,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "derive_builder",
@@ -7805,7 +7805,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.1.6"
+version = "1.1.8"
 dependencies = [
  "async-trait",
  "chrono",

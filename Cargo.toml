@@ -26,7 +26,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.1.6"
+version = "1.1.8"
 
 [workspace.dependencies]
 anyhow = "1.0"
