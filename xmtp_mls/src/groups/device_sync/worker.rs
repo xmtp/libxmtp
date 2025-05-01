@@ -132,7 +132,7 @@ where
                         self.evt_new_sync_group_msg(msg_id).await?;
                     }
                     SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                        self.evt_preferences_outgoing(preference_updates).await?;
+                        self.evt_sync_preferences(preference_updates).await?;
                     }
 
                     // Device Sync V1 events
@@ -214,7 +214,7 @@ where
         Ok(())
     }
 
-    async fn evt_preferences_outgoing(
+    async fn evt_sync_preferences(
         &self,
         updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {

@@ -1583,7 +1583,9 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
     fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::Hmac { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
+            }
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
             UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
@@ -1684,6 +1686,7 @@ impl From<StoredConsentRecord> for FfiConsent {
                 ConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
             state: consent.state.into(),
+            consented_at_ns: consent.consented_at_ns,
         }
     }
 }
@@ -2615,6 +2618,7 @@ pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
     pub entity: String,
+    pub consented_at_ns: Option<i64>,
 }
 
 impl From<FfiConsent> for StoredConsentRecord {
@@ -2623,6 +2627,7 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
+            consented_at_ns: consent.consented_at_ns,
         }
     }
 }
@@ -2722,7 +2727,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
-    HMAC { key: Vec<u8> },
+    HMAC { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
 #[derive(uniffi::Object)]
@@ -6486,6 +6491,7 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Denied,
+                consented_at_ns: None,
             }])
             .await
             .unwrap();
@@ -6537,6 +6543,7 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Allowed,
+                consented_at_ns: None,
             }])
             .await
             .unwrap();
@@ -6677,6 +6684,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
+            consented_at_ns: None,
         }])
         .await
         .unwrap();
@@ -6713,6 +6721,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_dm.id()),
+            consented_at_ns: None,
         }])
         .await
         .unwrap();
@@ -6758,6 +6767,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::InboxId,
             entity: bo.inbox_id(),
+            consented_at_ns: None,
         }])
         .await
         .unwrap();

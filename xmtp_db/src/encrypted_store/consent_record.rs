@@ -23,7 +23,7 @@ use xmtp_proto::{
 mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
@@ -35,6 +35,14 @@ pub struct StoredConsentRecord {
     pub entity: String,
 
     pub consented_at_ns: Option<i64>,
+}
+
+impl PartialEq for StoredConsentRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+            && self.entity_type == other.entity_type
+            && self.state == other.state
+    }
 }
 
 impl StoredConsentRecord {
