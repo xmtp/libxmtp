@@ -63,8 +63,9 @@ where
         let topics = request.requests.topics()?;
         //todo: replace with returned node_id
         let node_id = 100;
-        let last_seen = Some( Cursor {
-            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)].into(),
+        let last_seen = Some(Cursor {
+            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
+                .into(),
         });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
