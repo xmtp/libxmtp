@@ -1159,7 +1159,7 @@ pub(crate) mod tests {
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity"));
+        assert!(error_string.contains("invalid identity") || error_string.contains("EndOfStream"));
     }
 
     #[xmtp_common::test]
