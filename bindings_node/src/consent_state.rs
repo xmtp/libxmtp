@@ -65,6 +65,7 @@ pub struct Consent {
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
   pub entity: String,
+  pub consented_at_ns: Option<i64>,
 }
 
 impl From<Consent> for StoredConsentRecord {
@@ -73,6 +74,7 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+      consented_at_ns: consent.consented_at_ns,
     }
   }
 }
@@ -83,6 +85,7 @@ impl From<StoredConsentRecord> for Consent {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+      consented_at_ns: consent.consented_at_ns,
     }
   }
 }

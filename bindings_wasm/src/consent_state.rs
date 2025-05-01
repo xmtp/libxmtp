@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
+use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
@@ -77,6 +78,7 @@ pub struct Consent {
   #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
+  pub consented_at_ns: Option<i64>,
 }
 
 #[wasm_bindgen]
@@ -87,6 +89,7 @@ impl Consent {
       entity_type,
       state,
       entity,
+      consented_at_ns: Some(now_ns()),
     }
   }
 }
@@ -97,6 +100,7 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+      consented_at_ns: consent.consented_at_ns,
     }
   }
 }
@@ -110,6 +114,7 @@ impl From<StoredConsentRecord> for Consent {
         XmtpConsentType::InboxId => ConsentEntityType::InboxId,
       },
       state: value.state.into(),
+      consented_at_ns: value.consented_at_ns,
     }
   }
 }
