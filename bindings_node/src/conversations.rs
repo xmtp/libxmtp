@@ -675,15 +675,40 @@ impl Conversations {
         tracing::trace!(
             inbox_id,
             conversation_type = ?conversation_type,
-            "[received] calling tsfn callback"
+            "[received] message result"
         );
-        tsfn.call(
-          message
-            .map(Into::into)
-            .map_err(ErrorWrapper::from)
-            .map_err(Error::from),
-          ThreadsafeFunctionCallMode::Blocking,
-        );
+        
+        // Skip any messages that are errors
+        if let Err(err) = &message {
+          tracing::warn!(
+            inbox_id, 
+            error = ?err, 
+            "[received] message error, swallowing to continue stream"
+          );
+          return; // Skip this message entirely
+        }
+        
+        // For successful messages, try to transform and pass to JS
+        // but wrap the entire operation in a match to catch any errors
+        match message.map(Into::into).map_err(ErrorWrapper::from).map_err(Error::from) {
+          Ok(transformed_msg) => {
+            tracing::trace!(inbox_id, "[received] calling tsfn callback with successful message");
+            tsfn.call(
+              Ok(transformed_msg),
+              ThreadsafeFunctionCallMode::Blocking,
+            );
+          },
+          Err(err) => {
+            // This should not happen since we already checked for errors,
+            // but just in case the transformation itself fails
+            tracing::error!(
+              inbox_id,
+              error = ?err,
+              "[received] error during message transformation, swallowing to continue stream"
+            );
+            // Don't call tsfn.call for transformation errors
+          }
+        }
       },
     );
 
