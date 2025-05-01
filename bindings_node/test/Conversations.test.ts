@@ -562,28 +562,32 @@ describe('Conversations', () => {
     })
 
     const messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages((err, message, [ConsentState.Allowed, ConsentState.Unknown]) => {
-      messages.push(message!)
-    })
+    const stream = client1.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      undefined,
+      [ConsentState.Allowed, ConsentState.Unknown]
+    )
 
     const messages2: Message[] = []
     const stream2 = client2
       .conversations()
-      .streamAllMessages((err, message, undefined) => {
+      .streamAllMessages((err, message) => {
         messages2.push(message!)
       })
 
     const messages3: Message[] = []
     const stream3 = client3
       .conversations()
-      .streamAllMessages((err, message, undefined) => {
+      .streamAllMessages((err, message) => {
         messages3.push(message!)
       })
 
     const messages4: Message[] = []
     const stream4 = client4
       .conversations()
-      .streamAllMessages((err, message, undefined) => {
+      .streamAllMessages((err, message) => {
         messages4.push(message!)
       })
 
