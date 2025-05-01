@@ -659,7 +659,7 @@ impl Conversations {
     self.stream(callback, Some(ConversationType::Dm))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void")]
   pub fn stream_all_messages(
     &self,
     callback: JsFunction,
@@ -703,7 +703,7 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void")]
   pub fn stream_all_group_messages(
     &self,
     callback: JsFunction,
@@ -712,7 +712,7 @@ impl Conversations {
     self.stream_all_messages(callback, Some(ConversationType::Group), consent_states)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void")]
   pub fn stream_all_dm_messages(
     &self,
     callback: JsFunction,
