@@ -2,7 +2,7 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::subscriptions::SyncEvent;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -450,6 +450,7 @@ where
         let provider = self.mls_provider()?;
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
+        tracing::error!("Changed record: {}", changed_records.len());
 
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records
@@ -460,9 +461,7 @@ where
             // Broadcast the consent update changes
             let _ = self
                 .local_events
-                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
-                    updates.clone(),
-                )));
+                .send(LocalEvents::PreferencesChanged(updates.clone()));
 
             self.sync_preferences(&provider, updates).await?;
         }
@@ -1774,6 +1773,10 @@ pub(crate) mod tests {
         let alix = Tester::builder().with_sync_worker().build().await;
         let bo = Tester::new().await;
 
+        let receiver = alix.local_events.subscribe();
+        let stream = receiver.stream_consent_updates();
+        futures::pin_mut!(stream);
+
         let group = alix
             .create_group_with_inbox_ids(
                 &[bo.inbox_id().to_string()],
@@ -1783,10 +1786,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        let receiver = alix.local_events.subscribe();
-        let stream = receiver.stream_consent_updates();
-        futures::pin_mut!(stream);
 
         // first record is denied consent to the group.
         group.update_consent_state(ConsentState::Denied).unwrap();

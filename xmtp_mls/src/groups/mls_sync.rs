@@ -14,7 +14,7 @@ use crate::groups::{
 };
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
-use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncEvent};
+use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncWorkerEvent};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
@@ -778,10 +778,12 @@ where
                                 ..
                             }) = provider.conn_ref().find_group(&self.group_id)?
                             {
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone()),
+                                        ));
                             }
                         }
                     }
@@ -818,9 +820,12 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::Request { message_id },
-                                ));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Request { message_id },
+                                        ));
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -851,10 +856,12 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Reply { message_id },
+                                        ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
@@ -866,9 +873,10 @@ where
                                 )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::PreferencesChanged(updates),
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::PreferencesChanged(updates));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -1027,26 +1035,17 @@ where
                                 .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
                             }
                         };
-                        match intent_state {
+
+
+
+                        let result = match intent_state {
                             IntentState::ToPublish => {
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(provider, &intent)?;
-
-                                // If it's a sync group message, probe the worker to process.
-                                if let Some(StoredGroup {
-                                    conversation_type: ConversationType::Sync,
-                                    ..
-                                }) = provider.conn_ref().find_group(&self.group_id)?
-                                {
-                                    let _ = self
-                                        .client
-                                        .local_events()
-                                        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
-                                }
-
-                                Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
+                                provider.conn_ref().set_group_intent_committed(intent_id)?;
+                                Ok(())
                             }
                             IntentState::Published => {
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1060,7 +1059,21 @@ where
                                 tracing::warn!("Intent [{}] moved to Processed status", intent_id);
                                 Ok(provider.conn_ref().set_group_intent_processed(intent_id)?)
                             }
+                        };
+
+                        // If it's a sync group message, probe the worker to process.
+                        if let Some(StoredGroup {
+                            conversation_type: ConversationType::Sync,
+                            ..
+                        }) = provider.conn_ref().find_group(&self.group_id)?
+                        {
+                            let _ = self
+                                .client
+                                .local_events()
+                                .send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone())));
                         }
+
+                        result
                     })
                 }).await?;
 

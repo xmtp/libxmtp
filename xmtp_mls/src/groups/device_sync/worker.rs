@@ -13,7 +13,7 @@ use crate::{
         },
         scoped_client::ScopedGroupClient,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncEvent},
+    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
     Client,
 };
 use futures::{Stream, StreamExt};
@@ -125,25 +125,23 @@ where
         while let Some(event) = self.stream.next().await {
             let event = event?;
 
-            if let LocalEvents::SyncEvent(msg) = event {
+            if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
-                    SyncEvent::NewSyncGroupFromWelcome(group_id) => {
+                    SyncWorkerEvent::NewSyncGroupFromWelcome(group_id) => {
                         self.evt_new_sync_group_from_welcome(group_id).await?;
                     }
-                    SyncEvent::NewSyncGroupMsg => {
-                        self.evt_new_sync_group_msg().await?;
+                    SyncWorkerEvent::NewSyncGroupMsg(group_id) => {
+                        self.evt_new_sync_group_msg(group_id).await?;
                     }
-                    SyncEvent::PreferencesOutgoing(preference_updates) => {
+                    SyncWorkerEvent::SyncPreferences(preference_updates) => {
                         self.evt_preferences_outgoing(preference_updates).await?;
                     }
-                    SyncEvent::PreferencesChanged(_) => {
-                        // Intentionally left blank. This event is for streaming to consume.
-                    }
+
                     // Device Sync V1 events
-                    SyncEvent::Reply { message_id } => {
+                    SyncWorkerEvent::Reply { message_id } => {
                         self.evt_v1_device_sync_reply(message_id).await?;
                     }
-                    SyncEvent::Request { message_id } => {
+                    SyncWorkerEvent::Request { message_id } => {
                         self.evt_v1_device_sync_request(message_id).await?;
                     }
                 }
@@ -217,10 +215,10 @@ where
         Ok(())
     }
 
-    async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_msg(&self, group_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         self.client
-            .process_new_sync_group_messages(&provider, &self.handle)
+            .process_new_sync_group_messages(&provider, &self.handle, group_id)
             .await?;
         Ok(())
     }
@@ -279,10 +277,16 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
+        group_id: Vec<u8>,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
+        let Some(sync_group) = provider.conn_ref().find_sync_group(&group_id)? else {
+            tracing::error!("Sync group not found from new sync group message event.");
+            return Ok(());
+        };
+        let sync_group = self.group_with_conn(provider.conn_ref(), &sync_group.id)?;
+
         let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
-            tracing::warn!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
+            tracing::error!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
             return Ok(());
         };
 
@@ -325,7 +329,7 @@ where
         let is_external = msg.sender_installation_id != installation_id;
 
         match content {
-            device_sync_content::Content::Request(request) => {
+            ContentProto::Request(request) => {
                 if msg.sender_installation_id == self.installation_id() {
                     // Ignore our own messages
                     return Ok(());
@@ -338,7 +342,7 @@ where
                 )
                 .await?;
             }
-            device_sync_content::Content::Reply(reply) => {
+            ContentProto::Reply(reply) => {
                 if !is_external {
                     // Ignore our own messages
                     return Ok(());
@@ -347,24 +351,23 @@ where
                 self.process_sync_payload(reply).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            device_sync_content::Content::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
+            ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
 
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates, provider, handle)?;
-
+                let updated = store_preference_updates(updates.clone(), provider, handle)?;
                 if !updated.is_empty() {
-                    let _ = self.local_events.send(LocalEvents::SyncEvent(
-                        SyncEvent::PreferencesChanged(updated),
-                    ));
+                    let _ = self
+                        .local_events
+                        .send(LocalEvents::PreferencesChanged(updated));
                 }
             }
-            device_sync_content::Content::Acknowledge(DeviceSyncAcknowledge { .. }) => {
+            ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());
             }
-            device_sync_content::Content::SyncGroupContest(contest) => {
+            ContentProto::SyncGroupContest(contest) => {
                 if !is_external {
                     // Ignore our own contests
                     return Ok(());

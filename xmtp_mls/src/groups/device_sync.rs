@@ -262,11 +262,15 @@ where
     ) -> Result<MlsGroup<Self>, GroupError> {
         let conn = provider.conn_ref();
         let mut sync_group = conn.primary_sync_group()?;
+
         if sync_group.is_none() {
-            // If there is no sync group, try to see if there
-            // is a new group for us on the network before creating one.
-            self.sync_welcomes(provider).await?;
-            sync_group = conn.primary_sync_group()?;
+            let prefs = StoredUserPreferences::load(conn)?;
+            if prefs.primary_sync_group_id.is_some() {
+                // This is possible if a primary sync group id was set through a contest.
+                tracing::info!("Primary sync group not found while primary_sync_group_id is set. Pulling welcomes to check network.");
+                self.sync_welcomes(provider).await?;
+                sync_group = conn.primary_sync_group()?;
+            }
         }
 
         let sync_group = match sync_group {

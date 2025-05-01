@@ -78,14 +78,16 @@ pub(super) fn store_preference_updates(
     let mut changed = vec![];
     for update in updates.into_iter().filter_map(|u| u.update) {
         match update {
-            UpdateProto::Consent(consent_record) => {
+            UpdateProto::Consent(consent_save) => {
                 tracing::info!(
                     "Storing consent update from sync group. State: {:?}",
-                    consent_record.state
+                    consent_save.state
                 );
+
+                let consent_record = consent_save.try_into()?;
                 let updated = provider
                     .conn_ref()
-                    .insert_or_replace_consent_records(&[consent_record.try_into()?])?;
+                    .insert_or_replace_consent_records(&[consent_record])?;
                 changed.extend(
                     updated
                         .into_iter()

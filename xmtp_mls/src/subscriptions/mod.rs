@@ -48,15 +48,16 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncEvent(SyncEvent),
+    SyncWorkerEvent(SyncWorkerEvent),
+    PreferencesChanged(Vec<UserPreferenceUpdate>),
 }
 
 #[derive(Debug, Clone)]
-pub enum SyncEvent {
+pub enum SyncWorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
-    NewSyncGroupMsg,
-    PreferencesOutgoing(Vec<UserPreferenceUpdate>),
-    PreferencesChanged(Vec<UserPreferenceUpdate>),
+    NewSyncGroupMsg(Vec<u8>),
+    // The sync worker will auto-sync these with other devices.
+    SyncPreferences(Vec<UserPreferenceUpdate>),
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
@@ -77,14 +78,14 @@ impl LocalEvents {
         use LocalEvents::*;
 
         match &self {
-            SyncEvent(_) => Some(self),
+            SyncWorkerEvent(_) => Some(self),
             _ => None,
         }
     }
 
     fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
         match self {
-            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
+            Self::PreferencesChanged(updates) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
@@ -101,7 +102,7 @@ impl LocalEvents {
 
     fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
         match self {
-            Self::SyncEvent(SyncEvent::PreferencesChanged(updates)) => {
+            Self::PreferencesChanged(updates) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {

@@ -111,6 +111,7 @@ impl StoredUserPreferences {
 
     pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
         let mut pref = Self::load(conn)?;
+        tracing::info!("Setting primary sync group: {:?}", &cursor.group_id[..4]);
         pref.primary_sync_group_id = Some(cursor.group_id.clone());
         pref.sync_group_cursor = cursor.offset;
         pref.store(conn)

@@ -316,6 +316,14 @@ impl DbConnection {
         Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
+    pub fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .filter(dsl::id.eq(id));
+
+        Ok(self.raw_query_read(|conn| query.first(conn).optional())?)
+    }
+
     pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
             .inner_join(

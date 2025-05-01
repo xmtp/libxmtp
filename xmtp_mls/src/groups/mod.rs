@@ -40,7 +40,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::subscriptions::SyncEvent;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -813,7 +813,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
                     SyncCursor::reset(&group_id, provider.conn_ref())?;
-                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome(group_id)));
+                    let _ = client.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -837,8 +837,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
-        tracing::info!("Creating sync group.");
-
         let context = client.context();
 
         let protected_metadata =
@@ -1054,10 +1052,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     pub(crate) fn get_sync_group_messages(
         &self,
-        sent_after_ns: i64,
+        offset: i64,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.context().store().conn()?;
-        let messages = conn.get_sync_group_messages(&self.group_id, sent_after_ns)?;
+        let messages = conn.get_sync_group_messages(&self.group_id, offset)?;
         Ok(messages)
     }
 
@@ -1623,11 +1621,21 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .map(UserPreferenceUpdate::Consent)
             .collect();
 
+        tracing::error!("update consent state change: {}", new_records.len());
+
         if !new_records.is_empty() {
             // Dispatch an update event so it can be synced across devices
-            let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                SyncEvent::PreferencesOutgoing(new_records),
-            ));
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::SyncWorkerEvent(
+                    SyncWorkerEvent::SyncPreferences(new_records.clone()),
+                ));
+            // Broadcast the changes
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::PreferencesChanged(new_records));
         }
 
         Ok(())

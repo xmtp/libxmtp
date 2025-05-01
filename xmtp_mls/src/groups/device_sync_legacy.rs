@@ -4,7 +4,7 @@ use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::UserPreferenceUpdate;
 use super::device_sync::DeviceSyncError;
 use super::scoped_client::ScopedGroupClient;
-use crate::subscriptions::SyncEvent;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
