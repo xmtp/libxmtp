@@ -1,4 +1,5 @@
-use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, ScopedGroupClient};
+use super::{GroupError, MlsGroup, ScopedGroupClient};
+use crate::groups::mls_ext::MlsExtensionsExt;
 use xmtp_db::{
     association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
@@ -32,7 +33,7 @@ where
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let provider = self.mls_provider();
         let group_membership = self.load_mls_group_with_lock(&provider, |mls_group| {
-            Ok(extract_group_membership(mls_group.extensions())?)
+            Ok(mls_group.extensions().group_membership()?)
         })?;
         let requests = group_membership
             .members

@@ -586,7 +586,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
         builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
-        utils::Tester, Client, XmtpApi,
+        Client, XmtpApi,
     };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -735,6 +735,7 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
+        use crate::utils::Tester;
         use xmtp_common::assert_logged;
 
         xmtp_common::traced_test!(async {

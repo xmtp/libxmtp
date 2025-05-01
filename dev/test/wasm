@@ -9,3 +9,4 @@ WASM_BINDGEN_SPLIT_LINKED_MODULES=1 \
   CHROMEDRIVER="chromedriver" \
   cargo test --target wasm32-unknown-unknown --release \
   -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p xmtp_api_d14n -p xmtp_db
+

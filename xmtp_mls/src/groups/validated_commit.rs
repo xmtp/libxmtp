@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::groups::mls_ext::MlsExtensionsExt;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -36,9 +37,8 @@ use super::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
-    group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
-    },
+    group_permissions::{GroupMutablePermissions, GroupMutablePermissionsError},
+    mls_ext::MlsGroupExt,
     ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
     MAX_GROUP_NAME_LENGTH,
 };
@@ -435,7 +435,7 @@ impl ValidatedCommit {
             dm_members: immutable_metadata.dm_members,
         };
 
-        let policy_set = extract_group_permissions(openmls_group)?;
+        let policy_set = openmls_group.permissions()?;
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
@@ -559,9 +559,9 @@ fn get_latest_group_membership(
 ) -> Result<GroupMembership, CommitValidationError> {
     for proposal in staged_commit.queued_proposals() {
         match proposal.proposal() {
-            Proposal::GroupContextExtensions(group_context_extensions) => {
+            Proposal::GroupContextExtensions(group_context) => {
                 let new_group_membership: GroupMembership =
-                    extract_group_membership(group_context_extensions.extensions())?;
+                    group_context.extensions().group_membership()?;
                 tracing::info!(
                     "Group context extensions proposal found: {:?}",
                     new_group_membership
