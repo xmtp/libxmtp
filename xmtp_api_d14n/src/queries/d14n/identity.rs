@@ -15,6 +15,7 @@ use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -60,12 +61,16 @@ where
         }
 
         let topics = request.requests.topics()?;
-
+        //todo: replace with returned node_id
+        let node_id = 100;
+        let last_seen = Some( Cursor {
+            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)].into(),
+        });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: None, //todo: set later
+                last_seen,
             })
             .build()?
             .query(&self.message_client)
