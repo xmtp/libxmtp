@@ -129,9 +129,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::time::sleep;
-    use xmtp_api_http::XmtpHttpApiClient;
+    
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
+    use xmtp_id::associations::test_utils::WalletTestExt;
 
     #[rstest::rstest]
     #[xmtp_common::test]
