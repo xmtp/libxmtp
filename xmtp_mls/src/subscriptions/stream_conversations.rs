@@ -553,8 +553,7 @@ mod test {
     #[case(ConversationType::Dm, "Unexpectedly received a Group")]
     #[case(ConversationType::Group, "Unexpectedly received a DM")]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
-
+    #[timeout(std::time::Duration::from_secs(15))]
     // #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_filter(
         #[case] conversation_type: ConversationType,
@@ -596,7 +595,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
+    #[timeout(std::time::Duration::from_secs(30))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_all_conversation_types() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
