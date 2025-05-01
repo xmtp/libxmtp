@@ -106,6 +106,7 @@ where
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(TopicKind::GroupMessagesV1.build(request.group_id.as_slice()))
+            .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;
