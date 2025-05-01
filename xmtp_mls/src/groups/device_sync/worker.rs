@@ -34,8 +34,8 @@ use xmtp_proto::{
     xmtp::{
         device_sync::{
             content::{
-                device_sync_content::{self, Content as ContentProto},
-                DeviceSyncAcknowledge, DeviceSyncContent as DeviceSyncContentProto,
+                device_sync_content::Content as ContentProto, DeviceSyncAcknowledge,
+                DeviceSyncContent as DeviceSyncContentProto,
                 PreferenceUpdates as PreferenceUpdatesProto, SyncGroupContest,
             },
             BackupElementSelection, BackupOptions,

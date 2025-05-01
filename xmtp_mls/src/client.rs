@@ -2,7 +2,6 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::subscriptions::SyncWorkerEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{

@@ -1036,16 +1036,25 @@ where
                             }
                         };
 
+                        // If it's a sync group message, probe the worker to process.
+                        if let Some(StoredGroup {
+                            conversation_type: ConversationType::Sync,
+                            ..
+                        }) = provider.conn_ref().find_group(&self.group_id)?
+                        {
+                            let _ = self
+                                .client
+                                .local_events()
+                                .send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone())));
+                        }
 
-
-                        let result = match intent_state {
+                        match intent_state {
                             IntentState::ToPublish => {
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(provider, &intent)?;
-                                provider.conn_ref().set_group_intent_committed(intent_id)?;
-                                Ok(())
+                                Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
                             IntentState::Published => {
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1059,21 +1068,7 @@ where
                                 tracing::warn!("Intent [{}] moved to Processed status", intent_id);
                                 Ok(provider.conn_ref().set_group_intent_processed(intent_id)?)
                             }
-                        };
-
-                        // If it's a sync group message, probe the worker to process.
-                        if let Some(StoredGroup {
-                            conversation_type: ConversationType::Sync,
-                            ..
-                        }) = provider.conn_ref().find_group(&self.group_id)?
-                        {
-                            let _ = self
-                                .client
-                                .local_events()
-                                .send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone())));
                         }
-
-                        result
                     })
                 }).await?;
 
