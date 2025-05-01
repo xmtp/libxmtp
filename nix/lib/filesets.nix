@@ -1,8 +1,10 @@
-{ pkgs, inputs, ... }:
+{ lib, craneLib, ... }:
 let
-  inherit (pkgs) lib;
-  craneLib = inputs.crane.mkLib pkgs;
   inherit (craneLib.fileset) commonCargoSources;
+  filesetForCrate = crate: lib.fileset.toSource {
+    root = ./../..;
+    fileset = forCrate crate;
+  };
   libraries = lib.fileset.unions [
     ./../../Cargo.toml
     ./../../Cargo.lock
@@ -15,12 +17,14 @@ let
     (commonCargoSources ./../../xmtp_api_d14n)
     (commonCargoSources ./../../xmtp_db)
     (commonCargoSources ./../../xmtp_proto)
+    (commonCargoSources ./../../xmtp_db_test)
     (commonCargoSources ./../../common)
     (commonCargoSources ./../../xmtp_content_types)
     (commonCargoSources ./../../xmtp_macro)
     ./../../xmtp_id/src/scw_verifier/chain_urls_default.json
     ./../../xmtp_id/artifact
     ./../../xmtp_db/migrations
+    ./../../.config
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../../examples/cli)
@@ -29,6 +33,7 @@ let
     (commonCargoSources ./../../bindings_wasm)
     (commonCargoSources ./../../bindings_ffi)
     (commonCargoSources ./../../xmtp_debug)
+    (lib.fileset.maybeMissing ./../../bindings_ffi/libxmtp_version.txt)
   ];
   forCrate = crate: lib.fileset.unions [
     workspace
@@ -40,5 +45,5 @@ let
   ];
 in
 {
-  inherit libraries binaries forCrate workspace;
+  inherit libraries binaries forCrate workspace filesetForCrate;
 }

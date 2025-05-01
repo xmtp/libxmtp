@@ -1,5 +1,4 @@
-{ shells
-, stdenv
+{ stdenv
 , darwin
 , mktemp
 , buf
@@ -10,16 +9,16 @@
 , playwright-driver
 , playwright
 , lib
-,
+, xmtp
 }:
 
 let
   inherit (darwin.apple_sdk) frameworks;
   mkShell =
     top:
-    (shells.combineShell
+    (xmtp.combineShell
       {
-        otherShells = with shells;
+        otherShells = with xmtp.shells;
           [
             mkLinters
           ];

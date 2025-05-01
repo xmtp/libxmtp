@@ -1,6 +1,0 @@
-#!/bin/bash
-set -eou pipefail
-
-CARGO="nix develop .#kotlin --command cargo"
-
-$CARGO nextest run --profile ci --workspace -E 'kind(test) and package(xmtpv3)'
