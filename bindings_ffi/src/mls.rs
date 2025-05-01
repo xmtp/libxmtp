@@ -1485,11 +1485,11 @@ impl FfiConversations {
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             conversation_type.map(Into::into),
+            consents,
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
             },
-            consents,
         );
 
         FfiStreamCloser::new(handle)
@@ -3947,7 +3947,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -4766,7 +4766,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::from_client(&alix));
         let stream_messages = alix
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -4816,7 +4816,7 @@ mod tests {
         let bo2_message_callbacks = Arc::new(RustStreamCallback::from_client(&bo2));
         let bo2_stream_messages = bo2
             .conversations()
-            .stream_all_messages(bo2_message_callbacks.clone())
+            .stream_all_messages(bo2_message_callbacks.clone(), None)
             .await;
         bo2_stream_messages.wait_for_ready().await;
 
@@ -5084,7 +5084,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -5218,7 +5218,7 @@ mod tests {
 
         let stream = caro
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -5313,7 +5313,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream_closer = bola
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream_closer.wait_for_ready().await;
 
@@ -5408,7 +5408,7 @@ mod tests {
 
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callback.clone())
+            .stream_all_messages(message_callback.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -6397,7 +6397,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -6416,7 +6416,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_group_messages(stream_callback.clone())
+            .stream_all_group_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -6436,7 +6436,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_dm_messages(stream_callback.clone())
+            .stream_all_dm_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -7432,7 +7432,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
