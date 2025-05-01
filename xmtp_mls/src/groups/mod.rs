@@ -2713,7 +2713,6 @@ pub(crate) mod tests {
                 .await
                 .decrypted_message_bytes
         );
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "current_thread")]
@@ -2775,7 +2774,6 @@ pub(crate) mod tests {
             0,
             "Bola_2 should have no groups after failed creation"
         );
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2883,7 +2881,6 @@ pub(crate) mod tests {
             2,
             "Only Amal and Bola_1 should be in the DM"
         );
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2940,7 +2937,6 @@ pub(crate) mod tests {
             0,
             "Bola_2 should have no DM group due to malformed key package"
         );
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -2985,7 +2981,6 @@ pub(crate) mod tests {
         assert_eq!(caro_groups.len(), 1);
         let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(alix_groups.len(), 1);
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3029,7 +3024,6 @@ pub(crate) mod tests {
         assert_eq!(bo_groups.len(), 1);
         let alix_groups = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(alix_groups.len(), 1);
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3078,7 +3072,6 @@ pub(crate) mod tests {
         bo_group.sync().await.unwrap();
         assert_eq!(bo_group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -3195,7 +3188,6 @@ pub(crate) mod tests {
 
         assert_eq!(caro_group.members().await.unwrap().len(), 2);
         assert_eq!(group.members().await.unwrap().len(), 2);
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[xmtp_common::test]
@@ -5866,7 +5858,6 @@ pub(crate) mod tests {
             .update_group_name("Bola's Group Forever".to_string())
             .await;
         assert!(result.is_err());
-        set_test_mode_upload_malformed_keypackage(false, None);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
