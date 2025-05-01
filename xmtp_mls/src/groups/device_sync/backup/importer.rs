@@ -131,7 +131,7 @@ where
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            ignore_unique_constraints(consent.store(provider.conn_ref()))?;
+            ignore_unique_constraints(provider.conn_ref().insert_newer_consent_record(consent))?;
         }
         Element::Group(save) => {
             if let Ok(Some(_)) = provider.conn_ref().find_group(&save.id) {

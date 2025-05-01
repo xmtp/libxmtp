@@ -86,22 +86,24 @@ pub(super) fn store_preference_updates(
                     consent_save.state
                 );
 
-                let consent_record = consent_save.try_into()?;
+                let consent_record: StoredConsentRecord = consent_save.try_into()?;
                 let updated = provider
                     .conn_ref()
-                    .insert_or_replace_consent_records(&[consent_record])?;
-                changed.extend(
-                    updated
-                        .into_iter()
-                        .map(UserPreferenceUpdate::Consent)
-                        .collect::<Vec<_>>(),
-                );
+                    .insert_newer_consent_record(consent_record.clone())?;
+
+                if updated {
+                    changed.push(UserPreferenceUpdate::Consent(consent_record));
+                }
 
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
-                StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
+                StoredUserPreferences::store_hmac_key(
+                    provider.conn_ref(),
+                    &key,
+                    Some(cycled_at_ns),
+                )?;
                 changed.push(UserPreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }

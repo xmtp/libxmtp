@@ -1835,7 +1835,7 @@ where
             Some(ikm) => ikm,
             None => {
                 let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key)?;
+                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
                 key
             }
         };

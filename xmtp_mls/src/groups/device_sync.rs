@@ -311,6 +311,7 @@ impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessag
     ) -> impl DoubleEndedIterator<Item = (StoredGroupMessage, ContentProto)> {
         self.into_iter().flat_map(|msg| {
             let result = (|| {
+                tracing::info!("?");
                 let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
                 let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;
                 content.content.map(|c| (msg, c))

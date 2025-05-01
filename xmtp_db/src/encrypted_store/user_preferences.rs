@@ -63,7 +63,11 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_hmac_key(conn: &DbConnection, key: &[u8]) -> Result<(), StorageError> {
+    pub fn store_hmac_key(
+        conn: &DbConnection,
+        key: &[u8],
+        cycled_at: Option<i64>,
+    ) -> Result<(), StorageError> {
         if key.len() != 42 {
             return Err(StorageError::Generic(
                 "HMAC key needs to be 42 bytes".to_string(),
@@ -71,8 +75,15 @@ impl StoredUserPreferences {
         }
 
         let mut preferences = Self::load(conn)?;
+
+        if let (Some(old), Some(new)) = (preferences.hmac_key_cycled_at_ns, cycled_at) {
+            if old > new {
+                return Ok(());
+            }
+        }
+
         preferences.hmac_key = Some(key.to_vec());
-        preferences.hmac_key_cycled_at_ns = Some(now_ns());
+        preferences.hmac_key_cycled_at_ns = Some(cycled_at.unwrap_or_else(|| now_ns()));
         preferences.store(conn)?;
 
         Ok(())
@@ -99,7 +110,7 @@ mod tests {
 
             // set an hmac key
             let hmac_key = HmacKey::random_key();
-            StoredUserPreferences::store_hmac_key(conn, &hmac_key).unwrap();
+            StoredUserPreferences::store_hmac_key(conn, &hmac_key, None).unwrap();
             let pref = StoredUserPreferences::load(conn).unwrap();
             // Make sure it saved
             assert_eq!(hmac_key, pref.hmac_key.unwrap());

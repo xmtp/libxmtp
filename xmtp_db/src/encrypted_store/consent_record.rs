@@ -91,6 +91,50 @@ impl DbConnection {
         Ok(self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?)
     }
 
+    // returns true if newer
+    pub fn insert_newer_consent_record(
+        &self,
+        record: StoredConsentRecord,
+    ) -> Result<bool, StorageError> {
+        self.raw_query_write(|conn| {
+            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+                diesel::insert_into(dsl::consent_records)
+                    .values(&record)
+                    .on_conflict_do_nothing()
+                    .get_result(conn)
+                    .optional()?;
+
+            // if record was not inserted...
+            if maybe_inserted_consent_record.is_none() {
+                let old_record = dsl::consent_records
+                    .find((&record.entity_type, &record.entity))
+                    .first::<StoredConsentRecord>(conn)?;
+
+                if old_record.eq(&record) {
+                    return Ok(false);
+                }
+
+                let should_replace = match (old_record.consented_at_ns, record.consented_at_ns) {
+                    (None, _) => true,
+                    (Some(_), None) => false,
+                    (Some(old), Some(new)) => old < new,
+                };
+
+                if should_replace {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                return Ok(should_replace);
+            }
+
+            Ok(true)
+        })
+    }
+
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
     pub fn insert_or_replace_consent_records(
         &self,
