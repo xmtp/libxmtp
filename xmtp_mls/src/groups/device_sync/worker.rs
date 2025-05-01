@@ -17,7 +17,6 @@ use crate::{
     Client,
 };
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
@@ -169,11 +168,13 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            client.get_sync_group(&provider).await?;
+            if provider.conn_ref().primary_sync_group()?.is_none() {
+                client.get_sync_group(&provider).await?;
 
-            // Ask the sync group for a sync payload if the url is present.
-            if self.client.device_sync_server_url().is_some() {
-                self.client.send_sync_request(&provider).await?;
+                // Ask the sync group for a sync payload if the url is present.
+                if self.client.device_sync_server_url().is_some() {
+                    self.client.send_sync_request(&provider).await?;
+                }
             }
 
             tracing::info!(
@@ -360,40 +361,33 @@ where
 
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
-        let mut acknowledged = HashMap::new();
         // Look in reverse for a request, and ensure it was not acknowledged by someone else.
-        for (_msg, content) in messages.iter_with_content().rev() {
-            match content {
-                ContentProto::Acknowledge(DeviceSyncAcknowledge { request_id }) => {
-                    acknowledged.insert(request_id, message.sender_installation_id.clone());
-                }
-                ContentProto::Request(req) => {
-                    if let Some(installation_id) = acknowledged.get(&req.request_id) {
-                        if installation_id != self.installation_id() {
-                            // Request has already been acknowledged by another installation.
-                            // Let that installation handle it.
-                            return Err(DeviceSyncError::AlreadyAcknowledged);
-                        }
-
-                        // We've already acknowledged it. Return here.
-                        return Ok(());
-                    }
-
-                    // Acknowledge and break.
-                    self.send_device_sync_message(
-                        provider,
-                        None,
-                        ContentProto::Acknowledge(DeviceSyncAcknowledge {
-                            request_id: req.request_id,
-                        }),
-                    )
-                    .await?;
-
-                    break;
-                }
-                _ => {}
+        for (message, content) in messages.iter_with_content().rev() {
+            let ContentProto::Acknowledge(acknowledge) = content else {
+                continue;
+            };
+            if acknowledge.request_id != request.request_id {
+                continue;
             }
+
+            if message.sender_installation_id != self.installation_id() {
+                // Request has already been acknowledged by another installation.
+                // Let that installation handle it.
+                return Err(DeviceSyncError::AlreadyAcknowledged);
+            }
+
+            return Ok(());
         }
+
+        // Acknowledge and break.
+        self.send_device_sync_message(
+            provider,
+            None,
+            ContentProto::Acknowledge(DeviceSyncAcknowledge {
+                request_id: request.request_id.clone(),
+            }),
+        )
+        .await?;
 
         Ok(())
     }
