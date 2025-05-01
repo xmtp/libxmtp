@@ -1,20 +1,8 @@
-import { v4 } from 'uuid'
-import { describe, expect, it } from 'vitest'
-import {
-  createRegisteredClient,
-  createUser,
-  encodeTextMessage,
-} from '@test/helpers'
-import {
-  ConsentState,
-  Conversation,
-  GroupPermissionsOptions,
-  IdentifierKind,
-  Message,
-  MetadataField,
-  PermissionPolicy,
-  PermissionUpdateType,
-} from '../dist'
+import { v4 } from 'uuid';
+import { describe, expect, it } from 'vitest';
+import { createRegisteredClient, createUser, encodeTextMessage } from '@test/helpers';
+import { ConsentState, Conversation, GroupPermissionsOptions, IdentifierKind, Message, MetadataField, PermissionPolicy, PermissionUpdateType } from '../dist';
+
 
 const SLEEP_MS = 100
 const sleep = () => new Promise((resolve) => setTimeout(resolve, SLEEP_MS))
@@ -571,25 +559,30 @@ describe('Conversations', () => {
     )
 
     const messages2: Message[] = []
-    const stream2 = client2
-      .conversations()
-      .streamAllMessages((err, message) => {
+    const stream2 = client2.conversations().streamAllMessages(
+      (err, message) => {
         messages2.push(message!)
-      })
+      },
+      undefined,
+      [ConsentState.Allowed, ConsentState.Unknown]
+    )
 
     const messages3: Message[] = []
     const stream3 = client3
       .conversations()
       .streamAllMessages((err, message) => {
         messages3.push(message!)
-      })
+      },undefined,
+      [ConsentState.Allowed, ConsentState.Unknown])
 
     const messages4: Message[] = []
-    const stream4 = client4
-      .conversations()
-      .streamAllMessages((err, message) => {
+    const stream4 = client4.conversations().streamAllMessages(
+      (err, message) => {
         messages4.push(message!)
-      })
+      },
+      undefined,
+      [ConsentState.Allowed, ConsentState.Unknown]
+    )
 
     const groups2 = client2.conversations()
     await groups2.sync()
