@@ -704,12 +704,20 @@ impl Conversations {
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
-  pub fn stream_all_group_messages(&self, callback: JsFunction, consent_states: Option<Vec<ConsentState>>) -> Result<StreamCloser> {
+  pub fn stream_all_group_messages(
+    &self,
+    callback: JsFunction,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<StreamCloser> {
     self.stream_all_messages(callback, Some(ConversationType::Group), consent_states)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
-  pub fn stream_all_dm_messages(&self, callback: JsFunction, consent_states: Option<Vec<ConsentState>>) -> Result<StreamCloser> {
+  pub fn stream_all_dm_messages(
+    &self,
+    callback: JsFunction,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<StreamCloser> {
     self.stream_all_messages(callback, Some(ConversationType::Dm), consent_states)
   }
 

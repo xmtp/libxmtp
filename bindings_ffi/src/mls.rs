@@ -6397,7 +6397,10 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(stream_callback.clone(), None)
+            .stream_all_messages(
+                stream_callback.clone(),
+                Some(vec![FfiConsentState::Allowed, FfiConsentState::Unknown]),
+            )
             .await;
         stream.wait_for_ready().await;
 
