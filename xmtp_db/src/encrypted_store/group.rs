@@ -6,9 +6,7 @@ use super::{
     schema::{
         group_messages::dsl as group_messages_dsl,
         groups::{self, dsl},
-        user_preferences,
     },
-    user_preferences::SyncCursor,
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store};
@@ -110,7 +108,6 @@ impl StoredGroup {
             .expect("No fields should be uninitialized");
 
         stored_group.store(conn)?;
-        SyncCursor::reset(&stored_group.id, conn)?;
 
         Ok(stored_group)
     }
@@ -326,11 +323,8 @@ impl DbConnection {
 
     pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
         let query = dsl::groups
-            .inner_join(
-                user_preferences::dsl::user_preferences
-                    .on(user_preferences::dsl::primary_sync_group_id.eq(dsl::id.nullable())),
-            )
-            .select(dsl::groups::all_columns());
+            .order(dsl::created_at_ns.desc())
+            .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         Ok(self.raw_query_read(|conn| query.first(conn).optional())?)
     }
@@ -705,6 +699,7 @@ pub(crate) mod tests {
             entity_type,
             state,
             entity,
+            consented_at_ns: Some(now_ns()),
         }
     }
 

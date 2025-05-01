@@ -4,8 +4,7 @@ RENAME TO user_preferences_old;
 CREATE TABLE user_preferences (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0),
     hmac_key BLOB,
-    primary_sync_group_id BLOB,
-    sync_group_cursor BIGINT NOT NULL DEFAULT 0
+    hmac_key_cycled_at_ns BIGINT
 );
 
 INSERT INTO
@@ -20,3 +19,6 @@ LIMIT
     1;
 
 DROP TABLE user_preferences_old;
+
+ALTER TABLE consent_records
+ADD COLUMN consented_at_ns BIGINT;

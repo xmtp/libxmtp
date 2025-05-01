@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{StorageError, Store};
 use diesel::{insert_into, prelude::*};
+use xmtp_common::time::now_ns;
 
 #[derive(
     Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default,
@@ -14,26 +15,7 @@ pub struct StoredUserPreferences {
     pub id: i32,
     /// HMAC key root
     pub hmac_key: Option<Vec<u8>>,
-    // Sync cursor
-    pub primary_sync_group_id: Option<Vec<u8>>,
-    pub sync_group_cursor: i64,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct SyncCursor {
-    pub group_id: Vec<u8>,
-    pub offset: i64,
-}
-
-impl SyncCursor {
-    pub fn reset(group_id: &[u8], conn: &DbConnection) -> Result<(), StorageError> {
-        let cursor = Self {
-            group_id: group_id.to_vec(),
-            offset: 0,
-        };
-        StoredUserPreferences::store_sync_cursor(conn, &cursor)?;
-        Ok(())
-    }
+    pub hmac_key_cycled_at_ns: Option<i64>,
 }
 
 impl Store<DbConnection> for StoredUserPreferences {
@@ -90,31 +72,10 @@ impl StoredUserPreferences {
 
         let mut preferences = Self::load(conn)?;
         preferences.hmac_key = Some(key.to_vec());
+        preferences.hmac_key_cycled_at_ns = Some(now_ns());
         preferences.store(conn)?;
 
         Ok(())
-    }
-
-    // If there is no sync cursor returned, that indicates there is probably no sync group
-    pub fn sync_cursor(conn: &DbConnection) -> Result<Option<SyncCursor>, StorageError> {
-        let pref = Self::load(conn)?;
-
-        let Some(group_id) = pref.primary_sync_group_id else {
-            return Ok(None);
-        };
-
-        Ok(Some(SyncCursor {
-            group_id,
-            offset: pref.sync_group_cursor,
-        }))
-    }
-
-    pub fn store_sync_cursor(conn: &DbConnection, cursor: &SyncCursor) -> Result<(), StorageError> {
-        let mut pref = Self::load(conn)?;
-        tracing::info!("Setting primary sync group: {:?}", &cursor.group_id[..4]);
-        pref.primary_sync_group_id = Some(cursor.group_id.clone());
-        pref.sync_group_cursor = cursor.offset;
-        pref.store(conn)
     }
 }
 
@@ -149,34 +110,6 @@ mod tests {
                 .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
                 .unwrap();
             assert_eq!(result.len(), 1);
-        })
-        .await;
-    }
-
-    #[xmtp_common::test(unwrap_try = "true")]
-    async fn test_sync_cursor() {
-        crate::test_utils::with_connection(|conn| {
-            // Loads fine when there's nothing in the db
-            let cursor = StoredUserPreferences::sync_cursor(conn)?;
-            assert!(cursor.is_none());
-
-            let mut cursor = SyncCursor {
-                group_id: vec![1, 2, 3, 4],
-                offset: 10,
-            };
-
-            // Check stores on an empty row fine
-            StoredUserPreferences::store_sync_cursor(conn, &cursor)?;
-            let db_cursor = StoredUserPreferences::sync_cursor(conn)??;
-            assert_eq!(cursor, db_cursor);
-
-            cursor.group_id = vec![1, 2, 3, 5];
-            cursor.offset = 12;
-
-            // Check stores on an occupied row fine
-            StoredUserPreferences::store_sync_cursor(conn, &cursor)?;
-            let db_cursor = StoredUserPreferences::sync_cursor(conn)??;
-            assert_eq!(cursor, db_cursor);
         })
         .await;
     }

@@ -12,21 +12,18 @@ use xmtp_db::{
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
-    let alix1 = Tester::builder()
-        .with_sync_server()
-        .with_sync_worker()
-        .build()
-        .await;
+    tester!(alix1, with_sync_server, with_sync_worker);
     let bo = Tester::new().await;
 
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
 
     // Create a second client for alix
-    let alix2 = alix1.builder.build().await;
+    tester!(alix2, from = alix1);
 
     // Have alix1 receive new sync group, and auto-send a sync payload
-    alix1.sync_welcomes(&alix1.provider).await?;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
+
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
@@ -67,12 +64,13 @@ async fn only_one_payload_sent() {
     alix1.worker().clear_metric(SyncMetric::PayloadSent);
 
     tester!(alix3, from = alix1);
-    alix1.worker().reset_metrics();
-    alix2.worker().reset_metrics();
 
     // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;
     alix2.test_has_same_sync_group_as(&alix3).await?;
+
+    alix1.worker().reset_metrics();
+    alix2.worker().reset_metrics();
 
     let wait1 = alix1.worker().wait(SyncMetric::PayloadSent, 1);
     let timeout1 = xmtp_common::time::timeout(Duration::from_secs(3), wait1).await;

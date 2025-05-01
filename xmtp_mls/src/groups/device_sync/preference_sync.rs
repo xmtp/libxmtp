@@ -1,6 +1,7 @@
 use super::*;
 use crate::Client;
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
@@ -14,7 +15,7 @@ use xmtp_proto::ConversionError;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserPreferenceUpdate {
     Consent(StoredConsentRecord),
-    Hmac { key: Vec<u8> },
+    Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
 impl<ApiClient, V> Client<ApiClient, V>
@@ -62,6 +63,7 @@ where
             provider,
             vec![UserPreferenceUpdate::Hmac {
                 key: HmacKey::random_key(),
+                cycled_at_ns: now_ns(),
             }],
         )
         .await?;
@@ -97,10 +99,10 @@ pub(super) fn store_preference_updates(
 
                 handle.increment_metric(SyncMetric::ConsentReceived);
             }
-            UpdateProto::Hmac(HmacKeyUpdateProto { key }) => {
+            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(provider.conn_ref(), &key)?;
-                changed.push(UserPreferenceUpdate::Hmac { key });
+                changed.push(UserPreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
@@ -123,7 +125,9 @@ impl TryFrom<UpdateProto> for UserPreferenceUpdate {
     fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
         let update = match update {
             UpdateProto::Consent(consent) => Self::Consent(consent.try_into()?),
-            UpdateProto::Hmac(HmacKeyUpdateProto { key }) => Self::Hmac { key },
+            UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
+                Self::Hmac { key, cycled_at_ns }
+            }
         };
         Ok(update)
     }
@@ -134,7 +138,9 @@ impl From<UserPreferenceUpdate> for UserPreferenceUpdateProto {
         UserPreferenceUpdateProto {
             update: Some(match update {
                 UserPreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
-                UserPreferenceUpdate::Hmac { key } => UpdateProto::Hmac(HmacKeyUpdateProto { key }),
+                UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                    UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns })
+                }
             }),
         }
     }

@@ -55,7 +55,7 @@ pub enum LocalEvents {
 #[derive(Debug, Clone)]
 pub enum SyncWorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
-    NewSyncGroupMsg(Vec<u8>),
+    NewSyncGroupMsg { message_id: Vec<u8> },
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<UserPreferenceUpdate>),
 

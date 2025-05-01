@@ -3,6 +3,7 @@ use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::scoped_client::ScopedGroupClient;
 use crate::Client;
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
 use xmtp_db::{StorageError, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -37,7 +38,10 @@ impl LegacyUserPreferenceUpdate {
         let update: Self = bincode::deserialize(update)?;
         let update = match update {
             LegacyUserPreferenceUpdate::ConsentUpdate(c) => UserPreferenceUpdate::Consent(c),
-            LegacyUserPreferenceUpdate::HmacKeyUpdate { key } => UserPreferenceUpdate::Hmac { key },
+            LegacyUserPreferenceUpdate::HmacKeyUpdate { key } => UserPreferenceUpdate::Hmac {
+                key,
+                cycled_at_ns: 0,
+            },
         };
         Ok(update)
     }
@@ -64,7 +68,7 @@ where
                 UserPreferenceUpdate::Consent(consent_record) => {
                     consent_updates.push(consent_record);
                 }
-                UserPreferenceUpdate::Hmac { key } => {
+                UserPreferenceUpdate::Hmac { key, .. } => {
                     updates.push(update);
                     StoredUserPreferences::store_hmac_key(conn, &key)?;
                 }
@@ -166,7 +170,7 @@ impl TryFrom<NewUserPreferenceUpdateProto> for LegacyUserPreferenceUpdate {
             PreferenceUpdateProto::Consent(consent) => {
                 LegacyUserPreferenceUpdate::ConsentUpdate(consent.try_into()?)
             }
-            PreferenceUpdateProto::Hmac(HmacKeyUpdateProto { key }) => {
+            PreferenceUpdateProto::Hmac(HmacKeyUpdateProto { key, .. }) => {
                 LegacyUserPreferenceUpdate::HmacKeyUpdate { key }
             }
         };
@@ -204,6 +208,7 @@ mod tests {
             entity: "hello there".to_string(),
             entity_type: ConsentType::InboxId,
             state: ConsentState::Allowed,
+            consented_at_ns: None,
         };
         let update = LegacyUserPreferenceUpdate::ConsentUpdate(consent_record);
 

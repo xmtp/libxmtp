@@ -117,9 +117,6 @@ impl serde::Serialize for DeviceSyncContent {
                 device_sync_content::Content::PreferenceUpdates(v) => {
                     struct_ser.serialize_field("preferenceUpdates", v)?;
                 }
-                device_sync_content::Content::SyncGroupContest(v) => {
-                    struct_ser.serialize_field("syncGroupContest", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -137,8 +134,6 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
             "reply",
             "preference_updates",
             "preferenceUpdates",
-            "sync_group_contest",
-            "syncGroupContest",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -147,7 +142,6 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
             Acknowledge,
             Reply,
             PreferenceUpdates,
-            SyncGroupContest,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -173,7 +167,6 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
                             "acknowledge" => Ok(GeneratedField::Acknowledge),
                             "reply" => Ok(GeneratedField::Reply),
                             "preferenceUpdates" | "preference_updates" => Ok(GeneratedField::PreferenceUpdates),
-                            "syncGroupContest" | "sync_group_contest" => Ok(GeneratedField::SyncGroupContest),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -224,13 +217,6 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
                             content__ = map_.next_value::<::std::option::Option<_>>()?.map(device_sync_content::Content::PreferenceUpdates)
 ;
                         }
-                        GeneratedField::SyncGroupContest => {
-                            if content__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("syncGroupContest"));
-                            }
-                            content__ = map_.next_value::<::std::option::Option<_>>()?.map(device_sync_content::Content::SyncGroupContest)
-;
-                        }
                     }
                 }
                 Ok(DeviceSyncContent {
@@ -252,11 +238,19 @@ impl serde::Serialize for HmacKeyUpdate {
         if !self.key.is_empty() {
             len += 1;
         }
+        if self.cycled_at_ns != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.HmacKeyUpdate", len)?;
         if !self.key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("key", pbjson::private::base64::encode(&self.key).as_str())?;
+        }
+        if self.cycled_at_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("cycledAtNs", ToString::to_string(&self.cycled_at_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -269,11 +263,14 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
     {
         const FIELDS: &[&str] = &[
             "key",
+            "cycled_at_ns",
+            "cycledAtNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Key,
+            CycledAtNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -296,6 +293,7 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
                     {
                         match value {
                             "key" => Ok(GeneratedField::Key),
+                            "cycledAtNs" | "cycled_at_ns" => Ok(GeneratedField::CycledAtNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -316,6 +314,7 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut key__ = None;
+                let mut cycled_at_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Key => {
@@ -326,10 +325,19 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::CycledAtNs => {
+                            if cycled_at_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cycledAtNs"));
+                            }
+                            cycled_at_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(HmacKeyUpdate {
                     key: key__.unwrap_or_default(),
+                    cycled_at_ns: cycled_at_ns__.unwrap_or_default(),
                 })
             }
         }
@@ -425,146 +433,6 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdates {
             }
         }
         deserializer.deserialize_struct("xmtp.device_sync.content.PreferenceUpdates", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for SyncGroupContest {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.group_id.is_empty() {
-            len += 1;
-        }
-        if self.oldest_message_timestamp != 0 {
-            len += 1;
-        }
-        if self.cited_message_id.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.SyncGroupContest", len)?;
-        if !self.group_id.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
-        }
-        if self.oldest_message_timestamp != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("oldestMessageTimestamp", ToString::to_string(&self.oldest_message_timestamp).as_str())?;
-        }
-        if let Some(v) = self.cited_message_id.as_ref() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("citedMessageId", pbjson::private::base64::encode(&v).as_str())?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for SyncGroupContest {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "group_id",
-            "groupId",
-            "oldest_message_timestamp",
-            "oldestMessageTimestamp",
-            "cited_message_id",
-            "citedMessageId",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            GroupId,
-            OldestMessageTimestamp,
-            CitedMessageId,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "groupId" | "group_id" => Ok(GeneratedField::GroupId),
-                            "oldestMessageTimestamp" | "oldest_message_timestamp" => Ok(GeneratedField::OldestMessageTimestamp),
-                            "citedMessageId" | "cited_message_id" => Ok(GeneratedField::CitedMessageId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = SyncGroupContest;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.device_sync.content.SyncGroupContest")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SyncGroupContest, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut group_id__ = None;
-                let mut oldest_message_timestamp__ = None;
-                let mut cited_message_id__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::GroupId => {
-                            if group_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("groupId"));
-                            }
-                            group_id__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::OldestMessageTimestamp => {
-                            if oldest_message_timestamp__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("oldestMessageTimestamp"));
-                            }
-                            oldest_message_timestamp__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::CitedMessageId => {
-                            if cited_message_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("citedMessageId"));
-                            }
-                            cited_message_id__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
-                    }
-                }
-                Ok(SyncGroupContest {
-                    group_id: group_id__.unwrap_or_default(),
-                    oldest_message_timestamp: oldest_message_timestamp__.unwrap_or_default(),
-                    cited_message_id: cited_message_id__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.device_sync.content.SyncGroupContest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for UserPreferenceUpdate {

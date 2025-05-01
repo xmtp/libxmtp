@@ -15,6 +15,7 @@ diesel::table! {
         entity_type -> Integer,
         state -> Integer,
         entity -> Text,
+        consented_at_ns -> Nullable<BigInt>,
     }
 }
 
@@ -131,8 +132,7 @@ diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
-        primary_sync_group_id -> Nullable<Binary>,
-        sync_group_cursor -> BigInt,
+        hmac_key_cycled_at_ns -> Nullable<BigInt>,
     }
 }
 

@@ -15,6 +15,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 use xmtp_proto::{
     ConversionError,
     xmtp::device_sync::consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
@@ -32,6 +33,8 @@ pub struct StoredConsentRecord {
     pub state: ConsentState,
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
+
+    pub consented_at_ns: Option<i64>,
 }
 
 impl StoredConsentRecord {
@@ -40,6 +43,7 @@ impl StoredConsentRecord {
             entity_type,
             state,
             entity,
+            consented_at_ns: Some(now_ns()),
         }
     }
 }
@@ -238,6 +242,7 @@ mod tests {
             entity_type,
             state,
             entity,
+            consented_at_ns: Some(now_ns()),
         }
     }
 

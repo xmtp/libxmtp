@@ -782,7 +782,7 @@ where
                                     self.client
                                         .local_events()
                                         .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone()),
+                                            SyncWorkerEvent::NewSyncGroupMsg { message_id },
                                         ));
                             }
                         }
@@ -1035,18 +1035,6 @@ where
                                 .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
                             }
                         };
-
-                        // If it's a sync group message, probe the worker to process.
-                        if let Some(StoredGroup {
-                            conversation_type: ConversationType::Sync,
-                            ..
-                        }) = provider.conn_ref().find_group(&self.group_id)?
-                        {
-                            let _ = self
-                                .client
-                                .local_events()
-                                .send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupMsg(self.group_id.clone())));
-                        }
 
                         match intent_state {
                             IntentState::ToPublish => {

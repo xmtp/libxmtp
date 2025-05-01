@@ -1116,6 +1116,7 @@ pub(crate) mod tests {
     use crate::utils::{LocalTesterBuilder, Tester};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -1796,6 +1797,7 @@ pub(crate) mod tests {
             entity: hex::encode(&group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
+            consented_at_ns: Some(now_ns()),
         }])
         .await
         .unwrap();
@@ -1807,6 +1809,7 @@ pub(crate) mod tests {
             entity: bo.inbox_id().to_string(),
             entity_type: ConsentType::InboxId,
             state: ConsentState::Allowed,
+            consented_at_ns: Some(now_ns()),
         }])
         .await
         .unwrap();

@@ -1,5 +1,9 @@
 use super::{GroupError, MlsGroup};
-use crate::{client::ClientError, subscriptions::SubscribeError, Client};
+use crate::{
+    client::ClientError,
+    subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
+    Client,
+};
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
@@ -11,11 +15,8 @@ use worker::SyncWorker;
 use xmtp_common::RetryableError;
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
-    group::GroupQueryArgs,
-    group_message::StoredGroupMessage,
-    user_preferences::{StoredUserPreferences, SyncCursor},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    NotFound, StorageError,
+    group::GroupQueryArgs, group_message::StoredGroupMessage,
+    xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
 };
 use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
 use xmtp_proto::{
@@ -24,7 +25,7 @@ use xmtp_proto::{
         device_sync::{
             content::{
                 device_sync_content::Content as ContentProto,
-                DeviceSyncContent as DeviceSyncContentProto, SyncGroupContest,
+                DeviceSyncContent as DeviceSyncContentProto,
             },
             BackupElementSelection, BackupOptions,
         },
@@ -164,42 +165,6 @@ where
         }
     }
 
-    /// Will check if a sync group should be contested and send a contest message if so.
-    /// Returns true if contested.
-    async fn maybe_contest_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-        group_id: &[u8],
-        cited_message_id: Option<&[u8]>,
-    ) -> Result<bool, ClientError> {
-        let prefs = StoredUserPreferences::load(provider.conn_ref())?;
-
-        let Some(primary_sync_group_id) = prefs.primary_sync_group_id else {
-            // Nothing to contest.
-            return Ok(false);
-        };
-        if primary_sync_group_id == group_id {
-            // They're the same group. Nothing to contest.
-            return Ok(false);
-        }
-
-        let oldest_message_timestamp = provider
-            .conn_ref()
-            .get_group_oldest_message_timestamp_ns(group_id)?;
-        self.send_device_sync_message(
-            provider,
-            Some(group_id.to_vec()),
-            ContentProto::SyncGroupContest(SyncGroupContest {
-                group_id: primary_sync_group_id,
-                oldest_message_timestamp,
-                cited_message_id: cited_message_id.map(|id| id.to_vec()),
-            }),
-        )
-        .await?;
-
-        Ok(true)
-    }
-
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.
@@ -252,7 +217,28 @@ where
 
         sync_group.sync_until_last_intent_resolved(provider).await?;
 
+        // Notify our own worker of our own message so it can process it.
+        let _ = self.local_events.send(LocalEvents::SyncWorkerEvent(
+            SyncWorkerEvent::NewSyncGroupMsg {
+                message_id: message_id.clone(),
+            },
+        ));
+
         Ok(message_id)
+    }
+
+    pub async fn all_sync_groups(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
+        let conn = provider.conn_ref();
+        let sync_groups = conn.all_sync_groups()?;
+        let sync_groups: Result<Vec<_>, ClientError> = sync_groups
+            .into_iter()
+            .map(|g| self.group_with_conn(conn, &g.id))
+            .collect();
+
+        Ok(sync_groups?)
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -261,26 +247,13 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
         let conn = provider.conn_ref();
-        let mut sync_group = conn.primary_sync_group()?;
 
-        if sync_group.is_none() {
-            let prefs = StoredUserPreferences::load(conn)?;
-            if prefs.primary_sync_group_id.is_some() {
-                // This is possible if a primary sync group id was set through a contest.
-                tracing::info!("Primary sync group not found while primary_sync_group_id is set. Pulling welcomes to check network.");
-                self.sync_welcomes(provider).await?;
-                sync_group = conn.primary_sync_group()?;
-            }
-        }
-
-        let sync_group = match sync_group {
+        let sync_group = match conn.primary_sync_group()? {
             Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
             None => {
                 let sync_group =
                     MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
                 tracing::info!("Creating sync group: {:?}", sync_group.group_id);
-                SyncCursor::reset(&sync_group.group_id, provider.conn_ref())?;
-
                 sync_group.add_missing_installations(provider).await?;
                 sync_group.sync_with_conn(provider).await?;
 
@@ -333,7 +306,9 @@ pub trait IterWithContent<A, B> {
 }
 
 impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
-    fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, ContentProto)> {
+    fn iter_with_content(
+        self,
+    ) -> impl Iterator<Item = (StoredGroupMessage, ContentProto)> + DoubleEndedIterator {
         self.into_iter().filter_map(|msg| {
             let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
             let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;

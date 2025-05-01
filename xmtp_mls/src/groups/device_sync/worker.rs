@@ -25,7 +25,6 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
-    user_preferences::{StoredUserPreferences, SyncCursor},
     XmtpOpenMlsProvider,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -36,7 +35,7 @@ use xmtp_proto::{
             content::{
                 device_sync_content::Content as ContentProto, DeviceSyncAcknowledge,
                 DeviceSyncContent as DeviceSyncContentProto,
-                PreferenceUpdates as PreferenceUpdatesProto, SyncGroupContest,
+                PreferenceUpdates as PreferenceUpdatesProto,
             },
             BackupElementSelection, BackupOptions,
         },
@@ -127,11 +126,11 @@ where
 
             if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
-                    SyncWorkerEvent::NewSyncGroupFromWelcome(group_id) => {
-                        self.evt_new_sync_group_from_welcome(group_id).await?;
+                    SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                        self.evt_new_sync_group_from_welcome().await?;
                     }
-                    SyncWorkerEvent::NewSyncGroupMsg(group_id) => {
-                        self.evt_new_sync_group_msg(group_id).await?;
+                    SyncWorkerEvent::NewSyncGroupMsg { message_id: msg_id } => {
+                        self.evt_new_sync_group_msg(msg_id).await?;
                     }
                     SyncWorkerEvent::SyncPreferences(preference_updates) => {
                         self.evt_preferences_outgoing(preference_updates).await?;
@@ -189,22 +188,13 @@ where
         .copied()
     }
 
-    async fn evt_new_sync_group_from_welcome(
-        &self,
-        group_id: Vec<u8>,
-    ) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_from_welcome(&self) -> Result<(), DeviceSyncError> {
         tracing::info!("New sync group from welcome detected.");
         let provider = self.client.mls_provider()?;
 
         // A new sync group from a welcome indicates a new installation.
         // We need to add that installation to the groups.
         self.client.add_new_installation_to_groups().await?;
-
-        // If we already have a primary sync group, we need to contest this new group to
-        // ensure we end up on the same primary sync group.
-        self.client
-            .maybe_contest_sync_group(&provider, &group_id, None)
-            .await?;
 
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
@@ -215,10 +205,10 @@ where
         Ok(())
     }
 
-    async fn evt_new_sync_group_msg(&self, group_id: Vec<u8>) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_msg(&self, msg_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         self.client
-            .process_new_sync_group_messages(&provider, &self.handle, group_id)
+            .process_new_sync_group_message(&provider, &self.handle, &msg_id)
             .await?;
         Ok(())
     }
@@ -273,46 +263,26 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    async fn process_new_sync_group_messages(
+    async fn process_new_sync_group_message(
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-        group_id: Vec<u8>,
+        msg_id: &[u8],
     ) -> Result<(), DeviceSyncError> {
-        let Some(sync_group) = provider.conn_ref().find_sync_group(&group_id)? else {
-            tracing::error!("Sync group not found from new sync group message event.");
-            return Ok(());
-        };
-        let sync_group = self.group_with_conn(provider.conn_ref(), &sync_group.id)?;
-
-        let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
-            tracing::error!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
+        let Some(msg) = provider.conn_ref().get_group_message(msg_id)? else {
+            tracing::warn!("Sync worker was notified of a message not find in the database.");
             return Ok(());
         };
 
-        let messages = sync_group.get_sync_group_messages(cursor.offset)?;
         let installation_id = self.installation_id();
-        let external_count = messages
-            .iter()
-            .filter(|msg| msg.sender_installation_id != installation_id)
-            .count();
+        let is_external = msg.sender_installation_id == installation_id;
+        tracing::info!("Processing message. External: {is_external}");
 
-        tracing::info!(
-            "Processing {} sync group messages that were sent after {}. ({external_count} external, group_id {:?})",
-            messages.len(),
-            cursor.offset,
-            &sync_group.group_id[..4]
-        );
-
-        for (msg, content) in messages.iter_with_content() {
+        for (msg, content) in vec![msg].iter_with_content() {
             tracing::info!("Message content: {content:?}");
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
                 tracing::error!("Message processing: {err:?}");
             };
-
-            // Move the cursor
-            cursor.offset += 1;
-            StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
         }
 
         Ok(())
@@ -336,8 +306,11 @@ where
                 }
 
                 self.send_sync_reply(
-                    Some(request),
-                    || async { self.acknowledge_sync_request(provider).await },
+                    Some(request.clone()),
+                    || async {
+                        self.acknowledge_sync_request(provider, &msg, &request)
+                            .await
+                    },
                     handle,
                 )
                 .await?;
@@ -367,70 +340,6 @@ where
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());
             }
-            ContentProto::SyncGroupContest(contest) => {
-                if !is_external {
-                    // Ignore our own contests
-                    return Ok(());
-                }
-
-                self.handle_contest(contest).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_contest(&self, contest: SyncGroupContest) -> Result<(), ClientError> {
-        // If we are here, it means that another installation has received a new sync
-        // group while also having a sync group of their own, and has contested the new
-        // sync group and has one of two outcomes.
-        //
-        //   1. If the contest shows that their sync group is older:
-        //      a. This installation will set it's primary sync group id to the
-        //         provided group_id in the contest.
-        //      b. If there is a `cited_message_id` in the contest, we will resend
-        //         that message to the `group_id` provided in the contest.
-        //   2. If the contest shows their sync group is younger:
-        //      a. This installation will respond with it's own contest and the
-        //         other installation should set it's primary sync group id to
-        //         the `group_id` provided in our contest.
-        //      b. The `cited_message_id` will be None in the new sent contest
-        //         since the cited message in the original cited message was
-        //         correctly sent to the oldest group.
-
-        let provider = self.mls_provider()?;
-        let sync_group = self.get_sync_group(&provider).await?;
-
-        let oldest_message_timestamp = provider
-            .conn_ref()
-            .get_group_oldest_message_timestamp_ns(&sync_group.group_id)?;
-        if oldest_message_timestamp < contest.oldest_message_timestamp {
-            // Our group is older. Contest back so they update their primary sync group id.
-            tracing::info!("Our group is older than group in contest. Retorting with new contest.");
-
-            self.maybe_contest_sync_group(&provider, &contest.group_id, None)
-                .await?;
-        } else {
-            // Their group is older. Set our primary sync group id to the group id
-            // provided in the contest and re-send the message_id if present.
-
-            tracing::info!("Group in contest is older then this installation's sync group. Updating primary sync group.");
-            self.sync_welcomes(&provider).await?;
-
-            SyncCursor::reset(&sync_group.group_id, provider.conn_ref())?;
-
-            let Some(msg_id) = contest.cited_message_id else {
-                return Ok(());
-            };
-            let Some(msg) = provider.conn_ref().get_group_message(&msg_id)? else {
-                tracing::warn!("Unable to find cited message in contest. Message not resent.");
-                return Ok(());
-            };
-            for (_msg, content) in vec![msg].iter_with_content() {
-                tracing::info!("Resending cited message in contest.");
-                self.send_device_sync_message(&provider, None, content)
-                    .await?;
-            }
         }
 
         Ok(())
@@ -442,8 +351,10 @@ where
     pub async fn acknowledge_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
+        message: &StoredGroupMessage,
+        request: &DeviceSyncRequestProto,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = self.group(&message.group_id)?;
         // Pull down any new messages
         sync_group.sync_with_conn(provider).await?;
 
@@ -451,7 +362,7 @@ where
 
         let mut acknowledged = HashMap::new();
         // Look in reverse for a request, and ensure it was not acknowledged by someone else.
-        for (message, content) in messages.iter_with_content() {
+        for (_msg, content) in messages.iter_with_content().rev() {
             match content {
                 ContentProto::Acknowledge(DeviceSyncAcknowledge { request_id }) => {
                     acknowledged.insert(request_id, message.sender_installation_id.clone());
@@ -508,7 +419,7 @@ where
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
-                tracing::info!("Sync group was already acknowledged by another installation.");
+                tracing::info!("Request was already acknowledged by another installation.");
                 return Ok(());
             }
             result => result?,
