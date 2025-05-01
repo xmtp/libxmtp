@@ -52,8 +52,6 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
-        // Default to `Allowed` if consent_states is None
-        let update_consent_states = consent_states.unwrap_or_else(|| vec![ConsentState::Allowed]);
         let active_conversations = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
@@ -63,7 +61,7 @@ where
                 .find_groups(
                     GroupQueryArgs::default()
                         .maybe_conversation_type(conversation_type)
-                        .maybe_consent_states(Some(update_consent_states)),
+                        .maybe_consent_states(consent_states),
                 )?
                 .into_iter()
                 // TODO: Create find groups query only for group ID
