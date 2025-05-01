@@ -308,10 +308,7 @@ where
 
                 self.send_sync_reply(
                     Some(request.clone()),
-                    || async {
-                        self.acknowledge_sync_request(provider, &msg, &request)
-                            .await
-                    },
+                    || async { self.acknowledge_sync_request(provider, msg, &request).await },
                     handle,
                 )
                 .await?;

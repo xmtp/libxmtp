@@ -1049,15 +1049,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(messages)
     }
 
-    pub(crate) fn get_sync_group_messages(
-        &self,
-        offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().store().conn()?;
-        let messages = conn.get_sync_group_messages(&self.group_id, offset)?;
-        Ok(messages)
-    }
-
     ///
     /// Add members to the group by account address
     ///

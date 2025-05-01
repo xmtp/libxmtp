@@ -302,13 +302,13 @@ fn default_backup_options() -> BackupOptions {
 }
 
 pub trait IterWithContent<A, B> {
-    fn iter_with_content(self) -> impl Iterator<Item = (A, B)> + DoubleEndedIterator;
+    fn iter_with_content(self) -> impl DoubleEndedIterator<Item = (A, B)>;
 }
 
 impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
     fn iter_with_content(
         self,
-    ) -> impl Iterator<Item = (StoredGroupMessage, ContentProto)> + DoubleEndedIterator {
+    ) -> impl DoubleEndedIterator<Item = (StoredGroupMessage, ContentProto)> {
         self.into_iter().flat_map(|msg| {
             let result = (|| {
                 let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;

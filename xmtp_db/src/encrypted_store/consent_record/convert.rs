@@ -24,8 +24,7 @@ impl From<StoredConsentRecord> for ConsentSave {
             entity_type: entity_type as i32,
             state: state as i32,
             entity: value.entity,
-            // TODO: fill this in after migration
-            consented_at_ns: None,
+            consented_at_ns: value.consented_at_ns,
         }
     }
 }
