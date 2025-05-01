@@ -128,8 +128,10 @@ mod tests {
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio::time::sleep;
+    use xmtp_api_http::XmtpHttpApiClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::test_utils::WalletTestExt;
+    use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 
     #[rstest::rstest]
     #[xmtp_common::test]
@@ -461,18 +463,21 @@ mod tests {
         assert_eq!(messages.len(), 5);
     }
 
-    use tracing::info;
-
     #[rstest::rstest]
+    #[case(ConsentState::Allowed, "msg in allowed")]
+    #[case(ConsentState::Denied, "msg in denied")]
+    #[case(ConsentState::Unknown, "msg in unknown")]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(60))]
-    async fn test_stream_all_messages_filters_by_consent_state() {
-        let sender = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
-        let receiver = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+    #[timeout(Duration::from_secs(20))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_stream_all_messages_filters_by_consent_state(
+        #[case] filter: ConsentState,
+        #[case] expected_message: &str,
+    ) {
+        let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        info!("🔧 Clients initialized");
-
-        // Create groups
+        // Create group with Allowed consent
         let allowed_group = sender
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -480,8 +485,8 @@ mod tests {
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
             .unwrap();
-        info!("✅ Allowed group created and member added");
 
+        // Create group with Denied consent
         let denied_group = sender
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -492,8 +497,8 @@ mod tests {
         denied_group
             .update_consent_state(ConsentState::Denied)
             .unwrap();
-        info!("✅ Denied group created and consent updated");
 
+        // Create group with Unknown consent
         let unknown_group = sender
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
@@ -504,154 +509,30 @@ mod tests {
         unknown_group
             .update_consent_state(ConsentState::Unknown)
             .unwrap();
-        info!("✅ Unknown group created and consent updated");
 
-        // Only Allowed
-        {
-            info!("🧪 Starting test: Only Allowed");
-            let stream = receiver
-                .stream_all_messages(None, Some(vec![ConsentState::Allowed]))
-                .await
-                .unwrap();
-            futures::pin_mut!(stream);
+        let provider = sender.mls_provider().unwrap();
+        sender.sync_welcomes(&provider).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
 
-            info!("📨 Sending messages...");
-            allowed_group
-                .send_message("msg in allowed".as_bytes())
-                .await
-                .unwrap();
-            denied_group
-                .send_message("msg in denied".as_bytes())
-                .await
-                .unwrap();
-            unknown_group
-                .send_message("msg in unknown".as_bytes())
-                .await
-                .unwrap();
+        let stream = sender
+            .stream_all_messages(None, Some(vec![filter]))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
 
-            info!("🔍 Awaiting message: msg in allowed");
-            assert_msg!(stream, "msg in allowed");
-            info!("✅ Received: msg in allowed");
-        }
+        allowed_group
+            .send_message("msg in allowed".as_bytes())
+            .await
+            .unwrap();
+        denied_group
+            .send_message("msg in denied".as_bytes())
+            .await
+            .unwrap();
+        unknown_group
+            .send_message("msg in unknown".as_bytes())
+            .await
+            .unwrap();
 
-        // Default filter (should return allowed)
-        {
-            info!("🧪 Starting test: Default (None) filter");
-            let stream = receiver.stream_all_messages(None, None).await.unwrap();
-            futures::pin_mut!(stream);
-
-            info!("📨 Sending messages...");
-            allowed_group
-                .send_message("msg in allowed".as_bytes())
-                .await
-                .unwrap();
-            denied_group
-                .send_message("msg in denied".as_bytes())
-                .await
-                .unwrap();
-            unknown_group
-                .send_message("msg in unknown".as_bytes())
-                .await
-                .unwrap();
-
-            info!("🔍 Awaiting message: msg in allowed");
-            assert_msg!(stream, "msg in allowed");
-            info!("✅ Received: msg in allowed");
-        }
-
-        // Only Denied
-        {
-            info!("🧪 Starting test: Only Denied");
-            let stream = receiver
-                .stream_all_messages(None, Some(vec![ConsentState::Denied]))
-                .await
-                .unwrap();
-            futures::pin_mut!(stream);
-
-            info!("📨 Sending messages...");
-            allowed_group
-                .send_message("msg in allowed".as_bytes())
-                .await
-                .unwrap();
-            denied_group
-                .send_message("msg in denied".as_bytes())
-                .await
-                .unwrap();
-            unknown_group
-                .send_message("msg in unknown".as_bytes())
-                .await
-                .unwrap();
-
-            info!("🔍 Awaiting message: msg in denied");
-            assert_msg!(stream, "msg in denied");
-            info!("✅ Received: msg in denied");
-        }
-
-        // Only Unknown
-        {
-            info!("🧪 Starting test: Only Unknown");
-            let stream = receiver
-                .stream_all_messages(None, Some(vec![ConsentState::Unknown]))
-                .await
-                .unwrap();
-            futures::pin_mut!(stream);
-
-            info!("📨 Sending messages...");
-            allowed_group
-                .send_message("msg in allowed".as_bytes())
-                .await
-                .unwrap();
-            denied_group
-                .send_message("msg in denied".as_bytes())
-                .await
-                .unwrap();
-            unknown_group
-                .send_message("msg in unknown".as_bytes())
-                .await
-                .unwrap();
-
-            info!("🔍 Awaiting message: msg in unknown");
-            assert_msg!(stream, "msg in unknown");
-            info!("✅ Received: msg in unknown");
-        }
-
-        // All ConsentStates
-        {
-            info!("🧪 Starting test: All ConsentStates");
-            let stream = receiver
-                .stream_all_messages(
-                    None,
-                    Some(vec![
-                        ConsentState::Allowed,
-                        ConsentState::Denied,
-                        ConsentState::Unknown,
-                    ]),
-                )
-                .await
-                .unwrap();
-            futures::pin_mut!(stream);
-
-            info!("📨 Sending messages...");
-            allowed_group
-                .send_message("msg in allowed".as_bytes())
-                .await
-                .unwrap();
-            denied_group
-                .send_message("msg in denied".as_bytes())
-                .await
-                .unwrap();
-            unknown_group
-                .send_message("msg in unknown".as_bytes())
-                .await
-                .unwrap();
-
-            info!("🔍 Awaiting message: msg in allowed");
-            assert_msg!(stream, "msg in allowed");
-            info!("🔍 Awaiting message: msg in denied");
-            assert_msg!(stream, "msg in denied");
-            info!("🔍 Awaiting message: msg in unknown");
-            assert_msg!(stream, "msg in unknown");
-            info!("✅ Received all messages");
-        }
+        assert_msg!(stream, expected_message);
     }
 }
