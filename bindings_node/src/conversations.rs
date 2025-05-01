@@ -519,7 +519,7 @@ impl Conversations {
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
     let consents: Option<Vec<XmtpConsentState>> =
-      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+      consent_states.map(|states| states.into_iter().map(|state: ConsentState| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
@@ -660,6 +660,7 @@ impl Conversations {
     &self,
     callback: JsFunction,
     conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
     tracing::trace!(
       inbox_id = self.inner_client.inbox_id(),
@@ -668,9 +669,13 @@ impl Conversations {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let inbox_id = self.inner_client.inbox_id().to_string();
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state: ConsentState| state.into()).collect());
+
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
+      consents,
       move |message| {
         tracing::trace!(
             inbox_id,

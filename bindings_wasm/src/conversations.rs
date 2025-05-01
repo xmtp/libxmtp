@@ -678,10 +678,15 @@ impl Conversations {
     &self,
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser, JsError> {
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
+      consents,
       move |message| match message {
         Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),
