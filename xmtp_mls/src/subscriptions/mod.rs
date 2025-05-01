@@ -24,8 +24,10 @@ use crate::{
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::ConversationType,
-    group_message::StoredGroupMessage, NotFound, StorageError,
+    consent_record::{ConsentState, StoredConsentRecord},
+    group::ConversationType,
+    group_message::StoredGroupMessage,
+    NotFound, StorageError,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
@@ -290,6 +292,7 @@ where
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -298,12 +301,13 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new(self, conversation_type).await
+        StreamAllMessages::new(self, conversation_type, consent_state).await
     }
 
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
             + Send
             + 'static,
@@ -312,7 +316,9 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client.stream_all_messages(conversation_type).await?;
+            let stream = client
+                .stream_all_messages(conversation_type, consent_state)
+                .await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(message) = stream.next().await {

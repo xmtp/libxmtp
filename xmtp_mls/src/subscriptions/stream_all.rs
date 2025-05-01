@@ -11,6 +11,7 @@ use crate::{
 
 use futures::stream::Stream;
 use xmtp_db::{
+    consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
 };
@@ -49,14 +50,21 @@ where
     pub async fn new(
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        // Default to `Allowed` if consent_states is None
+        let update_consent_states = consent_states.unwrap_or_else(|| vec![ConsentState::Allowed]);
         let active_conversations = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
 
             let active_conversations = provider
                 .conn_ref()
-                .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
+                .find_groups(
+                    GroupQueryArgs::default()
+                        .maybe_conversation_type(conversation_type)
+                        .maybe_consent_states(Some(update_consent_states)),
+                )?
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
@@ -142,7 +150,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
 
         alix_group.send_message(b"first").await.unwrap();
@@ -197,7 +205,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
         bo_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
@@ -239,7 +247,7 @@ mod tests {
         {
             // start a stream with only group messages
             let stream = bo
-                .stream_all_messages(Some(ConversationType::Group))
+                .stream_all_messages(Some(ConversationType::Group), None)
                 .await
                 .unwrap();
             futures::pin_mut!(stream);
@@ -256,7 +264,7 @@ mod tests {
         {
             // Start a stream with only dms
             let stream = bo
-                .stream_all_messages(Some(ConversationType::Dm))
+                .stream_all_messages(Some(ConversationType::Dm), None)
                 .await
                 .unwrap();
             futures::pin_mut!(stream);
@@ -272,7 +280,7 @@ mod tests {
         }
         // Start a stream with all conversations
         // Wait for 2 seconds for the group creation to be streamed
-        let stream = bo.stream_all_messages(None).await.unwrap();
+        let stream = bo.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
         alix_group.send_message("first".as_bytes()).await.unwrap();
         assert_msg!(stream, "first");
@@ -325,7 +333,7 @@ mod tests {
         let provider = bo.store().mls_provider().unwrap();
         let bo_group = bo.sync_welcomes(&provider).await.unwrap()[0].clone();
 
-        let mut stream = caro.stream_all_messages(None).await.unwrap();
+        let mut stream = caro.stream_all_messages(None, None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
@@ -405,7 +413,7 @@ mod tests {
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {

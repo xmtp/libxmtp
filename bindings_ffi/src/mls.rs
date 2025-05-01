@@ -1442,31 +1442,46 @@ impl FfiConversations {
     pub async fn stream_all_group_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, Some(FfiConversationType::Group))
-            .await
+        self.stream_messages(
+            message_callback,
+            Some(FfiConversationType::Group),
+            consent_states,
+        )
+        .await
     }
 
     pub async fn stream_all_dm_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, Some(FfiConversationType::Dm))
-            .await
+        self.stream_messages(
+            message_callback,
+            Some(FfiConversationType::Dm),
+            consent_states,
+        )
+        .await
     }
 
     pub async fn stream_all_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, None).await
+        self.stream_messages(message_callback, None, consent_states)
+            .await
     }
 
     async fn stream_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
         conversation_type: Option<FfiConversationType>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
+        let consents: Option<Vec<ConsentState>> =
+            consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             conversation_type.map(Into::into),
@@ -1474,6 +1489,7 @@ impl FfiConversations {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
             },
+            consents,
         );
 
         FfiStreamCloser::new(handle)
