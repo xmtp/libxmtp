@@ -35,7 +35,6 @@ use self::{
 use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
-use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::groups::mls_ext::MlsExtensionsExt;
 use crate::GroupCommitLock;
 use crate::{
@@ -53,7 +52,7 @@ use crate::{
     utils::id::calculate_message_id,
 };
 use device_sync::preference_sync::UserPreferenceUpdate;
-use intents::SendMessageIntentData;
+use intents::{MembershipIntentData, SendMessageIntentData};
 use mls_ext::{DecryptedWelcome, GroupExtError, MlsGroupExt};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -1028,7 +1027,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members(
         &self,
         account_identifiers: &[Identifier],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         // Fetch the associated inbox_ids
         let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<Identifier, String> = self
@@ -1071,7 +1070,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn add_members_by_inbox_id<S: AsRef<str>>(
         &self,
         inbox_ids: &[S],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         let provider = self.client.mls_provider()?;
         self.add_members_by_inbox_id_with_provider(&provider, inbox_ids)
             .await
@@ -1082,21 +1081,17 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         provider: &XmtpOpenMlsProvider,
         inbox_ids: &[S],
-    ) -> Result<UpdateGroupMembershipResult, GroupError> {
+    ) -> Result<MembershipIntentData, GroupError> {
         self.ensure_not_paused().await?;
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(provider, ids.as_slice(), &[])
             .await?;
 
-        // TODO:nm this isn't the best test for whether the request is valid
-        // If some existing group member has an update, this will return an intent with changes
-        // when we really should return an error
-        let ok_result = Ok(UpdateGroupMembershipResult::from(intent_data.clone()));
-
+        let add_result = intent_data.data.clone();
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
-            return ok_result;
+            return Ok(add_result);
         }
 
         let intent = self.queue_intent(
@@ -1107,7 +1102,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         self.sync_until_intent_resolved(provider, intent.id).await?;
-        ok_result
+        Ok(add_result)
     }
 
     /// Removes members from the group by their account addresses.
@@ -1800,130 +1795,6 @@ pub fn build_dm_mutable_metadata_extension_default(
         MUTABLE_METADATA_EXTENSION_ID,
         unknown_gc_extension,
     ))
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub fn build_extensions_for_metadata_update(
-    group: &OpenMlsGroup,
-    field_name: String,
-    field_value: String,
-) -> Result<Extensions, GroupError> {
-    let existing_metadata: GroupMutableMetadata = group.try_into()?;
-    let mut attributes = existing_metadata.attributes.clone();
-    attributes.insert(field_name, field_value);
-    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
-        attributes,
-        existing_metadata.admin_list,
-        existing_metadata.super_admin_list,
-    )
-    .try_into()?;
-    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
-    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
-    let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
-    Ok(extensions)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub fn build_extensions_for_permissions_update(
-    group: &OpenMlsGroup,
-    update_permissions_intent: UpdatePermissionIntentData,
-) -> Result<Extensions, GroupError> {
-    let existing_permissions: GroupMutablePermissions = group.try_into()?;
-    let existing_policy_set = existing_permissions.policies.clone();
-    let new_policy_set = match update_permissions_intent.update_type {
-        PermissionUpdateType::AddMember => PolicySet::new(
-            update_permissions_intent.policy_option.into(),
-            existing_policy_set.remove_member_policy,
-            existing_policy_set.update_metadata_policy,
-            existing_policy_set.add_admin_policy,
-            existing_policy_set.remove_admin_policy,
-            existing_policy_set.update_permissions_policy,
-        ),
-        PermissionUpdateType::RemoveMember => PolicySet::new(
-            existing_policy_set.add_member_policy,
-            update_permissions_intent.policy_option.into(),
-            existing_policy_set.update_metadata_policy,
-            existing_policy_set.add_admin_policy,
-            existing_policy_set.remove_admin_policy,
-            existing_policy_set.update_permissions_policy,
-        ),
-        PermissionUpdateType::AddAdmin => PolicySet::new(
-            existing_policy_set.add_member_policy,
-            existing_policy_set.remove_member_policy,
-            existing_policy_set.update_metadata_policy,
-            update_permissions_intent.policy_option.into(),
-            existing_policy_set.remove_admin_policy,
-            existing_policy_set.update_permissions_policy,
-        ),
-        PermissionUpdateType::RemoveAdmin => PolicySet::new(
-            existing_policy_set.add_member_policy,
-            existing_policy_set.remove_member_policy,
-            existing_policy_set.update_metadata_policy,
-            existing_policy_set.add_admin_policy,
-            update_permissions_intent.policy_option.into(),
-            existing_policy_set.update_permissions_policy,
-        ),
-        PermissionUpdateType::UpdateMetadata => {
-            let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
-            metadata_policy.insert(
-                update_permissions_intent.metadata_field_name.ok_or(
-                    GroupError::MissingMetadataField {
-                        name: "metadata_field_name".into(),
-                    },
-                )?,
-                update_permissions_intent.policy_option.into(),
-            );
-            PolicySet::new(
-                existing_policy_set.add_member_policy,
-                existing_policy_set.remove_member_policy,
-                metadata_policy,
-                existing_policy_set.add_admin_policy,
-                existing_policy_set.remove_admin_policy,
-                existing_policy_set.update_permissions_policy,
-            )
-        }
-    };
-    let new_group_permissions: Vec<u8> = GroupMutablePermissions::new(new_policy_set).try_into()?;
-    let unknown_gc_extension = UnknownExtension(new_group_permissions);
-    let extension = Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, unknown_gc_extension);
-    let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
-    Ok(extensions)
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub fn build_extensions_for_admin_lists_update(
-    group: &OpenMlsGroup,
-    admin_lists_update: UpdateAdminListIntentData,
-) -> Result<Extensions, GroupError> {
-    let existing_metadata: GroupMutableMetadata = group.try_into()?;
-    let attributes = existing_metadata.attributes.clone();
-    let mut admin_list = existing_metadata.admin_list;
-    let mut super_admin_list = existing_metadata.super_admin_list;
-    match admin_lists_update.action_type {
-        AdminListActionType::Add => {
-            if !admin_list.contains(&admin_lists_update.inbox_id) {
-                admin_list.push(admin_lists_update.inbox_id);
-            }
-        }
-        AdminListActionType::Remove => admin_list.retain(|x| x != &admin_lists_update.inbox_id),
-        AdminListActionType::AddSuper => {
-            if !super_admin_list.contains(&admin_lists_update.inbox_id) {
-                super_admin_list.push(admin_lists_update.inbox_id);
-            }
-        }
-        AdminListActionType::RemoveSuper => {
-            super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
-        }
-    }
-    let new_mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
-    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
-    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
-    let mut extensions = group.extensions().clone();
-    extensions.add_or_replace(extension);
-    Ok(extensions)
 }
 
 pub fn build_starting_group_membership_extension(inbox_id: &str, sequence_id: u64) -> Extension {
