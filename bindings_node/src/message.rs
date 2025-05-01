@@ -25,6 +25,15 @@ impl From<XmtpGroupMessageKind> for GroupMessageKind {
   }
 }
 
+impl From<GroupMessageKind> for XmtpGroupMessageKind {
+  fn from(kind: GroupMessageKind) -> Self {
+    match kind {
+      GroupMessageKind::Application => XmtpGroupMessageKind::Application,
+      GroupMessageKind::MembershipChange => XmtpGroupMessageKind::MembershipChange,
+    }
+  }
+}
+
 #[napi]
 pub enum DeliveryStatus {
   Unpublished,
@@ -76,6 +85,7 @@ pub struct ListMessagesOptions {
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
   pub content_types: Option<Vec<ContentType>>,
+  pub kind: Option<GroupMessageKind>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
@@ -93,7 +103,7 @@ impl From<ListMessagesOptions> for MsgQueryArgs {
       limit: opts.limit,
       direction,
       content_types,
-      ..Default::default()
+      kind: opts.kind.map(Into::into),
     }
   }
 }
