@@ -1,4 +1,3 @@
-# Flake Shell for building release artifacts for swift and kotlin
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -8,7 +7,6 @@
     };
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
-    mkshell-util.url = "github:insipx/mkShell-util.nix";
     foundry.url = "github:shazow/foundry.nix/monthly";
     crane = {
       url = "github:ipetkov/crane";
@@ -17,60 +15,45 @@
       url = "https://static.rust-lang.org/dist/channel-rust-stable.toml";
       flake = false;
     };
-    mvn2nix.url = "github:fzakaria/mvn2nix";
     nix2container.url = "github:nlewo/nix2container";
   };
 
-  outputs = inputs@{ self, flake-parts, fenix, crane, foundry, rust-manifest, mvn2nix, ... }:
+  outputs = inputs@{ self, flake-parts, fenix, foundry, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
       imports = [
         ./nix/lib
+        ./nix/packages
+        ./nix/ci.nix
         flake-parts.flakeModules.flakeModules
+        flake-parts.flakeModules.easyOverlay
       ];
-      perSystem = { pkgs, system, inputs', ... }:
+      perSystem = { pkgs, system, ... }:
         let
-          util = import inputs.mkshell-util;
-          mkShellWrappers = pkgs: util callPackage pkgs;
-          callPackage = pkgs: pkgs.lib.callPackageWith ((mkShellWrappers pkgs) // pkgs);
           pkgConfig = {
             inherit system;
             # Rust Overlay
-            overlays = [ fenix.overlays.default foundry.overlay mvn2nix.overlay ];
+            overlays = [
+              fenix.overlays.default
+              foundry.overlay
+              self.overlays.default
+            ];
             config = {
               android_sdk.accept_license = true;
               allowUnfree = true;
             };
           };
-          toolchain = (inputs'.fenix.packages.fromManifestFile rust-manifest).defaultToolchain;
-          mkToolchain = targets: components: pkgs.fenix.combine [
-            toolchain
-            (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${c}"))
-          ];
-          filesets = self.lib.filesets { inherit pkgs inputs; };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
-            default = callPackage pkgs ./nix/libxmtp.nix { inherit mkToolchain; };
-            # shell for general xmtp rust dev
-            ci = callPackage pkgs ./nix/ci.nix { inherit mkToolchain; };
-
+            default = pkgs.callPackage ./nix/libxmtp.nix { };
             # Shell for android builds
-            android = callPackage pkgs ./nix/android.nix { inherit mkToolchain; };
+            android = pkgs.callPackage ./nix/android.nix { };
             # Shell for iOS builds
-            ios = callPackage pkgs ./nix/ios.nix { inherit mkToolchain; };
-            js = callPackage pkgs ./nix/js.nix { };
-            kotlin = callPackage pkgs ./nix/kotlin.nix { inherit mkToolchain; };
-            # the environment bindings_wasm is built in
-            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
-          };
-          packages = {
-            bindingsWasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
-            validationService = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).bin;
-            validationServiceDocker = (pkgs.callPackage ./nix/package/mls_validation_service { inherit filesets mkToolchain; craneLib = crane.mkLib pkgs; }).dockerImage;
+            ios = pkgs.callPackage ./nix/ios.nix { };
+            js = pkgs.callPackage ./nix/js.nix { };
           };
         };
     };

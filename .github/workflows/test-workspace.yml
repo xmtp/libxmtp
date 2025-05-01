@@ -50,12 +50,14 @@ jobs:
           determinate: true
       - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Build Docker Image
-        run: nix build .#validationServiceDocker
+        run: |
+          nix run .#validationServiceDocker.copyToDockerDaemon
+          docker save ghcr.io/xmtp/mls-validation-service:main | gzip > image
       - name: Upload image
         uses: actions/upload-artifact@v4
         with:
           name: validation-service
-          path: ./result
+          path: ./image
           retention-days: 1
   workspace-grpc:
     permissions:
@@ -73,7 +75,7 @@ jobs:
           name: validation-service
           path: .
       - name: Load Image
-        run: docker load < result
+        run: docker load < image
       - name: start services
         run: ./dev/ci/up-cached
       - name: Check image used by container
@@ -107,7 +109,7 @@ jobs:
           name: validation-service
           path: .
       - name: Load Image
-        run: docker load < result
+        run: docker load < image
       - name: start services
         run: ./dev/ci/up-cached
       - name: Install nextest
@@ -141,7 +143,7 @@ jobs:
           determinate: true
       - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Load Image
-        run: docker load < result
+        run: docker load < image
       - name: start services
         run: ./dev/ci/up-cached
       - name: Cache
@@ -173,7 +175,7 @@ jobs:
           name: validation-service
           path: .
       - name: Load Image
-        run: docker load < result
+        run: docker load < image
       - name: start services
         run: ./dev/ci/up-cached
       - name: Install nextest
@@ -187,31 +189,3 @@ jobs:
             .
       - name: binaries & bindings
         run: cargo nextest run --profile ci --workspace -E '(kind(lib) + kind(bin)) and (rdeps(xmtp_mls) and not package(xmtp_mls))'
-  workspace-integration:
-    permissions:
-      contents: read
-      id-token: write
-    needs: [build-docker]
-    name: Integration Tests & Foreign FFI Tests
-    runs-on: warp-ubuntu-latest-x64-16x
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Download Docker image
-        uses: actions/download-artifact@v4
-        with:
-          name: validation-service
-          path: .
-      - name: Load Image
-        run: docker load < result
-      - uses: DeterminateSystems/nix-installer-action@main
-        with:
-          determinate: true
-      - uses: DeterminateSystems/flakehub-cache-action@main
-      - name: start services
-        run: ./dev/ci/up-cached
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .

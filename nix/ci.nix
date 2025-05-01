@@ -1,52 +1,30 @@
-{ stdenv
-, darwin
-, lib
-, mkToolchain
-, cargo-nextest
-, pkg-config
-, mktemp
-, openssl
-, sqlcipher
-, sqlite
-, zstd
-, llvmPackages_19
-, wasm-bindgen-cli
-, foundry-bin
-, mkShell
-, ...
-}:
+# Checks that primarily run in CI
+{ inputs, ... }: {
+  perSystem = { pkgs, ... }:
+    let
+      craneLibPkgs = inputs.crane.mkLib pkgs;
+      craneLib = craneLibPkgs.overrideToolchain (pkgs.xmtp.mkToolchain [ "wasm32-unknown-unknown" ] [ ]);
+      nativeArtifacts = pkgs.callPackage pkgs.xmtp.mkWorkspace { inherit craneLib; };
+      inherit (nativeArtifacts) cargoArtifacts commonArgs;
 
-let
-  inherit (stdenv) isDarwin;
-  inherit (darwin.apple_sdk) frameworks;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" ] [ ];
-in
-mkShell {
-  OPENSSL_DIR = "${openssl.dev}";
-  LLVM_PATH = "${llvmPackages_19.stdenv}";
-  hardeningDisable = [ "zerocallusedregs" ];
-  OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
-  OPENSSL_NO_VENDOR = 1;
-
-  nativeBuildInputs = [ pkg-config ];
-  buildInputs =
-    [
-      wasm-bindgen-cli
-      rust-toolchain
-      foundry-bin
-      cargo-nextest
-
-      # native libs
-      zstd
-      openssl
-      sqlite
-      sqlcipher
-
-      mktemp # scripts
-    ]
-    ++ lib.optionals isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      darwin.cctools
-    ];
+    in
+    {
+      checks = {
+        workspace-clippy = craneLib.cargoClippy (commonArgs // {
+          inherit cargoArtifacts;
+          cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+        });
+        # Run tests with cargo-nextest
+        # Consider setting `doCheck = false` on other crate derivations
+        # if you do not want the tests to run twice
+        workspace-nextest = craneLib.cargoNextest
+          (commonArgs // {
+            inherit cargoArtifacts;
+            doCheck = true;
+            partitions = 1;
+            partitionType = "count";
+            cargoNextestPartitionsExtraArgs = "--profile ci -E 'kind(lib) and deps(xmtp_mls)'";
+          });
+      };
+    };
 }

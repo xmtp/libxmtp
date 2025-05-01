@@ -1,53 +1,28 @@
 { emscripten
 , stdenv
-, filesets
 , lib
 , pkg-config
 , darwin
-, fenix
 , wasm-bindgen-cli_0_2_100
 , wasm-pack
 , binaryen
 , zstd
-, craneLib
 , lld
 , mkShell
-}:
+, xmtp
+, toolchain
+}@pkgs:
 let
   inherit (stdenv) hostPlatform;
   # Pinned Rust Version
-  rust-toolchain = fenix.combine [
-    fenix.stable.cargo
-    fenix.stable.rustc
-    fenix.targets.wasm32-unknown-unknown.stable.rust-std
-  ];
-  rust = craneLib.overrideToolchain (p: rust-toolchain);
 
   workspaceFileset = lib.fileset.toSource {
     root = ./../..;
-    fileset = filesets.workspace;
+    fileset = (xmtp.filesets{ inherit lib; craneLib = toolchain; }).workspace;
   };
 
-  # Emscripten 3 causes a weird import issue with wasm,
-  # and nixpkgs hasn't updated to emscripten 4 yet
-  # emscripten4 = (emscripten.overrideAttrs {
-  #   version = "4.0.4";
-  #   src = fetchFromGitHub {
-  #     owner = "emscripten-core";
-  #     repo = "emscripten";
-  #     hash = "sha256-4qxx+iQ51KMWr26fbf6NpuWOn788TqS6RX6gJPkCxVI=";
-  #     rev = "4.0.4";
-  #   };
-  #
-  #   nodeModules = emscripten.nodeModules.overrideAttrs {
-  #     name = "emscripten-node-modules-4.0.4";
-  #     version = "4.0.4";
-  #     npmDepsHash = "sha256-0000000000000000000000000000000000000000000=";
-  #   };
-  # }).override { llvmPackages = llvmPackages_20; };
-
   commonArgs = {
-    src = rust.cleanCargoSource ./../..;
+    src = toolchain.cleanCargoSource ./../..;
     strictDeps = true;
     # EM_CACHE = "$TMPDIR/.emscripten_cache";
     # we need to set tmpdir for emscripten cache
@@ -73,15 +48,15 @@ let
   };
 
   # enables caching all build time crates
-  cargoArtifacts = rust.buildDepsOnly (commonArgs // {
+  cargoArtifacts = toolchain.buildDepsOnly (commonArgs // {
     doCheck = false;
   });
 
-  bin = rust.buildPackage
+  bin = toolchain.buildPackage
     (commonArgs // {
       inherit cargoArtifacts;
       src = workspaceFileset;
-      inherit (rust.crateNameFromCargoToml {
+      inherit (toolchain.crateNameFromCargoToml {
         cargoToml = ./../../bindings_wasm/Cargo.toml;
       }) pname version;
       buildPhaseCargoCommand = ''
@@ -93,13 +68,9 @@ let
     });
   devShell = mkShell {
     inherit (commonArgs) nativeBuildInputs RUSTFLAGS;
-    buildInputs = commonArgs.buildInputs ++ [ rust-toolchain ];
+    buildInputs = commonArgs.buildInputs ++ [ toolchain ];
   };
 in
 {
   inherit bin devShell;
 }
-
-
-
-

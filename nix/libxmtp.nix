@@ -1,9 +1,7 @@
-{ shells
-, stdenv
+{ stdenv
 , darwin
 , lib
 , fenix
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -12,8 +10,8 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
-, cargo-expand
 , cargo-udeps
+, cargo-hakari
 , inferno
 , openssl
 , sqlcipher
@@ -21,24 +19,22 @@
 , corepack
 , lnav
 , zstd
-, llvmPackages_19
-, google-chrome
 , wasm-bindgen-cli
 , foundry-bin
 , graphite-cli
+, xmtp
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
   inherit (darwin.apple_sdk) frameworks;
-  inherit (shells) combineShell;
   mkShell =
     top:
     (
-      combineShell
+      xmtp.combineShell
         {
-          otherShells = with shells;
+          otherShells = with xmtp.shells;
             [
               mkLinters
               mkCargo
@@ -61,8 +57,7 @@ mkShell {
   hardeningDisable = [ "zerocallusedregs" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
-  
-    nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
       wasm-bindgen-cli
@@ -87,11 +82,10 @@ mkShell {
       gnuplot
       flamegraph
       cargo-flamegraph
+      cargo-hakari
       cargo-udeps
-      cargo-expand
       inferno
       lnav
-      google-chrome
 
       # make sure to use nodePackages! or it will install yarn irrespective of environmental node.
       corepack

@@ -1,3 +1,4 @@
+# Common args for building xmtp crates
 { openssl
 , sqlite
 , sqlcipher
@@ -7,23 +8,18 @@
 , stdenv
 , craneLib
 , darwin
-, filesets
-, mkShell
+, xmtp
 , rustTarget ? null
+, cargoExtraArgs ? ""
+, ...
 }:
 let
   inherit (stdenv) hostPlatform;
   upperTarget = lib.strings.toUpper (builtins.replaceStrings [ "-" ] [ "_" ] rustTarget);
-  inherit ((builtins.fromTOML (builtins.readFile ./../../../mls_validation_service/Cargo.toml)).package) version name;
-
-  filesetForCrate = crate: lib.fileset.toSource {
-    root = ./../../..;
-    fileset = filesets.filesetForCrate crate;
-  };
-
+  crateFilesets = xmtp.filesets { inherit lib craneLib; };
   filesetForWorkspace = lib.fileset.toSource {
-    root = ./../../..;
-    fileset = filesets.workspace;
+    root = ./../..;
+    fileset = crateFilesets.workspace;
   };
 
   linkerArgs = if rustTarget == null then { } else {
@@ -71,26 +67,11 @@ let
     OPENSSL_DIR = "${openssl.out}";
     OPENSSL_INCLUDE_DIR = "${openssl.dev}/include";
   } // linkerArgs;
-
   cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
-    cargoExtraArgs = "--workspace --lib --exclude bindings_node --exclude bindings_wasm --exclude xmtpv3";
-    inherit version;
-    pname = name;
+    cargoExtraArgs = "--workspace --lib --exclude bindings_node --exclude xmtpv3 --exclude bindings_wasm ${cargoExtraArgs}";
   });
-
-  bin = craneLib.buildPackage ({
-    inherit cargoArtifacts version;
-    pname = name;
-    cargoExtraArgs = "-p mls_validation_service --features test-utils";
-    src = filesetForCrate ./../../../mls_validation_service;
-    doCheck = false;
-  } // commonArgs);
-
-  devShell = mkShell
-    {
-      inputsFrom = [ bin ];
-    };
 in
 {
-  inherit bin devShell;
+  inherit commonArgs cargoArtifacts craneLib;
 }
+
