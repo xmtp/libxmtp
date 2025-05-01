@@ -153,14 +153,6 @@ impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
     }
 }
 
-/// Extracts group permissions from an OpenMlsGroup.
-pub fn extract_group_permissions(
-    group: &OpenMlsGroup,
-) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
-    let extensions = group.extensions();
-    extensions.try_into()
-}
-
 /// A trait for policies that can update Metadata for the group.
 pub trait MetadataPolicy: std::fmt::Debug {
     /// Evaluates the policy for a given actor and metadata change.
