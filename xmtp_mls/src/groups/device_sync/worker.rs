@@ -18,7 +18,7 @@ use crate::{
     Client,
 };
 use futures::{Stream, StreamExt};
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, time::Duration};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -39,8 +39,7 @@ use xmtp_proto::{
             BackupElementSelection, BackupOptions,
         },
         mls::message_contents::{
-            DeviceSyncKind, DeviceSyncReply as DeviceSyncReplyProto,
-            DeviceSyncRequest as DeviceSyncRequestProto,
+            DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
 };
@@ -124,6 +123,9 @@ where
             let event = event?;
 
             tracing::info!("New event: {event:?}");
+
+            // Wait for message to be ready
+            xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
             if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
@@ -264,13 +266,13 @@ where
         msg_id: &[u8],
     ) -> Result<(), DeviceSyncError> {
         let Some(msg) = provider.conn_ref().get_group_message(msg_id)? else {
-            tracing::warn!("Sync worker was notified of a message not find in the database.");
+            tracing::warn!("Sync worker was notified of a message not found in the database.");
             return Ok(());
         };
 
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id == installation_id;
-        tracing::info!("Processing message. External: {is_external}");
+        tracing::error!("Processing message. External: {is_external}");
 
         for (msg, content) in vec![msg].iter_with_content() {
             tracing::info!("Message content: {content:?}");
@@ -393,7 +395,7 @@ where
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
         if let Some(request) = &request {
-            if request.kind() != DeviceSyncKind::Unspecified {
+            if request.kind() != BackupElementSelection::Unspecified {
                 // This is a v1 request
                 return Ok(());
             }
@@ -563,7 +565,7 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        if reply.kind() != DeviceSyncKind::Unspecified {
+        if reply.kind() != BackupElementSelection::Unspecified {
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }

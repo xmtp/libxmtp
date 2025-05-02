@@ -68,7 +68,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
-use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[cfg(test)]
 mod test_utils;
@@ -1730,21 +1730,6 @@ impl From<FfiConsentState> for ConsentState {
             FfiConsentState::Unknown => ConsentState::Unknown,
             FfiConsentState::Allowed => ConsentState::Allowed,
             FfiConsentState::Denied => ConsentState::Denied,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum FfiDeviceSyncKind {
-    Messages,
-    Consent,
-}
-
-impl From<FfiDeviceSyncKind> for DeviceSyncKind {
-    fn from(value: FfiDeviceSyncKind) -> Self {
-        match value {
-            FfiDeviceSyncKind::Consent => DeviceSyncKind::Consent,
-            FfiDeviceSyncKind::Messages => DeviceSyncKind::MessageHistory,
         }
     }
 }

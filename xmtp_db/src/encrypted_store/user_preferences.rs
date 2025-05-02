@@ -83,7 +83,7 @@ impl StoredUserPreferences {
         }
 
         preferences.hmac_key = Some(key.to_vec());
-        preferences.hmac_key_cycled_at_ns = Some(cycled_at.unwrap_or_else(|| now_ns()));
+        preferences.hmac_key_cycled_at_ns = Some(cycled_at.unwrap_or_else(now_ns));
         preferences.store(conn)?;
 
         Ok(())
