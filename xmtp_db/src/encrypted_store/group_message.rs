@@ -438,6 +438,19 @@ impl DbConnection {
         })?)
     }
 
+    /// Get a particular group message using the write connection
+    pub fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
+        Ok(self.raw_query_write(|conn| {
+            dsl::group_messages
+                .filter(dsl::id.eq(id.as_ref()))
+                .first(conn)
+                .optional()
+        })?)
+    }
+
     pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,

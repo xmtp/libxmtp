@@ -264,7 +264,7 @@ where
     ) -> Result<(), DeviceSyncError> {
         let mut msg = None;
         for _ in 0..5 {
-            msg = provider.conn_ref().get_group_message(msg_id)?;
+            msg = provider.conn_ref().write_conn_get_group_message(msg_id)?;
             if msg.is_some() {
                 break;
             }
