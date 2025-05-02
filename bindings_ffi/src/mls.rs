@@ -6591,8 +6591,6 @@ mod tests {
 
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
             .worker()
