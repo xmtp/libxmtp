@@ -217,12 +217,16 @@ where
         }
 
         self.maybe_update_installations(&mls_provider, None).await?;
-        self.sync_with_conn(&mls_provider).await
+        self.sync_with_conn(&mls_provider).await?;
+        Ok(())
     }
 
     // TODO: Should probably be renamed to `sync_with_provider`
     #[tracing::instrument(skip_all)]
-    pub async fn sync_with_conn(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+    pub async fn sync_with_conn(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<u64>, GroupError> {
         let _mutex = self.mutex.lock().await;
         let mut errors: Vec<GroupError> = vec![];
 
@@ -255,7 +259,7 @@ where
                     required_min_version_str,
                     current_version_str
                 );
-                return Ok(()); // Skip sync for paused groups
+                return Ok(vec![]); // Skip sync for paused groups
             }
         }
 
@@ -270,12 +274,16 @@ where
         }
 
         // Even if receiving fails, continue to post_commit
-        if let Err(receive_error) = self.receive(provider).await {
+        let receive = self.receive(provider).await;
+        let processed_ids = if let Err(receive_error) = receive {
             tracing::error!(error = %receive_error, "receive error {:?}", receive_error);
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
-        }
+            vec![]
+        } else {
+            receive.expect("checked for error")
+        };
 
         if let Err(post_commit_err) = self.post_commit(conn).await {
             tracing::error!(
@@ -290,7 +298,7 @@ where
         if !errors.is_empty() {
             return Err(GroupError::Sync(errors));
         }
-        Ok(())
+        Ok(processed_ids)
     }
 
     #[tracing::instrument(skip_all)]
@@ -1274,14 +1282,30 @@ where
         }
     }
 
+    /// Receive messages from the last cursor network and try to process each message
+    /// Return all the cursors of the messages we tried to process regardless
+    /// if they were succesfull or not. It is important to return _all_
+    /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "debug")]
-    pub(super) async fn receive(&self, provider: &XmtpOpenMlsProvider) -> Result<(), GroupError> {
+    pub(super) async fn receive(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<u64>, GroupError> {
         let messages = self
             .client
             .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
+        let ids_processed = messages
+            .iter()
+            .filter_map(|m| match &m.version {
+                Some(GroupMessageVersion::V1(value)) => Some(value.id),
+                None => None,
+            })
+            .collect::<Vec<u64>>();
+
         self.process_messages(messages, provider).await?;
-        Ok(())
+
+        Ok(ids_processed)
     }
 
     fn save_transcript_message(

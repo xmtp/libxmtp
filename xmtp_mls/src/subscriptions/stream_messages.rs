@@ -109,7 +109,7 @@ pin_project! {
         /// state that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<Option<(StoredGroupMessage, u64)>>>
+            #[pin] future: FutureWrapper<'a, Result<ProcessedMessage>>
         },
         Adding {
             #[pin] future: FutureWrapper<'a, Result<(Out, Vec<u8>, Option<u64>)>>
@@ -317,17 +317,18 @@ where
 
         let mut this = self.as_mut().project();
         if let Processing { future } = this.state.as_mut().project() {
-            match ready!(future.poll(cx))? {
-                Some((msg, new_cursor)) => {
-                    this.state.set(State::Waiting);
-                    self.set_cursor(msg.group_id.as_slice(), new_cursor);
-                    return Poll::Ready(Some(Ok(msg)));
+            let processed = ready!(future.poll(cx))?;
+            if let Some(msg) = processed.message {
+                this.state.set(State::Waiting);
+                self.set_cursor(msg.group_id.as_slice(), processed.cursor);
+                return Poll::Ready(Some(Ok(msg)));
+            } else {
+                tracing::warn!("skipping message streaming payload");
+                this.state.set(State::Waiting);
+                if let Some(cursor) = this.group_list.get_mut(processed.group_id.as_slice()) {
+                    cursor.set(processed.cursor)
                 }
-                None => {
-                    tracing::warn!("skipping message streaming payload");
-                    this.state.set(State::Waiting);
-                    return self.poll_next(cx);
-                }
+                return self.poll_next(cx);
             }
         }
         Poll::Pending
@@ -339,6 +340,13 @@ pub struct ProcessMessageFuture<Client> {
     provider: XmtpOpenMlsProvider,
     client: Client,
     msg: group_message::V1,
+}
+
+// The processed message
+pub struct ProcessedMessage {
+    pub message: Option<StoredGroupMessage>,
+    group_id: Vec<u8>,
+    cursor: u64,
 }
 
 impl<C> ProcessMessageFuture<C>
@@ -361,8 +369,11 @@ where
     }
 
     /// process a message, returning the message from the database and the cursor of the message.
+    /// There will always be a cursor returned.
+    /// If a cursor is returned but a message is not, it means we tried processing up to `cursor`
+    /// but were not able to get a message from it.
     #[tracing::instrument(skip_all)]
-    pub(crate) async fn process(self) -> Result<Option<(StoredGroupMessage, u64)>> {
+    pub(crate) async fn process(self) -> Result<ProcessedMessage> {
         let group_message::V1 {
             // the cursor ID is the position in the monolithic backend topic
             id: ref cursor_id,
@@ -380,9 +391,15 @@ where
             &cursor_id
         );
 
-        if self.needs_to_sync(*cursor_id)? {
+        let max_processed = if self.needs_to_sync(*cursor_id)? {
             self.process_stream_entry().await
+        } else {
+            vec![]
         }
+        .iter()
+        .max()
+        .copied()
+        .unwrap_or(0);
 
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
@@ -397,7 +414,11 @@ where
                 self.inbox_id(),
                 &cursor_id
             );
-            Ok(Some((msg, *cursor_id)))
+            Ok(ProcessedMessage {
+                message: Some(msg),
+                cursor: *cursor_id,
+                group_id: self.msg.group_id,
+            })
         } else {
             tracing::warn!(
                 cursor_id,
@@ -407,13 +428,16 @@ where
                 &cursor_id,
                 hex::encode(&self.msg.group_id),
             );
-
-            Ok(None)
+            Ok(ProcessedMessage {
+                message: None,
+                cursor: max_processed,
+                group_id: self.msg.group_id,
+            })
         }
     }
 
     /// stream processing function
-    async fn process_stream_entry(&self) {
+    async fn process_stream_entry(&self) -> Vec<u64> {
         let process_result = retry_async!(
             Retry::default(),
             (async {
@@ -455,6 +479,7 @@ where
                 "process stream entry {:?}",
                 e
             );
+            vec![]
         } else {
             tracing::trace!(
                 cursor_id = self.msg.id,
@@ -462,6 +487,7 @@ where
                 group_id = hex::encode(&self.msg.group_id),
                 "message process in stream success"
             );
+            vec![]
         }
     }
 
@@ -478,7 +504,7 @@ where
     }
 
     /// Attempt a recovery sync if a group message failed to process
-    async fn attempt_message_recovery(&self) {
+    async fn attempt_message_recovery(&self) -> Vec<u64> {
         let group = MlsGroup::new(
             &self.client,
             self.msg.group_id.clone(),
@@ -496,7 +522,8 @@ where
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
-        if let Err(err) = group.sync_with_conn(&self.provider).await {
+        let sync = group.sync_with_conn(&self.provider).await;
+        if let Err(err) = sync {
             tracing::warn!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
@@ -504,16 +531,21 @@ where
                 err = %err,
                 "recovery sync triggered by streamed message failed: {}", err
             );
+            vec![]
         } else {
             let epoch = group.epoch(&self.provider).await.unwrap_or(0);
+            let ids = sync.expect("checked for error");
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful. epoch = {} for group = {}",
+                procesed_messages_len = ids.len(),
+                "recovery sync triggered by streamed message successful. processed = {}, epoch = {} for group = {}",
+                ids.len(),
                 epoch,
                 hex::encode(&self.msg.group_id)
-            )
+            );
+            ids
         }
     }
 }
