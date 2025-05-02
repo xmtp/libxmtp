@@ -29,7 +29,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         ProcessMessageFuture::new(&self.client, envelope)?
             .process()
             .await?
-            .map(|(group, _)| group)
+            .message
             .ok_or(SubscribeError::GroupMessageNotFound)
     }
 
