@@ -117,6 +117,52 @@ const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
+#[derive(Error, Debug)]
+pub struct ReceiveErrors {
+    /// list of message ids we received
+    ids: Vec<u64>,
+    errors: Vec<GroupMessageProcessingError>,
+}
+
+impl RetryableError for ReceiveErrors {
+    fn is_retryable(&self) -> bool {
+        self.errors.iter().any(|e| e.is_retryable())
+    }
+}
+
+impl ReceiveErrors {
+    pub fn new(errors: Vec<GroupMessageProcessingError>, ids: Vec<u64>) -> Self {
+        Self { ids, errors }
+    }
+}
+
+impl std::fmt::Display for ReceiveErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let errs: HashSet<String> = self.errors.iter().map(|e| e.to_string()).collect();
+        let mut sorted = self.ids.clone();
+        sorted.sort();
+        writeln!(
+            f,
+            "\n=========================== Receive Errors  =====================\n\
+            total of [{}] errors processing [{}] messages in cursor range [{:?} ... {:?}]\n\
+            [{}] unique errors:",
+            self.errors.len(),
+            self.ids.len(),
+            sorted.first(),
+            sorted.last(),
+            errs.len(),
+        )?;
+        for err in errs.iter() {
+            writeln!(f, "{}", err)?;
+        }
+        writeln!(
+            f,
+            "================================================================="
+        )?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum GroupError {
     #[error(transparent)]
@@ -157,8 +203,8 @@ pub enum GroupError {
     Client(#[from] ClientError),
     #[error("receive error: {0}")]
     ReceiveError(#[from] GroupMessageProcessingError),
-    #[error("Receive errors: {0:?}")]
-    ReceiveErrors(Vec<GroupMessageProcessingError>),
+    #[error("Receive errors: {0}")]
+    ReceiveErrors(ReceiveErrors),
     #[error("generic: {0}")]
     Generic(String),
     #[error(transparent)]
@@ -229,7 +275,7 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::ReceiveErrors(errors) => errors.iter().any(|e| e.is_retryable()),
+            Self::ReceiveErrors(errors) => errors.is_retryable(),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
@@ -4677,8 +4723,8 @@ pub(crate) mod tests {
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
         if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.len(), 1);
-            assert!(errors.iter().any(|err| err
+            assert_eq!(errors.errors.len(), 1);
+            assert!(errors.errors.iter().any(|err| err
                 .to_string()
                 .contains("cannot start a transaction within a transaction")));
         } else {
@@ -4730,8 +4776,9 @@ pub(crate) mod tests {
             panic!("Expected error")
         };
 
-        assert_eq!(errors.len(), 2);
+        assert_eq!(errors.errors.len(), 2);
         assert!(errors
+            .errors
             .iter()
             .any(|err| err.to_string().contains("already processed")));
     }
