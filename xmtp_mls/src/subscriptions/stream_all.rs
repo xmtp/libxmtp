@@ -562,4 +562,67 @@ mod tests {
 
         assert_msg!(stream, expected_message);
     }
+
+    #[xmtp_common::test]
+    async fn stream_messages_keeps_track_of_cursor() {
+        let wallet = generate_local_wallet();
+        let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
+        let bob = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let eve = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), eve.inbox_id()])
+            .await
+            .unwrap();
+        let _bob_groups = bob
+            .sync_welcomes(&bob.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let eve_groups = eve
+            .sync_welcomes(&eve.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let eve_group = eve_groups.first().unwrap();
+        group.sync().await.unwrap();
+        // get the group epoch to 28
+        for _ in 0..14 {
+            group
+                .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
+                .await
+                .unwrap();
+        }
+        for _ in 0..100 {
+            eve_group
+                .send_message(format!("message {}", xmtp_common::rand_string::<5>()).as_bytes())
+                .await
+                .unwrap();
+        }
+        // get the group epoch to 28
+        for _ in 0..14 {
+            group
+                .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
+                .await
+                .unwrap();
+        }
+        group.sync().await.unwrap();
+        // create a new installation for alice
+        let alice_2 = ClientBuilder::new_test_client_no_sync(&wallet).await;
+        let mut s = StreamAllMessages::new(&alice_2, None).await.unwrap();
+        // elapse enough time to update installations
+        xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+        group.update_installations().await.unwrap();
+        // if the stream behaved as expected, it should have set the cursor to the latest
+        // in the group before any messages that could actually be decrypted by alices
+        // second isntallation were sent.
+        s.next().await;
+        let msg_stream = s.messages;
+        let cursor = msg_stream
+            .group_list
+            .get(group.group_id.as_slice())
+            .unwrap();
+        assert!(*cursor > 0.into());
+    }
 }

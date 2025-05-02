@@ -39,7 +39,7 @@ impl xmtp_common::RetryableError for MessageStreamError {
     }
 }
 
-fn extract_message_v1(message: GroupMessage) -> Result<group_message::V1> {
+pub fn extract_message_v1(message: GroupMessage) -> Result<group_message::V1> {
     match message.version {
         Some(group_message::Version::V1(value)) => Ok(value),
         _ => Err(MessageStreamError::InvalidPayload.into()),
@@ -69,20 +69,6 @@ impl std::fmt::Display for MessagePosition {
         write!(f, "{}", self.pos())
     }
 }
-/*
-impl From<StoredGroup> for (Vec<u8>, u64) {
-    fn from(group: StoredGroup) -> (Vec<u8>, u64) {
-        (group.id, 0u64)
-    }
-}
-*/
-/*
-impl From<StoredGroup> for (Vec<u8>, MessagePosition) {
-    fn from(group: StoredGroup) -> (Vec<u8>, MessagePosition) {
-        (group.id, 0u64.into())
-    }
-}
-*/
 
 impl From<u64> for MessagePosition {
     fn from(v: u64) -> MessagePosition {
@@ -95,7 +81,7 @@ pin_project! {
         #[pin] inner: Subscription,
         #[pin] state: State<'a, Subscription>,
         client: &'a C,
-        group_list: HashMap<GroupId, MessagePosition>,
+        pub(super) group_list: HashMap<GroupId, MessagePosition>,
     }
 }
 
@@ -248,10 +234,30 @@ where
         match this.state.as_mut().project() {
             Waiting => {
                 if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
-                    let future = ProcessMessageFuture::new(
-                        *this.client,
-                        envelope.map_err(|e| SubscribeError::BoxError(Box::new(e)))?,
-                    )?;
+                    let envelope = envelope
+                        .map(extract_message_v1)
+                        .map_err(|e| SubscribeError::BoxError(Box::new(e)))?
+                        .map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
+                    // ensure we have not tried processing this message yet
+                    if let Some(m) = this.group_list.get(envelope.group_id.as_slice()) {
+                        if *m >= envelope.id.into() {
+                            tracing::debug!(
+                                "group_id {} exists @cursor={m}, skipping message @cursor={}",
+                                xmtp_common::fmt::truncate_hex(hex::encode(
+                                    envelope.group_id.as_slice()
+                                )),
+                                envelope.id
+                            );
+                            return self.poll_next(cx);
+                        } else {
+                            tracing::trace!(
+                                "group_id {} exists @cursor={m}, proceeding to process message @cursor={}",
+                                xmtp_common::fmt::truncate_hex(hex::encode(envelope.group_id.as_slice())),
+                                envelope.id
+                            );
+                        }
+                    }
+                    let future = ProcessMessageFuture::new(*this.client, envelope)?;
                     let future = future.process();
                     this.state.set(State::Processing {
                         future: FutureWrapper::new(future),
@@ -326,6 +332,11 @@ where
                 tracing::warn!("skipping message streaming payload");
                 this.state.set(State::Waiting);
                 if let Some(cursor) = this.group_list.get_mut(processed.group_id.as_slice()) {
+                    tracing::info!(
+                        "no message could be processed, stream setting cursor to [{}] for group: {}",
+                        processed.cursor,
+                        xmtp_common::fmt::truncate_hex(hex::encode(processed.group_id.as_slice()))
+                    );
                     cursor.set(processed.cursor)
                 }
                 return self.poll_next(cx);
@@ -354,8 +365,7 @@ where
     C: ScopedGroupClient,
 {
     /// Create a new Future to process a GroupMessage.
-    pub fn new(client: C, envelope: GroupMessage) -> Result<ProcessMessageFuture<C>> {
-        let msg = extract_message_v1(envelope)?;
+    pub fn new(client: C, msg: group_message::V1) -> Result<ProcessMessageFuture<C>> {
         let provider = client.mls_provider()?;
         Ok(Self {
             provider,

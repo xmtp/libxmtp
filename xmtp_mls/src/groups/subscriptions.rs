@@ -25,8 +25,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage> {
+        use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        ProcessMessageFuture::new(&self.client, envelope)?
+        let msg = extract_message_v1(envelope)?;
+        ProcessMessageFuture::new(&self.client, msg)?
             .process()
             .await?
             .message

@@ -6,7 +6,7 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
-    GroupError, HmacKey, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, MlsGroup, ReceiveErrors, ScopedGroupClient,
 };
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
@@ -280,11 +280,14 @@ where
         // Even if receiving fails, continue to post_commit
         let receive = self.receive(provider).await;
         let processed_ids = if let Err(receive_error) = receive {
-            tracing::error!(error = %receive_error, "receive error {:?}", receive_error);
             // We don't return an error if receive fails, because it's possible this is caused
             // by malicious data sent over the network, or messages from before the user was
             // added to the group
-            vec![]
+            if let GroupError::ReceiveErrors(e) = receive_error {
+                e.ids
+            } else {
+                vec![]
+            }
         } else {
             receive.expect("checked for error")
         };
@@ -1260,9 +1263,17 @@ where
         &self,
         messages: Vec<GroupMessage>,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), GroupError> {
+    ) -> Result<Vec<u64>, GroupError> {
         let mut receive_errors: Vec<GroupMessageProcessingError> = vec![];
+        let mut ids = vec![];
         for message in messages.into_iter() {
+            if let Some(id) = message
+                .version
+                .as_ref()
+                .map(|GroupMessageVersion::V1(value)| value.id)
+            {
+                ids.push(id)
+            }
             let result = retry_async!(
                 Retry::default(),
                 (async { self.consume_message(provider, &message).await })
@@ -1274,7 +1285,7 @@ where
                         "Group [{}] is paused, skip syncing remaining messages",
                         hex::encode(&self.group_id),
                     );
-                    return Ok(());
+                    return Ok(ids);
                 }
                 Err(e) => {
                     let is_retryable = e.is_retryable();
@@ -1295,16 +1306,17 @@ where
         }
 
         if receive_errors.is_empty() {
-            Ok(())
+            Ok(ids)
         } else {
+            let receive_errors = GroupError::ReceiveErrors(ReceiveErrors::new(receive_errors, ids));
             tracing::error!(
                 group_id = hex::encode(&self.group_id),
                 inbox_id = self.client.inbox_id(),
                 installation_id = hex::encode(self.client.installation_id()),
-                "Message processing errors: {:?}",
+                "Message processing errors: {}",
                 receive_errors
             );
-            Err(GroupError::ReceiveErrors(receive_errors))
+            Err(receive_errors)
         }
     }
 
@@ -1321,18 +1333,9 @@ where
             .client
             .query_group_messages(&self.group_id, provider.conn_ref())
             .await?;
-        let ids_processed = messages
-            .iter()
-            .filter_map(|m| {
-                m.version
-                    .as_ref()
-                    .map(|GroupMessageVersion::V1(value)| value.id)
-            })
-            .collect::<Vec<u64>>();
+        let ids = self.process_messages(messages, provider).await?;
 
-        self.process_messages(messages, provider).await?;
-
-        Ok(ids_processed)
+        Ok(ids)
     }
 
     fn save_transcript_message(
