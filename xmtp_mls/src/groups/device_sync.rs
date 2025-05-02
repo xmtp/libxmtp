@@ -8,7 +8,7 @@ use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;

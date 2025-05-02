@@ -6564,7 +6564,7 @@ mod tests {
         b_stream.end_and_wait().await.unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()

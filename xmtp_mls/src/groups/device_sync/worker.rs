@@ -129,8 +129,8 @@ where
                     SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
                         self.evt_new_sync_group_from_welcome().await?;
                     }
-                    SyncWorkerEvent::NewSyncGroupMsg { message_id: msg_id } => {
-                        self.evt_new_sync_group_msg(msg_id).await?;
+                    SyncWorkerEvent::NewSyncGroupMsg { message_id } => {
+                        self.evt_new_sync_group_msg(message_id).await?;
                     }
                     SyncWorkerEvent::SyncPreferences(preference_updates) => {
                         self.evt_sync_preferences(preference_updates).await?;
@@ -277,7 +277,7 @@ where
         };
 
         let installation_id = self.installation_id();
-        let is_external = msg.sender_installation_id == installation_id;
+        let is_external = msg.sender_installation_id != installation_id;
         tracing::error!("Processing message. External: {is_external}");
 
         for (msg, content) in vec![msg].iter_with_content() {

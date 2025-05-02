@@ -141,6 +141,15 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     tester!(alix2, from = alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    let groups = alix1.find_groups(GroupQueryArgs {
+        include_sync_groups: true,
+        ..Default::default()
+    })?;
+    for group in groups {
+        group
+            .maybe_update_installations(&alix1.provider, None)
+            .await?;
+    }
 
     // alix1 should have it's own created sync group and alix2's sync group
     let alix1_sync_groups: Vec<StoredGroup> = alix1.provider.conn_ref().raw_query_read(|conn| {
@@ -151,6 +160,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     assert_eq!(alix1_sync_groups.len(), 2);
 
     // alix2 should not be added to alix1's old sync group
+    alix2.sync_welcomes(&alix2.provider).await?;
     let alix2_sync_groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
