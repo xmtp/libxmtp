@@ -6413,7 +6413,7 @@ mod tests {
         assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_consent() {
         let alix_a = Tester::builder()
             .with_sync_worker()
