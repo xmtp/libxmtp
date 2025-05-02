@@ -124,9 +124,6 @@ where
 
             tracing::info!("New event: {event:?}");
 
-            // Wait for message to be ready
-            xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
             if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
                     SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
@@ -265,7 +262,16 @@ where
         handle: &WorkerHandle<SyncMetric>,
         msg_id: &[u8],
     ) -> Result<(), DeviceSyncError> {
-        let Some(msg) = provider.conn_ref().get_group_message(msg_id)? else {
+        let mut msg = None;
+        for _ in 0..5 {
+            msg = provider.conn_ref().get_group_message(msg_id)?;
+            if msg.is_some() {
+                break;
+            }
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let Some(msg) = msg else {
             tracing::warn!("Sync worker was notified of a message not found in the database.");
             return Ok(());
         };
