@@ -39,9 +39,11 @@ use xmtp_proto::{
             BackupElementSelection, BackupOptions,
         },
         mls::message_contents::{
-            DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+            device_sync_key_type::Key, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
+            DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
+    ConversionError,
 };
 
 pub struct SyncWorker<ApiClient, V> {
@@ -482,7 +484,9 @@ where
 
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
-            key,
+            encryption_key: Some(DeviceSyncKeyType {
+                key: Some(Key::Aes256Gcm(key)),
+            }),
             request_id,
             url: format!("{device_sync_server_url}/files/{}", response.text().await?),
             metadata: Some(metadata),
@@ -626,7 +630,15 @@ where
         };
 
         // Create an importer around that futures_reader.
-        let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
+
+        let Some(DeviceSyncKeyType {
+            key: Some(Key::Aes256Gcm(key)),
+        }) = reply.encryption_key
+        else {
+            return Err(ConversionError::Unspecified("encryption_key"))?;
+        };
+
+        let mut importer = BackupImporter::load(Box::pin(reader), &key).await?;
 
         tracing::info!("Importing the sync payload.");
         // Run the import.

@@ -409,10 +409,7 @@ impl serde::Serialize for DeviceSyncReply {
         if !self.url.is_empty() {
             len += 1;
         }
-        if !self.key.is_empty() {
-            len += 1;
-        }
-        if self.metadata.is_some() {
+        if self.encryption_key.is_some() {
             len += 1;
         }
         if self.timestamp_ns != 0 {
@@ -421,7 +418,7 @@ impl serde::Serialize for DeviceSyncReply {
         if self.kind != 0 {
             len += 1;
         }
-        if self.encryption_key.is_some() {
+        if self.metadata.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DeviceSyncReply", len)?;
@@ -431,13 +428,8 @@ impl serde::Serialize for DeviceSyncReply {
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
-        if !self.key.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("key", pbjson::private::base64::encode(&self.key).as_str())?;
-        }
-        if let Some(v) = self.metadata.as_ref() {
-            struct_ser.serialize_field("metadata", v)?;
+        if let Some(v) = self.encryption_key.as_ref() {
+            struct_ser.serialize_field("encryptionKey", v)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
@@ -449,8 +441,8 @@ impl serde::Serialize for DeviceSyncReply {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
             struct_ser.serialize_field("kind", &v)?;
         }
-        if let Some(v) = self.encryption_key.as_ref() {
-            struct_ser.serialize_field("encryptionKey", v)?;
+        if let Some(v) = self.metadata.as_ref() {
+            struct_ser.serialize_field("metadata", v)?;
         }
         struct_ser.end()
     }
@@ -465,24 +457,22 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             "request_id",
             "requestId",
             "url",
-            "key",
-            "metadata",
+            "encryption_key",
+            "encryptionKey",
             "timestamp_ns",
             "timestampNs",
             "kind",
-            "encryption_key",
-            "encryptionKey",
+            "metadata",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
             Url,
-            Key,
-            Metadata,
+            EncryptionKey,
             TimestampNs,
             Kind,
-            EncryptionKey,
+            Metadata,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -506,11 +496,10 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "url" => Ok(GeneratedField::Url),
-                            "key" => Ok(GeneratedField::Key),
-                            "metadata" => Ok(GeneratedField::Metadata),
+                            "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
                             "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
                             "kind" => Ok(GeneratedField::Kind),
-                            "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "metadata" => Ok(GeneratedField::Metadata),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -532,11 +521,10 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             {
                 let mut request_id__ = None;
                 let mut url__ = None;
-                let mut key__ = None;
-                let mut metadata__ = None;
+                let mut encryption_key__ = None;
                 let mut timestamp_ns__ = None;
                 let mut kind__ = None;
-                let mut encryption_key__ = None;
+                let mut metadata__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -551,19 +539,11 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             }
                             url__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Key => {
-                            if key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("key"));
+                        GeneratedField::EncryptionKey => {
+                            if encryption_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encryptionKey"));
                             }
-                            key__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::Metadata => {
-                            if metadata__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("metadata"));
-                            }
-                            metadata__ = map_.next_value()?;
+                            encryption_key__ = map_.next_value()?;
                         }
                         GeneratedField::TimestampNs => {
                             if timestamp_ns__.is_some() {
@@ -579,22 +559,21 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             }
                             kind__ = Some(map_.next_value::<super::super::device_sync::BackupElementSelection>()? as i32);
                         }
-                        GeneratedField::EncryptionKey => {
-                            if encryption_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("encryptionKey"));
+                        GeneratedField::Metadata => {
+                            if metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadata"));
                             }
-                            encryption_key__ = map_.next_value()?;
+                            metadata__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(DeviceSyncReply {
                     request_id: request_id__.unwrap_or_default(),
                     url: url__.unwrap_or_default(),
-                    key: key__.unwrap_or_default(),
-                    metadata: metadata__,
+                    encryption_key: encryption_key__,
                     timestamp_ns: timestamp_ns__.unwrap_or_default(),
                     kind: kind__.unwrap_or_default(),
-                    encryption_key: encryption_key__,
+                    metadata: metadata__,
                 })
             }
         }
