@@ -128,8 +128,13 @@ pub async fn create_client(
     history_sync_url: Option<String>,
     sync_worker_mode: Option<FfiSyncWorkerMode>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    let start_time = std::time::Instant::now();
     let ident = account_identifier.clone();
+    let init_logger_start = std::time::Instant::now();
     init_logger();
+    let init_logger_duration = init_logger_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Logger initialized", init_logger_duration);
+    log::info!("Starting client creation process");
 
     log::info!(
         "Creating message store with path: {:?} and encryption key: {} of length {:?}",
@@ -138,11 +143,17 @@ pub async fn create_client(
         encryption_key.as_ref().map(|k| k.len())
     );
 
+    // Measure storage option creation
+    let storage_option_start = std::time::Instant::now();
     let storage_option = match db {
         Some(path) => StorageOption::Persistent(path),
         None => StorageOption::Ephemeral,
     };
+    let storage_option_duration = storage_option_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Storage option created", storage_option_duration);
 
+    // Measure store creation
+    let store_start = std::time::Instant::now();
     let store = match encryption_key {
         Some(key) => {
             let key: EncryptionKey = key
@@ -152,14 +163,22 @@ pub async fn create_client(
         }
         None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
     };
-    log::info!("Creating XMTP client");
+    let store_duration = store_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Message store created", store_duration);
+
+    // Measure identity strategy creation
+    let identity_start = std::time::Instant::now();
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
         ident.clone().try_into()?,
         nonce,
         legacy_signed_private_key_proto,
     );
+    let identity_duration = identity_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Identity strategy created", identity_duration);
 
+    // Measure builder setup
+    let builder_start = std::time::Instant::now();
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(Arc::unwrap_or_clone(api).0)
         .enable_api_debug_wrapper()?
@@ -173,13 +192,24 @@ pub async fn create_client(
     if let Some(sync_worker_mode) = sync_worker_mode {
         builder = builder.device_sync_worker_mode(sync_worker_mode.into());
     }
+    let builder_duration = builder_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Client builder configured", builder_duration);
 
+    // Measure client build
+    let build_start = std::time::Instant::now();
     let xmtp_client = builder.build().await?;
+    let build_duration = build_start.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: Client built", build_duration);
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
         xmtp_client.inbox_id()
     );
+    
+    // Total time
+    let total_duration = start_time.elapsed().as_millis();
+    log::info!("bindings_ffi time {} ms: TOTAL client creation", total_duration);
+    
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
         account_identifier,
@@ -1333,6 +1363,9 @@ impl FfiConversations {
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting list conversations process");
+        
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(opts.into())?
@@ -1346,7 +1379,10 @@ impl FfiConversations {
                 })
             })
             .collect();
-
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Listed {} conversations", total_duration, convo_list.len());
+        
         Ok(convo_list)
     }
 
@@ -1354,6 +1390,9 @@ impl FfiConversations {
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting list groups process");
+        
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(
@@ -1369,7 +1408,10 @@ impl FfiConversations {
                 })
             })
             .collect();
-
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Listed {} groups", total_duration, convo_list.len());
+        
         Ok(convo_list)
     }
 
@@ -1377,6 +1419,9 @@ impl FfiConversations {
         &self,
         opts: FfiListConversationsOptions,
     ) -> Result<Vec<Arc<FfiConversationListItem>>, GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting list DMs process");
+        
         let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiConversationListItem>> = inner
             .list_conversations(GroupQueryArgs::from(opts).conversation_type(ConversationType::Dm))?
@@ -1390,7 +1435,10 @@ impl FfiConversations {
                 })
             })
             .collect();
-
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Listed {} DMs", total_duration, convo_list.len());
+        
         Ok(convo_list)
     }
 
@@ -1868,7 +1916,14 @@ impl FfiCreateDMOptions {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting message send process");
+        
         let message_id = self.inner.send_message(content_bytes.as_slice()).await?;
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Message sent", total_duration);
+        
         Ok(message_id)
     }
 
@@ -1880,16 +1935,29 @@ impl FfiConversation {
 
     /// send a message without immediately publishing to the delivery service.
     pub fn send_optimistic(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting optimistic message send process");
+        
         let id = self
             .inner
             .send_message_optimistic(content_bytes.as_slice())?;
-
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Optimistic message sent", total_duration);
+        
         Ok(id)
     }
 
     /// Publish all unpublished messages
     pub async fn publish_messages(&self) -> Result<(), GenericError> {
+        let start_time = std::time::Instant::now();
+        log::info!("Starting message publishing process");
+        
         self.inner.publish_messages().await?;
+        
+        let total_duration = start_time.elapsed().as_millis();
+        log::info!("bindings_ffi time {} ms: Messages published", total_duration);
+        
         Ok(())
     }
 
@@ -5235,7 +5303,7 @@ mod tests {
         assert!(stream.is_closed());
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_message_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
