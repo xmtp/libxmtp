@@ -16,7 +16,7 @@ impl serde::Serialize for ConsentSave {
         if !self.entity.is_empty() {
             len += 1;
         }
-        if self.consented_at_ns.is_some() {
+        if self.consented_at_ns != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.consent_backup.ConsentSave", len)?;
@@ -33,10 +33,10 @@ impl serde::Serialize for ConsentSave {
         if !self.entity.is_empty() {
             struct_ser.serialize_field("entity", &self.entity)?;
         }
-        if let Some(v) = self.consented_at_ns.as_ref() {
+        if self.consented_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("consentedAtNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("consentedAtNs", ToString::to_string(&self.consented_at_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -135,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                                 return Err(serde::de::Error::duplicate_field("consentedAtNs"));
                             }
                             consented_at_ns__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -144,7 +144,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                     entity_type: entity_type__.unwrap_or_default(),
                     state: state__.unwrap_or_default(),
                     entity: entity__.unwrap_or_default(),
-                    consented_at_ns: consented_at_ns__,
+                    consented_at_ns: consented_at_ns__.unwrap_or_default(),
                 })
             }
         }

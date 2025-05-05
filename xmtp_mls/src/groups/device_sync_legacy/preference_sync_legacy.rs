@@ -217,7 +217,7 @@ mod tests {
             entity: "hello there".to_string(),
             entity_type: ConsentType::InboxId,
             state: ConsentState::Allowed,
-            consented_at_ns: None,
+            consented_at_ns: 0,
         };
         let update = LegacyUserPreferenceUpdate::ConsentUpdate(consent_record);
 

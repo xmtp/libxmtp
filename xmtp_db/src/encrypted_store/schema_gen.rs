@@ -15,7 +15,7 @@ diesel::table! {
         entity_type -> Integer,
         state -> Integer,
         entity -> Text,
-        consented_at_ns -> Nullable<BigInt>,
+        consented_at_ns -> BigInt,
     }
 }
 
@@ -121,7 +121,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    processed_sync_messages (message_id) {
+    processed_device_sync_messages (message_id) {
         message_id -> Binary,
     }
 }
@@ -157,7 +157,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     key_package_history,
     openmls_key_store,
     openmls_key_value,
-    processed_sync_messages,
+    processed_device_sync_messages,
     refresh_state,
     user_preferences,
     conversation_list

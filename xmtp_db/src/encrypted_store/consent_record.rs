@@ -34,7 +34,7 @@ pub struct StoredConsentRecord {
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
 
-    pub consented_at_ns: Option<i64>,
+    pub consented_at_ns: i64,
 }
 
 impl PartialEq for StoredConsentRecord {
@@ -51,7 +51,7 @@ impl StoredConsentRecord {
             entity_type,
             state,
             entity,
-            consented_at_ns: Some(now_ns()),
+            consented_at_ns: now_ns(),
         }
     }
 }
@@ -114,12 +114,7 @@ impl DbConnection {
                     return Ok(false);
                 }
 
-                let should_replace = match (old_record.consented_at_ns, record.consented_at_ns) {
-                    (None, _) => true,
-                    (Some(_), None) => false,
-                    (Some(old), Some(new)) => old < new,
-                };
-
+                let should_replace = old_record.consented_at_ns < record.consented_at_ns;
                 if should_replace {
                     diesel::insert_into(dsl::consent_records)
                         .values(record)
@@ -294,7 +289,7 @@ mod tests {
             entity_type,
             state,
             entity,
-            consented_at_ns: Some(now_ns()),
+            consented_at_ns: now_ns(),
         }
     }
 

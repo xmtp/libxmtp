@@ -21,6 +21,6 @@ LIMIT
 DROP TABLE user_preferences_old;
 
 ALTER TABLE consent_records
-ADD COLUMN consented_at_ns BIGINT;
+ADD COLUMN consented_at_ns BIGINT NOT NULL DEFAULT 0;
 
-CREATE TABLE processed_sync_messages (message_id BLOB PRIMARY KEY NOT NULL);
+CREATE TABLE processed_device_sync_messages (message_id BLOB PRIMARY KEY NOT NULL);

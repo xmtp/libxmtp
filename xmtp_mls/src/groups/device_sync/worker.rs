@@ -25,7 +25,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
-    processed_sync_messages::StoredProcessedSyncMessages,
+    processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
     Store, XmtpOpenMlsProvider,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -280,7 +280,7 @@ where
         }
 
         for msg in unprocessed_messages {
-            StoredProcessedSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
+            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
         }
 
         Ok(())

@@ -1796,7 +1796,7 @@ pub(crate) mod tests {
             entity: hex::encode(&group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
-            consented_at_ns: Some(now_ns()),
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -1808,7 +1808,7 @@ pub(crate) mod tests {
             entity: bo.inbox_id().to_string(),
             entity_type: ConsentType::InboxId,
             state: ConsentState::Allowed,
-            consented_at_ns: Some(now_ns()),
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();

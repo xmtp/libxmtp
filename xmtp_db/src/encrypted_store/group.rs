@@ -669,7 +669,7 @@ pub(crate) mod tests {
             entity_type,
             state,
             entity,
-            consented_at_ns: Some(now_ns()),
+            consented_at_ns: now_ns(),
         }
     }
 
