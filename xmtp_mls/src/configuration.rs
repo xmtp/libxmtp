@@ -26,7 +26,7 @@ const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
 
 pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
-pub const MAX_GROUP_SIZE: usize = 400;
+pub const MAX_GROUP_SIZE: usize = 200;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
