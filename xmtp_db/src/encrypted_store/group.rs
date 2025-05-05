@@ -560,7 +560,7 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn is_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
+    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
         self.raw_query_read(|conn| {
             let dm_id: Option<String> = dsl::groups
                 .filter(dsl::id.eq(group_id))

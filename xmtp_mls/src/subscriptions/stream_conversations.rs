@@ -365,7 +365,7 @@ where
 
                     // If it's a duplicate DM, don't stream
                     if metadata.conversation_type == ConversationType::Dm
-                        && self.provider.conn_ref().is_duplicate_dm(&group.group_id)?
+                        && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
                     {
                         tracing::debug!(
                             "Duplicate DM group detected from welcome. Skipping stream."
@@ -391,7 +391,7 @@ where
 
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
-                    && self.provider.conn_ref().is_duplicate_dm(&group.group_id)?
+                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     return Ok(None);
