@@ -555,21 +555,31 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn find_duplicate_dms(&self) -> Result<Vec<StoredGroup>, StorageError> {
-        let query = dsl::groups
-            .filter(dsl::conversation_type.eq(ConversationType::Dm))
-            .filter(dsl::dm_id.is_not_null())
-            .filter(sql::<diesel::sql_types::Bool>(
-                "dm_id IN (
-                    SELECT dm_id FROM groups
-                    WHERE conversation_type = 2
-                    AND dm_id IS NOT NULL
-                    GROUP BY dm_id
-                    HAVING COUNT(*) > 1
-                )",
-            ));
+    pub fn find_duplicate_dms_for_group(
+        &self,
+        group_id: &Vec<u8>,
+    ) -> Result<Vec<StoredGroup>, StorageError> {
+        self.raw_query_read(|conn| {
+            let target_dm_id: Option<String> = dsl::groups
+                .filter(dsl::id.eq(group_id.as_slice()))
+                .select(dsl::dm_id)
+                .first::<Option<String>>(conn)
+                .optional()?
+                .flatten();
 
-        self.raw_query_read(|conn| Ok::<_, StorageError>(query.load::<StoredGroup>(conn)?))
+            match target_dm_id {
+                Some(dm_id) => {
+                    // Fetch all groups with the same dm_id and type Dm
+                    let results = dsl::groups
+                        .filter(dsl::conversation_type.eq(ConversationType::Dm))
+                        .filter(dsl::dm_id.eq(dm_id))
+                        .load::<StoredGroup>(conn)?;
+
+                    Ok(results)
+                }
+                None => Ok(vec![]),
+            }
+        })
     }
 }
 
@@ -1100,13 +1110,10 @@ pub(crate) mod tests {
             dm2.store(&conn).unwrap();
             unique_dm.store(&conn).unwrap();
 
-            let duplicates = conn.find_duplicate_dms().unwrap();
-            let matched: Vec<_> = duplicates
-                .into_iter()
-                .filter(|group| group.dm_id == Some(shared_dm_id.clone()))
-                .collect();
-
-            assert_eq!(matched.len(), 2);
+            let duplicates = conn.find_duplicate_dms_for_group(&dm1.id).unwrap();
+            assert_eq!(duplicates.len(), 2);
+            let no_duplicates = conn.find_duplicate_dms_for_group(&unique_dm.id).unwrap();
+            assert_eq!(no_duplicates.len(), 1);
         })
         .await
     }

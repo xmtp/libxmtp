@@ -2284,6 +2284,18 @@ impl FfiConversation {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
     }
+
+    pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+        let dms = self
+            .inner
+            .client
+            .find_duplicate_dms_for_group(&self.inner.group_id)?;
+
+        let ffi_conversations: Vec<Arc<FfiConversation>> =
+            dms.into_iter().map(|dm| Arc::new(dm.into())).collect();
+
+        Ok(ffi_conversations)
+    }
 }
 
 #[uniffi::export]
