@@ -112,7 +112,6 @@ impl From<StoredConsentRecord> for Consent {
         XmtpConsentType::InboxId => ConsentEntityType::InboxId,
       },
       state: value.state.into(),
-      consented_at_ns: value.consented_at_ns,
     }
   }
 }
