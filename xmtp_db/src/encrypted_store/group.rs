@@ -253,52 +253,44 @@ impl DbConnection {
             query = query.filter(groups_dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut groups = if let Some(consent_states) = consent_states {
-            if consent_states
-                .iter()
-                .any(|state| *state == ConsentState::Unknown)
-            {
-                // Include both `Unknown`, `null`, and other specified states
-                let query = query
-                    .left_join(
-                        consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                                .eq(consent_dsl::entity)),
-                    )
-                    .filter(
-                        consent_dsl::state
-                            .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown))
-                            .or(consent_dsl::state.eq_any(
-                                consent_states
-                                    .iter()
-                                    .filter(|state| **state != ConsentState::Unknown)
-                                    .cloned()
-                                    .collect::<Vec<_>>(),
-                            )),
-                    )
-                    .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc());
-
-                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
-            } else {
-                // Only include the specified states
-                let query = query
-                    .inner_join(
-                        consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                                .eq(consent_dsl::entity)),
-                    )
-                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
-                    .select(groups_dsl::groups::all_columns())
-                    .order(groups_dsl::created_at_ns.asc());
-
-                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
-            }
-        } else {
-            // Handle the case where `consent_states` is `None`
-            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
+        let effective_consent_states = match consent_states {
+            Some(states) => states.clone(),
+            None => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
+
+        let include_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let filtered_states: Vec<_> = effective_consent_states
+            .iter()
+            .filter(|state| **state != ConsentState::Unknown)
+            .cloned()
+            .collect();
+
+        let query = if include_unknown {
+            // Include both Unknown, null, and other specified states
+            query
+                .left_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
+                .filter(
+                    consent_dsl::state
+                        .is_null()
+                        .or(consent_dsl::state.eq(ConsentState::Unknown))
+                        .or(consent_dsl::state.eq_any(filtered_states)),
+                )
+                .select(groups_dsl::groups::all_columns())
+                .order(groups_dsl::created_at_ns.asc())
+        } else {
+            // Only include the specified states
+            query
+                .inner_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
+                .filter(consent_dsl::state.eq_any(filtered_states))
+                .select(groups_dsl::groups::all_columns())
+                .order(groups_dsl::created_at_ns.asc())
+        };
+
+        let mut groups = self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?;
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
         // Then query for those separately
