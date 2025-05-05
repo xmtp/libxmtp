@@ -65,7 +65,7 @@ pub struct Consent {
   pub entity_type: ConsentEntityType,
   pub state: ConsentState,
   pub entity: String,
-  pub consented_at_ns: Option<i64>,
+  pub consented_at_ns: i64,
 }
 
 impl From<Consent> for StoredConsentRecord {

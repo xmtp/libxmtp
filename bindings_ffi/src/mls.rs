@@ -2603,7 +2603,7 @@ pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
     pub entity: String,
-    pub consented_at_ns: Option<i64>,
+    pub consented_at_ns: i64,
 }
 
 impl From<FfiConsent> for StoredConsentRecord {
@@ -6476,7 +6476,7 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Denied,
-                consented_at_ns: None,
+                consented_at_ns: now_ns(),
             }])
             .await
             .unwrap();
@@ -6528,7 +6528,7 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Allowed,
-                consented_at_ns: None,
+                consented_at_ns: now_ns(),
             }])
             .await
             .unwrap();
@@ -6669,7 +6669,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
-            consented_at_ns: None,
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -6706,7 +6706,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_dm.id()),
-            consented_at_ns: None,
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -6752,7 +6752,7 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::InboxId,
             entity: bo.inbox_id(),
-            consented_at_ns: None,
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();

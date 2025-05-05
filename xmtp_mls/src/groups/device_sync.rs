@@ -225,20 +225,6 @@ where
         Ok(message_id)
     }
 
-    pub async fn all_sync_groups(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
-        let conn = provider.conn_ref();
-        let sync_groups = conn.all_sync_groups()?;
-        let sync_groups: Result<Vec<_>, ClientError> = sync_groups
-            .into_iter()
-            .map(|g| self.group_with_conn(conn, &g.id))
-            .collect();
-
-        Ok(sync_groups?)
-    }
-
     #[instrument(level = "trace", skip_all)]
     pub async fn get_sync_group(
         &self,
