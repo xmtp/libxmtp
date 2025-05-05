@@ -796,4 +796,18 @@ impl Conversation {
       .map(Into::into)
       .map_err(|e| napi::Error::from_reason(e.to_string()))
   }
+
+  #[napi]
+  pub async fn find_duplicate_dms(&self) -> Result<Vec<Conversation>> {
+    // Await the async call and handle errors
+    let dms = self
+      .inner_client
+      .clone()
+      .find_duplicate_dms_for_group(&self.group_id)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
+
+    Ok(conversations)
+  }
 }
