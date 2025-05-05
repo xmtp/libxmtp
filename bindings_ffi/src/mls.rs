@@ -7914,4 +7914,48 @@ mod tests {
             FfiConsentState::Denied
         );
     }
+
+    #[tokio::test]
+    async fn test_can_find_duplicate_dms_for_group() {
+        let wallet_a = generate_local_wallet();
+        let wallet_b = generate_local_wallet();
+
+        let client_a = new_test_client_with_wallet(wallet_a).await;
+        let client_b = new_test_client_with_wallet(wallet_b).await;
+
+        // Create two DMs (same logical participants, will generate duplicate dm_id)
+        let dm1 = client_a
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        let _dm2 = client_b
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_a.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        // Force sync (in case creation and stitching logic is async-dependent)
+        client_a
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_b
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let group_a = client_a.conversation(dm1.id()).unwrap();
+        let duplicates = group_a.find_duplicate_dms().await.unwrap();
+
+        // Expect at least 2 groups with the same dm_id
+        assert!(
+            duplicates.len() >= 2,
+            "Expected at least 2 duplicate DMs, found {}",
+            duplicates.len()
+        );
+    }
 }
