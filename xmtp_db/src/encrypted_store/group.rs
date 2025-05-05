@@ -188,6 +188,11 @@ impl GroupQueryArgs {
         self.include_sync_groups = true;
         self
     }
+
+    pub fn include_duplicate_dms(mut self, include: bool) -> Self {
+        self.include_duplicate_dms = include;
+        self
+    }
 }
 
 impl DbConnection {
@@ -553,6 +558,29 @@ impl DbConnection {
         })?;
 
         Ok(())
+    }
+
+    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
+        self.raw_query_read(|conn| {
+            let dm_id: Option<String> = dsl::groups
+                .filter(dsl::id.eq(group_id))
+                .select(dsl::dm_id)
+                .first::<Option<String>>(conn)
+                .optional()?
+                .flatten();
+
+            if let Some(dm_id) = dm_id {
+                let count: i64 = dsl::groups
+                    .filter(dsl::conversation_type.eq(ConversationType::Dm))
+                    .filter(dsl::dm_id.eq(dm_id))
+                    .count()
+                    .get_result(conn)?;
+
+                Ok(count > 1)
+            } else {
+                Ok(false)
+            }
+        })
     }
 }
 

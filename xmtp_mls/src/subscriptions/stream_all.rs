@@ -61,7 +61,8 @@ where
                 .find_groups(
                     GroupQueryArgs::default()
                         .maybe_conversation_type(conversation_type)
-                        .maybe_consent_states(consent_states),
+                        .maybe_consent_states(consent_states)
+                        .include_duplicate_dms(true),
                 )?
                 .into_iter()
                 // TODO: Create find groups query only for group ID
