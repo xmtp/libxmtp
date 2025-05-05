@@ -662,9 +662,9 @@ mod test {
         assert_eq!(streamed_dm1.unwrap().group_id, dm1.group_id);
 
         // Create a second DM with same participants — triggers duplicate logic
-        let dm2 = client1
+        let dm2 = client2
             .find_or_create_dm_by_inbox_id(
-                client2.inbox_id().to_string(),
+                client1.inbox_id().to_string(),
                 DMMetadataOptions::default(),
             )
             .await
