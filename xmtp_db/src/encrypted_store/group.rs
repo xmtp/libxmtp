@@ -583,8 +583,26 @@ impl DbConnection {
     }
 
     pub fn is_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
-        let duplicates = self.find_duplicate_dms()?;
-        Ok(duplicates.iter().any(|g| g.id == group_id))
+        self.raw_query_read(|conn| {
+            let dm_id: Option<String> = dsl::groups
+                .filter(dsl::id.eq(group_id))
+                .select(dsl::dm_id)
+                .first::<Option<String>>(conn)
+                .optional()?
+                .flatten();
+
+            if let Some(dm_id) = dm_id {
+                let count: i64 = dsl::groups
+                    .filter(dsl::conversation_type.eq(ConversationType::Dm))
+                    .filter(dsl::dm_id.eq(dm_id))
+                    .count()
+                    .get_result(conn)?;
+
+                Ok(count > 1)
+            } else {
+                Ok(false)
+            }
+        })
     }
 }
 
