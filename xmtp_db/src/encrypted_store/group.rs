@@ -571,6 +571,11 @@ impl DbConnection {
 
         self.raw_query_read(|conn| Ok::<_, StorageError>(query.load::<StoredGroup>(conn)?))
     }
+
+    pub fn is_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
+        let duplicates = self.find_duplicate_dms()?;
+        Ok(duplicates.iter().any(|g| g.id == group_id))
+    }
 }
 
 #[repr(i32)]
