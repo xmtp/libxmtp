@@ -184,7 +184,7 @@ where
         };
 
         tracing::info!(
-            "Sending sync message to group {:?}: {content:?}",
+            "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
             &sync_group.group_id[..4]
         );
 
@@ -219,9 +219,7 @@ where
 
         // Notify our own worker of our own message so it can process it.
         let _ = self.local_events.send(LocalEvents::SyncWorkerEvent(
-            SyncWorkerEvent::NewSyncGroupMsg {
-                message_id: message_id.clone(),
-            },
+            SyncWorkerEvent::NewSyncGroupMsg,
         ));
 
         Ok(message_id)

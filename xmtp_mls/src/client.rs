@@ -449,7 +449,6 @@ where
         let provider = self.mls_provider()?;
         let conn = self.store().conn()?;
         let changed_records = conn.insert_or_replace_consent_records(records)?;
-        tracing::error!("Changed record: {}", changed_records.len());
 
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records

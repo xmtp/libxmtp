@@ -18,14 +18,15 @@ use crate::{
     Client,
 };
 use futures::{Stream, StreamExt};
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
-    XmtpOpenMlsProvider,
+    processed_sync_messages::StoredProcessedSyncMessages,
+    Store, XmtpOpenMlsProvider,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
@@ -131,8 +132,8 @@ where
                     SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
                         self.evt_new_sync_group_from_welcome().await?;
                     }
-                    SyncWorkerEvent::NewSyncGroupMsg { message_id } => {
-                        self.evt_new_sync_group_msg(message_id).await?;
+                    SyncWorkerEvent::NewSyncGroupMsg => {
+                        self.evt_new_sync_group_msg().await?;
                     }
                     SyncWorkerEvent::SyncPreferences(preference_updates) => {
                         self.evt_sync_preferences(preference_updates).await?;
@@ -209,10 +210,10 @@ where
         Ok(())
     }
 
-    async fn evt_new_sync_group_msg(&self, msg_id: Vec<u8>) -> Result<(), DeviceSyncError> {
+    async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         self.client
-            .process_new_sync_group_message(&provider, &self.handle, &msg_id)
+            .process_new_sync_group_messages(&provider, &self.handle)
             .await?;
         Ok(())
     }
@@ -258,35 +259,28 @@ where
     ApiClient: XmtpApi,
     V: SmartContractSignatureVerifier,
 {
-    async fn process_new_sync_group_message(
+    async fn process_new_sync_group_messages(
         &self,
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
-        msg_id: &[u8],
     ) -> Result<(), DeviceSyncError> {
-        let mut msg = None;
-        for _ in 0..5 {
-            msg = provider.conn_ref().write_conn_get_group_message(msg_id)?;
-            if msg.is_some() {
-                break;
-            }
-            xmtp_common::time::sleep(Duration::from_millis(50)).await;
-        }
-
-        let Some(msg) = msg else {
-            tracing::warn!("Sync worker was notified of a message not found in the database.");
-            return Ok(());
-        };
-
+        let unprocessed_messages = provider.conn_ref().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
-        let is_external = msg.sender_installation_id != installation_id;
-        tracing::error!("Processing message. External: {is_external}");
 
-        for (msg, content) in vec![msg].iter_with_content() {
-            tracing::info!("Message content: {content:?}");
+        tracing::info!("Processing {} messages.", unprocessed_messages.len());
+
+        for (msg, content) in unprocessed_messages.clone().iter_with_content() {
+            let is_external = msg.sender_installation_id != installation_id;
+
+            tracing::info!("Message content: (external: {is_external}) {content:?}");
+
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
                 tracing::error!("Message processing: {err:?}");
             };
+        }
+
+        for msg in unprocessed_messages {
+            StoredProcessedSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
         }
 
         Ok(())
@@ -304,7 +298,7 @@ where
 
         match content {
             ContentProto::Request(request) => {
-                if msg.sender_installation_id == self.installation_id() {
+                if !is_external {
                     // Ignore our own messages
                     return Ok(());
                 }
@@ -423,7 +417,7 @@ where
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("Sending sync payload.");
+        tracing::info!("\x1b[33mSending sync payload.");
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
@@ -517,7 +511,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<(), ClientError> {
-        tracing::info!("Sending a sync request.");
+        tracing::info!("\x1b[33mSending a sync request.");
 
         let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;

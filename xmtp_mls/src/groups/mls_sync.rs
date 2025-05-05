@@ -782,7 +782,7 @@ where
                                     self.client
                                         .local_events()
                                         .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::NewSyncGroupMsg { message_id },
+                                            SyncWorkerEvent::NewSyncGroupMsg,
                                         ));
                             }
                         }

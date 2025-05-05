@@ -3,10 +3,7 @@ use super::{
     Sqlite,
     consent_record::ConsentState,
     db_connection::DbConnection,
-    schema::{
-        group_messages::dsl as group_messages_dsl,
-        groups::{self, dsl},
-    },
+    schema::groups::{self, dsl},
 };
 use crate::NotFound;
 use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store};
@@ -373,33 +370,6 @@ impl DbConnection {
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
             group_id,
         )))
-    }
-
-    pub fn get_group_oldest_message_timestamp_ns(
-        &self,
-        group_id: &[u8],
-    ) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query_read(|conn| {
-            let ts = group_messages_dsl::group_messages
-                .filter(group_messages_dsl::group_id.eq(group_id))
-                .order(group_messages_dsl::sent_at_ns.asc())
-                .select(group_messages_dsl::sent_at_ns)
-                .first(conn)
-                .optional()?;
-            Ok::<Option<i64>, StorageError>(ts)
-        })?;
-
-        let last_ts = match last_ts {
-            Some(last_ts) => last_ts,
-            None => {
-                let group = self.find_group(group_id)?.ok_or(StorageError::NotFound(
-                    NotFound::GroupById(group_id.to_vec()),
-                ))?;
-                group.created_at_ns
-            }
-        };
-
-        Ok(last_ts)
     }
 
     /// Updates the 'last time checked' we checked for new installations.
