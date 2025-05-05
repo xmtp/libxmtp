@@ -554,6 +554,23 @@ impl DbConnection {
 
         Ok(())
     }
+
+    pub fn find_duplicate_dms(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let query = dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Dm))
+            .filter(dsl::dm_id.is_not_null())
+            .filter(sql::<diesel::sql_types::Bool>(
+                "dm_id IN (
+                    SELECT dm_id FROM groups
+                    WHERE conversation_type = 2
+                    AND dm_id IS NOT NULL
+                    GROUP BY dm_id
+                    HAVING COUNT(*) > 1
+                )",
+            ));
+
+        self.raw_query_read(|conn| Ok::<_, StorageError>(query.load::<StoredGroup>(conn)?))
+    }
 }
 
 #[repr(i32)]
@@ -1041,5 +1058,56 @@ pub(crate) mod tests {
             100,
             GroupMembershipState::Allowed,
         );
+    }
+
+    #[xmtp_common::test]
+    async fn test_find_duplicate_dms_returns_expected_groups() {
+        with_connection_async(|conn| async move {
+            let shared_dm_id = "dm:alice:bob".to_string();
+
+            let dm1 = StoredGroup::builder()
+                .id(rand_vec::<24>())
+                .created_at_ns(now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("test_addr")
+                .dm_id(Some(shared_dm_id.clone()))
+                .conversation_type(ConversationType::Dm)
+                .build()
+                .unwrap();
+
+            let dm2 = StoredGroup::builder()
+                .id(rand_vec::<24>())
+                .created_at_ns(now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("test_addr")
+                .dm_id(Some(shared_dm_id.clone()))
+                .conversation_type(ConversationType::Dm)
+                .build()
+                .unwrap();
+
+            // Also add a unique DM (should not be returned)
+            let unique_dm = StoredGroup::builder()
+                .id(rand_vec::<24>())
+                .created_at_ns(now_ns())
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("test_addr")
+                .dm_id(Some("dm:charlie:dana".to_string()))
+                .conversation_type(ConversationType::Dm)
+                .build()
+                .unwrap();
+
+            dm1.store(&conn).unwrap();
+            dm2.store(&conn).unwrap();
+            unique_dm.store(&conn).unwrap();
+
+            let duplicates = conn.find_duplicate_dms().unwrap();
+            let matched: Vec<_> = duplicates
+                .into_iter()
+                .filter(|group| group.dm_id == Some(shared_dm_id.clone()))
+                .collect();
+
+            assert_eq!(matched.len(), 2);
+        })
+        .await
     }
 }
