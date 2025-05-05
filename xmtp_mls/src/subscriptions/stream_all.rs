@@ -506,13 +506,24 @@ mod tests {
         group.update_installations().await.unwrap();
         // if the stream behaved as expected, it should have set the cursor to the latest
         // in the group before any messages that could actually be decrypted by alices
-        // second isntallation were sent.
-        s.next().await;
-        let msg_stream = s.messages;
-        let cursor = msg_stream
-            .group_list
-            .get(group.group_id.as_slice())
+        // second installation were sent.
+
+        // we should timeout because we have not gotten a decryptable message yet.
+        let result = xmtp_common::time::timeout(std::time::Duration::from_secs(1), s.next()).await;
+        assert!(matches!(result.unwrap_err(), xmtp_common::time::Expired));
+
+        {
+            let msg_stream = &s.messages;
+            let cursor = msg_stream
+                .group_list
+                .get(group.group_id.as_slice())
+                .unwrap();
+            assert!(*cursor > 0.into());
+        }
+        eve_group
+            .send_message(format!("decryptable message").as_bytes())
+            .await
             .unwrap();
-        assert!(*cursor > 0.into());
+        assert_msg!(s, "decryptable message");
     }
 }

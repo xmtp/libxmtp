@@ -2,7 +2,7 @@ use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
     subscriptions::{
-        stream_messages::{ProcessMessageFuture, StreamGroupMessages},
+        stream_messages::{MessageStreamError, ProcessMessageFuture, StreamGroupMessages},
         Result, SubscribeError,
     },
 };
@@ -27,7 +27,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<StoredGroupMessage> {
         use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        let msg = extract_message_v1(envelope)?;
+        let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
         ProcessMessageFuture::new(&self.client, msg)?
             .process()
             .await?

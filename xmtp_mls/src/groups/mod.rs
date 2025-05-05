@@ -11,6 +11,7 @@ mod disappearing_messages;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
+pub mod summary;
 pub mod validated_commit;
 
 use self::device_sync::DeviceSyncError;
@@ -77,6 +78,7 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
+use summary::SyncSummary;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
@@ -221,8 +223,6 @@ pub enum GroupError {
     GroupMutableMetadata(#[from] GroupMutableMetadataError),
     #[error("Mutable Permissions error {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
-    #[error("Errors occurred during sync {0:?}")]
-    Sync(Vec<GroupError>),
     #[error("Hpke error: {0}")]
     Hpke(#[from] HpkeError),
     #[error("identity error: {0}")]
@@ -253,7 +253,7 @@ pub enum GroupError {
     #[error("sql key store error: {0}")]
     SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
     #[error("Sync failed to wait for intent")]
-    SyncFailedToWait,
+    SyncFailedToWait(SyncSummary),
     #[error("cannot change metadata of DM")]
     DmGroupMetadataForbidden,
     #[error("Missing pending commit")]
@@ -270,6 +270,8 @@ pub enum GroupError {
     TooManyCharacters { length: usize },
     #[error("Group is paused until version {0} is available")]
     GroupPausedUntilUpdate(String),
+    #[error("{}", _0.to_string())]
+    Sync(#[from] SyncSummary),
 }
 
 impl RetryableError for GroupError {
@@ -286,7 +288,6 @@ impl RetryableError for GroupError {
             Self::SelfUpdate(update) => update.is_retryable(),
             Self::WelcomeError(welcome) => welcome.is_retryable(),
             Self::SqlKeyStore(sql) => sql.is_retryable(),
-            Self::Sync(errs) => errs.iter().any(|e| e.is_retryable()),
             Self::InstallationDiff(diff) => diff.is_retryable(),
             Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
             Self::CommitValidation(err) => err.is_retryable(),
@@ -296,7 +297,8 @@ impl RetryableError for GroupError {
             Self::LocalEvent(err) => err.is_retryable(),
             Self::LockUnavailable => true,
             Self::LockFailedToAcquire => true,
-            Self::SyncFailedToWait => true,
+            Self::SyncFailedToWait(_) => true,
+            Self::Sync(s) => s.is_retryable(),
             Self::NotFound(_)
             | Self::GroupMetadata(_)
             | Self::GroupMutableMetadata(_)
@@ -1195,7 +1197,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             false,
         )?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Updates the name of the group. Will error if the user does not have the appropriate permissions
@@ -1217,7 +1222,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Updates min version of the group to match this client's version.
@@ -1235,7 +1243,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     fn min_protocol_version_from_extensions(
@@ -1276,7 +1287,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::UpdatePermission, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Retrieves the group name from the group's mutable metadata extension.
@@ -1315,7 +1329,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     pub fn group_description(&self, provider: &XmtpOpenMlsProvider) -> Result<String, GroupError> {
@@ -1354,7 +1371,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::MetadataUpdate, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
@@ -1412,7 +1432,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             )
             .into();
         let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
-        self.sync_until_intent_resolved(provider, intent.id).await
+        let _ = self.sync_until_intent_resolved(provider, intent.id).await?;
+        Ok(())
     }
 
     async fn update_conversation_message_disappear_in_ns(
@@ -1426,7 +1447,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
         let intent = self.queue_intent(provider, IntentKind::MetadataUpdate, intent_data, false)?;
-        self.sync_until_intent_resolved(provider, intent.id).await
+        let _ = self.sync_until_intent_resolved(provider, intent.id).await?;
+        Ok(())
     }
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
@@ -1552,7 +1574,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let intent =
             self.queue_intent(&provider, IntentKind::UpdateAdminList, intent_data, false)?;
 
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Find the `inbox_id` of the group member who added the member to the group
@@ -1628,7 +1653,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let provider = self.client.mls_provider()?;
         let intent = self.queue_intent(&provider, IntentKind::KeyUpdate, vec![], false)?;
-        self.sync_until_intent_resolved(&provider, intent.id).await
+        let _ = self
+            .sync_until_intent_resolved(&provider, intent.id)
+            .await?;
+        Ok(())
     }
 
     /// Checks if the current user is active in the group.
@@ -2413,10 +2441,11 @@ pub(crate) mod tests {
             .await
             .expect("bola's add should succeed in a no-op");
 
-        amal_group
+        let summary = amal_group
             .receive(&amal.store().conn().unwrap().into())
             .await
-            .expect_err("expected error");
+            .unwrap();
+        assert!(summary.is_errored());
 
         // Check Amal's MLS group state.
         let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
@@ -4722,14 +4751,10 @@ pub(crate) mod tests {
             .unwrap();
 
         let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
-        if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-            assert_eq!(errors.errors.len(), 1);
-            assert!(errors.errors.iter().any(|err| err
-                .to_string()
-                .contains("cannot start a transaction within a transaction")));
-        } else {
-            panic!("Expected error")
-        }
+        assert_eq!(process_result.errored.len(), 1);
+        assert!(process_result.errored.iter().any(|(_, err)| err
+            .to_string()
+            .contains("cannot start a transaction within a transaction")));
     }
 
     #[xmtp_common::test]
@@ -4772,15 +4797,12 @@ pub(crate) mod tests {
         let process_result = bo_group
             .process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap())
             .await;
-        let Some(GroupError::ReceiveErrors(errors)) = process_result.err() else {
-            panic!("Expected error")
-        };
-
-        assert_eq!(errors.errors.len(), 2);
-        assert!(errors
-            .errors
+        assert!(!process_result.errored.is_empty());
+        assert_eq!(process_result.errored.len(), 2);
+        assert!(process_result
+            .errored
             .iter()
-            .any(|err| err.to_string().contains("already processed")));
+            .any(|(_, err)| err.to_string().contains("already processed")));
     }
 
     #[xmtp_common::test]
@@ -5696,7 +5718,7 @@ pub(crate) mod tests {
         // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
         let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
         assert!(
-            matches!(result, Err(GroupError::SyncFailedToWait)),
+            matches!(result, Err(GroupError::SyncFailedToWait(_))),
             "Expected SyncFailedToWait error, got {:?}",
             result
         );
@@ -5753,7 +5775,7 @@ pub(crate) mod tests {
             .send_message("Second message from Bo".as_bytes())
             .await;
         assert!(
-            matches!(result, Err(GroupError::SyncFailedToWait)),
+            matches!(result, Err(GroupError::SyncFailedToWait(_))),
             "Expected SyncFailedToWait error, got {:?}",
             result
         );
