@@ -610,19 +610,30 @@ mod tests {
         group.sync().await.unwrap();
         // create a new installation for alice
         let alice_2 = ClientBuilder::new_test_client_no_sync(&wallet).await;
-        let mut s = StreamAllMessages::new(&alice_2, None).await.unwrap();
+        let mut s = StreamAllMessages::new(&alice_2, None, None).await.unwrap();
         // elapse enough time to update installations
         xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
         group.update_installations().await.unwrap();
         // if the stream behaved as expected, it should have set the cursor to the latest
         // in the group before any messages that could actually be decrypted by alices
-        // second isntallation were sent.
-        s.next().await;
-        let msg_stream = s.messages;
-        let cursor = msg_stream
-            .group_list
-            .get(group.group_id.as_slice())
+        // second installation were sent.
+
+        // we should timeout because we have not gotten a decryptable message yet.
+        let result = xmtp_common::time::timeout(std::time::Duration::from_secs(1), s.next()).await;
+        assert!(matches!(result.unwrap_err(), xmtp_common::time::Expired));
+
+        {
+            let msg_stream = &s.messages;
+            let cursor = msg_stream
+                .group_list
+                .get(group.group_id.as_slice())
+                .unwrap();
+            assert!(*cursor > 0.into());
+        }
+        eve_group
+            .send_message(b"decryptable message")
+            .await
             .unwrap();
-        assert!(*cursor > 0.into());
+        assert_msg!(s, "decryptable message");
     }
 }

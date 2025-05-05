@@ -1,4 +1,4 @@
-use super::{GroupError, MlsGroup};
+use super::{summary::SyncSummary, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
@@ -105,6 +105,8 @@ pub enum DeviceSyncError {
     MissingSyncServerUrl,
     #[error("Missing sync group")]
     MissingSyncGroup,
+    #[error("{}", _0.to_string())]
+    Sync(#[from] SyncSummary),
 }
 
 impl DeviceSyncError {

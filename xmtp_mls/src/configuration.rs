@@ -68,7 +68,7 @@ pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod debug_config {
     use super::*;
     pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600;
