@@ -56,7 +56,7 @@ where
 
             let active_conversations = provider
                 .conn_ref()
-                .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
+                .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type).include_duplicate_dms(true))?
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))

@@ -188,6 +188,11 @@ impl GroupQueryArgs {
         self.include_sync_groups = true;
         self
     }
+
+    pub fn include_duplicate_dms(mut self, include: bool) -> Self {
+        self.include_duplicate_dms = include;
+        self
+    }
 }
 
 impl DbConnection {
