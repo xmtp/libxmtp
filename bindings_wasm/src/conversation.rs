@@ -688,6 +688,20 @@ impl Conversation {
 
     Ok(crate::to_value(&ConversationDebugInfo::new(debug_info))?)
   }
+
+  #[wasm_bindgen(js_name = findDuplicateDms)]
+  pub async fn find_duplicate_dms(&self) -> Result<Vec<Conversation>, JsError> {
+    // Await the async function first, then handle the error
+    let dms = self
+      .inner_client
+      .clone()
+      .find_duplicate_dms_for_group(&self.group_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
+
+    Ok(conversations)
+  }
 }
 
 #[cfg(test)]
