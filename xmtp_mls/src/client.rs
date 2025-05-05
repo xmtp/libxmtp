@@ -681,7 +681,7 @@ where
         group_id: &[u8],
     ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         let conn = self.context().store().conn()?;
-        let duplicates = conn.find_duplicate_dms_for_group(&group_id.to_vec())?;
+        let duplicates = conn.other_dms(group_id)?;
 
         let mls_groups = duplicates
             .into_iter()

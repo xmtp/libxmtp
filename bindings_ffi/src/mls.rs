@@ -7955,7 +7955,6 @@ mod tests {
             .await
             .unwrap();
 
-        // Force sync (in case creation and stitching logic is async-dependent)
         client_a
             .conversations()
             .sync_all_conversations(None)
@@ -7970,11 +7969,6 @@ mod tests {
         let group_a = client_a.conversation(dm1.id()).unwrap();
         let duplicates = group_a.find_duplicate_dms().await.unwrap();
 
-        // Expect at least 2 groups with the same dm_id
-        assert!(
-            duplicates.len() >= 2,
-            "Expected at least 2 duplicate DMs, found {}",
-            duplicates.len()
-        );
+        assert_eq!(duplicates.len(), 1);
     }
 }
