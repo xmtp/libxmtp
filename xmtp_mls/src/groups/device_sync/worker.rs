@@ -376,7 +376,6 @@ where
         // Acknowledge and break.
         self.send_device_sync_message(
             provider,
-            None,
             ContentProto::Acknowledge(DeviceSyncAcknowledge {
                 request_id: request.request_id.clone(),
             }),
@@ -499,7 +498,7 @@ where
         }
 
         // Send the message out over the network
-        self.send_device_sync_message(&provider, None, ContentProto::Reply(reply))
+        self.send_device_sync_message(&provider, ContentProto::Reply(reply))
             .await?;
 
         handle.increment_metric(SyncMetric::PayloadSent);
@@ -530,7 +529,7 @@ where
             ..Default::default()
         };
 
-        self.send_device_sync_message(provider, None, ContentProto::Request(request))
+        self.send_device_sync_message(provider, ContentProto::Request(request))
             .await?;
 
         Ok(())

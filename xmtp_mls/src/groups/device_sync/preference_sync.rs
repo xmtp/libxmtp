@@ -30,7 +30,6 @@ where
     ) -> Result<(), ClientError> {
         self.send_device_sync_message(
             provider,
-            None,
             ContentProto::PreferenceUpdates(PreferenceUpdates {
                 updates: updates.clone().into_iter().map(From::from).collect(),
             }),

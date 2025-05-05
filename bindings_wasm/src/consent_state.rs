@@ -78,7 +78,6 @@ pub struct Consent {
   #[serde(serialize_with = "state_to_u16")]
   pub state: ConsentState,
   pub entity: String,
-  pub consented_at_ns: i64,
 }
 
 #[wasm_bindgen]
@@ -89,7 +88,6 @@ impl Consent {
       entity_type,
       state,
       entity,
-      consented_at_ns: now_ns(),
     }
   }
 }
@@ -100,7 +98,7 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
-      consented_at_ns: consent.consented_at_ns,
+      consented_at_ns: now_ns(),
     }
   }
 }

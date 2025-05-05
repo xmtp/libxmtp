@@ -9,6 +9,7 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -1686,7 +1687,6 @@ impl From<StoredConsentRecord> for FfiConsent {
                 ConsentType::InboxId => FfiConsentEntityType::InboxId,
             },
             state: consent.state.into(),
-            consented_at_ns: consent.consented_at_ns,
         }
     }
 }
@@ -2603,7 +2603,6 @@ pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
     pub state: FfiConsentState,
     pub entity: String,
-    pub consented_at_ns: i64,
 }
 
 impl From<FfiConsent> for StoredConsentRecord {
@@ -2612,7 +2611,7 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
-            consented_at_ns: consent.consented_at_ns,
+            consented_at_ns: now_ns(),
         }
     }
 }
@@ -6476,7 +6475,6 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Denied,
-                consented_at_ns: now_ns(),
             }])
             .await
             .unwrap();
@@ -6528,7 +6526,6 @@ mod tests {
                 entity: bo.inbox_id(),
                 entity_type: FfiConsentEntityType::InboxId,
                 state: FfiConsentState::Allowed,
-                consented_at_ns: now_ns(),
             }])
             .await
             .unwrap();
@@ -6669,7 +6666,6 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_group.id()),
-            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -6706,7 +6702,6 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::ConversationId,
             entity: hex::encode(bo_dm.id()),
-            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -6752,7 +6747,6 @@ mod tests {
             state: FfiConsentState::Allowed,
             entity_type: FfiConsentEntityType::InboxId,
             entity: bo.inbox_id(),
-            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();

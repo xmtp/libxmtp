@@ -171,17 +171,13 @@ where
     async fn send_device_sync_message(
         &self,
         provider: &XmtpOpenMlsProvider,
-        group_id: Option<Vec<u8>>,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
         let content = DeviceSyncContentProto {
             content: Some(content),
         };
 
-        let sync_group = match group_id {
-            Some(group_id) => self.group_with_conn(provider.conn_ref(), &group_id)?,
-            None => self.get_sync_group(provider).await?,
-        };
+        let sync_group = self.get_sync_group(provider).await?;
 
         tracing::info!(
             "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
