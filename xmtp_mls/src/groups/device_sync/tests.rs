@@ -97,7 +97,6 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     // Stream consent
     dm.update_consent_state(ConsentState::Denied)?;
-
     alix2.worker().wait(SyncMetric::ConsentReceived, 1).await?;
 
     let alix2_dm = alix2.group(&dm.group_id)?;
