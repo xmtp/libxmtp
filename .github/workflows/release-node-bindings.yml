@@ -186,94 +186,12 @@ jobs:
           path: bindings_node/bindings_node.${{ matrix.output_target }}.node
           retention-days: 1
 
-  build-windows:
-    needs: check-versions
-    runs-on: warp-windows-latest-x64-16x
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          # TODO: fix the build on this target
-          # - aarch64-pc-windows-msvc
-        include:
-          - target: x86_64-pc-windows-msvc
-            output_target: win32-x64-msvc
-          # - target: aarch64-pc-windows-msvc
-          #   output_target: win32-arm64-msvc
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Update rust toolchains
-        run: |
-          rustup update
-          rustup target add ${{ matrix.target }}
-
-      - name: Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-            bindings_node
-
-      - name: Disable usePackageExitCodes feature
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          args: feature disable --name="'usePackageExitCodes'"
-
-      - name: Upgrade Visual Studio 2022 enterprise
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          args: upgrade visualstudio2022enterprise
-
-      - name: Install Visual Studio 2022 build tools
-        uses: crazy-max/ghaction-chocolatey@v3
-        with:
-          args: install visualstudio2022buildtools
-
-      - name: Setup aarch64 toolchain
-        if: ${{ matrix.target == 'aarch64-pc-windows-msvc' }}
-        run: |
-          echo "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin" >> $GITHUB_PATH
-        shell: bash
-
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ".node-version"
-          cache-dependency-path: "bindings_node/yarn.lock"
-          cache: "yarn"
-        env:
-          SKIP_YARN_COREPACK_CHECK: "1"
-
-      - name: Enable corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        working-directory: bindings_node
-        run: |
-          yarn
-
-      - name: Build target
-        working-directory: bindings_node
-        run: |
-          yarn build:release --target ${{ matrix.target }}
-
-      - name: Upload binding
-        uses: actions/upload-artifact@v4
-        with:
-          name: bindings_node_${{ matrix.output_target }}
-          path: bindings_node/bindings_node.${{ matrix.output_target }}.node
-          retention-days: 1
-
   publish:
     permissions:
       id-token: write
       contents: write
     runs-on: ubuntu-latest
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
