@@ -628,14 +628,13 @@ mod tests {
                 .group_list
                 .get(group.group_id.as_slice())
                 .unwrap();
-            assert!(*cursor > 0.into());
+            assert!(*cursor > 1.into());
         }
-        /*
+
         eve_group
             .send_message(b"decryptable message")
             .await
             .unwrap();
         assert_msg!(s, "decryptable message");
-        */
     }
 }

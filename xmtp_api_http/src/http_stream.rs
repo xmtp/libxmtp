@@ -80,14 +80,7 @@ where
         match item {
             Some(bytes) => {
                 let bytes = bytes.map_err(HttpClientError::from)?;
-                tracing::debug!("JSON: {}", String::from_utf8_lossy(bytes.as_ref()));
-                tracing::debug!("remaining: {:?}", this.remaining.len());
                 let mut items = Self::on_bytes(bytes, this.remaining)?;
-                tracing::debug!(
-                    "TOTAL ITEMS: {}, remaining {}",
-                    items.len(),
-                    this.remaining.len()
-                );
                 let item = items.pop();
                 if let Some(item) = item {
                     Ready(Some(Ok(item)))
@@ -208,11 +201,6 @@ where
             }
             Started { mut stream } => {
                 let item = ready!(stream.as_mut().poll_next(cx));
-                let next = stream.poll_next(cx);
-                match next {
-                    Poll::Ready(_) => tracing::info!("ALSO READY"),
-                    _ => (),
-                }
                 tracing::trace!("stream id={} ready with item", &self.id);
                 Poll::Ready(item)
             }
@@ -324,4 +312,81 @@ where
     let mut http = HttpStream::new(request);
     http.establish().await;
     Ok(http)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{constants::ApiUrls, XmtpHttpApiClient};
+    use futures::StreamExt;
+    use xmtp_proto::{
+        api_client::ApiBuilder, mls_v1::subscribe_group_messages_request::Filter,
+        prelude::XmtpMlsStreams,
+    };
+
+    #[xmtp_common::test]
+    async fn test_bytes_stream() {
+        let json = serde_json::json!({
+            "filters": [
+                {
+                    "groupId": "9h4VW3x4hs6MJekAbHbguA==",
+                    "idCursor": "1"
+                }
+            ]
+        });
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        let client = client.build().await.unwrap();
+        let http = client.http_client;
+        let mut stream = http
+            .post(format!(
+                "{}/mls/v1/subscribe-group-messages",
+                ApiUrls::LOCAL_ADDRESS.to_string()
+            ))
+            .json(&json)
+            .send()
+            .await
+            .unwrap()
+            .bytes_stream();
+        let mut items = 0;
+        while let Some(item) = stream.next().await {
+            items += 1;
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&item.unwrap()) {
+                // println!("{}", serde_json::to_string_pretty(&val).unwrap());
+            }
+        }
+    }
+
+    #[xmtp_common::test]
+    async fn test_bytes_stream_custom() {
+        let json = serde_json::json!({
+            "filters": [
+                {
+                    "groupId": "9h4VW3x4hs6MJekAbHbguA==",
+                    "idCursor": "1"
+                }
+            ]
+        });
+        let mut client = XmtpHttpApiClient::builder();
+        client.set_app_version("0.0.0".into()).unwrap();
+        client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into());
+        client.set_host("http://localhost:5555".into());
+        let client = client.build().await.unwrap();
+        let mut stream = client
+            .subscribe_group_messages(xmtp_proto::mls_v1::SubscribeGroupMessagesRequest {
+                filters: vec![Filter {
+                    group_id: hex::decode("f61e155b7c7886ce8c25e9006c76e0b8").unwrap(),
+                    id_cursor: 1,
+                }],
+            })
+            .await
+            .unwrap();
+        let mut items = 0;
+        while let Some(item) = stream.next().await {
+            items += 1;
+            // if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&item.unwrap()) {
+            // println!("{}", serde_json::to_string_pretty(&val).unwrap());
+            // }
+            println!("got {} items", items);
+        }
+    }
 }

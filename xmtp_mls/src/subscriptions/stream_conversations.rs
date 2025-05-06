@@ -677,7 +677,7 @@ mod test {
         // It should NOT appear in the stream
         let result =
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-
+        // tracing::error!("{:?}", result);
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 }

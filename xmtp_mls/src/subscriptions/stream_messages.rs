@@ -99,6 +99,10 @@ pin_project! {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
+        /// Replaying messages until a cursor
+        Replaying {
+            replay_until: u64,
+        },
         /// state that indicates the stream is waiting on a IO/Network future to finish processing
         /// the current message before moving on to the next one
         Processing {
@@ -239,9 +243,20 @@ where
         let mut this = self.as_mut().project();
         let state = this.state.as_mut().project();
         match state {
-            Waiting => self.on_waiting(cx),
-            Processing { .. } => self.try_update_state(cx),
+            Waiting => {
+                tracing::trace!("stream messages in waiting state");
+                self.on_waiting(cx)
+            }
+            Processing { .. } => {
+                tracing::trace!("stream messages in processing state");
+                self.resolve_futures(cx)
+            }
+            Replaying { .. } => {
+                tracing::trace!("stream messages in replaying state");
+                self.resolve_futures(cx)
+            }
             Adding { future } => {
+                tracing::trace!("stream messages in adding state");
                 let (stream, group, cursor) = ready!(future.poll(cx))?;
                 let this = self.as_mut();
                 if let Some(c) = cursor {
@@ -285,7 +300,7 @@ where
         if envelope.is_none() {
             return Poll::Ready(None);
         }
-        let mut envelope = envelope.expect("checked for none")?;
+        let envelope = envelope.expect("checked for none")?;
         // ensure we have not tried processing this message yet
         // if we have tried to process, replay messages up to the known cursor.
         let cursor = self
@@ -302,41 +317,39 @@ where
                     )),
                     envelope.id,
                 );
-                self.as_mut().replay_messages_to_cursor(cx, m.pos())?;
-                tracing::debug!("finished replaying messages until cursor={m}");
-                let new_envelope = ready!(self.as_mut().next_message(cx));
-                if new_envelope.is_none() {
-                    return Poll::Ready(None);
-                }
-                envelope = new_envelope.expect("checked for none")?;
+                let mut this = self.as_mut().project();
+                this.state.set(State::Replaying {
+                    replay_until: m.pos(),
+                });
             } else {
                 tracing::trace!(
                     "group_id {} exists @cursor={m}, proceeding to process message @cursor={}",
                     xmtp_common::fmt::truncate_hex(hex::encode(envelope.group_id.as_slice())),
                     envelope.id
                 );
+                let this = self.as_mut().project();
+                let future = ProcessMessageFuture::new(*this.client, envelope)?;
+                let future = future.process();
+                let mut this = self.as_mut().project();
+                this.state.set(State::Processing {
+                    future: FutureWrapper::new(future),
+                });
             }
         }
-        let this = self.as_mut().project();
-        let future = ProcessMessageFuture::new(*this.client, envelope)?;
-        let future = future.process();
-        let mut this = self.as_mut().project();
-        this.state.set(State::Processing {
-            future: FutureWrapper::new(future),
-        });
-        self.try_update_state(cx)
+        self.resolve_futures(cx)
     }
 
     fn next_message(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<group_message::V1>>> {
-        let mut this = self.as_mut().project();
-        if let Some(envelope) = ready!(this.inner.as_mut().poll_next(cx)) {
+        let this = self.as_mut().project();
+        if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
             let envelope = envelope.map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
             if let Some(msg) = extract_message_v1(envelope) {
                 Poll::Ready(Some(Ok(msg)))
             } else {
+                tracing::error!("bad message");
                 // _NOTE_: This would happen if we receive a message
                 // with a version not supported by the current client.
                 // A version we don't know how to deserialize will return 'None'.
@@ -355,37 +368,14 @@ where
         }
     }
 
-    /// Replay the inner stream up until the point our cursor already exists
-    /// Only replays while the inner stream is ready with a message
-    fn replay_messages_to_cursor(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        replay_until: u64,
-    ) -> Result<()> {
-        let mut current_msg = 0;
-        while current_msg < replay_until {
-            let r = self.as_mut().next_message(cx);
-            // match self.as_mut().next_mes
-            if let Poll::Ready(Some(envelope)) = r {
-                let envelope = envelope?;
-                current_msg = envelope.id;
-            }
-        }
-        Ok(())
-    }
-
-    /// Try to finish processing the stream item by polling the stored future.
-    /// Update state to `Waiting` and insert the new cursor if ready.
-    /// If Stream state is in `Waiting`, returns `Pending`.
-    fn try_update_state(
+    fn resolve_futures(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
-
-        let mut this = self.as_mut().project();
-        if let Processing { future } = this.state.as_mut().project() {
+        if let Processing { future } = self.as_mut().project().state.project() {
             let processed = ready!(future.poll(cx))?;
+            let mut this = self.as_mut().project();
             if let Some(msg) = processed.message {
                 this.state.set(State::Waiting);
                 self.set_cursor(msg.group_id.as_slice(), processed.next_message);
@@ -394,16 +384,43 @@ where
                 this.state.set(State::Waiting);
                 if let Some(cursor) = this.group_list.get_mut(processed.group_id.as_slice()) {
                     tracing::info!(
-                        "no message could be processed, stream setting cursor to [{}] for group: {}",
-                        processed.next_message,
-                        xmtp_common::fmt::truncate_hex(hex::encode(processed.group_id.as_slice()))
-                    );
+                    "no message could be processed, stream setting cursor to [{}] for group: {}",
+                    processed.next_message,
+                    xmtp_common::fmt::truncate_hex(hex::encode(processed.group_id.as_slice()))
+                );
                     cursor.set(processed.next_message)
                 }
                 return self.poll_next(cx);
             }
         }
+
+        if let Replaying { replay_until } = self.as_mut().project().state.project() {
+            let replay: u64 = *replay_until;
+            return self.as_mut().resolve_replaying(cx, replay);
+        }
+
         Poll::Pending
+    }
+
+    /// Replay the inner stream up until the point our cursor already exists
+    /// Only replays while the inner stream is ready with a message
+    fn resolve_replaying(
+        self: &mut Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        replay_until: u64,
+    ) -> Poll<Option<<Self as Stream>::Item>> {
+        let envelope = ready!(self.as_mut().next_message(cx));
+        if envelope.is_none() {
+            return Poll::Ready(None);
+        }
+        let envelope = envelope.expect("checked for none")?;
+        if envelope.id >= replay_until {
+            tracing::debug!("finished replaying messages until cursor {replay_until}");
+            let mut this = self.as_mut().project();
+            this.state.set(State::Waiting);
+            return self.as_mut().poll_next(cx);
+        }
+        return self.as_mut().resolve_replaying(cx, replay_until);
     }
 }
 
