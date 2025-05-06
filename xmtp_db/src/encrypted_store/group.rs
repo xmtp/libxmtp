@@ -204,19 +204,25 @@ impl DbConnection {
             query = query.filter(dsl::conversation_type.eq(conversation_type));
         }
 
-        let effective_consent_states = match consent_states {
+        let effective_consent_states = match &consent_states {
             Some(states) => states.clone(),
             None => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
-        let include_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let includes_all = effective_consent_states.len() == 3;
+
         let filtered_states: Vec<_> = effective_consent_states
             .iter()
             .filter(|state| **state != ConsentState::Unknown)
             .cloned()
             .collect();
 
-        let mut groups = if include_unknown {
+        let mut groups = if includes_all {
+            // No filtering at all
+            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
+        } else if includes_unknown {
+            // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
                 .left_join(consent_dsl::consent_records.on(
                     sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
@@ -232,6 +238,7 @@ impl DbConnection {
 
             self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
         } else {
+            // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
                 .inner_join(consent_dsl::consent_records.on(
                     sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
@@ -977,8 +984,20 @@ pub(crate) mod tests {
             );
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let all_results = conn
+                .find_groups(GroupQueryArgs {
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Unknown,
+                        ConsentState::Denied,
+                    ]),
+                    ..Default::default()
+                })
+                .unwrap();
             assert_eq!(all_results.len(), 4);
+
+            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
                 .find_groups(GroupQueryArgs {

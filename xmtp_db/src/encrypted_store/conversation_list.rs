@@ -113,26 +113,30 @@ impl DbConnection {
         if let Some(conversation_type) = conversation_type {
             query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
         }
-        let effective_consent_states = match consent_states {
+
+        let effective_consent_states = match &consent_states {
             Some(states) => states.clone(),
             None => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
-        let include_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let includes_all = effective_consent_states.len() == 3;
+
         let filtered_states: Vec<_> = effective_consent_states
             .iter()
             .filter(|state| **state != ConsentState::Unknown)
             .cloned()
             .collect();
 
-        let mut conversations = if include_unknown {
+        let mut conversations = if includes_all {
+            // No filtering at all
+            self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+        } else if includes_unknown {
+            // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
-                .left_join(
-                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                        "lower(hex(conversation_list.id))",
-                    )
-                    .eq(consent_dsl::entity)),
-                )
+                .left_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))").eq(consent_dsl::entity),
+                ))
                 .filter(
                     consent_dsl::state
                         .is_null()
@@ -143,13 +147,11 @@ impl DbConnection {
 
             self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
+            // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
-                .inner_join(
-                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                        "lower(hex(conversation_list.id))",
-                    )
-                    .eq(consent_dsl::entity)),
-                )
+                .inner_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))").eq(consent_dsl::entity),
+                ))
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
                 .select(conversation_list::all_columns());
 
