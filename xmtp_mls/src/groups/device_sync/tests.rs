@@ -30,7 +30,7 @@ async fn basic_sync() {
 async fn only_one_payload_sent() {
     use std::time::Duration;
 
-    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(alix1, sync_worker, sync_server);
     tester!(alix2, from: alix1);
     tester!(alix3, from: alix1);
 
@@ -49,15 +49,25 @@ async fn only_one_payload_sent() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker, sync_server, stream);
-    tester!(alix2, from: alix1);
+    tester!(alix1, sync_worker, sync_server);
     tester!(bo);
 
     alix1.test_talk_in_dm_with(&bo).await?;
 
-    alix1.test_has_same_sync_group_as(&alix2).await?;
+    tester!(alix2, from: alix1);
+
+    // Pull down the new sync group, triggering a payload to be sent
+    alix1.sync_welcomes(&alix1.provider).await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
+
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
+
     alix2.send_sync_request(&alix2.provider).await?;
+    alix1.get_sync_group(&alix1.provider).await?.sync().await?;
+    alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
+
+    alix2.get_sync_group(&alix2.provider).await?.sync().await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
 
     // Alix2 should be able to talk fine with bo

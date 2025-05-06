@@ -136,7 +136,9 @@ where
             stream_handle: None,
         };
 
-        tester.stream().await;
+        if self.stream {
+            tester.stream();
+        }
 
         tester
     }
@@ -150,7 +152,7 @@ where
         TesterBuilder::new().owner(owner).build().await
     }
 
-    async fn stream(&mut self) {
+    fn stream(&mut self) {
         let handle = FullXmtpClient::stream_all_messages_with_callback(
             self.client.clone(),
             None,

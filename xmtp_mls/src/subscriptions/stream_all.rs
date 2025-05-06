@@ -1,9 +1,8 @@
-use std::{
-    collections::HashSet,
-    pin::Pin,
-    task::{ready, Context, Poll},
+use super::{
+    stream_conversations::{StreamConversations, WelcomesApiSubscription},
+    stream_messages::StreamGroupMessages,
+    Result, SubscribeError,
 };
-
 use crate::subscriptions::{
     stream_messages::MessagesApiSubscription, LocalEvents, SyncWorkerEvent,
 };
@@ -11,8 +10,12 @@ use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     Client,
 };
-
 use futures::stream::Stream;
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
+use xmtp_common::types::GroupId;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs, StoredGroup},
@@ -20,13 +23,6 @@ use xmtp_db::{
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
-
-use super::{
-    stream_conversations::{StreamConversations, WelcomesApiSubscription},
-    stream_messages::StreamGroupMessages,
-    Result, SubscribeError,
-};
-use xmtp_common::types::GroupId;
 
 use pin_project_lite::pin_project;
 
@@ -36,7 +32,7 @@ pin_project! {
         #[pin] messages: Messages,
         client: &'a C,
         conversation_type: Option<ConversationType>,
-        sync_groups: HashSet<Vec<u8>>
+        sync_groups: Vec<Vec<u8>>
     }
 }
 
