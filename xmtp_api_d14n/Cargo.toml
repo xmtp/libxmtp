@@ -11,6 +11,7 @@ derive_builder.workspace = true
 futures.workspace = true
 hex.workspace = true
 impl-trait-for-tuples = "0.2"
+itertools.workspace = true
 once_cell.workspace = true
 openmls_rust_crypto = { workspace = true }
 parking_lot.workspace = true

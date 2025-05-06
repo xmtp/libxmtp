@@ -8,7 +8,8 @@
   "rust-analyzer.diagnostics.disabled": [
     "unlinked-file",
     "unresolved-macro-call",
-    "unresolved-proc-macro"
+    "unresolved-proc-macro",
+    "macro-error"
   ],
   "rust-analyzer.procMacro.attributes.enable": true,
   "rust-analyzer.procMacro.ignored": {

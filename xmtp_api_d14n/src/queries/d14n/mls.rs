@@ -1,16 +1,23 @@
 use super::D14nClient;
+use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
-use crate::protocol::KeyPackageExtractor;
+use crate::protocol::CollectionExtractor;
+use crate::protocol::GroupMessageExtractor;
+use crate::protocol::KeyPackagesExtractor;
+use crate::protocol::SequencedExtractor;
+use crate::protocol::TopicKind;
+use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::Envelope;
-use crate::protocol::traits::ProtocolEnvelope;
-use crate::protocol::{MessageExtractor, TopicKind};
+use crate::protocol::traits::EnvelopeCollection;
+use crate::protocol::traits::Extractor;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -24,12 +31,14 @@ where
 {
     type Error = ApiClientError<E>;
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn upload_key_package(
         &self,
         request: mls_v1::UploadKeyPackageRequest,
     ) -> Result<(), Self::Error> {
+        let envelopes = request.client_envelope()?;
         PublishClientEnvelopes::builder()
-            .envelopes(request.client_envelopes()?)
+            .envelope(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
@@ -37,6 +46,7 @@ where
         Ok::<_, Self::Error>(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn fetch_key_packages(
         &self,
         request: mls_v1::FetchKeyPackagesRequest,
@@ -47,19 +57,17 @@ where
             .map(|key| TopicKind::KeyPackagesV1.build(key))
             .collect();
 
-        let result: QueryEnvelopesResponse = QueryEnvelope::builder()
+        let result: GetNewestEnvelopeResponse = GetNewestEnvelopes::builder()
             .topics(topics)
             .build()?
             .query(&self.message_client)
             .await?;
-
-        let mut extractor = KeyPackageExtractor::new();
-        result.envelopes.accept(&mut extractor)?;
-        Ok(mls_v1::FetchKeyPackagesResponse {
-            key_packages: extractor.get(),
-        })
+        let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
+        let key_packages = extractor.get()?;
+        Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn send_group_messages(
         &self,
         request: mls_v1::SendGroupMessagesRequest,
@@ -75,6 +83,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn send_welcome_messages(
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
@@ -90,25 +99,30 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn query_group_messages(
         &self,
         request: mls_v1::QueryGroupMessagesRequest,
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
         let response: QueryEnvelopesResponse = QueryEnvelope::builder()
             .topic(TopicKind::GroupMessagesV1.build(request.group_id.as_slice()))
+            .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let mut extractor = MessageExtractor::default();
-        response.envelopes.accept(&mut extractor)?;
+        let messages = SequencedExtractor::builder()
+            .envelopes(response.envelopes)
+            .build::<GroupMessageExtractor>()
+            .get()?;
 
         Ok(mls_v1::QueryGroupMessagesResponse {
-            messages: extractor.group_messages,
+            messages,
             paging_info: None,
         })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn query_welcome_messages(
         &self,
         request: mls_v1::QueryWelcomeMessagesRequest,
@@ -117,14 +131,18 @@ where
 
         let response = QueryEnvelope::builder()
             .topic(topic)
+            .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;
-        let mut extractor = MessageExtractor::default();
-        response.envelopes.accept(&mut extractor)?;
+
+        let messages = SequencedExtractor::builder()
+            .envelopes(response.envelopes)
+            .build::<WelcomeMessageExtractor>()
+            .get()?;
 
         Ok(mls_v1::QueryWelcomeMessagesResponse {
-            messages: extractor.welcome_messages,
+            messages,
             paging_info: None,
         })
     }

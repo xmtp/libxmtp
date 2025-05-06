@@ -85,6 +85,7 @@ where
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_latest_association_state(
         &self,
         conn: &DbConnection,
@@ -122,6 +123,7 @@ where
 
         let unverified_updates = updates
             .into_iter()
+            // deserialize identity update payload
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
         let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
@@ -211,6 +213,7 @@ where
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
     /// If no nonce is provided, use 0
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn create_inbox(
         &self,
         identifier: Identifier,
@@ -248,6 +251,7 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn associate_identity(
         &self,
         new_identifier: Identifier,
@@ -265,6 +269,7 @@ where
             .identity()
             .installation_keys
             .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+
         signature_request
             .add_signature(
                 UnverifiedSignature::new_installation_key(signature, installation_public_key),
@@ -392,6 +397,7 @@ where
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
     /// between the two membership states.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -472,7 +478,7 @@ where
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
@@ -496,7 +502,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .get_identity_updates_v2(filters)
         .await?
         .collect::<HashMap<_, Vec<InboxUpdate>>>();
-
     let to_store = updates
         .iter()
         .flat_map(move |(inbox_id, updates)| {
@@ -700,7 +705,7 @@ pub(crate) mod tests {
         let wallet_ident = wallet.identifier();
         let wallet2_ident = wallet_2.identifier();
 
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
 
         let mut add_association_request = client
             .associate_identity(wallet2_ident.clone())
@@ -713,7 +718,6 @@ pub(crate) mod tests {
             .apply_signature_request(add_association_request)
             .await
             .unwrap();
-
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
         let members = association_state.members_by_parent(&wallet_ident.clone().into());

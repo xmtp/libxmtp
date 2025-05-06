@@ -61,11 +61,12 @@ pub mod tests {
 
         fn create_local() -> Self::Builder {
             D14nClientBuilder::new(
-                <C as XmtpTestClient>::create_local(),
-                <Payer as XmtpTestClient>::create_local(),
+                <C as XmtpTestClient>::create_local_d14n(),
+                <Payer as XmtpTestClient>::create_local_d14n(),
             )
         }
         fn create_dev() -> Self::Builder {
+            // TODO: Staging
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_dev(),
                 <Payer as XmtpTestClient>::create_dev(),

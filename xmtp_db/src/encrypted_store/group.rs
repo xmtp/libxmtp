@@ -68,6 +68,10 @@ pub struct StoredGroup {
     /// The version of the protocol that the group is paused for, None is not paused
     #[builder(default = None)]
     pub paused_for_version: Option<String>,
+    #[builder(default = false)]
+    pub maybe_forked: bool,
+    #[builder(default = "String::new()")]
+    pub fork_details: String,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -494,6 +498,56 @@ impl DbConnection {
                     .map(|id| id.expect("SQL explicity filters for none"))
                     .collect(),
             )
+        })
+    }
+
+    pub fn mark_group_as_maybe_forked(
+        &self,
+        group_id: &Vec<u8>,
+        fork_details: String,
+    ) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set((
+                    dsl::maybe_forked.eq(true),
+                    dsl::fork_details.eq(fork_details),
+                ))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn clear_fork_flag_for_group(&self, group_id: &Vec<u8>) -> Result<(), StorageError> {
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::groups.find(&group_id))
+                .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
+        self.raw_query_read(|conn| {
+            let dm_id: Option<String> = dsl::groups
+                .filter(dsl::id.eq(group_id))
+                .select(dsl::dm_id)
+                .first::<Option<String>>(conn)
+                .optional()?
+                .flatten();
+
+            if let Some(dm_id) = dm_id {
+                let count: i64 = dsl::groups
+                    .filter(dsl::conversation_type.eq(ConversationType::Dm))
+                    .filter(dsl::dm_id.eq(dm_id))
+                    .count()
+                    .get_result(conn)?;
+
+                Ok(count > 1)
+            } else {
+                Ok(false)
+            }
         })
     }
 }

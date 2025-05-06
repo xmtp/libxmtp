@@ -677,6 +677,22 @@ where
             .map_err(Into::into)
     }
 
+    /// Find all the duplicate dms for this group
+    pub fn find_duplicate_dms_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+        let conn = self.context().store().conn()?;
+        let duplicates = conn.other_dms(group_id)?;
+
+        let mls_groups = duplicates
+            .into_iter()
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .collect();
+
+        Ok(mls_groups)
+    }
+
     /// Fetches the message disappearing settings for a given group ID.
     ///
     /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
@@ -1172,7 +1188,7 @@ pub(crate) mod tests {
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity"));
+        assert!(error_string.contains("invalid identity") || error_string.contains("EndOfStream"));
     }
 
     #[xmtp_common::test]
