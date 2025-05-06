@@ -80,7 +80,15 @@ where
         match item {
             Some(bytes) => {
                 let bytes = bytes.map_err(HttpClientError::from)?;
-                let item = Self::on_bytes(bytes, this.remaining)?.pop();
+                tracing::debug!("JSON: {}", String::from_utf8_lossy(bytes.as_ref()));
+                tracing::debug!("remaining: {:?}", this.remaining.len());
+                let mut items = Self::on_bytes(bytes, this.remaining)?;
+                tracing::debug!(
+                    "TOTAL ITEMS: {}, remaining {}",
+                    items.len(),
+                    this.remaining.len()
+                );
+                let item = items.pop();
                 if let Some(item) = item {
                     Ready(Some(Ok(item)))
                 } else {
@@ -188,7 +196,6 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use ProjectHttpStream::*;
-        tracing::trace!("Polling http stream id={}", &self.id);
         let mut this = self.as_mut().project();
         match this.state.as_mut().project() {
             NotStarted { future } => {
@@ -196,11 +203,16 @@ where
                 this.state.set(HttpStreamState::Started {
                     stream: HttpPostStream::new(stream),
                 });
-                tracing::trace!("Stream {} ready, polling for the first time...", &self.id);
+                tracing::debug!("Stream {} ready, polling for the first time...", &self.id);
                 self.poll_next(cx)
             }
-            Started { stream } => {
-                let item = ready!(stream.poll_next(cx));
+            Started { mut stream } => {
+                let item = ready!(stream.as_mut().poll_next(cx));
+                let next = stream.poll_next(cx);
+                match next {
+                    Poll::Ready(_) => tracing::info!("ALSO READY"),
+                    _ => (),
+                }
                 tracing::trace!("stream id={} ready with item", &self.id);
                 Poll::Ready(item)
             }
@@ -307,6 +319,7 @@ where
     T: Serialize + 'static,
     R: DeserializeOwned + Send + 'static,
 {
+    tracing::debug!("JSON REQUEST: {:?}", serde_json::to_string_pretty(&request));
     let request = http_client.post(endpoint).json(&request).send();
     let mut http = HttpStream::new(request);
     http.establish().await;

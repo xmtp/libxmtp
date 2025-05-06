@@ -151,7 +151,6 @@ impl MessageIdentifier {
 #[derive(Default)]
 pub struct ProcessSummary {
     pub total_messages: Vec<u64>,
-    /// vector of ids
     pub new_messages: Vec<MessageIdentifier>,
     pub errored: Vec<(u64, GroupMessageProcessingError)>,
 }

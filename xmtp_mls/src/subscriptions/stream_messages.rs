@@ -364,7 +364,9 @@ where
     ) -> Result<()> {
         let mut current_msg = 0;
         while current_msg < replay_until {
-            if let Poll::Ready(Some(envelope)) = self.as_mut().next_message(cx) {
+            let r = self.as_mut().next_message(cx);
+            // match self.as_mut().next_mes
+            if let Poll::Ready(Some(envelope)) = r {
                 let envelope = envelope?;
                 current_msg = envelope.id;
             }
