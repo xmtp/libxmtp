@@ -68,11 +68,11 @@ pub mod debug_config {
 }
 
 pub fn sync_update_installations_interval_ns() -> i64 {
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, feature = "test-utils"))]
     {
         debug_config::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(test, feature = "test-utils")))]
     {
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
     }

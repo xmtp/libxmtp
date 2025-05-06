@@ -433,7 +433,10 @@ where
         let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
-        sync_group.sync_with_conn(provider).await?;
+        sync_group
+            .sync_with_conn(provider)
+            .await
+            .map_err(GroupError::from)?;
 
         // lookup if a request has already been made
         if let Ok((_msg, request)) = self.get_pending_sync_request(provider, request.kind).await {
@@ -494,7 +497,10 @@ where
         let sync_group = self.get_sync_group(provider.conn_ref())?;
 
         // sync the group
-        sync_group.sync_with_conn(provider).await?;
+        sync_group
+            .sync_with_conn(provider)
+            .await
+            .map_err(GroupError::from)?;
 
         let (msg, _request) = self
             .get_pending_sync_request(provider, contents.kind())
@@ -533,7 +539,7 @@ where
         kind: DeviceSyncKind,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
         let sync_group = self.get_sync_group(provider.conn_ref())?;
-        sync_group.sync_with_conn(provider).await?;
+        sync_group.sync_with_conn(provider).await.map_err(GroupError::from)?;
 
         let messages = provider.conn_ref().get_group_messages(
             &sync_group.group_id,
@@ -571,7 +577,7 @@ where
         kind: DeviceSyncKind,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider.conn_ref())?;
-        sync_group.sync_with_conn(provider).await?;
+        sync_group.sync_with_conn(provider).await.map_err(GroupError::from)?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),
@@ -623,7 +629,9 @@ where
         for xmtp_db::group::StoredGroup { id, .. } in groups.into_iter() {
             let group = self.group_with_conn(provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
-            Box::pin(group.sync_with_conn(provider)).await?;
+            Box::pin(group.sync_with_conn(provider))
+                .await
+                .map_err(GroupError::from)?;
         }
 
         Ok(())
