@@ -1,16 +1,21 @@
+use std::collections::HashMap;
+
 use super::D14nClient;
-use crate::protocol::traits::Envelope;
+use crate::protocol::IdentityUpdateExtractor;
+use crate::protocol::SequencedExtractor;
+use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
+use itertools::Itertools;
 use xmtp_common::RetryableError;
 use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
+use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
-use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::{
-    IdentityUpdateLog, Response,
-};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -26,6 +31,7 @@ where
 {
     type Error = ApiClientError<E>;
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn publish_identity_update(
         &self,
         request: identity_v1::PublishIdentityUpdateRequest,
@@ -35,9 +41,9 @@ where
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
         })?;
 
-        let envelopes = update.client_envelopes()?;
+        let envelopes = update.client_envelope()?;
         PublishClientEnvelopes::builder()
-            .envelopes(envelopes)
+            .envelope(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
@@ -45,41 +51,47 @@ where
         Ok(identity_v1::PublishIdentityUpdateResponse {})
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn get_identity_updates_v2(
         &self,
         request: identity_v1::GetIdentityUpdatesRequest,
     ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
-        let topics = request.requests.topic()?;
+        if request.requests.is_empty() {
+            return Ok(identity_v1::GetIdentityUpdatesResponse { responses: vec![] });
+        }
 
+        let topics = request.requests.topics()?;
+        //todo: replace with returned node_id
+        let node_id = 100;
+        let last_seen = Some(Cursor {
+            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
+                .into(),
+        });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: None, //todo: set later
+                last_seen,
             })
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let joined_data: Vec<_> = result
-            .envelopes
+        let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
+            .envelopes(result.envelopes)
+            .build::<IdentityUpdateExtractor>()
+            .get()?
             .into_iter()
-            .zip(request.requests.into_iter())
-            .collect();
-        let responses: Vec<Response> = joined_data
-            .into_iter()
-            .map(|(envelopes, inner_req)| {
-                let identity_update_log: IdentityUpdateLog = envelopes.try_into()?;
-                Ok(Response {
-                    inbox_id: inner_req.inbox_id.clone(),
-                    updates: vec![identity_update_log],
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .into_group_map();
 
+        let responses = updates
+            .into_iter()
+            .map(|(inbox_id, updates)| Response { updates, inbox_id })
+            .collect();
         Ok(identity_v1::GetIdentityUpdatesResponse { responses })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn get_inbox_ids(
         &self,
         request: identity_v1::GetInboxIdsRequest,
@@ -118,6 +130,7 @@ where
         })
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn verify_smart_contract_wallet_signatures(
         &self,
         _request: identity_v1::VerifySmartContractWalletSignaturesRequest,

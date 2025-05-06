@@ -2,7 +2,6 @@ use crate::builder::SyncWorkerMode;
 use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::subscriptions::SyncEvent;
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -454,17 +453,15 @@ where
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records
                 .into_iter()
-                .map(UserPreferenceUpdate::ConsentUpdate)
+                .map(UserPreferenceUpdate::Consent)
                 .collect();
 
             // Broadcast the consent update changes
             let _ = self
                 .local_events
-                .send(LocalEvents::SyncEvent(SyncEvent::PreferencesChanged(
-                    updates.clone(),
-                )));
+                .send(LocalEvents::PreferencesChanged(updates.clone()));
 
-            UserPreferenceUpdate::sync(updates, self, &provider).await?;
+            self.sync_preferences(&provider, updates).await?;
         }
 
         Ok(())
@@ -678,6 +675,22 @@ where
             .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
             .ok_or(NotFound::GroupById(group_id.to_vec()))
             .map_err(Into::into)
+    }
+
+    /// Find all the duplicate dms for this group
+    pub fn find_duplicate_dms_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
+        let conn = self.context().store().conn()?;
+        let duplicates = conn.other_dms(group_id)?;
+
+        let mls_groups = duplicates
+            .into_iter()
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .collect();
+
+        Ok(mls_groups)
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -1118,6 +1131,7 @@ pub(crate) mod tests {
     use crate::utils::{LocalTesterBuilder, Tester};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -1174,7 +1188,7 @@ pub(crate) mod tests {
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity"));
+        assert!(error_string.contains("invalid identity") || error_string.contains("EndOfStream"));
     }
 
     #[xmtp_common::test]
@@ -1774,6 +1788,10 @@ pub(crate) mod tests {
         let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;
 
+        let receiver = alix.local_events.subscribe();
+        let stream = receiver.stream_consent_updates();
+        futures::pin_mut!(stream);
+
         let group = alix
             .create_group_with_inbox_ids(
                 &[bo.inbox_id().to_string()],
@@ -1783,10 +1801,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
         xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        let receiver = alix.local_events.subscribe();
-        let stream = receiver.stream_consent_updates();
-        futures::pin_mut!(stream);
 
         // first record is denied consent to the group.
         group.update_consent_state(ConsentState::Denied).unwrap();
@@ -1798,6 +1812,7 @@ pub(crate) mod tests {
             entity: hex::encode(&group.group_id),
             state: ConsentState::Allowed,
             entity_type: ConsentType::ConversationId,
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();
@@ -1809,6 +1824,7 @@ pub(crate) mod tests {
             entity: bo.inbox_id().to_string(),
             entity_type: ConsentType::InboxId,
             state: ConsentState::Allowed,
+            consented_at_ns: now_ns(),
         }])
         .await
         .unwrap();

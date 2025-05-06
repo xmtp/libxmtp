@@ -1,15 +1,17 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
+use super::device_sync::preference_sync::UserPreferenceUpdate;
 use super::device_sync::DeviceSyncError;
-use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
-use crate::subscriptions::SyncEvent;
+use super::scoped_client::ScopedGroupClient;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm,
 };
+use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -17,21 +19,32 @@ use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
+use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
     plaintext_envelope::v2::MessageType, plaintext_envelope::V2,
-    DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncKind, PlaintextEnvelope,
+    DeviceSyncKeyType as DeviceSyncKeyTypeProto, PlaintextEnvelope,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+    UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
+
+pub(crate) mod preference_sync_legacy;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum AcknowledgeKind {
+    SyncGroupPresence,
+    Request { request_id: String },
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
@@ -49,7 +62,7 @@ where
     pub(super) async fn v1_send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        kind: BackupElementSelection,
     ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
         tracing::info!(
             inbox_id = self.inbox_id(),
@@ -103,14 +116,16 @@ where
         let conn = provider.conn_ref();
 
         let records = match request.kind() {
-            DeviceSyncKind::Consent => vec![self.v1_syncable_consent_records(conn)?],
-            DeviceSyncKind::MessageHistory => {
+            BackupElementSelection::Consent => vec![self.v1_syncable_consent_records(conn)?],
+            BackupElementSelection::Messages => {
                 vec![
                     self.v1_syncable_groups(conn)?,
                     self.v1_syncable_messages(conn)?,
                 ]
             }
-            DeviceSyncKind::Unspecified => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
+            BackupElementSelection::Unspecified => {
+                return Err(DeviceSyncError::UnspecifiedDeviceSyncKind)
+            }
         };
 
         let reply = self
@@ -167,7 +182,7 @@ where
     async fn v1_get_pending_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        kind: BackupElementSelection,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
         let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
@@ -205,7 +220,7 @@ where
     async fn v1_get_latest_sync_reply(
         &self,
         provider: &XmtpOpenMlsProvider,
-        kind: DeviceSyncKind,
+        kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
@@ -278,7 +293,7 @@ where
         &self,
         request_id: &str,
         syncables: &[Vec<Syncable>],
-        kind: DeviceSyncKind,
+        kind: BackupElementSelection,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
@@ -445,11 +460,11 @@ pub(crate) async fn download_history_payload(url: &str) -> Result<Vec<u8>, Devic
 pub(super) struct DeviceSyncRequest {
     pub pin_code: String,
     pub request_id: String,
-    pub kind: DeviceSyncKind,
+    pub kind: BackupElementSelection,
 }
 
 impl DeviceSyncRequest {
-    pub(crate) fn new(kind: DeviceSyncKind) -> Self {
+    pub(crate) fn new(kind: BackupElementSelection) -> Self {
         Self {
             pin_code: new_pin(),
             request_id: new_request_id(),
@@ -481,7 +496,7 @@ pub(crate) struct DeviceSyncReply {
     /// UNIX timestamp of when the reply was sent in ns
     timestamp_ns: u64,
     // sync kind
-    kind: DeviceSyncKind,
+    kind: BackupElementSelection,
 }
 
 impl From<DeviceSyncReply> for DeviceSyncReplyProto {
@@ -595,7 +610,8 @@ fn encrypt_syncables_with_key(
 
 #[cfg(test)]
 mod tests {
-    use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
+
+    use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 
     use crate::{
         groups::device_sync::handle::SyncMetric,
@@ -618,7 +634,7 @@ mod tests {
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
-            .v1_send_sync_request(&alix2.provider, DeviceSyncKind::MessageHistory)
+            .v1_send_sync_request(&alix2.provider, BackupElementSelection::Messages)
             .await?;
         alix1.sync_device_sync(&alix1.provider).await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
@@ -630,7 +646,7 @@ mod tests {
             .await?;
 
         alix2
-            .v1_send_sync_request(&alix2.provider, DeviceSyncKind::Consent)
+            .v1_send_sync_request(&alix2.provider, BackupElementSelection::Consent)
             .await?;
         alix1.sync_device_sync(&alix1.provider).await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;

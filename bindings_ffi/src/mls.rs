@@ -9,6 +9,7 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -38,7 +39,7 @@ use xmtp_id::{
 };
 use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
-use xmtp_mls::groups::DMMetadataOptions;
+use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -68,7 +69,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
-use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[cfg(test)]
 mod test_utils;
@@ -1466,34 +1467,50 @@ impl FfiConversations {
     pub async fn stream_all_group_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, Some(FfiConversationType::Group))
-            .await
+        self.stream_messages(
+            message_callback,
+            Some(FfiConversationType::Group),
+            consent_states,
+        )
+        .await
     }
 
     pub async fn stream_all_dm_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, Some(FfiConversationType::Dm))
-            .await
+        self.stream_messages(
+            message_callback,
+            Some(FfiConversationType::Dm),
+            consent_states,
+        )
+        .await
     }
 
     pub async fn stream_all_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
-        self.stream_messages(message_callback, None).await
+        self.stream_messages(message_callback, None, consent_states)
+            .await
     }
 
     async fn stream_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
         conversation_type: Option<FfiConversationType>,
+        consent_states: Option<Vec<FfiConsentState>>,
     ) -> FfiStreamCloser {
+        let consents: Option<Vec<ConsentState>> =
+            consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             conversation_type.map(Into::into),
+            consents,
             move |msg| match msg {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
@@ -1583,10 +1600,12 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
     fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::HmacKeyUpdate { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
+            }
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
-            UserPreferenceUpdate::ConsentUpdate(_) => Err(GenericError::Generic {
+            UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
                 err: "Consent updates should be filtered out.".to_string(),
             }),
         }
@@ -1669,6 +1688,29 @@ impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
     }
 }
 
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct FfiConversationDebugInfo {
+    pub epoch: u64,
+    pub maybe_forked: bool,
+    pub fork_details: String,
+}
+
+impl FfiConversationDebugInfo {
+    fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+        Self {
+            epoch,
+            maybe_forked,
+            fork_details,
+        }
+    }
+}
+
+impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
+    fn from(value: ConversationDebugInfo) -> Self {
+        FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
+    }
+}
+
 impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
     fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
         FfiConversation { inner: mls_group }
@@ -1727,21 +1769,6 @@ impl From<FfiConsentState> for ConsentState {
             FfiConsentState::Unknown => ConsentState::Unknown,
             FfiConsentState::Allowed => ConsentState::Allowed,
             FfiConsentState::Denied => ConsentState::Denied,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum FfiDeviceSyncKind {
-    Messages,
-    Consent,
-}
-
-impl From<FfiDeviceSyncKind> for DeviceSyncKind {
-    fn from(value: FfiDeviceSyncKind) -> Self {
-        match value {
-            FfiDeviceSyncKind::Consent => DeviceSyncKind::Consent,
-            FfiDeviceSyncKind::Messages => DeviceSyncKind::MessageHistory,
         }
     }
 }
@@ -2280,6 +2307,23 @@ impl FfiConversation {
         let conversation_type = self.inner.conversation_type(&provider).await?;
         Ok(conversation_type.into())
     }
+
+    pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
+        let debug_info = self.inner.debug_info().await?;
+        Ok(debug_info.into())
+    }
+
+    pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+        let dms = self
+            .inner
+            .client
+            .find_duplicate_dms_for_group(&self.inner.group_id)?;
+
+        let ffi_conversations: Vec<Arc<FfiConversation>> =
+            dms.into_iter().map(|dm| Arc::new(dm.into())).collect();
+
+        Ok(ffi_conversations)
+    }
 }
 
 #[uniffi::export]
@@ -2623,6 +2667,7 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
+            consented_at_ns: now_ns(),
         }
     }
 }
@@ -2722,7 +2767,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
-    HMAC { key: Vec<u8> },
+    HMAC { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
 #[derive(uniffi::Object)]
@@ -3906,7 +3951,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -3974,6 +4019,34 @@ mod tests {
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_debug_info_returns_correct_values() {
+        // Step 1: Setup test client Alix and bo
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        // Step 2: Create a group and add messages
+        let alix_conversations = alix.conversations();
+
+        // Create a group
+        let group = alix_conversations
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let debug_info = group.inner.debug_info().await.unwrap();
+        // Ensure the group is included
+        assert_eq!(debug_info.epoch, 1, "Group epoch should be 1");
+        assert!(!debug_info.maybe_forked, "Group is not marked as forked");
+        assert!(
+            debug_info.fork_details.is_empty(),
+            "Group has no fork details"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -4696,7 +4769,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::from_client(&alix));
         let stream_messages = alix
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -4746,7 +4819,7 @@ mod tests {
         let bo2_message_callbacks = Arc::new(RustStreamCallback::from_client(&bo2));
         let bo2_stream_messages = bo2
             .conversations()
-            .stream_all_messages(bo2_message_callbacks.clone())
+            .stream_all_messages(bo2_message_callbacks.clone(), None)
             .await;
         bo2_stream_messages.wait_for_ready().await;
 
@@ -5014,7 +5087,7 @@ mod tests {
         let message_callbacks = Arc::new(RustStreamCallback::default());
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callbacks.clone())
+            .stream_all_messages(message_callbacks.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -5148,7 +5221,7 @@ mod tests {
 
         let stream = caro
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -5243,7 +5316,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream_closer = bola
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream_closer.wait_for_ready().await;
 
@@ -5338,7 +5411,7 @@ mod tests {
 
         let stream_messages = bo
             .conversations()
-            .stream_all_messages(message_callback.clone())
+            .stream_all_messages(message_callback.clone(), None)
             .await;
         stream_messages.wait_for_ready().await;
 
@@ -6327,7 +6400,10 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(
+                stream_callback.clone(),
+                Some(vec![FfiConsentState::Allowed, FfiConsentState::Unknown]),
+            )
             .await;
         stream.wait_for_ready().await;
 
@@ -6346,7 +6422,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_group_messages(stream_callback.clone())
+            .stream_all_group_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -6366,7 +6442,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_dm_messages(stream_callback.clone())
+            .stream_all_dm_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -6419,7 +6495,7 @@ mod tests {
         assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_consent() {
         let alix_a = Tester::builder().sync_worker().sync_server().build().await;
 
@@ -6439,8 +6515,6 @@ mod tests {
             .await
             .unwrap();
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
 
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
@@ -6566,7 +6640,7 @@ mod tests {
         b_stream.end_and_wait().await.unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
@@ -7464,7 +7538,7 @@ mod tests {
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
-            .stream_all_messages(stream_callback.clone())
+            .stream_all_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
 
@@ -7947,5 +8021,43 @@ mod tests {
             alix_group2.consent_state().unwrap(),
             FfiConsentState::Denied
         );
+    }
+
+    #[tokio::test]
+    async fn test_can_find_duplicate_dms_for_group() {
+        let wallet_a = generate_local_wallet();
+        let wallet_b = generate_local_wallet();
+
+        let client_a = new_test_client_with_wallet(wallet_a).await;
+        let client_b = new_test_client_with_wallet(wallet_b).await;
+
+        // Create two DMs (same logical participants, will generate duplicate dm_id)
+        let dm1 = client_a
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        let _dm2 = client_b
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_a.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        client_a
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        client_b
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let group_a = client_a.conversation(dm1.id()).unwrap();
+        let duplicates = group_a.find_duplicate_dms().await.unwrap();
+
+        assert_eq!(duplicates.len(), 1);
     }
 }

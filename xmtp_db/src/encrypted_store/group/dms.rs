@@ -37,7 +37,7 @@ impl DbConnection {
     {
         let query = dsl::groups
             .filter(dsl::dm_id.eq(Some(members.to_string())))
-            .order(dsl::last_message_ns.desc());
+            .order_by(dsl::last_message_ns.desc());
 
         self.raw_query_read(|conn| Ok(query.first(conn).optional()?))
     }

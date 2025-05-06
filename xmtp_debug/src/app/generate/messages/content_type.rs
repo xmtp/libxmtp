@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use prost::Message;
-use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 /// Create a new message according to the xmtp content type
 pub fn new_message(msg: String) -> Vec<u8> {

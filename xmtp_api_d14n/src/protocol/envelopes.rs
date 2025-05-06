@@ -1,6 +1,7 @@
 //! Implementions of traits
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 use xmtp_proto::{
     ConversionError,
     xmtp::identity::{api::v1::get_identity_updates_request, associations::IdentityUpdate},
@@ -81,13 +82,7 @@ impl<'env> ProtocolEnvelope<'env> for ClientEnvelope {
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_client(self)?;
-        match self.get_nested()? {
-            Some(Payload::GroupMessage(msg)) => msg.accept(visitor)?,
-            Some(Payload::WelcomeMessage(msg)) => msg.accept(visitor)?,
-            Some(Payload::UploadKeyPackage(kp)) => kp.accept(visitor)?,
-            Some(Payload::IdentityUpdate(update)) => update.accept(visitor)?,
-            None => ().accept(visitor)?,
-        };
+        self.get_nested()?.accept(visitor)?;
         Ok(())
     }
 
@@ -95,6 +90,27 @@ impl<'env> ProtocolEnvelope<'env> for ClientEnvelope {
         // TODO: if Payload being missing needs to be handled, we
         // should return an error here and modify the type of Nested.
         Ok(self.payload.as_ref())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for Payload {
+    type Nested<'a> = ();
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        match self {
+            Payload::GroupMessage(msg) => msg.accept(visitor)?,
+            Payload::WelcomeMessage(msg) => msg.accept(visitor)?,
+            Payload::UploadKeyPackage(msg) => msg.accept(visitor)?,
+            Payload::IdentityUpdate(msg) => msg.accept(visitor)?,
+        };
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
     }
 }
 
@@ -146,9 +162,7 @@ impl<'env> ProtocolEnvelope<'env> for WelcomeMessageInput {
         EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
     {
         visitor.visit_welcome_message_input(self)?;
-        if let Some(versioned) = self.get_nested()? {
-            versioned.accept(visitor)?;
-        }
+        self.get_nested()?.accept(visitor)?;
         Ok(())
     }
 
@@ -222,6 +236,47 @@ impl<'env> ProtocolEnvelope<'env> for get_identity_updates_request::Request {
         visitor.visit_identity_updates_request(self)?;
         self.get_nested()?.accept(visitor)?;
         Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(())
+    }
+}
+
+impl<'env> ProtocolEnvelope<'env> for get_newest_envelope_response::Response {
+    type Nested<'a> = Option<&'a OriginatorEnvelope>;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        visitor.visit_newest_envelope_response(self)?;
+        self.get_nested()?.accept(visitor)?;
+        Ok(())
+    }
+
+    fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {
+        Ok(self.originator_envelope.as_ref())
+    }
+}
+
+impl<'env, T> ProtocolEnvelope<'env> for Option<&T>
+where
+    T: ProtocolEnvelope<'env>,
+{
+    type Nested<'a>
+        = ()
+    where
+        Self: 'a;
+
+    fn accept<V: EnvelopeVisitor<'env>>(&self, visitor: &mut V) -> Result<(), EnvelopeError>
+    where
+        EnvelopeError: From<<V as EnvelopeVisitor<'env>>::Error>,
+    {
+        match self {
+            Some(o) => o.accept(visitor),
+            None => Ok(visitor.visit_none()?),
+        }
     }
 
     fn get_nested(&self) -> Result<Self::Nested<'_>, ConversionError> {

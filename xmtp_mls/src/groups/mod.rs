@@ -1,5 +1,5 @@
 pub mod device_sync;
-mod device_sync_legacy;
+pub mod device_sync_legacy;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -40,7 +40,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::subscriptions::SyncEvent;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -88,7 +88,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
-use xmtp_db::user_preferences::{HmacKey, SyncCursor};
+use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -325,6 +325,13 @@ impl<C> Clone for MlsGroup<C> {
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationDebugInfo {
+    pub epoch: u64,
+    pub maybe_forked: bool,
+    pub fork_details: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -811,8 +818,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
-                    SyncCursor::reset(mls_group.group_id().as_slice(), provider.conn_ref())?;
-                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+                    let group_id = mls_group.group_id().to_vec();
+                    let _ = client.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -836,8 +843,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
-        tracing::info!("Creating sync group.");
-
         let context = client.context();
 
         let protected_metadata =
@@ -866,10 +871,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id, now_ns(), GroupMembershipState::Allowed);
+        let stored_group = StoredGroup::create_sync_group(
+            provider.conn_ref(),
+            group_id,
+            now_ns(),
+            GroupMembershipState::Allowed,
+        )?;
 
-        stored_group.store(provider.conn_ref())?;
         let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
 
         Ok(group)
@@ -1045,15 +1053,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
-        Ok(messages)
-    }
-
-    pub(crate) fn get_sync_group_messages(
-        &self,
-        sent_after_ns: i64,
-    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().store().conn()?;
-        let messages = conn.get_sync_group_messages(&self.group_id, sent_after_ns)?;
         Ok(messages)
     }
 
@@ -1616,14 +1615,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()
-            .map(UserPreferenceUpdate::ConsentUpdate)
+            .map(UserPreferenceUpdate::Consent)
             .collect();
 
         if !new_records.is_empty() {
             // Dispatch an update event so it can be synced across devices
-            let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                SyncEvent::PreferencesOutgoing(new_records),
-            ));
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::SyncWorkerEvent(
+                    SyncWorkerEvent::SyncPreferences(new_records.clone()),
+                ));
+            // Broadcast the changes
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::PreferencesChanged(new_records));
         }
 
         Ok(())
@@ -1635,6 +1642,27 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             futures::future::ready(Ok(mls_group.epoch().as_u64()))
         })
         .await
+    }
+
+    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+        let provider = self.client.mls_provider()?;
+        let epoch =
+            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+
+        let stored_group = match provider.conn_ref().find_group(&self.group_id)? {
+            Some(group) => group,
+            None => {
+                return Err(GroupError::NotFound(NotFound::GroupById(
+                    self.group_id.clone(),
+                )))
+            }
+        };
+
+        Ok(ConversationDebugInfo {
+            epoch,
+            maybe_forked: stored_group.maybe_forked,
+            fork_details: stored_group.fork_details,
+        })
     }
 
     /// Update this installation's leaf key in the group by creating a key update commit
@@ -3298,8 +3326,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn test_key_update() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let bola_client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
 
         let group = client
             .create_group(None, GroupMetadataOptions::default())
@@ -5904,6 +5932,48 @@ pub(crate) mod tests {
             .update_group_name("Bola's Group Forever".to_string())
             .await;
         assert!(result.is_err());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
+        use crate::utils::set_test_mode_future_wrong_epoch;
+
+        let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let group_a = client_a
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group_a
+            .add_members_by_inbox_id(&[client_b.inbox_id()])
+            .await
+            .unwrap();
+
+        client_b
+            .sync_welcomes(&client_b.mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        let binding = client_b.find_groups(GroupQueryArgs::default()).unwrap();
+        let group_b = binding.first().unwrap();
+
+        group_a.send_message(&[1]).await.unwrap();
+        set_test_mode_future_wrong_epoch(true);
+        group_b.sync().await.unwrap();
+        set_test_mode_future_wrong_epoch(false);
+        let group_debug_info = group_b.debug_info().await.unwrap();
+        assert!(group_debug_info.maybe_forked);
+        assert!(!group_debug_info.fork_details.is_empty());
+        client_b
+            .mls_provider()
+            .unwrap()
+            .conn_ref()
+            .clear_fork_flag_for_group(&group_b.group_id)
+            .unwrap();
+        let group_debug_info = group_b.debug_info().await.unwrap();
+        assert!(!group_debug_info.maybe_forked);
+        assert!(group_debug_info.fork_details.is_empty());
     }
 
     #[xmtp_common::test(flavor = "multi_thread")]

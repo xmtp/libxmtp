@@ -8,17 +8,19 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
+use crate::groups::{
+    device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
+    group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
-use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncEvent};
+use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncWorkerEvent};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
-        intents::UpdateMetadataIntentData,
+        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -41,9 +43,11 @@ use xmtp_db::{
 };
 use xmtp_db::{group::ConversationType, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -139,6 +143,10 @@ pub enum GroupMessageProcessingError {
     Client(#[from] ClientError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
+    #[error("Message epoch is too old")]
+    OldEpoch(u64, u64),
+    #[error("Message epoch is greater than group epoch")]
+    FutureEpoch(u64, u64),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -166,7 +174,9 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::AssociationDeserialization(_)
             | Self::TlsError(_)
             | Self::UnsupportedMessageType(_)
-            | Self::GroupPaused => false,
+            | Self::GroupPaused
+            | Self::FutureEpoch(_, _)
+            | Self::OldEpoch(_, _) => false,
         }
     }
 }
@@ -369,13 +379,16 @@ where
         Err(last_err.unwrap_or(GroupError::SyncFailedToWait))
     }
 
-    fn is_valid_epoch(
+    fn validate_message_epoch(
         inbox_id: InboxIdRef<'_>,
         intent_id: i32,
         group_epoch: GroupEpoch,
         message_epoch: GroupEpoch,
         max_past_epochs: usize,
-    ) -> bool {
+    ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        utils::maybe_mock_future_epoch_for_tests()?;
+
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
                 inbox_id,
@@ -389,7 +402,10 @@ where
                 group_epoch.as_u64(),
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::OldEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         } else if message_epoch.as_u64() > group_epoch.as_u64() {
             // Should not happen, logging proactively
             tracing::error!(
@@ -403,9 +419,12 @@ where
                 group_epoch,
                 intent_id
             );
-            return false;
+            return Err(GroupMessageProcessingError::FutureEpoch(
+                message_epoch.as_u64(),
+                group_epoch.as_u64(),
+            ));
         }
-        true
+        Ok(())
     }
 
     // This function is intended to isolate the async validation code to
@@ -496,15 +515,14 @@ where
             }
 
             IntentKind::SendMessage => {
-                if !Self::is_valid_epoch(
+                Self::validate_message_epoch(
                     self.context().inbox_id(),
                     intent.id,
                     group_epoch,
                     message_epoch,
                     MAX_PAST_EPOCHS,
-                ) {
-                    return Err(Ok(IntentState::ToPublish));
-                }
+                )
+                .map_err(|_| Ok(IntentState::ToPublish))?;
             }
         }
 
@@ -579,6 +597,12 @@ where
         envelope: &GroupMessageV1,
         allow_cursor_increment: bool,
     ) -> Result<(), GroupMessageProcessingError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        {
+            use crate::utils::maybe_mock_wrong_epoch_for_tests;
+            maybe_mock_wrong_epoch_for_tests()?;
+        }
+
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -590,6 +614,7 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
+
         let result = provider.transaction(|provider| {
             processed_message = Some(mls_group.process_message(provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
@@ -776,10 +801,12 @@ where
                                 ..
                             }) = provider.conn_ref().find_group(&self.group_id)?
                             {
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::NewSyncGroupMsg,
+                                        ));
                             }
                         }
                     }
@@ -816,13 +843,16 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::Request { message_id },
-                                ));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Request { message_id },
+                                        ));
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content = DeviceSyncContent::Payload(history_reply);
+                                let content = DeviceSyncContent::Reply(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -849,25 +879,27 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Reply { message_id },
+                                        ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
                                 // and returns a copy of what was inserted
-                                let updates =
-                                    UserPreferenceUpdate::process_incoming_preference_update(
-                                        update,
-                                        &self.client,
-                                        provider,
-                                    )?;
+                                let updates = process_incoming_preference_update(
+                                    update,
+                                    &self.client,
+                                    provider,
+                                )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::PreferencesChanged(updates),
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::PreferencesChanged(updates));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -1026,25 +1058,13 @@ where
                                 .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
                             }
                         };
+
                         match intent_state {
                             IntentState::ToPublish => {
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(provider, &intent)?;
-
-                                // If it's a sync group message, probe the worker to process.
-                                if let Some(StoredGroup {
-                                    conversation_type: ConversationType::Sync,
-                                    ..
-                                }) = provider.conn_ref().find_group(&self.group_id)?
-                                {
-                                    let _ = self
-                                        .client
-                                        .local_events()
-                                        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
-                                }
-
                                 Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
                             IntentState::Published => {
@@ -1219,6 +1239,8 @@ where
                         msgv1.id,
                         e
                     );
+                    self.process_group_message_error_for_fork_detection(provider, msgv1, &e)
+                        .await?;
                     Err(e)
                 }
             }
@@ -1350,6 +1372,74 @@ where
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
+    }
+
+    async fn process_group_message_error_for_fork_detection(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+        message: &GroupMessageV1,
+        error: &GroupMessageProcessingError,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let group_id = message.group_id.clone();
+        if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
+            ValidationError::WrongEpoch,
+        )) = error
+        {
+            let group_epoch = match self.epoch(provider).await {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    tracing::info!(
+                        "WrongEpoch encountered but group_epoch could not be calculated, error:{}",
+                        error
+                    );
+                    return Ok(());
+                }
+            };
+
+            let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
+                Ok(msg) => msg,
+                Err(error) => {
+                    tracing::info!(
+                        "WrongEpoch encountered but failed to deserialize the message, error:{}",
+                        error
+                    );
+                    return Ok(());
+                }
+            };
+
+            let protocol_message = match mls_message_in.extract() {
+                MlsMessageBodyIn::PrivateMessage(msg) => msg,
+                _ => {
+                    tracing::info!("WrongEpoch encountered but failed to extract PrivateMessage");
+                    return Ok(());
+                }
+            };
+
+            let message_epoch = protocol_message.epoch();
+            let epoch_validation_result = Self::validate_message_epoch(
+                self.context().inbox_id(),
+                0,
+                GroupEpoch::from(group_epoch),
+                message_epoch,
+                MAX_PAST_EPOCHS,
+            );
+
+            if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
+                let fork_details = format!(
+                    "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
+                    message.id, message_epoch, group_epoch
+                );
+                tracing::error!(fork_details);
+                let _ = provider
+                    .conn_ref()
+                    .mark_group_as_maybe_forked(&group_id, fork_details);
+                return epoch_validation_result;
+            }
+
+            return Ok(());
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
@@ -1848,7 +1938,7 @@ where
             Some(ikm) => ikm,
             None => {
                 let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key)?;
+                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
                 key
             }
         };

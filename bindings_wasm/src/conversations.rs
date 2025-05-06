@@ -16,7 +16,10 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
+use xmtp_mls::groups::{
+  ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
+  PreconfiguredPolicies,
+};
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -161,6 +164,27 @@ impl MessageDisappearingSettings {
   #[wasm_bindgen(constructor)]
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
     Self { from_ns, in_ns }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
+pub struct ConversationDebugInfo {
+  #[wasm_bindgen(js_name = epoch)]
+  pub epoch: u64,
+  #[wasm_bindgen(js_name = maybeForked)]
+  pub maybe_forked: bool,
+  #[wasm_bindgen(js_name = forkDetails)]
+  pub fork_details: String,
+}
+
+impl ConversationDebugInfo {
+  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
+    Self {
+      epoch: xmtp_debug_info.epoch,
+      maybe_forked: xmtp_debug_info.maybe_forked,
+      fork_details: xmtp_debug_info.fork_details,
+    }
   }
 }
 
@@ -679,10 +703,15 @@ impl Conversations {
     &self,
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser, JsError> {
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
+      consents,
       move |message| match message {
         Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),

@@ -53,6 +53,7 @@ grpc-api = []
 proto_full = [
   "xmtp-device_sync",
   "xmtp-device_sync-consent_backup",
+  "xmtp-device_sync-content",
   "xmtp-device_sync-group_backup",
   "xmtp-device_sync-message_backup",
   "xmtp-identity",
@@ -77,13 +78,18 @@ proto_full = [
   "xmtp-device_sync-message_backup",
 ]
 "xmtp-device_sync-consent_backup" = ["xmtp-device_sync"]
+"xmtp-device_sync-content" = [
+  "xmtp-device_sync",
+  "xmtp-device_sync-consent_backup",
+  "xmtp-mls-message_contents",
+]
 "xmtp-device_sync-group_backup" = ["xmtp-device_sync"]
 "xmtp-device_sync-message_backup" = ["xmtp-device_sync"]
 "xmtp-identity" = []
 "xmtp-identity-api-v1" = ["xmtp-identity", "xmtp-identity-associations"]
 "xmtp-identity-associations" = ["xmtp-identity", "xmtp-message_contents"]
-"xmtp-keystore_api-v1" = ["xmtp-message_contents"]
-"xmtp-message_api-v1" = ["xmtp-message_contents"]
+"xmtp-keystore_api-v1" = []
+"xmtp-message_api-v1" = []
 "xmtp-message_contents" = []
 "xmtp-mls-api-v1" = ["xmtp-message_contents"]
 "xmtp-mls-database" = []

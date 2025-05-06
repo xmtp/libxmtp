@@ -48,7 +48,7 @@ use xmtp_db::{
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::configuration::DeviceSyncUrls;
-use xmtp_mls::groups::device_sync::DeviceSyncContent;
+use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::groups::GroupMetadataOptions;
@@ -497,7 +497,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     Ok(DeviceSyncContent::Request(ref request)) => {
                         info!("Request: {:?}", request);
                     }
-                    Ok(DeviceSyncContent::Payload(ref reply)) => {
+                    Ok(DeviceSyncContent::Reply(ref reply)) => {
                         info!("Reply: {:?}", reply);
                     }
                     _ => {

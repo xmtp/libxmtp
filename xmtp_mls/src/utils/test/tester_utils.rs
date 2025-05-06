@@ -150,8 +150,12 @@ where
     }
 
     async fn stream(&mut self) {
-        let handle =
-            FullXmtpClient::stream_all_messages_with_callback(self.client.clone(), None, |_| {});
+        let handle = FullXmtpClient::stream_all_messages_with_callback(
+            self.client.clone(),
+            None,
+            None,
+            |_| {},
+        );
         let handle = Box::new(handle) as Box<_>;
         self.stream_handle = Some(handle);
     }
