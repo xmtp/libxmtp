@@ -18,7 +18,7 @@ use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
   ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
-  HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+  PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
