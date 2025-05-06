@@ -142,7 +142,7 @@ pin_project! {
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<Option<(MlsGroup<C>, Option<i64>)>>>
+            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<C>>>
         }
     }
 }
@@ -252,6 +252,18 @@ where
     }
 }
 
+pub enum ProcessWelcomeResult<C> {
+    /// New Group and welcome id
+    New { group: MlsGroup<C>, id: i64 },
+    /// A group we already have/we created that might not have a welcome id
+    NewStored {
+        group: MlsGroup<C>,
+        maybe_id: Option<i64>,
+    },
+    /// Skip this welcome but add and id to known welcome ids
+    IgnoreId { id: i64 },
+}
+
 impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
 where
     C: ScopedGroupClient + Clone + 'a,
@@ -261,31 +273,45 @@ where
     #[allow(clippy::type_complexity)]
     fn try_process(
         mut self: Pin<&mut Self>,
-        poll: Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>,
+        poll: Poll<Result<ProcessWelcomeResult<C>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use Poll::*;
         let mut this = self.as_mut().project();
         match poll {
-            Ready(Ok(Some((group, welcome_id)))) => {
+            Ready(Ok(ProcessWelcomeResult::New {
+                group,
+                id: welcome_id,
+            })) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                if let Some(id) = welcome_id {
-                    this.known_welcome_ids.insert(id);
-                }
+                this.known_welcome_ids.insert(welcome_id);
                 this.state.set(ProcessState::Waiting);
                 Ready(Some(Ok(group)))
             }
-            // we are ignoring this payload
-            Ready(Ok(None)) => {
-                tracing::debug!("ignoring this payload");
+            // we are ignoring this payload with id
+            Ready(Ok(ProcessWelcomeResult::IgnoreId { id })) => {
+                tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
+                this.known_welcome_ids.insert(id);
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
                 self.poll_next(cx)
+            }
+            Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
+                tracing::debug!(
+                    group_id = hex::encode(&group.group_id),
+                    "finished processing with group {}",
+                    hex::encode(&group.group_id)
+                );
+                if let Some(id) = maybe_id {
+                    this.known_welcome_ids.insert(id);
+                }
+                this.state.set(ProcessState::Waiting);
+                Ready(Some(Ok(group)))
             }
             Ready(Err(e)) => {
                 this.state.as_mut().set(ProcessState::Waiting);
@@ -346,12 +372,13 @@ where
 {
     /// Process the welcome. if its a group, create the group and return it.
     #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
+    pub async fn process(self) -> Result<ProcessWelcomeResult<C>> {
         use WelcomeOrGroup::*;
-        let (group, welcome_id) = match self.item {
+        let process_result = match self.item {
             Welcome(ref w) => {
                 let welcome = extract_welcome_message(w)?;
                 let id = welcome.id as i64;
+                tracing::debug!("got welcome with id {}", id);
                 // try to load it from store first and avoid overhead
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
@@ -360,52 +387,51 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    let (group, id) = self.load_from_store(id).map(|(g, v)| (g, Some(v)))?;
-                    let metadata = group.metadata(&self.provider).await?;
-
-                    // If it's a duplicate DM, don't stream
-                    if metadata.conversation_type == ConversationType::Dm
-                        && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
-                    {
-                        tracing::debug!(
-                            "Duplicate DM group detected from welcome. Skipping stream."
-                        );
-                        return Ok(None);
-                    }
-
-                    return Ok(self
-                        .conversation_type
-                        .is_none_or(|ct| ct == metadata.conversation_type)
-                        .then_some((group, id)));
+                    let (group, id) = self.load_from_store(id)?;
+                    return self.filter(ProcessWelcomeResult::New { group, id }).await;
                 }
-
                 let (group, id) = self.on_welcome(welcome).await?;
-                (group, Some(id))
+                ProcessWelcomeResult::New { group, id }
             }
-            Group(id) => {
+            Group(ref id) => {
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
                 let (group, stored_group) =
-                    MlsGroup::new_validated(self.client, id, &self.provider)?;
+                    MlsGroup::new_validated(self.client.clone(), id.to_vec(), &self.provider)?;
 
+                ProcessWelcomeResult::NewStored {
+                    group,
+                    maybe_id: stored_group.welcome_id,
+                }
+            }
+        };
+        self.filter(process_result).await
+    }
+
+    /// Filter for streamed conversations
+    async fn filter(&self, processed: ProcessWelcomeResult<C>) -> Result<ProcessWelcomeResult<C>> {
+        use ProcessWelcomeResult::*;
+        match processed {
+            New { group, id } => {
                 let metadata = group.metadata(&self.provider).await?;
-
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
                     && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
-                    return Ok(None);
+                    return Ok(ProcessWelcomeResult::IgnoreId { id });
                 }
 
-                (group, stored_group.welcome_id)
+                if self
+                    .conversation_type
+                    .is_none_or(|ct| ct == metadata.conversation_type)
+                {
+                    return Ok(ProcessWelcomeResult::New { group, id });
+                } else {
+                    return Ok(ProcessWelcomeResult::IgnoreId { id });
+                }
             }
-        };
-
-        let metadata = group.metadata(&self.provider).await?;
-        Ok(self
-            .conversation_type
-            .is_none_or(|ct| ct == metadata.conversation_type)
-            .then_some((group, welcome_id)))
+            other => Ok(other),
+        }
     }
 
     /// process a new welcome, returning the Group & Welcome ID
@@ -677,7 +703,6 @@ mod test {
         // It should NOT appear in the stream
         let result =
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        // tracing::error!("{:?}", result);
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 }
