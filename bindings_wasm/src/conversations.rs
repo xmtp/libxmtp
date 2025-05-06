@@ -1,5 +1,5 @@
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -382,7 +382,7 @@ impl Conversations {
 
     convo.sync().await?;
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[wasm_bindgen(js_name = createGroupByInboxIds)]
@@ -399,7 +399,7 @@ impl Conversations {
 
     convo.sync().await?;
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[wasm_bindgen(js_name = createDm)]

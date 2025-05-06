@@ -18,7 +18,7 @@ use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as Xmtp
 use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -342,7 +342,7 @@ impl Conversations {
       .await
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[napi]
@@ -362,7 +362,7 @@ impl Conversations {
       .await
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[napi(js_name = "createDm")]
