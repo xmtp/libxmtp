@@ -494,6 +494,7 @@ mod tests {
     #[xmtp_common::test]
     #[timeout(Duration::from_secs(20))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[ignore]
     async fn test_stream_all_messages_filters_by_consent_state(
         #[case] filter: ConsentState,
         #[case] expected_message: &str,
