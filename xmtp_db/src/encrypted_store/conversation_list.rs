@@ -114,54 +114,55 @@ impl DbConnection {
             query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut conversations: Vec<ConversationListItem> = if let Some(consent_states) = consent_states {
-            if consent_states
-                .iter()
-                .any(|state| *state == ConsentState::Unknown)
-            {
-                // Include both `Unknown`, `null`, and other specified states
-                let query = query
-                    .left_join(
-                        consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                            "lower(hex(conversation_list.id))",
+        let mut conversations: Vec<ConversationListItem> =
+            if let Some(consent_states) = consent_states {
+                if consent_states
+                    .iter()
+                    .any(|state| *state == ConsentState::Unknown)
+                {
+                    // Include both `Unknown`, `null`, and other specified states
+                    let query = query
+                        .left_join(
+                            consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
+                                "lower(hex(conversation_list.id))",
+                            )
+                            .eq(consent_dsl::entity)),
                         )
-                        .eq(consent_dsl::entity)),
-                    )
-                    .filter(
-                        consent_dsl::state
-                            .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown))
-                            .or(consent_dsl::state.eq_any(
-                                consent_states
-                                    .iter()
-                                    .filter(|state| **state != ConsentState::Unknown)
-                                    .cloned()
-                                    .collect::<Vec<_>>(),
-                            )),
-                    )
-                    .select(conversation_list::all_columns())
-                    .order(conversation_list_dsl::created_at_ns.asc());
+                        .filter(
+                            consent_dsl::state
+                                .is_null()
+                                .or(consent_dsl::state.eq(ConsentState::Unknown))
+                                .or(consent_dsl::state.eq_any(
+                                    consent_states
+                                        .iter()
+                                        .filter(|state| **state != ConsentState::Unknown)
+                                        .cloned()
+                                        .collect::<Vec<_>>(),
+                                )),
+                        )
+                        .select(conversation_list::all_columns())
+                        .order(conversation_list_dsl::created_at_ns.asc());
 
-                self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+                    self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+                } else {
+                    // Only include the specified states
+                    let query = query
+                        .inner_join(
+                            consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
+                                "lower(hex(conversation_list.id))",
+                            )
+                            .eq(consent_dsl::entity)),
+                        )
+                        .filter(consent_dsl::state.eq_any(consent_states.clone()))
+                        .select(conversation_list::all_columns())
+                        .order(conversation_list_dsl::created_at_ns.asc());
+
+                    self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
+                }
             } else {
-                // Only include the specified states
-                let query = query
-                    .inner_join(
-                        consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                            "lower(hex(conversation_list.id))",
-                        )
-                        .eq(consent_dsl::entity)),
-                    )
-                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
-                    .select(conversation_list::all_columns())
-                    .order(conversation_list_dsl::created_at_ns.asc());
-
+                // Handle the case where `consent_states` is `None`
                 self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
-            }
-        } else {
-            // Handle the case where `consent_states` is `None`
-            self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
-        };
+            };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
         // Then query for those separately

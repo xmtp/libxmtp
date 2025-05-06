@@ -37,7 +37,7 @@ use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{GroupMembershipState, GroupQueryArgs, StoredGroup, DmIdExt},
+    group::{DmIdExt, GroupMembershipState, GroupQueryArgs, StoredGroup},
     group_message::StoredGroupMessage,
     refresh_state::EntityKind,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -794,7 +794,7 @@ where
                     }
                     msg
                 });
-                
+
                 let dm_peer_inbox_id = match conversation_item.dm_id {
                     Some(dm_id) => Some(dm_id.other_inbox_id(self.inbox_id())),
                     None => None,
