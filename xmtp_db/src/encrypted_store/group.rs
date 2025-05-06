@@ -218,12 +218,9 @@ impl DbConnection {
 
         let mut groups = if include_unknown {
             let left_joined_query = query
-                .left_join(
-                    consent_dsl::consent_records.on(
-                        sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                            .eq(consent_dsl::entity),
-                    ),
-                )
+                .left_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
                 .filter(
                     consent_dsl::state
                         .is_null()
@@ -236,12 +233,9 @@ impl DbConnection {
             self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
         } else {
             let inner_joined_query = query
-                .inner_join(
-                    consent_dsl::consent_records.on(
-                        sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                            .eq(consent_dsl::entity),
-                    ),
-                )
+                .inner_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
                 .select(dsl::groups::all_columns())
                 .order(dsl::created_at_ns.asc());
