@@ -342,9 +342,21 @@ pub(crate) mod tests {
             test_group_3_consent.store(conn).unwrap();
 
             let all_results = conn
-                .fetch_conversation_list(GroupQueryArgs::default())
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Unknown,
+                        ConsentState::Denied,
+                    ]),
+                    ..Default::default()
+                })
                 .unwrap();
             assert_eq!(all_results.len(), 4);
+
+            let default_results = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
+            assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
                 .fetch_conversation_list(GroupQueryArgs {
