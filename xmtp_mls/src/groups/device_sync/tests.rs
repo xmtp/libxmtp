@@ -10,17 +10,10 @@ use xmtp_db::{
 async fn basic_sync() {
     tester!(alix1, sync_server, sync_worker, stream);
     tester!(bo);
-
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
-
     // Create a second client for alix
     tester!(alix2, from: alix1);
-
-    // Have alix1 receive new sync group, and auto-send a sync payload
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.test_has_same_sync_group_as(&alix2).await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;

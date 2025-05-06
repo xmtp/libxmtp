@@ -11,6 +11,7 @@ use crate::{
 };
 use ethers::signers::LocalWallet;
 use futures::Stream;
+use futures_executor::block_on;
 use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
@@ -232,8 +233,8 @@ where
         }
     }
 
-    pub async fn passkey_owner(self) -> TesterBuilder<PasskeyUser> {
-        self.owner(PasskeyUser::new().await)
+    pub fn passkey(self) -> TesterBuilder<PasskeyUser> {
+        self.owner(block_on(async { PasskeyUser::new().await }))
     }
 
     pub fn sync_worker(self) -> Self {

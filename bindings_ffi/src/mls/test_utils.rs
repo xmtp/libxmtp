@@ -108,7 +108,7 @@ impl LocalTester for Tester<LocalWallet, FfiXmtpClient> {
         TesterBuilder::new().build().await
     }
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {
-        TesterBuilder::new().passkey_owner().await.build().await
+        TesterBuilder::new().passkey().build().await
     }
 
     fn builder() -> TesterBuilder<LocalWallet> {
