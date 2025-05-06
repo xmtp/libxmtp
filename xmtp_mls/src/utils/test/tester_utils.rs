@@ -53,8 +53,8 @@ where
 
 #[macro_export]
 macro_rules! tester {
-    ($name:ident, from: $existing:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
-        tester!(@process $existing.builder ; $name $(, $k $(($s))? $(($v))?)*)
+    ($name:ident, from: $existing:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $existing.builder ; $name $(, $k $(: $v)?)*)
     };
 
     ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
