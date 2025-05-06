@@ -15,6 +15,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 use xmtp_proto::{
     ConversionError,
     xmtp::device_sync::consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
@@ -22,7 +23,7 @@ use xmtp_proto::{
 mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
@@ -32,6 +33,16 @@ pub struct StoredConsentRecord {
     pub state: ConsentState,
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
+
+    pub consented_at_ns: i64,
+}
+
+impl PartialEq for StoredConsentRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+            && self.entity_type == other.entity_type
+            && self.state == other.state
+    }
 }
 
 impl StoredConsentRecord {
@@ -40,6 +51,7 @@ impl StoredConsentRecord {
             entity_type,
             state,
             entity,
+            consented_at_ns: now_ns(),
         }
     }
 }
@@ -77,6 +89,45 @@ impl DbConnection {
             .offset(offset);
 
         Ok(self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?)
+    }
+
+    // returns true if newer
+    pub fn insert_newer_consent_record(
+        &self,
+        record: StoredConsentRecord,
+    ) -> Result<bool, StorageError> {
+        self.raw_query_write(|conn| {
+            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+                diesel::insert_into(dsl::consent_records)
+                    .values(&record)
+                    .on_conflict_do_nothing()
+                    .get_result(conn)
+                    .optional()?;
+
+            // if record was not inserted...
+            if maybe_inserted_consent_record.is_none() {
+                let old_record = dsl::consent_records
+                    .find((&record.entity_type, &record.entity))
+                    .first::<StoredConsentRecord>(conn)?;
+
+                if old_record.eq(&record) {
+                    return Ok(false);
+                }
+
+                let should_replace = old_record.consented_at_ns < record.consented_at_ns;
+                if should_replace {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                return Ok(should_replace);
+            }
+
+            Ok(true)
+        })
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
@@ -238,6 +289,7 @@ mod tests {
             entity_type,
             state,
             entity,
+            consented_at_ns: now_ns(),
         }
     }
 

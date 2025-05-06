@@ -89,7 +89,7 @@ impl GroupSaveExt for GroupSave {
             message_disappear_from_ns: group.message_disappear_from_ns,
             message_disappear_in_ns: group.message_disappear_in_ns,
             paused_for_version: group.paused_for_version,
-            metdata: Some(ImmutableMetadataSave {
+            metadata: Some(ImmutableMetadataSave {
                 creator_inbox_id: immutable_metadata.creator_inbox_id,
             }),
             mutable_metadata: Some(MutableMetadataSave {

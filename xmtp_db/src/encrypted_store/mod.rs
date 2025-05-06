@@ -22,6 +22,7 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod processed_device_sync_messages;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;

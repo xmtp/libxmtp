@@ -8,17 +8,19 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
-use crate::groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages};
+use crate::groups::{
+    device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
+    group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+};
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{client::ClientError, groups::group_mutable_metadata::MetadataField};
-use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncEvent};
+use crate::{configuration::sync_update_installations_interval_ns, subscriptions::SyncWorkerEvent};
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
     groups::{
-        device_sync::{preference_sync::UserPreferenceUpdate, DeviceSyncContent},
-        intents::UpdateMetadataIntentData,
+        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
@@ -776,10 +778,12 @@ where
                                 ..
                             }) = provider.conn_ref().find_group(&self.group_id)?
                             {
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::NewSyncGroupMsg,
+                                        ));
                             }
                         }
                     }
@@ -816,13 +820,16 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::Request { message_id },
-                                ));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Request { message_id },
+                                        ));
                             }
 
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
-                                let content = DeviceSyncContent::Payload(history_reply);
+                                let content = DeviceSyncContent::Reply(history_reply);
                                 let content_bytes = serde_json::to_vec(&content)?;
                                 let message_id = calculate_message_id(
                                     &self.group_id,
@@ -849,25 +856,27 @@ where
                                 .store_or_ignore(provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self
-                                    .client
-                                    .local_events()
-                                    .send(LocalEvents::SyncEvent(SyncEvent::Reply { message_id }));
+                                let _ =
+                                    self.client
+                                        .local_events()
+                                        .send(LocalEvents::SyncWorkerEvent(
+                                            SyncWorkerEvent::Reply { message_id },
+                                        ));
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
                                 // and returns a copy of what was inserted
-                                let updates =
-                                    UserPreferenceUpdate::process_incoming_preference_update(
-                                        update,
-                                        &self.client,
-                                        provider,
-                                    )?;
+                                let updates = process_incoming_preference_update(
+                                    update,
+                                    &self.client,
+                                    provider,
+                                )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                                    SyncEvent::PreferencesChanged(updates),
-                                ));
+                                let _ = self
+                                    .client
+                                    .local_events()
+                                    .send(LocalEvents::PreferencesChanged(updates));
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -1026,25 +1035,13 @@ where
                                 .process_own_message(&mut mls_group, commit, &intent, provider, &message, envelope)?
                             }
                         };
+
                         match intent_state {
                             IntentState::ToPublish => {
                                 Ok::<_, GroupMessageProcessingError>(provider.conn_ref().set_group_intent_to_publish(intent_id)?)
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(provider, &intent)?;
-
-                                // If it's a sync group message, probe the worker to process.
-                                if let Some(StoredGroup {
-                                    conversation_type: ConversationType::Sync,
-                                    ..
-                                }) = provider.conn_ref().find_group(&self.group_id)?
-                                {
-                                    let _ = self
-                                        .client
-                                        .local_events()
-                                        .send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupMsg));
-                                }
-
                                 Ok(provider.conn_ref().set_group_intent_committed(intent_id)?)
                             }
                             IntentState::Published => {
@@ -1848,7 +1845,7 @@ where
             Some(ikm) => ikm,
             None => {
                 let key = HmacKey::random_key();
-                StoredUserPreferences::store_hmac_key(&conn, &key)?;
+                StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
                 key
             }
         };

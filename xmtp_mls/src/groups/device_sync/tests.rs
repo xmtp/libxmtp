@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    groups::DMMetadataOptions,
     tester,
     utils::{LocalTesterBuilder, Tester},
 };
@@ -12,21 +11,18 @@ use xmtp_db::{
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
-    let alix1 = Tester::builder()
-        .with_sync_server()
-        .with_sync_worker()
-        .build()
-        .await;
-    let bo = Tester::new().await;
+    tester!(alix1, with_sync_server, with_sync_worker);
+    tester!(bo);
 
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
 
     // Create a second client for alix
-    let alix2 = alix1.builder.build().await;
+    tester!(alix2, from = alix1);
 
     // Have alix1 receive new sync group, and auto-send a sync payload
-    alix1.sync_welcomes(&alix1.provider).await?;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
+
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     // Have alix2 receive payload and process it
@@ -44,31 +40,11 @@ async fn basic_sync() {
 #[xmtp_common::test(unwrap_try = "true")]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
-    use crate::tester;
     use std::time::Duration;
 
     tester!(alix1, with_sync_worker, with_sync_server);
     tester!(alix2, from = alix1);
-
-    alix1.test_has_same_sync_group_as(&alix2).await?;
-    let bo = Tester::new().await;
-
-    let dm = alix1
-        .find_or_create_dm_by_inbox_id(bo.inbox_id(), DMMetadataOptions::default())
-        .await?;
-    dm.send_message(b"Hello there.").await?;
-
-    // Have alix2 fetch the DM
-    alix2.sync_welcomes(&alix2.provider).await?;
-
-    // Wait for alix to send a payload to alix2
-    alix1.sync_welcomes(&alix1.provider).await?;
-    alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
-    alix1.worker().clear_metric(SyncMetric::PayloadSent);
-
     tester!(alix3, from = alix1);
-    alix1.worker().reset_metrics();
-    alix2.worker().reset_metrics();
 
     // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;
@@ -165,6 +141,15 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     tester!(alix2, from = alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;
+    let groups = alix1.find_groups(GroupQueryArgs {
+        include_sync_groups: true,
+        ..Default::default()
+    })?;
+    for group in groups {
+        group
+            .maybe_update_installations(&alix1.provider, None)
+            .await?;
+    }
 
     // alix1 should have it's own created sync group and alix2's sync group
     let alix1_sync_groups: Vec<StoredGroup> = alix1.provider.conn_ref().raw_query_read(|conn| {
@@ -175,6 +160,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     assert_eq!(alix1_sync_groups.len(), 2);
 
     // alix2 should not be added to alix1's old sync group
+    alix2.sync_welcomes(&alix2.provider).await?;
     let alix2_sync_groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
         dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))

@@ -180,7 +180,7 @@ mod tests {
             .provider
             .conn_ref()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
-        assert_eq!(old_messages.len(), 5);
+        assert_eq!(old_messages.len(), 6);
 
         let opts = BackupOptions {
             start_ns: None,

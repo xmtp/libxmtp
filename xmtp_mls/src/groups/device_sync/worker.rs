@@ -1,22 +1,23 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
-    preference_sync::UserPreferenceUpdate,
-    DeviceSyncContent, DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
+    preference_sync::{store_preference_updates, UserPreferenceUpdate},
+    DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
 };
 use crate::{
+    client::ClientError,
     configuration::WORKER_RESTART_DELAY,
     groups::{
         device_sync::{
             backup::{exporter::BackupExporter, BackupImporter},
-            default_backup_options, AcknowledgeKind,
+            default_backup_options,
         },
+        device_sync_legacy::DeviceSyncContent,
         scoped_client::ScopedGroupClient,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncEvent},
+    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
     Client,
 };
 use futures::{Stream, StreamExt};
-use std::collections::HashMap;
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,19 +25,26 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
-    user_preferences::StoredUserPreferences,
-    XmtpOpenMlsProvider,
+    processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
+    Store, XmtpOpenMlsProvider,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
-        device_sync::{BackupElementSelection, BackupOptions},
+        device_sync::{
+            content::{
+                device_sync_content::Content as ContentProto, DeviceSyncAcknowledge,
+                PreferenceUpdates as PreferenceUpdatesProto,
+            },
+            BackupElementSelection, BackupOptions,
+        },
         mls::message_contents::{
-            DeviceSyncKind, DeviceSyncReply as DeviceSyncReplyProto,
+            device_sync_key_type::Key, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
         },
     },
+    ConversionError,
 };
 
 pub struct SyncWorker<ApiClient, V> {
@@ -85,9 +93,10 @@ where
                         );
                         break;
                     } else {
-                        tracing::error!(inbox_id, installation_id, "sync worker error {err}");
+                        tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
                         // Wait before restarting.
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
+                        tracing::info!("Restarting sync worker...");
                     }
                 }
             }
@@ -116,25 +125,25 @@ where
         while let Some(event) = self.stream.next().await {
             let event = event?;
 
-            if let LocalEvents::SyncEvent(msg) = event {
+            tracing::info!("New event: {event:?}");
+
+            if let LocalEvents::SyncWorkerEvent(msg) = event {
                 match msg {
-                    SyncEvent::NewSyncGroupFromWelcome => {
+                    SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
                         self.evt_new_sync_group_from_welcome().await?;
                     }
-                    SyncEvent::NewSyncGroupMsg => {
+                    SyncWorkerEvent::NewSyncGroupMsg => {
                         self.evt_new_sync_group_msg().await?;
                     }
-                    SyncEvent::PreferencesOutgoing(preference_updates) => {
-                        self.evt_preferences_outgoing(preference_updates).await?;
+                    SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                        self.evt_sync_preferences(preference_updates).await?;
                     }
-                    SyncEvent::PreferencesChanged(_) => {
-                        // Intentionally left blank. This event is for streaming to consume.
-                    }
+
                     // Device Sync V1 events
-                    SyncEvent::Reply { message_id } => {
+                    SyncWorkerEvent::Reply { message_id } => {
                         self.evt_v1_device_sync_reply(message_id).await?;
                     }
-                    SyncEvent::Request { message_id } => {
+                    SyncWorkerEvent::Request { message_id } => {
                         self.evt_v1_device_sync_request(message_id).await?;
                     }
                 }
@@ -163,7 +172,14 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            client.get_sync_group(&provider).await?;
+            if provider.conn_ref().primary_sync_group()?.is_none() {
+                client.get_sync_group(&provider).await?;
+
+                // Ask the sync group for a sync payload if the url is present.
+                if self.client.device_sync_server_url().is_some() {
+                    self.client.send_sync_request(&provider).await?;
+                }
+            }
 
             tracing::info!(
                 inbox_id = client.inbox_id(),
@@ -179,33 +195,17 @@ where
 
     async fn evt_new_sync_group_from_welcome(&self) -> Result<(), DeviceSyncError> {
         tracing::info!("New sync group from welcome detected.");
-        // A new sync group from a welcome indicates a new installation.
-        // We need to add that installation to the groups.
         let provider = self.client.mls_provider()?;
 
-        let result = self.client.acknowledge_new_sync_group(&provider).await;
-        if matches!(result, Err(DeviceSyncError::AlreadyAcknowledged)) {
-            // We do not want to process the new installation if another installation is already processing it.
-            self.handle
-                .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
-            return Ok(());
-        }
-        result?;
-
+        // A new sync group from a welcome indicates a new installation.
+        // We need to add that installation to the groups.
         self.client.add_new_installation_to_groups().await?;
+
         self.handle
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
-        self.client
-            .send_sync_payload(
-                None,
-                || async { self.client.acknowledge_new_sync_group(&provider).await },
-                &self.handle,
-            )
-            .await?;
-
         // Cycle the HMAC
-        UserPreferenceUpdate::cycle_hmac(&self.client, &provider).await?;
+        self.client.cycle_hmac(&provider).await?;
 
         Ok(())
     }
@@ -218,26 +218,28 @@ where
         Ok(())
     }
 
-    async fn evt_preferences_outgoing(
+    async fn evt_sync_preferences(
         &self,
-        preference_updates: Vec<UserPreferenceUpdate>,
+        updates: Vec<UserPreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
-        UserPreferenceUpdate::sync(preference_updates, &self.client, &provider).await?;
+        self.client.sync_preferences(&provider, updates).await?;
         Ok(())
     }
 
+    /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
-            if let DeviceSyncContent::Payload(reply) = content {
+            if let DeviceSyncContent::Reply(reply) = content {
                 self.client.v1_process_sync_reply(&provider, reply).await?;
-            }
+            };
         }
         Ok(())
     }
 
+    /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
@@ -262,35 +264,23 @@ where
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
-        let Some(mut cursor) = StoredUserPreferences::sync_cursor(provider.conn_ref())? else {
-            tracing::warn!("Tried to process sync group message, but sync cursor is missing, and should havae been set upon group creation.");
-            return Ok(());
-        };
-
-        let messages = sync_group.get_sync_group_messages(cursor.offset)?;
+        let unprocessed_messages = provider.conn_ref().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
-        let external_count = messages
-            .iter()
-            .filter(|msg| msg.sender_installation_id != installation_id)
-            .count();
 
-        tracing::info!(
-            "Processing {} sync group messages that were sent after {}. ({external_count} external, group_id {:?})",
-            messages.len(),
-            cursor.offset,
-            &sync_group.group_id[..4]
-        );
+        tracing::info!("Processing {} messages.", unprocessed_messages.len());
 
-        for (msg, content) in messages.iter_with_content() {
-            tracing::info!("Message content: {content:?}");
+        for (msg, content) in unprocessed_messages.clone().iter_with_content() {
+            let is_external = msg.sender_installation_id != installation_id;
+
+            tracing::info!("Message content: (external: {is_external}) {content:?}");
+
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
                 tracing::error!("Message processing: {err:?}");
             };
+        }
 
-            // Move the cursor
-            cursor.offset += 1;
-            StoredUserPreferences::store_sync_cursor(provider.conn_ref(), &cursor)?;
+        for msg in unprocessed_messages {
+            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
         }
 
         Ok(())
@@ -301,92 +291,50 @@ where
         provider: &XmtpOpenMlsProvider,
         handle: &WorkerHandle<SyncMetric>,
         msg: &StoredGroupMessage,
-        content: DeviceSyncContent,
+        content: ContentProto,
     ) -> Result<(), DeviceSyncError> {
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
+
         match content {
-            DeviceSyncContent::Request(request) => {
-                if msg.sender_installation_id == self.installation_id() {
+            ContentProto::Request(request) => {
+                if !is_external {
                     // Ignore our own messages
                     return Ok(());
                 }
 
-                self.send_sync_payload(
-                    Some(request),
-                    || async { self.acknowledge_sync_request(provider).await },
+                self.send_sync_reply(
+                    Some(request.clone()),
+                    || async { self.acknowledge_sync_request(provider, msg, &request).await },
                     handle,
                 )
                 .await?;
             }
-            DeviceSyncContent::Payload(payload) => {
-                if msg.sender_installation_id == self.installation_id() {
+            ContentProto::Reply(reply) => {
+                if !is_external {
                     // Ignore our own messages
                     return Ok(());
                 }
 
-                self.process_sync_payload(payload).await?;
+                self.process_sync_payload(reply).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
-            DeviceSyncContent::PreferenceUpdates(updates) => {
+            ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
 
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let mut updated = vec![];
-                for update in updates.clone() {
-                    updated.extend(update.store(provider, handle)?);
-                }
-
+                let updated = store_preference_updates(updates.clone(), provider, handle)?;
                 if !updated.is_empty() {
-                    let _ = self.local_events.send(LocalEvents::SyncEvent(
-                        SyncEvent::PreferencesChanged(updated),
-                    ));
+                    let _ = self
+                        .local_events
+                        .send(LocalEvents::PreferencesChanged(updated));
                 }
             }
-            DeviceSyncContent::Acknowledge(_) => {
+            ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());
             }
-        }
-
-        Ok(())
-    }
-
-    /// Acknowledge the existence of a new sync group.
-    /// Returns an error if sync group is already acknowledged by another installation.
-    /// The first installation to acknowledge a sync group will the the installation to handle the sync.
-    pub async fn acknowledge_new_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
-        // Pull down any new messages
-        sync_group.sync_with_conn(provider).await?;
-
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
-
-        let acknowledgement = messages.iter_with_content().find(|(_msg, content)| {
-            matches!(
-                content,
-                DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence)
-            )
-        });
-        let Some((acknowledgement, _content)) = acknowledgement else {
-            // Send an acknowledgement if there is none.
-            self.send_device_sync_message(
-                provider,
-                DeviceSyncContent::Acknowledge(AcknowledgeKind::SyncGroupPresence),
-            )
-            .await?;
-            return Ok(());
-        };
-
-        let installation_id = self.installation_id();
-        if installation_id != acknowledgement.sender_installation_id {
-            // Another device acknowledged the group. They're handling it.
-            tracing::info!("Another installation already acknowledged the new sync group.");
-            return Err(DeviceSyncError::AlreadyAcknowledged);
         }
 
         Ok(())
@@ -398,57 +346,46 @@ where
     pub async fn acknowledge_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
+        message: &StoredGroupMessage,
+        request: &DeviceSyncRequestProto,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = self.group(&message.group_id)?;
         // Pull down any new messages
         sync_group.sync_with_conn(provider).await?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
-        let mut acknowledged = HashMap::new();
         // Look in reverse for a request, and ensure it was not acknowledged by someone else.
-        for message in messages.iter().rev() {
-            let Some(content) =
-                serde_json::from_slice::<DeviceSyncContent>(&message.decrypted_message_bytes).ok()
-            else {
+        for (message, content) in messages.iter_with_content().rev() {
+            let ContentProto::Acknowledge(acknowledge) = content else {
                 continue;
             };
-
-            match content {
-                DeviceSyncContent::Acknowledge(AcknowledgeKind::Request { request_id }) => {
-                    acknowledged.insert(request_id, message.sender_installation_id.clone());
-                }
-                DeviceSyncContent::Request(req) => {
-                    if let Some(installation_id) = acknowledged.get(&req.request_id) {
-                        if installation_id != self.installation_id() {
-                            // Request has already been acknowledged by another installation.
-                            // Let that installation handle it.
-                            return Err(DeviceSyncError::AlreadyAcknowledged);
-                        }
-
-                        // We've already acknowledged it. Return here.
-                        return Ok(());
-                    }
-
-                    // Acknowledge and break.
-                    self.send_device_sync_message(
-                        provider,
-                        DeviceSyncContent::Acknowledge(AcknowledgeKind::Request {
-                            request_id: req.request_id,
-                        }),
-                    )
-                    .await?;
-
-                    break;
-                }
-                _ => {}
+            if acknowledge.request_id != request.request_id {
+                continue;
             }
+
+            if message.sender_installation_id != self.installation_id() {
+                // Request has already been acknowledged by another installation.
+                // Let that installation handle it.
+                return Err(DeviceSyncError::AlreadyAcknowledged);
+            }
+
+            return Ok(());
         }
+
+        // Acknowledge and break.
+        self.send_device_sync_message(
+            provider,
+            ContentProto::Acknowledge(DeviceSyncAcknowledge {
+                request_id: request.request_id.clone(),
+            }),
+        )
+        .await?;
 
         Ok(())
     }
 
-    pub(crate) async fn send_sync_payload<F, Fut>(
+    pub(crate) async fn send_sync_reply<F, Fut>(
         &self,
         request: Option<DeviceSyncRequestProto>,
         acknowledge: F,
@@ -459,7 +396,7 @@ where
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
     {
         if let Some(request) = &request {
-            if request.kind() != DeviceSyncKind::Unspecified {
+            if request.kind() != BackupElementSelection::Unspecified {
                 // This is a v1 request
                 return Ok(());
             }
@@ -469,7 +406,7 @@ where
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
-                tracing::info!("Sync group was already acknowledged by another installation.");
+                tracing::info!("Request was already acknowledged by another installation.");
                 return Ok(());
             }
             result => result?,
@@ -479,7 +416,7 @@ where
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("Sending sync payload.");
+        tracing::info!("\x1b[33mSending sync payload.");
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
@@ -540,7 +477,9 @@ where
 
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
-            key,
+            encryption_key: Some(DeviceSyncKeyType {
+                key: Some(Key::Aes256Gcm(key)),
+            }),
             request_id,
             url: format!("{device_sync_server_url}/files/{}", response.text().await?),
             metadata: Some(metadata),
@@ -559,7 +498,7 @@ where
         }
 
         // Send the message out over the network
-        self.send_device_sync_message(&provider, DeviceSyncContent::Payload(reply))
+        self.send_device_sync_message(&provider, ContentProto::Reply(reply))
             .await?;
 
         handle.increment_metric(SyncMetric::PayloadSent);
@@ -570,8 +509,8 @@ where
     pub async fn send_sync_request(
         &self,
         provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), DeviceSyncError> {
-        tracing::info!("Sending a sync request.");
+    ) -> Result<(), ClientError> {
+        tracing::info!("\x1b[33mSending a sync request.");
 
         let sync_group = self.get_sync_group(provider).await?;
         sync_group.sync_with_conn(provider).await?;
@@ -590,7 +529,7 @@ where
             ..Default::default()
         };
 
-        self.send_device_sync_message(provider, DeviceSyncContent::Request(request))
+        self.send_device_sync_message(provider, ContentProto::Request(request))
             .await?;
 
         Ok(())
@@ -614,7 +553,7 @@ where
         let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
 
         for (msg, content) in messages.iter_with_content() {
-            if let DeviceSyncContent::Request(DeviceSyncRequestProto { request_id, .. }) = content {
+            if let ContentProto::Request(DeviceSyncRequestProto { request_id, .. }) = content {
                 if *request_id == reply.request_id
                     && msg.sender_installation_id == self.installation_id()
                 {
@@ -629,7 +568,7 @@ where
         &self,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        if reply.kind() != DeviceSyncKind::Unspecified {
+        if reply.kind() != BackupElementSelection::Unspecified {
             // This is a legacy payload, the legacy function will process it.
             return Ok(());
         }
@@ -684,7 +623,15 @@ where
         };
 
         // Create an importer around that futures_reader.
-        let mut importer = BackupImporter::load(Box::pin(reader), &reply.key).await?;
+
+        let Some(DeviceSyncKeyType {
+            key: Some(Key::Aes256Gcm(key)),
+        }) = reply.encryption_key
+        else {
+            return Err(ConversionError::Unspecified("encryption_key"))?;
+        };
+
+        let mut importer = BackupImporter::load(Box::pin(reader), &key).await?;
 
         tracing::info!("Importing the sync payload.");
         // Run the import.

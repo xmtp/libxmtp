@@ -9,6 +9,7 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
@@ -68,7 +69,7 @@ use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
 };
-use xmtp_proto::xmtp::mls::message_contents::{DeviceSyncKind, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[cfg(test)]
 mod test_utils;
@@ -1583,10 +1584,12 @@ impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
     fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::HmacKeyUpdate { key } => Ok(FfiPreferenceUpdate::HMAC { key }),
+            UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
+            }
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
-            UserPreferenceUpdate::ConsentUpdate(_) => Err(GenericError::Generic {
+            UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
                 err: "Consent updates should be filtered out.".to_string(),
             }),
         }
@@ -1727,21 +1730,6 @@ impl From<FfiConsentState> for ConsentState {
             FfiConsentState::Unknown => ConsentState::Unknown,
             FfiConsentState::Allowed => ConsentState::Allowed,
             FfiConsentState::Denied => ConsentState::Denied,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum FfiDeviceSyncKind {
-    Messages,
-    Consent,
-}
-
-impl From<FfiDeviceSyncKind> for DeviceSyncKind {
-    fn from(value: FfiDeviceSyncKind) -> Self {
-        match value {
-            FfiDeviceSyncKind::Consent => DeviceSyncKind::Consent,
-            FfiDeviceSyncKind::Messages => DeviceSyncKind::MessageHistory,
         }
     }
 }
@@ -2623,6 +2611,7 @@ impl From<FfiConsent> for StoredConsentRecord {
             entity_type: consent.entity_type.into(),
             state: consent.state.into(),
             entity: consent.entity,
+            consented_at_ns: now_ns(),
         }
     }
 }
@@ -2722,7 +2711,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
-    HMAC { key: Vec<u8> },
+    HMAC { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
 #[derive(uniffi::Object)]
@@ -6423,7 +6412,7 @@ mod tests {
         assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_consent() {
         let alix_a = Tester::builder()
             .with_sync_worker()
@@ -6447,8 +6436,6 @@ mod tests {
             .await
             .unwrap();
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
 
         alix_b.conversations().sync_device_sync().await.unwrap();
         alix_b
@@ -6574,7 +6561,7 @@ mod tests {
         b_stream.end_and_wait().await.unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()

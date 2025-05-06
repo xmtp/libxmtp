@@ -1,17 +1,19 @@
 use super::{GroupError, MlsGroup};
-use crate::{client::ClientError, subscriptions::SubscribeError, Client};
+use crate::{
+    client::ClientError,
+    subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
+    Client,
+};
 use backup::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
-use preference_sync::UserPreferenceUpdate;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use prost::Message;
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
-use xmtp_db::user_preferences::SyncCursor;
-use xmtp_db::Store;
+use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     group::GroupQueryArgs, group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
@@ -20,12 +22,16 @@ use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSig
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
-        device_sync::{BackupElementSelection, BackupOptions},
+        device_sync::{
+            content::{
+                device_sync_content::Content as ContentProto,
+                DeviceSyncContent as DeviceSyncContentProto,
+            },
+            BackupElementSelection, BackupOptions,
+        },
         mls::message_contents::{
-            plaintext_envelope::v2::MessageType,
-            plaintext_envelope::{Content, V1, V2},
-            DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-            PlaintextEnvelope,
+            plaintext_envelope::{Content, V1},
+            ContentTypeId, EncodedContent, PlaintextEnvelope,
         },
     },
 };
@@ -159,19 +165,44 @@ where
         }
     }
 
+    /// Sends a device sync message.
+    /// If the `group_id` is `None`, the message will be sent
+    /// to the primary sync group ID.
     async fn send_device_sync_message(
         &self,
         provider: &XmtpOpenMlsProvider,
-        content: DeviceSyncContent,
+        content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
+        let content = DeviceSyncContentProto {
+            content: Some(content),
+        };
+
         let sync_group = self.get_sync_group(provider).await?;
+
         tracing::info!(
-            "Sending sync message to group {:?}: {content:?}",
+            "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
             &sync_group.group_id[..4]
         );
 
-        let content_bytes =
-            serde_json::to_vec(&content).map_err(|err| ClientError::Generic(err.to_string()))?;
+        let mut content_bytes = vec![];
+        content
+            .encode(&mut content_bytes)
+            .map_err(|err| ClientError::Generic(err.to_string()))?;
+
+        let encoded_content = EncodedContent {
+            r#type: Some(ContentTypeId {
+                authority_id: "xmtp.org".to_string(),
+                type_id: "application/x-protobuf".to_string(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            parameters: HashMap::new(),
+            fallback: None,
+            compression: None,
+            content: content_bytes,
+        };
+        let content_bytes = encoded_content_to_bytes(encoded_content);
+
         let message_id =
             sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
@@ -182,6 +213,11 @@ where
 
         sync_group.sync_until_last_intent_resolved(provider).await?;
 
+        // Notify our own worker of our own message so it can process it.
+        let _ = self.local_events.send(LocalEvents::SyncWorkerEvent(
+            SyncWorkerEvent::NewSyncGroupMsg,
+        ));
+
         Ok(message_id)
     }
 
@@ -191,14 +227,13 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<Self>, GroupError> {
         let conn = provider.conn_ref();
-        let sync_group = match conn.latest_sync_group()? {
+
+        let sync_group = match conn.primary_sync_group()? {
             Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
             None => {
                 let sync_group =
                     MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
                 tracing::info!("Creating sync group: {:?}", sync_group.group_id);
-                SyncCursor::reset(&sync_group.group_id, provider.conn_ref())?;
-
                 sync_group.add_missing_installations(provider).await?;
                 sync_group.sync_with_conn(provider).await?;
 
@@ -246,29 +281,22 @@ fn default_backup_options() -> BackupOptions {
     }
 }
 
-// These are the messages that get sent out to the sync group
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum DeviceSyncContent {
-    Request(DeviceSyncRequestProto),
-    Payload(DeviceSyncReplyProto),
-    Acknowledge(AcknowledgeKind),
-    PreferenceUpdates(Vec<UserPreferenceUpdate>),
-}
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub enum AcknowledgeKind {
-    SyncGroupPresence,
-    Request { request_id: String },
-}
-
 pub trait IterWithContent<A, B> {
-    fn iter_with_content(self) -> impl Iterator<Item = (A, B)>;
+    fn iter_with_content(self) -> impl DoubleEndedIterator<Item = (A, B)>;
 }
 
-impl IterWithContent<StoredGroupMessage, DeviceSyncContent> for Vec<StoredGroupMessage> {
-    fn iter_with_content(self) -> impl Iterator<Item = (StoredGroupMessage, DeviceSyncContent)> {
-        self.into_iter().filter_map(|msg| {
-            let content = serde_json::from_slice(&msg.decrypted_message_bytes).ok()?;
-            Some((msg, content))
+impl IterWithContent<StoredGroupMessage, ContentProto> for Vec<StoredGroupMessage> {
+    fn iter_with_content(
+        self,
+    ) -> impl DoubleEndedIterator<Item = (StoredGroupMessage, ContentProto)> {
+        self.into_iter().flat_map(|msg| {
+            let result = (|| {
+                let encoded_content = EncodedContent::decode(&*msg.decrypted_message_bytes).ok()?;
+                let content = DeviceSyncContentProto::decode(&*encoded_content.content).ok()?;
+                content.content.map(|c| (msg, c))
+            })();
+
+            result.into_iter()
         })
     }
 }

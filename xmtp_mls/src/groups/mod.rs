@@ -1,5 +1,5 @@
 pub mod device_sync;
-mod device_sync_legacy;
+pub mod device_sync_legacy;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -40,7 +40,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
-use crate::subscriptions::SyncEvent;
+use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
     client::{ClientError, XmtpMlsLocalContext},
@@ -88,7 +88,7 @@ use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
-use xmtp_db::user_preferences::{HmacKey, SyncCursor};
+use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::Store;
 use xmtp_db::{
@@ -811,8 +811,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
-                    SyncCursor::reset(mls_group.group_id().as_slice(), provider.conn_ref())?;
-                    let _ = client.local_events().send(LocalEvents::SyncEvent(SyncEvent::NewSyncGroupFromWelcome));
+                    let group_id = mls_group.group_id().to_vec();
+                    let _ = client.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -836,8 +836,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         client: Arc<ScopedClient>,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<MlsGroup<ScopedClient>, GroupError> {
-        tracing::info!("Creating sync group.");
-
         let context = client.context();
 
         let protected_metadata =
@@ -866,10 +864,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         )?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new_sync_group(group_id, now_ns(), GroupMembershipState::Allowed);
+        let stored_group = StoredGroup::create_sync_group(
+            provider.conn_ref(),
+            group_id,
+            now_ns(),
+            GroupMembershipState::Allowed,
+        )?;
 
-        stored_group.store(provider.conn_ref())?;
         let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
 
         Ok(group)
@@ -1045,15 +1046,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
         let conn = self.context().store().conn()?;
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
-        Ok(messages)
-    }
-
-    pub(crate) fn get_sync_group_messages(
-        &self,
-        sent_after_ns: i64,
-    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().store().conn()?;
-        let messages = conn.get_sync_group_messages(&self.group_id, sent_after_ns)?;
         Ok(messages)
     }
 
@@ -1616,14 +1608,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()
-            .map(UserPreferenceUpdate::ConsentUpdate)
+            .map(UserPreferenceUpdate::Consent)
             .collect();
 
         if !new_records.is_empty() {
             // Dispatch an update event so it can be synced across devices
-            let _ = self.client.local_events().send(LocalEvents::SyncEvent(
-                SyncEvent::PreferencesOutgoing(new_records),
-            ));
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::SyncWorkerEvent(
+                    SyncWorkerEvent::SyncPreferences(new_records.clone()),
+                ));
+            // Broadcast the changes
+            let _ = self
+                .client
+                .local_events()
+                .send(LocalEvents::PreferencesChanged(new_records));
         }
 
         Ok(())
