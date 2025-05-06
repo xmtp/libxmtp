@@ -1,5 +1,6 @@
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
+use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::{
   ConsentState as XmtpConsentState, ConsentType as XmtpConsentType, StoredConsentRecord,
 };
@@ -73,6 +74,7 @@ impl From<Consent> for StoredConsentRecord {
       entity_type: consent.entity_type.into(),
       state: consent.state.into(),
       entity: consent.entity,
+      consented_at_ns: now_ns(),
     }
   }
 }

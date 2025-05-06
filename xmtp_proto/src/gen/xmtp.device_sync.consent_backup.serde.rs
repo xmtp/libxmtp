@@ -16,6 +16,9 @@ impl serde::Serialize for ConsentSave {
         if !self.entity.is_empty() {
             len += 1;
         }
+        if self.consented_at_ns != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.consent_backup.ConsentSave", len)?;
         if self.entity_type != 0 {
             let v = ConsentTypeSave::try_from(self.entity_type)
@@ -29,6 +32,11 @@ impl serde::Serialize for ConsentSave {
         }
         if !self.entity.is_empty() {
             struct_ser.serialize_field("entity", &self.entity)?;
+        }
+        if self.consented_at_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("consentedAtNs", ToString::to_string(&self.consented_at_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -44,6 +52,8 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
             "entityType",
             "state",
             "entity",
+            "consented_at_ns",
+            "consentedAtNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -51,6 +61,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
             EntityType,
             State,
             Entity,
+            ConsentedAtNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -75,6 +86,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             "entityType" | "entity_type" => Ok(GeneratedField::EntityType),
                             "state" => Ok(GeneratedField::State),
                             "entity" => Ok(GeneratedField::Entity),
+                            "consentedAtNs" | "consented_at_ns" => Ok(GeneratedField::ConsentedAtNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -97,6 +109,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                 let mut entity_type__ = None;
                 let mut state__ = None;
                 let mut entity__ = None;
+                let mut consented_at_ns__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::EntityType => {
@@ -117,12 +130,21 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             }
                             entity__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ConsentedAtNs => {
+                            if consented_at_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("consentedAtNs"));
+                            }
+                            consented_at_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(ConsentSave {
                     entity_type: entity_type__.unwrap_or_default(),
                     state: state__.unwrap_or_default(),
                     entity: entity__.unwrap_or_default(),
+                    consented_at_ns: consented_at_ns__.unwrap_or_default(),
                 })
             }
         }

@@ -101,7 +101,7 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_b_conn, 3).await;
+        wait_for_min_intents(amal_b_conn, 3).await.unwrap();
         tracing::info!("Waiting for intents published");
 
         let old_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
@@ -160,7 +160,7 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 3).await;
+        wait_for_min_intents(amal_a_conn, 3).await.unwrap();
         tracing::info!("Waiting for intents published");
         let old_group_id = amal_a.get_sync_group(&amal_a_provider).unwrap().group_id;
 
@@ -181,7 +181,7 @@ pub(crate) mod tests {
         //  1.) UpdateGroupMembership Intent for new sync group
         //  2.) Device Sync Request
         //  3.) MessageHistory Sync Request
-        wait_for_min_intents(amal_b_conn, 3).await;
+        wait_for_min_intents(amal_b_conn, 3).await.unwrap();
         tracing::info!("Waiting for intents published");
 
         // Have the second installation request for a consent sync.
@@ -196,7 +196,7 @@ pub(crate) mod tests {
         // 2 Intents:
         //  1.) Device Sync Request
         //  2.) MessageHistory Sync Request
-        wait_for_min_intents(amal_a_conn, 2).await;
+        wait_for_min_intents(amal_a_conn, 2).await.unwrap();
         tracing::info!("Waiting for intents published");
 
         // Check for new welcomes to new groups in the first installation (should be welcomed to a new sync group from amal_b).

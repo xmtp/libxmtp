@@ -1,5 +1,5 @@
-use crate::utils::test::{TestClient as TestApiClient, HISTORY_SYNC_URL};
-use crate::{client::Client, identity::IdentityStrategy};
+use crate::utils::test::TestClient as TestApiClient;
+use crate::{client::Client, configuration::DeviceSyncUrls, identity::IdentityStrategy};
 use ethers::signers::LocalWallet;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
@@ -48,7 +48,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalW
         .unwrap();
 
     if history_sync {
-        client = client.device_sync_server_url(HISTORY_SYNC_URL);
+        client = client.device_sync_server_url(DeviceSyncUrls::LOCAL_ADDRESS);
     }
     let client = client.build().await.unwrap();
 

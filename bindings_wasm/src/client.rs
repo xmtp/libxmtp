@@ -15,7 +15,6 @@ use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 use crate::conversations::Conversations;
 use crate::identity::Identifier;
@@ -291,24 +290,15 @@ impl Client {
     Ok(())
   }
 
-  #[wasm_bindgen(js_name = sendHistorySyncRequest)]
-  pub async fn send_history_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::MessageHistory).await
-  }
-
-  #[wasm_bindgen(js_name = sendConsentSyncRequest)]
-  pub async fn send_consent_sync_request(&self) -> Result<(), JsError> {
-    self.send_sync_request(DeviceSyncKind::Consent).await
-  }
-
-  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<(), JsError> {
+  #[wasm_bindgen(js_name = sendSyncRequest)]
+  pub async fn send_sync_request(&self) -> Result<(), JsError> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider, kind)
+      .send_sync_request(&provider)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

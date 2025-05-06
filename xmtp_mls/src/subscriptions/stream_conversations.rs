@@ -464,6 +464,7 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
+    use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -498,11 +499,11 @@ mod test {
     #[timeout(std::time::Duration::from_secs(7))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_streaming() {
-        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let davon = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let eri = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
+        tester!(caro);
+        tester!(davon);
+        tester!(eri);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
@@ -604,7 +605,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);

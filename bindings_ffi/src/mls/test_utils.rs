@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ethers::signers::LocalWallet;
 use xmtp_common::tmp_path;
 use xmtp_id::InboxOwner;
-use xmtp_mls::utils::test::tester::*;
+use xmtp_mls::utils::test::tester_utils::*;
 
 use crate::inbox_owner::FfiInboxOwner;
 
@@ -137,7 +137,7 @@ where
         1,
         None,
         builder.sync_url.clone(),
-        Some(builder.sync_mode.clone().into()),
+        Some(builder.sync_mode.into()),
     )
     .await
     .unwrap();

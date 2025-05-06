@@ -313,7 +313,7 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        Ok(self.raw_query_read(|conn| query.load(conn))?)
     }
 
     pub fn group_messages_paged(
@@ -438,6 +438,19 @@ impl DbConnection {
         })?)
     }
 
+    /// Get a particular group message using the write connection
+    pub fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
+        Ok(self.raw_query_write(|conn| {
+            dsl::group_messages
+                .filter(dsl::id.eq(id.as_ref()))
+                .first(conn)
+                .optional()
+        })?)
+    }
+
     pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
@@ -450,6 +463,20 @@ impl DbConnection {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub fn get_sync_group_messages(
+        &self,
+        group_id: &[u8],
+        offset: i64,
+    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        let query = dsl::group_messages
+            .filter(dsl::group_id.eq(group_id))
+            .order(dsl::sent_at_ns.asc())
+            .offset(offset);
+
+        // Using write connection here to avoid potential race-conditions
+        Ok(self.raw_query_write(|conn| query.load(conn))?)
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(

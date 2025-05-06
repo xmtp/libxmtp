@@ -1,8 +1,10 @@
 #![allow(unused)]
 
+use super::{build_with_verifier, FullXmtpClient};
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
+    configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
     Client,
 };
@@ -22,6 +24,7 @@ use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_id::{
     associations::{
         ident,
+        test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
         Identifier,
     },
@@ -29,8 +32,6 @@ use xmtp_id::{
     InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
-
-use super::{FullXmtpClient, HISTORY_SYNC_URL};
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -45,41 +46,73 @@ where
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
 }
 
-pub(crate) trait LocalTester {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient>;
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
-    fn builder() -> TesterBuilder<LocalWallet>;
+#[macro_export]
+macro_rules! tester {
+    ($name:ident $(, $rest:tt)*) => {
+        let builder = $crate::utils::Tester::builder();
+        tester!(@process builder ; $name $(, $rest)*)
+    };
+
+    ($name:ident, from = $existing:ident $(, $rest:tt)*) => {
+        tester!(@process $existing.builder ; $name $(, $rest)*)
+    };
+
+    (@process $builder:expr ; $name:ident) => {
+        let $name = {
+            use tracing::Instrument;
+            use $crate::utils::LocalTesterBuilder;
+            let span = tracing::info_span!(stringify!($name));
+            $builder.build().instrument(span).await
+        };
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident = $value:expr $(, $rest:tt)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $rest)*)
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident $(, $rest:tt)*) => {
+        tester!(@process $builder.$key() ; $name $(, $rest)*)
+    };
 }
 
-impl LocalTester for Tester<LocalWallet, FullXmtpClient> {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient> {
+impl Tester<LocalWallet, FullXmtpClient> {
+    pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
 
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
+    pub(crate) async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
         let passkey_user = PasskeyUser::new().await;
         Tester::new_with_owner(passkey_user).await
     }
 
-    fn builder() -> TesterBuilder<LocalWallet> {
+    pub(crate) fn builder() -> TesterBuilder<LocalWallet> {
         TesterBuilder::new()
     }
 }
 
-pub(crate) trait XmtpClientTesterBuilder<Owner, C>
+pub(crate) trait LocalTesterBuilder<Owner, C>
 where
     Owner: InboxOwner,
 {
     async fn build(&self) -> Tester<Owner, C>;
 }
 
-impl<Owner> XmtpClientTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
+impl<Owner> LocalTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
 where
     Owner: InboxOwner + Clone,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
-        let client = ClientBuilder::new_test_client(&self.owner).await;
+        let api_client = ClientBuilder::new_api_client().await;
+        let client = build_with_verifier(
+            &self.owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            self.sync_url.as_deref(),
+            Some(self.sync_mode),
+        )
+        .await;
+
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
@@ -188,7 +221,7 @@ where
 
     pub fn with_sync_server(self) -> Self {
         Self {
-            sync_url: Some(HISTORY_SYNC_URL.to_string()),
+            sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
             ..self
         }
     }
