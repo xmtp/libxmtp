@@ -60,8 +60,9 @@ where
                 conversation_type,
                 consent_states,
                 include_duplicate_dms: true,
-                include_sync_groups: conversation_type.is_none(),
-
+                include_sync_groups: conversation_type
+                    .map(|ct| matches!(ct, ConversationType::Sync))
+                    .unwrap_or(true),
                 ..Default::default()
             })?;
 
@@ -127,6 +128,7 @@ where
                         .send(LocalEvents::SyncWorkerEvent(
                             SyncWorkerEvent::NewSyncGroupMsg,
                         ));
+                    return self.poll_next(cx);
                 }
             };
 
