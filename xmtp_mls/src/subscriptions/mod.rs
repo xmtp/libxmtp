@@ -225,7 +225,7 @@ where
         match future.process().await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
             ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
-            ProcessWelcomeResult::IgnoreId { .. } => {
+            ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
                 Err(stream_conversations::ConversationStreamError::InvalidConversationType.into())
             }
         }

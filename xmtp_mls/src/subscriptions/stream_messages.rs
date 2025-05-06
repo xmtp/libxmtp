@@ -420,7 +420,7 @@ where
             this.state.set(State::Waiting);
             return self.as_mut().poll_next(cx);
         }
-        return self.as_mut().resolve_replaying(cx, replay_until);
+        self.as_mut().resolve_replaying(cx, replay_until)
     }
 }
 

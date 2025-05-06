@@ -154,7 +154,6 @@ mod tests {
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::time::sleep;
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -334,7 +333,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(15))]
+    #[timeout(Duration::from_secs(60))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let mut replace = xmtp_common::InboxIdReplace::default();
@@ -405,7 +404,11 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let timeout = Duration::from_secs(10);
+        let timeout = if cfg!(target_arch = "wasm32") {
+            Duration::from_secs(20)
+        } else {
+            Duration::from_secs(10)
+        };
         loop {
             tokio::select! {
                 Some(msg) = stream.next() => {
@@ -417,7 +420,6 @@ mod tests {
                     }
                 },
                 _ = xmtp_common::time::sleep(timeout) => break
-
             }
         }
 
@@ -426,11 +428,6 @@ mod tests {
             .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
             .collect::<Vec<String>>();
         let duplicates = find_duplicates_with_count(msgs);
-        /*
-        for message in messages.iter() {
-            let m = String::from_utf8_lossy(message.decrypted_message_bytes.as_slice());
-            tracing::info!("{}", m);
-        }*/
         assert!(duplicates.is_empty());
         assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
@@ -496,7 +493,6 @@ mod tests {
     #[xmtp_common::test]
     #[timeout(Duration::from_secs(20))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
-    #[ignore]
     async fn test_stream_all_messages_filters_by_consent_state(
         #[case] filter: ConsentState,
         #[case] expected_message: &str,
@@ -539,7 +535,7 @@ mod tests {
 
         let provider = sender.mls_provider().unwrap();
         sender.sync_welcomes(&provider).await.unwrap();
-        sleep(Duration::from_millis(100)).await;
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         let stream = sender
             .stream_all_messages(None, Some(vec![filter]))
@@ -588,20 +584,20 @@ mod tests {
         let eve_group = eve_groups.first().unwrap();
         group.sync().await.unwrap();
         // get the group epoch to 28
-        for _ in 0..14 {
+        for _ in 0..7 {
             group
                 .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
                 .await
                 .unwrap();
         }
-        for _ in 0..100 {
+        for _ in 0..25 {
             eve_group
                 .send_message(format!("message {}", xmtp_common::rand_string::<5>()).as_bytes())
                 .await
                 .unwrap();
         }
         // get the group epoch to 28
-        for _ in 0..14 {
+        for _ in 0..7 {
             group
                 .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
                 .await

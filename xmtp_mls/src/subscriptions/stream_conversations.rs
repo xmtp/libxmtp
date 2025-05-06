@@ -262,6 +262,8 @@ pub enum ProcessWelcomeResult<C> {
     },
     /// Skip this welcome but add and id to known welcome ids
     IgnoreId { id: i64 },
+    /// Skip this payload
+    Ignore,
 }
 
 impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
@@ -296,6 +298,13 @@ where
             Ready(Ok(ProcessWelcomeResult::IgnoreId { id })) => {
                 tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
                 this.known_welcome_ids.insert(id);
+                this.state.as_mut().set(ProcessState::Waiting);
+                // we have to re-ad this task to the queue
+                // to let http know we are waiting on the next item
+                self.poll_next(cx)
+            }
+            Ready(Ok(ProcessWelcomeResult::Ignore)) => {
+                tracing::debug!("ignoring streamed conversation payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
@@ -390,6 +399,7 @@ where
                     let (group, id) = self.load_from_store(id)?;
                     return self.filter(ProcessWelcomeResult::New { group, id }).await;
                 }
+                // sync welcome from the network
                 let (group, id) = self.on_welcome(welcome).await?;
                 ProcessWelcomeResult::New { group, id }
             }
@@ -425,9 +435,34 @@ where
                     .conversation_type
                     .is_none_or(|ct| ct == metadata.conversation_type)
                 {
-                    return Ok(ProcessWelcomeResult::New { group, id });
+                    Ok(ProcessWelcomeResult::New { group, id })
                 } else {
-                    return Ok(ProcessWelcomeResult::IgnoreId { id });
+                    Ok(ProcessWelcomeResult::IgnoreId { id })
+                }
+            }
+            NewStored { group, maybe_id } => {
+                let metadata = group.metadata(&self.provider).await?;
+                // If it's a duplicate DM, don’t stream
+                if metadata.conversation_type == ConversationType::Dm
+                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                {
+                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
+                    if let Some(id) = maybe_id {
+                        return Ok(ProcessWelcomeResult::IgnoreId { id });
+                    } else {
+                        return Ok(ProcessWelcomeResult::Ignore);
+                    }
+                }
+
+                if self
+                    .conversation_type
+                    .is_none_or(|ct| ct == metadata.conversation_type)
+                {
+                    Ok(ProcessWelcomeResult::NewStored { group, maybe_id })
+                } else if let Some(id) = maybe_id {
+                    Ok(ProcessWelcomeResult::IgnoreId { id })
+                } else {
+                    Ok(ProcessWelcomeResult::Ignore)
                 }
             }
             other => Ok(other),
@@ -521,18 +556,20 @@ mod test {
     }
 
     #[rstest::rstest]
+    #[case(ConversationType::Dm, "Unexpectedly received a Group")]
+    #[case(ConversationType::Group, "Unexpectedly received a DM")]
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(7))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
-    async fn test_dm_streaming() {
+
+    // #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_dm_stream_filter(
+        #[case] conversation_type: ConversationType,
+        #[case] expected: &str,
+    ) {
         tester!(alix);
         tester!(bo);
-        tester!(caro);
-        tester!(davon);
-        tester!(eri);
-
         let stream = alix
-            .stream_conversations(Some(ConversationType::Group))
+            .stream_conversations(Some(conversation_type))
             .await
             .unwrap();
         futures::pin_mut!(stream);
@@ -540,9 +577,6 @@ mod test {
         alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
             .await
             .unwrap();
-        let result =
-            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a DM group");
 
         let group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -553,37 +587,32 @@ mod test {
             .unwrap();
 
         let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-
-        // Start a stream with only dms
-        // Start a stream with conversation_type DM
-        let stream = alix
-            .stream_conversations(Some(ConversationType::Dm))
-            .await
-            .unwrap();
-        futures::pin_mut!(stream);
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
+        let metadata = group
+            .unwrap()
+            .metadata(&alix.context().mls_provider().unwrap())
             .await
             .unwrap();
 
-        // we should not get a message
+        assert_eq!(
+            metadata.conversation_type, conversation_type,
+            "{}",
+            expected
+        );
+        // there is only one item on the stream
         let result =
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a Group");
+        assert!(result.is_err(), "should only be one item in the stream");
+    }
 
-        alix.find_or_create_dm_by_inbox_id(
-            caro.inbox_id().to_string(),
-            DMMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(7))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_dm_stream_all_conversation_types() {
+        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let davon = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let eri = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
         // Start a stream with all conversations
         let mut groups = Vec::new();
