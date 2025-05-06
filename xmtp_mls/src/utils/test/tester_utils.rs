@@ -52,13 +52,13 @@ where
 
 #[macro_export]
 macro_rules! tester {
-    ($name:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
-        let builder = $crate::utils::Tester::builder();
-        tester!(@process builder ; $name $(, $k $(($s))? $(($v))?)*)
-    };
-
     ($name:ident, from: $existing:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
         tester!(@process $existing.builder ; $name $(, $k $(($s))? $(($v))?)*)
+    };
+
+    ($name:ident $(, $k:ident $(: $v:expr)?)*) => {
+        let builder = $crate::utils::Tester::builder();
+        tester!(@process builder ; $name $(, $k $(: $v)?)*)
     };
 
     (@process $builder:expr ; $name:ident) => {
@@ -70,12 +70,12 @@ macro_rules! tester {
         };
     };
 
-    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
-        tester!(@process $builder.$key($value) ; $name $(, $k $(($s))? $(($v))?)*)
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $k $(: $v)?)*)
     };
 
-    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
-        tester!(@process $builder.$key() ; $name $(, $k $(($s))? $(($v))?)*)
+    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(: $v:expr)?)*) => {
+        tester!(@process $builder.$key() ; $name $(, $k $(: $v)?)*)
     };
 }
 

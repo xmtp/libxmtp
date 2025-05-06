@@ -1,5 +1,5 @@
 use super::*;
-use crate::{tester, utils::LocalTesterBuilder};
+use crate::tester;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, StoredGroup},
