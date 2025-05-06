@@ -3,7 +3,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
 use rand::{rngs::OsRng, RngCore};
 use xmtp_mls::configuration::CIPHERSUITE;
-use xmtp_mls::utils::bench::re_export::encrypt_welcome;
+use xmtp_mls::utils::bench::re_export::{wrap_welcome, WrapperAlgorithm};
 
 fn bench_encrypt_welcome(c: &mut Criterion) {
     let sizes = [
@@ -33,7 +33,7 @@ fn bench_encrypt_welcome(c: &mut Criterion) {
         134_217_728,
     ];
 
-    let mut benchmark_group = c.benchmark_group("encrypt_welcome");
+    let mut benchmark_group = c.benchmark_group("wrap_welcome");
     benchmark_group.sample_size(10);
 
     for size in sizes.iter() {
@@ -50,7 +50,7 @@ fn bench_encrypt_welcome(c: &mut Criterion) {
                     OsRng.fill_bytes(payload.as_mut_slice());
                     (payload, keypair.public)
                 },
-                |(payload, key)| encrypt_welcome(&payload, &key),
+                |(payload, key)| wrap_welcome(&payload, &key, &WrapperAlgorithm::Curve25519),
                 BatchSize::SmallInput,
             )
         });
