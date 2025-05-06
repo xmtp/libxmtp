@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::ApiError;
-use crate::{Result, XmtpApi};
+use crate::Result;
 use futures::future::try_join_all;
 use xmtp_common::RetryableError;
+use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_identity_updates_request::Request as GetIdentityUpdatesV2RequestProto,
     get_identity_updates_response::IdentityUpdateLog,
@@ -12,6 +13,7 @@ use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request, GetInboxIdsRequest,
     PublishIdentityUpdateRequest,
 };
+
 use xmtp_proto::xmtp::identity::api::v1::{
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
@@ -45,12 +47,13 @@ pub struct ApiIdentifier {
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpApi,
+    ApiClient: XmtpIdentityClient,
 {
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(&self, update: U) -> Result<()> {
+        let update: IdentityUpdate = update.into();
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
-                identity_update: Some(update.into()),
+                identity_update: Some(update),
             })
             .await
             .map_err(crate::dyn_err)?;
@@ -193,7 +196,7 @@ pub(crate) mod tests {
             .withf(move |req| req.identity_update.as_ref().unwrap().inbox_id.eq(&inbox_id))
             .returning(move |_| Ok(PublishIdentityUpdateResponse {}));
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper.publish_identity_update(identity_update).await;
 
         assert!(result.is_ok());
@@ -234,7 +237,7 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper
             .get_identity_updates_v2(vec![GetIdentityUpdatesV2Filter {
                 inbox_id: inbox_id_clone_2.clone(),
@@ -280,7 +283,7 @@ pub(crate) mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper
             .get_inbox_ids(vec![ApiIdentifier {
                 identifier: address.clone(),

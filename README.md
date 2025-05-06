@@ -29,16 +29,27 @@ Start Docker Desktop.
 - To run tests:
 
   ```
-  dev/test
+  RUST_LOG=off cargo test
   ```
 
+  Many team members also install and use `cargo nextest` for better test isolation and log output behavior.
+
 - To run WebAssembly tests headless:
+
   ```
-  dev/test-wasm
+  dev/test/wasm
   ```
+
 - To run WebAssembly tests interactively for a package, for example, `xmtp_mls`:
+
   ```
-  dev/test-wasm-interactive xmtp_mls
+  dev/test/wasm-interactive xmtp_mls
+  ```
+
+- To run browser SDK tests:
+
+  ```
+  dev/test/browser-sdk
   ```
 
 ## Quick Start (Dev Containers)

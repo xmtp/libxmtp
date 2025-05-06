@@ -25,6 +25,15 @@ impl From<XmtpGroupMessageKind> for GroupMessageKind {
   }
 }
 
+impl From<GroupMessageKind> for XmtpGroupMessageKind {
+  fn from(kind: GroupMessageKind) -> Self {
+    match kind {
+      GroupMessageKind::Application => XmtpGroupMessageKind::Application,
+      GroupMessageKind::MembershipChange => XmtpGroupMessageKind::MembershipChange,
+    }
+  }
+}
+
 #[wasm_bindgen]
 #[derive(Clone)]
 pub enum DeliveryStatus {
@@ -82,20 +91,21 @@ pub struct ListMessagesOptions {
   #[wasm_bindgen(js_name = deliveryStatus)]
   pub delivery_status: Option<DeliveryStatus>,
   pub direction: Option<SortDirection>,
+  pub kind: Option<GroupMessageKind>,
 }
 
 impl From<ListMessagesOptions> for MsgQueryArgs {
   fn from(opts: ListMessagesOptions) -> MsgQueryArgs {
-    let delivery_status = opts.delivery_status.map(Into::into);
-    let direction = opts.direction.map(Into::into);
-
     MsgQueryArgs {
       sent_before_ns: opts.sent_before_ns,
       sent_after_ns: opts.sent_after_ns,
-      delivery_status,
+      delivery_status: opts.delivery_status.map(Into::into),
       limit: opts.limit,
-      direction,
-      ..Default::default()
+      direction: opts.direction.map(Into::into),
+      kind: opts.kind.map(Into::into),
+      content_types: opts
+        .content_types
+        .map(|t| t.into_iter().map(Into::into).collect()),
     }
   }
 }
@@ -110,6 +120,7 @@ impl ListMessagesOptions {
     delivery_status: Option<DeliveryStatus>,
     direction: Option<SortDirection>,
     content_types: Option<Vec<ContentType>>,
+    kind: Option<GroupMessageKind>,
   ) -> Self {
     Self {
       sent_before_ns,
@@ -118,6 +129,7 @@ impl ListMessagesOptions {
       delivery_status,
       direction,
       content_types,
+      kind,
     }
   }
 }

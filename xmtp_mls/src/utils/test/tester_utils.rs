@@ -1,61 +1,143 @@
 #![allow(unused)]
 
+use super::{build_with_verifier, FullXmtpClient};
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
+    client::ClientError,
+    configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    subscriptions::SubscribeError,
+    Client,
 };
 use ethers::signers::LocalWallet;
+use futures::Stream;
 use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
-    client::{Client, DefaultClientData},
+    client::{Client as PasskeyClient, DefaultClientData},
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
+use xmtp_api::XmtpApi;
+use xmtp_common::StreamHandle;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
-use xmtp_db::XmtpOpenMlsProvider;
+use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
 use xmtp_id::{
     associations::{
         ident,
+        test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
         Identifier,
     },
+    scw_verifier::SmartContractSignatureVerifier,
     InboxOwner,
 };
-
-use super::FullXmtpClient;
+use xmtp_proto::prelude::XmtpTestClient;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 #[allow(dead_code)]
-pub struct Tester<Owner, Client> {
-    pub owner: Owner,
-    pub client: Client,
+pub struct Tester<Owner, Client>
+where
+    Owner: InboxOwner,
+{
+    pub builder: TesterBuilder<Owner>,
+    pub client: Arc<Client>,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
 }
 
-pub(crate) trait XmtpClientWalletTester {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient>;
+#[macro_export]
+macro_rules! tester {
+    ($name:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        let builder = $crate::utils::Tester::builder();
+        tester!(@process builder ; $name $(, $k $(($s))? $(($v))?)*)
+    };
+
+    ($name:ident, from: $existing:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $existing.builder ; $name $(, $k $(($s))? $(($v))?)*)
+    };
+
+    (@process $builder:expr ; $name:ident) => {
+        let $name = {
+            use tracing::Instrument;
+            use $crate::utils::LocalTesterBuilder;
+            let span = tracing::info_span!(stringify!($name));
+            $builder.build().instrument(span).await
+        };
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $k $(($s))? $(($v))?)*)
+    };
+
+    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $builder.$key() ; $name $(, $k $(($s))? $(($v))?)*)
+    };
 }
 
-pub(crate) trait XmtpClientPasskeyTester {
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient>;
-}
-
-impl XmtpClientWalletTester for Tester<LocalWallet, FullXmtpClient> {
-    async fn new() -> Tester<LocalWallet, FullXmtpClient> {
+impl Tester<LocalWallet, FullXmtpClient> {
+    pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
         let wallet = generate_local_wallet();
-        Self::new_from_owner(wallet).await
+        Tester::new_with_owner(wallet).await
+    }
+
+    pub(crate) async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
+        let passkey_user = PasskeyUser::new().await;
+        Tester::new_with_owner(passkey_user).await
+    }
+
+    pub(crate) fn builder() -> TesterBuilder<LocalWallet> {
+        TesterBuilder::new()
     }
 }
 
-impl XmtpClientPasskeyTester for Tester<PasskeyUser, FullXmtpClient> {
-    async fn new_passkey() -> Tester<PasskeyUser, FullXmtpClient> {
-        let passkey_user = PasskeyUser::new().await;
-        Self::new_from_owner(passkey_user).await
+pub(crate) trait LocalTesterBuilder<Owner, C>
+where
+    Owner: InboxOwner,
+{
+    async fn build(&self) -> Tester<Owner, C>;
+}
+
+impl<Owner> LocalTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
+where
+    Owner: InboxOwner + Clone + 'static,
+{
+    async fn build(&self) -> Tester<Owner, FullXmtpClient> {
+        let api_client = ClientBuilder::new_api_client().await;
+        let client = build_with_verifier(
+            &self.owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            self.sync_url.as_deref(),
+            Some(self.sync_mode),
+        )
+        .await;
+        let client = Arc::new(client);
+
+        let provider = client.mls_provider().unwrap();
+        let worker = client.device_sync.worker_handle();
+        if let Some(worker) = &worker {
+            if self.wait_for_init {
+                worker.wait_for_init().await.unwrap();
+            }
+        }
+        client.sync_welcomes(&provider).await;
+
+        let mut tester = Tester {
+            builder: self.clone(),
+            client,
+            provider: Arc::new(provider),
+            worker,
+            stream_handle: None,
+        };
+
+        tester.stream().await;
+
+        tester
     }
 }
 
@@ -63,32 +145,19 @@ impl<Owner> Tester<Owner, FullXmtpClient>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) async fn new_from_owner(owner: Owner) -> Self {
-        let client = ClientBuilder::new_test_client(&owner).await;
-        let provider = client.mls_provider().unwrap();
-        let worker = client.device_sync.worker_handle();
-        if let Some(worker) = &worker {
-            worker.wait_for_init().await.unwrap();
-        }
-
-        Self {
-            owner,
-            client,
-            provider: Arc::new(provider),
-            worker,
-        }
+    pub(crate) async fn new_with_owner(owner: Owner) -> Self {
+        TesterBuilder::new().owner(owner).build().await
     }
 
-    pub(crate) async fn new_installation(&self) -> Self {
-        let cloned = Self::new_from_owner(self.owner.clone()).await;
-        // The cloned will have created a new sync grup and invited you to it.
-        // Sync the welcomes to become a part of it.
-        self.sync_welcomes(&self.provider).await.unwrap();
-        cloned
-    }
-
-    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
-        self.worker.as_ref().unwrap()
+    async fn stream(&mut self) {
+        let handle = FullXmtpClient::stream_all_messages_with_callback(
+            self.client.clone(),
+            None,
+            None,
+            |_| {},
+        );
+        let handle = Box::new(handle) as Box<_>;
+        self.stream_handle = Some(handle);
     }
 }
 
@@ -97,11 +166,11 @@ impl<Owner, Client> Tester<Owner, Client>
 where
     Owner: InboxOwner + Clone + 'static,
 {
-    pub(crate) fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
-        TesterBuilder {
-            owner: Some(owner),
-            ..Default::default()
-        }
+    pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
+        TesterBuilder::new().owner(owner)
+    }
+    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+        self.worker.as_ref().unwrap()
     }
 }
 
@@ -116,43 +185,98 @@ where
     }
 }
 
-pub(crate) struct TesterBuilder<Owner> {
-    owner: Option<Owner>,
-    sync_mode: Option<SyncWorkerMode>,
+#[derive(Clone)]
+pub struct TesterBuilder<Owner>
+where
+    Owner: InboxOwner,
+{
+    pub owner: Owner,
+    pub sync_mode: SyncWorkerMode,
+    pub sync_url: Option<String>,
+    pub wait_for_init: bool,
+    pub stream: bool,
 }
 
-impl<Owner> TesterBuilder<Owner> {
-    pub(crate) fn owner<NewOwner>(self, owner: NewOwner) -> TesterBuilder<NewOwner> {
-        TesterBuilder {
-            owner: Some(owner),
-            sync_mode: self.sync_mode,
+impl TesterBuilder<LocalWallet> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for TesterBuilder<LocalWallet> {
+    fn default() -> Self {
+        Self {
+            owner: generate_local_wallet(),
+            sync_mode: SyncWorkerMode::Disabled,
+            sync_url: None,
+            wait_for_init: true,
+            stream: false,
         }
     }
-    pub(crate) fn sync_mode(self, mode: SyncWorkerMode) -> Self {
+}
+
+impl<Owner> TesterBuilder<Owner>
+where
+    Owner: InboxOwner,
+{
+    pub fn owner<NewOwner>(self, owner: NewOwner) -> TesterBuilder<NewOwner>
+    where
+        NewOwner: InboxOwner,
+    {
+        TesterBuilder {
+            owner,
+            sync_mode: self.sync_mode,
+            sync_url: self.sync_url,
+            wait_for_init: self.wait_for_init,
+            stream: self.stream,
+        }
+    }
+
+    pub async fn passkey_owner(self) -> TesterBuilder<PasskeyUser> {
+        self.owner(PasskeyUser::new().await)
+    }
+
+    pub fn sync_worker(self) -> Self {
         Self {
-            sync_mode: Some(mode),
+            sync_mode: SyncWorkerMode::Enabled,
             ..self
         }
     }
-}
 
-impl<Owner> Default for TesterBuilder<Owner> {
-    fn default() -> Self {
+    pub fn sync_server(self) -> Self {
         Self {
-            owner: None,
-            sync_mode: None,
+            sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
+            ..self
         }
+    }
+
+    pub fn stream(self) -> Self {
+        Self {
+            stream: true,
+            ..self
+        }
+    }
+
+    pub fn do_not_wait_for_init(self) -> Self {
+        Self {
+            wait_for_init: false,
+            ..self
+        }
+    }
+
+    pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {
+        Self { sync_mode, ..self }
     }
 }
 
-pub type PasskeyCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-pub type PasskeyClient = Client<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+pub type PKCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
+pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
 
 #[derive(Clone)]
 pub struct PasskeyUser {
     origin: Url,
-    pk_cred: Arc<PasskeyCredential>,
-    pk_client: Arc<Mutex<PasskeyClient>>,
+    pk_cred: Arc<PKCredential>,
+    pk_client: Arc<Mutex<PKClient>>,
 }
 
 impl InboxOwner for PasskeyUser {
@@ -217,7 +341,7 @@ impl PasskeyUser {
         let pk_aaguid = Aaguid::new_empty();
         let pk_user_validation_method = PkUserValidationMethod {};
         let pk_auth = Authenticator::new(pk_aaguid, pk_auth_store, pk_user_validation_method);
-        let mut pk_client = Client::new(pk_auth);
+        let mut pk_client = PasskeyClient::new(pk_auth);
 
         let request = CredentialCreationOptions {
             public_key: PublicKeyCredentialCreationOptions {

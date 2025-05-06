@@ -13,10 +13,9 @@ use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
-use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
-};
+use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::{Identifier, IdentityExt};
@@ -26,6 +25,7 @@ use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
 use serde::{Deserialize, Serialize};
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
+use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 
 #[napi]
 #[derive(Debug)]
@@ -61,6 +61,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -69,6 +70,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -79,6 +81,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
@@ -103,7 +106,10 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       created_after_ns: opts.created_after_ns,
       include_duplicate_dms: opts.include_duplicate_dms,
       limit: opts.limit,
-      ..Default::default()
+      allowed_states: None,
+      conversation_type: None,
+      include_sync_groups: false,
+      activity_after_ns: None,
     }
   }
 }
@@ -148,6 +154,23 @@ impl From<XmtpHmacKey> for HmacKey {
   }
 }
 
+#[napi(object)]
+pub struct ConversationDebugInfo {
+  pub epoch: BigInt,
+  pub maybe_forked: bool,
+  pub fork_details: String,
+}
+
+impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
+  fn from(value: XmtpConversationDebugInfo) -> Self {
+    Self {
+      epoch: BigInt::from(value.epoch),
+      maybe_forked: value.maybe_forked,
+      fork_details: value.fork_details,
+    }
+  }
+}
+
 // TODO: Napi-rs 3.0.0 will support structured enums
 // alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
 // PR: https://github.com/napi-rs/napi-rs/pull/2222
@@ -161,20 +184,18 @@ pub enum Tag<T> {
 #[derive(Serialize, Deserialize)]
 pub enum UserPreferenceUpdate {
   ConsentUpdate { consent: Consent },
-  HmacKeyUpdate { key: Vec<u8> },
+  HmacKeyUpdate { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
 impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
+      XmtpUserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key, cycled_at_ns })
       }
-      XmtpUserPreferenceUpdate::ConsentUpdate(consent) => {
-        Tag::V(UserPreferenceUpdate::ConsentUpdate {
-          consent: Consent::from(consent),
-        })
-      }
+      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
+        consent: Consent::from(consent),
+      }),
     }
   }
 }
@@ -498,8 +519,12 @@ impl Conversations {
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
-    let consents: Option<Vec<XmtpConsentState>> =
-      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+    let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
+      states
+        .into_iter()
+        .map(|state: ConsentState| state.into())
+        .collect()
+    });
 
     let num_groups_synced = self
       .inner_client
@@ -508,6 +533,24 @@ impl Conversations {
       .map_err(ErrorWrapper::from)?;
 
     Ok(num_groups_synced)
+  }
+
+  #[napi]
+  pub async fn sync_device_sync(&self) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .await
+      .map_err(ErrorWrapper::from)?
+      .sync()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
   }
 
   #[napi]
@@ -535,10 +578,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -559,9 +602,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -635,11 +679,14 @@ impl Conversations {
     self.stream(callback, Some(ConversationType::Dm))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
+  )]
   pub fn stream_all_messages(
     &self,
     callback: JsFunction,
     conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
     tracing::trace!(
       inbox_id = self.inner_client.inbox_id(),
@@ -648,36 +695,83 @@ impl Conversations {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let inbox_id = self.inner_client.inbox_id().to_string();
+    let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
+      states
+        .into_iter()
+        .map(|state: ConsentState| state.into())
+        .collect()
+    });
+
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
+      consents,
       move |message| {
         tracing::trace!(
             inbox_id,
             conversation_type = ?conversation_type,
-            "[received] calling tsfn callback"
+            "[received] message result"
         );
-        tsfn.call(
-          message
-            .map(Into::into)
-            .map_err(ErrorWrapper::from)
-            .map_err(Error::from),
-          ThreadsafeFunctionCallMode::Blocking,
-        );
+
+        // Skip any messages that are errors
+        if let Err(err) = &message {
+          tracing::warn!(
+            inbox_id,
+            error = ?err,
+            "[received] message error, swallowing to continue stream"
+          );
+          return; // Skip this message entirely
+        }
+
+        // For successful messages, try to transform and pass to JS
+        // otherwise log error and continue stream
+        match message
+          .map(Into::into)
+          .map_err(ErrorWrapper::from)
+          .map_err(Error::from)
+        {
+          Ok(transformed_msg) => {
+            tracing::trace!(
+              inbox_id,
+              "[received] calling tsfn callback with successful message"
+            );
+            tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
+          }
+          Err(err) => {
+            // Just in case the transformation itself fails
+            tracing::error!(
+              inbox_id,
+              error = ?err,
+              "[received] error during message transformation, swallowing to continue stream"
+            );
+          }
+        }
       },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
-  pub fn stream_all_group_messages(&self, callback: JsFunction) -> Result<StreamCloser> {
-    self.stream_all_messages(callback, Some(ConversationType::Group))
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+  )]
+  pub fn stream_all_group_messages(
+    &self,
+    callback: JsFunction,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<StreamCloser> {
+    self.stream_all_messages(callback, Some(ConversationType::Group), consent_states)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
-  pub fn stream_all_dm_messages(&self, callback: JsFunction) -> Result<StreamCloser> {
-    self.stream_all_messages(callback, Some(ConversationType::Dm))
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+  )]
+  pub fn stream_all_dm_messages(
+    &self,
+    callback: JsFunction,
+    consent_states: Option<Vec<ConsentState>>,
+  ) -> Result<StreamCloser> {
+    self.stream_all_messages(callback, Some(ConversationType::Dm), consent_states)
   }
 
   #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]

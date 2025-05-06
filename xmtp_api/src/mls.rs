@@ -386,7 +386,7 @@ pub mod tests {
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper.upload_key_package(key_package_clone, false).await;
         assert!(result.is_ok());
     }
@@ -409,7 +409,7 @@ pub mod tests {
                 ],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
         let result = wrapper
             .fetch_key_packages(installation_keys.clone())
             .await
@@ -447,7 +447,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -479,7 +479,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -530,7 +530,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone2, None)
@@ -564,7 +564,7 @@ pub mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api.into(), exponential().build());
+        let wrapper = ApiClientWrapper::new(mock_api, exponential().build());
 
         let result = wrapper
             .query_group_messages(group_id_clone, None)
@@ -583,7 +583,7 @@ pub mod tests {
         client.rate_per_minute(1);
         let _ = client.set_app_version("999.999.999".into());
         let c = client.build().await.unwrap();
-        let wrapper = ApiClientWrapper::new(c.into(), Retry::default());
+        let wrapper = ApiClientWrapper::new(c, Retry::default());
         let _first = wrapper.query_group_messages(vec![0, 0], None).await;
         let now = std::time::Instant::now();
         let _second = wrapper.query_group_messages(vec![0, 0], None).await;

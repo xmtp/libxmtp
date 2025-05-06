@@ -24,8 +24,10 @@ use crate::{
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::ConversationType,
-    group_message::StoredGroupMessage, NotFound, StorageError,
+    consent_record::{ConsentState, StoredConsentRecord},
+    group::ConversationType,
+    group_message::StoredGroupMessage,
+    NotFound, StorageError,
 };
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
@@ -48,13 +50,18 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncMessage(SyncMessage),
-    OutgoingPreferenceUpdates(Vec<UserPreferenceUpdate>),
-    IncomingPreferenceUpdate(Vec<UserPreferenceUpdate>),
+    SyncWorkerEvent(SyncWorkerEvent),
+    PreferencesChanged(Vec<UserPreferenceUpdate>),
 }
 
 #[derive(Debug, Clone)]
-pub enum SyncMessage {
+pub enum SyncWorkerEvent {
+    NewSyncGroupFromWelcome(Vec<u8>),
+    NewSyncGroupMsg,
+    // The sync worker will auto-sync these with other devices.
+    SyncPreferences(Vec<UserPreferenceUpdate>),
+
+    // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
 }
@@ -73,60 +80,35 @@ impl LocalEvents {
         use LocalEvents::*;
 
         match &self {
-            SyncMessage(_) => Some(self),
-            OutgoingPreferenceUpdates(_) => Some(self),
-            IncomingPreferenceUpdate(_) => Some(self),
+            SyncWorkerEvent(_) => Some(self),
             _ => None,
         }
     }
 
     fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
-        use LocalEvents::*;
-
         match self {
-            OutgoingPreferenceUpdates(updates) => {
+            Self::PreferencesChanged(updates) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
+                        UserPreferenceUpdate::Consent(cr) => Some(cr),
                         _ => None,
                     })
                     .collect();
                 Some(updates)
             }
-            IncomingPreferenceUpdate(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(cr) => Some(cr),
-                        _ => None,
-                    })
-                    .collect();
-                Some(updates)
-            }
+
             _ => None,
         }
     }
 
     fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
-        use LocalEvents::*;
-
         match self {
-            OutgoingPreferenceUpdates(updates) => {
+            Self::PreferencesChanged(updates) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
-                        _ => Some(pu),
-                    })
-                    .collect();
-                Some(updates)
-            }
-            IncomingPreferenceUpdate(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::ConsentUpdate(_) => None,
+                        UserPreferenceUpdate::Consent(_) => None,
                         _ => Some(pu),
                     })
                     .collect();
@@ -290,6 +272,7 @@ where
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -298,12 +281,13 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new(self, conversation_type).await
+        StreamAllMessages::new(self, conversation_type, consent_state).await
     }
 
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, V>>,
         conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
             + Send
             + 'static,
@@ -312,9 +296,12 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client.stream_all_messages(conversation_type).await?;
+            let stream = client
+                .stream_all_messages(conversation_type, consent_state)
+                .await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
+
             while let Some(message) = stream.next().await {
                 callback(message)
             }

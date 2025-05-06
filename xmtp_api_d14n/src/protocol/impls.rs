@@ -1,8 +1,7 @@
 //! General Blanket Implementations for protocol traits
 
-use super::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
+use super::{EnvelopeError, EnvelopeVisitor};
 use impl_trait_for_tuples::impl_for_tuples;
-use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessageInput;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
@@ -14,6 +13,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
 use xmtp_proto::xmtp::xmtpv4::envelopes::{
     ClientEnvelope, OriginatorEnvelope, PayerEnvelope, UnsignedOriginatorEnvelope,
 };
+use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 
 // enables combining arbitrary # of visitors into one, ext: process = (ValidateMessage::new(), ExtractMessage::new());
 // Therefore not re-doing deserialization for each processing step.
@@ -93,8 +93,23 @@ impl<'a> EnvelopeVisitor<'a> for Tuple {
         for_tuples!( #( Tuple.visit_identity_update(u)?; )* );
         Ok(())
     }
+
+    fn visit_none(&mut self) -> Result<(), Self::Error> {
+        for_tuples!( #( Tuple.visit_none()?; )* );
+        Ok(())
+    }
+
+    /// Visit a Newest Envelope Response
+    fn visit_newest_envelope_response(
+        &mut self,
+        u: &get_newest_envelope_response::Response,
+    ) -> Result<(), Self::Error> {
+        for_tuples!( #( Tuple.visit_newest_envelope_response(u)?; )* );
+        Ok(())
+    }
 }
 
+// run extractors of the same type in sequence
 impl<'a, T> EnvelopeVisitor<'a> for Vec<T>
 where
     T: EnvelopeVisitor<'a>,
@@ -172,7 +187,12 @@ where
         Ok(())
     }
 }
-
+/*
+* WARN: ProtocolEnvelope implementation for a Vec<T>
+* should be avoided, since it may cause Envelope
+* to implicity act on a collection when a single envelope is expected.
+* Theres a way to seal this trait implementation to
+* avoid external implementations which should be done.
 impl<'env, T> ProtocolEnvelope<'env> for Vec<T>
 where
     T: ProtocolEnvelope<'env>,
@@ -194,3 +214,4 @@ where
         Ok(())
     }
 }
+*/

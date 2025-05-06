@@ -362,6 +362,17 @@ where
                     );
                     let (group, id) = self.load_from_store(id).map(|(g, v)| (g, Some(v)))?;
                     let metadata = group.metadata(&self.provider).await?;
+
+                    // If it's a duplicate DM, don't stream
+                    if metadata.conversation_type == ConversationType::Dm
+                        && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                    {
+                        tracing::debug!(
+                            "Duplicate DM group detected from welcome. Skipping stream."
+                        );
+                        return Ok(None);
+                    }
+
                     return Ok(self
                         .conversation_type
                         .is_none_or(|ct| ct == metadata.conversation_type)
@@ -375,6 +386,17 @@ where
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
                 let (group, stored_group) =
                     MlsGroup::new_validated(self.client, id, &self.provider)?;
+
+                let metadata = group.metadata(&self.provider).await?;
+
+                // If it's a duplicate DM, don’t stream
+                if metadata.conversation_type == ConversationType::Dm
+                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                {
+                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
+                    return Ok(None);
+                }
+
                 (group, stored_group.welcome_id)
             }
         };
@@ -407,20 +429,12 @@ where
             "Trying to process streamed welcome"
         );
 
-        let group = retry_async!(
+        retry_async!(
             Retry::default(),
-            (async { MlsGroup::create_from_welcome(client, provider, welcome, false).await })
-        );
+            (async { client.sync_welcomes(provider).await })
+        )?;
 
-        if let Err(e) = group {
-            tracing::info!("Processing welcome failed, trying to load existing..");
-            // try to load it from the store again in case of race
-            return self
-                .load_from_store(id)
-                .map_err(|_| SubscribeError::from(e));
-        }
-
-        Ok((group?, id))
+        self.load_from_store(id)
     }
 
     /// Load a group from disk by its welcome_id
@@ -450,6 +464,7 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
+    use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -484,11 +499,11 @@ mod test {
     #[timeout(std::time::Duration::from_secs(7))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_streaming() {
-        let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let davon = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let eri = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
+        tester!(caro);
+        tester!(davon);
+        tester!(eri);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
@@ -590,7 +605,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
@@ -620,5 +635,49 @@ mod test {
             .unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_duplicate_dm_not_streamed() {
+        use crate::groups::DMMetadataOptions;
+        use xmtp_cryptography::utils::generate_local_wallet;
+
+        let client1 = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let client2 = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let mut stream = client1.stream_conversations(None).await.unwrap();
+
+        // First DM - should stream
+        let dm1 = client1
+            .find_or_create_dm_by_inbox_id(
+                client2.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let streamed_dm1 = stream.next().await.unwrap();
+        assert!(streamed_dm1.is_ok());
+        assert_eq!(streamed_dm1.unwrap().group_id, dm1.group_id);
+
+        // Create a second DM with same participants — triggers duplicate logic
+        let dm2 = client2
+            .find_or_create_dm_by_inbox_id(
+                client1.inbox_id().to_string(),
+                DMMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // Make sure it's actually a new group
+        assert_ne!(dm1.group_id, dm2.group_id);
+
+        // It should NOT appear in the stream
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+
+        assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 }

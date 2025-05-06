@@ -10,7 +10,7 @@ impl EncryptedMessageStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn remove_db_files<P: AsRef<str>>(path: P) {
-        use crate::EncryptedConnection;
+        use crate::database::native::EncryptedConnection;
 
         let path = path.as_ref();
         std::fs::remove_file(path).unwrap();

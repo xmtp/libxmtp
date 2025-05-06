@@ -29,31 +29,31 @@ to inspect
 ##### Generate 1000 random identities
 
 ```
-./xdbg generate --entity identity --amount 1000
+cargo xdbg generate --entity identity --amount 1000
 ```
 
 ##### Generate 100 random groups, inviting 50 random identities to each
 
 ```
-./xdbg generate --entity group --amount 100 --invite 50
+cargo xdbg generate --entity group --amount 100 --invite 50
 ```
 
 ##### Generate 20 messages
 
 ```
-./xdbg generate --entity message --amount 20
+cargo xdbg generate --entity message --amount 20
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds
 
 ```
-./xdbg generate --entity message --amount 20 --interval 500 --loop
+cargo xdbg generate --entity message --amount 20 --interval 500 --loop
 ```
 
 ##### Generate 20 messages in a loop every 500 milliseconds, raising maximum size of each message
 
 ```
-./xdbg generate --entity message --amount 20 --interval 500 --loop --max-message-size 1000
+cargo xdbg generate --entity message --amount 20 --interval 500 --loop --max-message-size 1000
 ```
 
 #### Inspect
@@ -61,7 +61,7 @@ to inspect
 ##### Inspect an InboxId
 
 ```
-./xdbg inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d89fe groups
+cargo xdbg inspect 1d8ec149b5670b1df0bbea0b9f2f0ba513eef805a02eafb37df3587fc23d89fe groups
 ```
 
 #### Info
@@ -69,13 +69,13 @@ to inspect
 ##### Show information about local generated state
 
 ```
-./xdbg info
+cargo xdbg info
 ```
 
 #### Export Identities to JSON
 
 ```
-./xdbg export --entity identity | jq > identities.json
+cargo xdbg export --entity identity | jq > identities.json
 ```
 
 ## Future Work

@@ -22,38 +22,25 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) mod native;
+pub mod processed_device_sync_messages;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
-#[cfg(not(target_arch = "wasm32"))]
-mod sqlcipher_connection;
+pub mod store;
 pub mod user_preferences;
-#[cfg(target_arch = "wasm32")]
-pub(super) mod wasm;
+
+pub mod database;
 
 pub use self::db_connection::DbConnection;
-#[cfg(target_arch = "wasm32")]
-pub use diesel::prelude::SqliteConnection as RawDbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::RawDbConnection;
-#[cfg(not(target_arch = "wasm32"))]
-pub use sqlcipher_connection::EncryptedConnection;
-#[cfg(target_arch = "wasm32")]
-pub use wasm::{OpfsSAHError, OpfsSAHPoolUtil, SQLITE, init_sqlite};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProviderPrivate};
 use crate::Store;
+
+pub use database::*;
+
 use db_connection::DbConnectionPrivate;
-use diesel::{
-    connection::{LoadConnection, TransactionManager},
-    migration::MigrationConnection,
-    prelude::*,
-    result::Error,
-    sql_query,
-};
+use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
@@ -72,6 +59,16 @@ pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
+}
+
+pub trait Database {
+    type Db: XmtpDb;
+
+    fn init_db() -> Result<(), StorageError>;
+    fn db(&self) -> &Self::Db;
+    fn take(self) -> Self::Db
+    where
+        Self: Sized;
 }
 
 #[allow(async_fn_in_trait)]
@@ -102,7 +99,7 @@ pub trait XmtpDb {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type EncryptedMessageStore = self::private::EncryptedMessageStore<native::NativeDb>;
+pub type EncryptedMessageStore = self::store::EncryptedMessageStore<native::NativeDb>;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl EncryptedMessageStore {
@@ -132,7 +129,7 @@ impl EncryptedMessageStore {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub type EncryptedMessageStore = self::private::EncryptedMessageStore<wasm::WasmDb>;
+pub type EncryptedMessageStore = self::store::EncryptedMessageStore<wasm::WasmDb>;
 
 #[cfg(target_arch = "wasm32")]
 impl EncryptedMessageStore {
@@ -157,70 +154,6 @@ impl EncryptedMessageStore {
 }
 
 /// Shared Code between WebAssembly and Native using the `XmtpDb` trait
-pub mod private {
-    use crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
-
-    use super::*;
-    use diesel::connection::SimpleConnection;
-    use diesel_migrations::MigrationHarness;
-
-    #[derive(Clone, Debug)]
-    /// Manages a Sqlite db for persisting messages and other objects.
-    pub struct EncryptedMessageStore<Db> {
-        pub(super) opts: StorageOption,
-        pub(super) db: Db,
-    }
-
-    impl<Db, E> EncryptedMessageStore<Db>
-    where
-        Db: XmtpDb<Error = E>,
-        StorageError: From<E>,
-    {
-        #[tracing::instrument(level = "debug", skip_all)]
-        pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
-            self.db.validate(&self.opts)?;
-            self.db.conn()?.raw_query_write(|conn| {
-                conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-                tracing::info!("Running DB migrations");
-                conn.run_pending_migrations(MIGRATIONS)?;
-
-                let sqlite_version =
-                    sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-                tracing::info!("sqlite_version={}", sqlite_version[0].version);
-
-                tracing::info!("Migrations successful");
-                Ok::<_, StorageError>(())
-            })?;
-
-            Ok::<_, StorageError>(())
-        }
-
-        pub fn mls_provider(
-            &self,
-        ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
-            let conn = self.conn()?;
-            Ok(XmtpOpenMlsProviderPrivate::new(conn))
-        }
-
-        /// Pulls a new connection from the store
-        pub fn conn(
-            &self,
-        ) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
-            Ok(self.db.conn()?)
-        }
-
-        /// Release connection to the database, closing it
-        pub fn release_connection(&self) -> Result<(), StorageError> {
-            Ok(self.db.release_connection()?)
-        }
-
-        /// Reconnect to the database
-        pub fn reconnect(&self) -> Result<(), StorageError> {
-            Ok(self.db.reconnect()?)
-        }
-    }
-}
-
 #[allow(dead_code)]
 fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
@@ -273,32 +206,37 @@ macro_rules! impl_fetch_list {
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
         impl $crate::Store<$crate::encrypted_store::db_connection::DbConnection> for $model {
+            type Output = ();
+
             fn store(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
-                })?;
-                Ok(())
+                        .map_err(Into::into)
+                        .map(|_| ())
+                })
             }
         }
     };
 }
 
-// Inserts the model into the database by primary key, silently skipping on unique constraints
 #[macro_export]
 macro_rules! impl_store_or_ignore {
+    // Original variant without return type parameter (defaults to returning ())
     ($model:ty, $table:ident) => {
         impl $crate::StoreOrIgnore<$crate::encrypted_store::db_connection::DbConnection>
             for $model
         {
+            type Output = ();
+
             fn store_or_ignore(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
@@ -315,7 +253,8 @@ impl<T> Store<DbConnection> for Vec<T>
 where
     T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
+    type Output = ();
+    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -331,57 +270,6 @@ where
     where
         F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
         E: From<StorageError> + std::error::Error;
-}
-
-impl<Db> ProviderTransactions<Db> for XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>
-where
-    Db: XmtpDb,
-{
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// store.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProviderPrivate<Db, <Db as XmtpDb>::Connection>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
-    {
-        tracing::debug!("Transaction beginning");
-
-        let conn = self.conn_ref();
-        let _guard = conn.start_transaction::<Db>()?;
-
-        match fun(self) {
-            Ok(value) => {
-                conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::commit_transaction(&mut *conn)
-                })
-                .map_err(StorageError::from)?;
-                tracing::debug!("Transaction being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                tracing::debug!("Transaction being rolled back");
-                match conn.raw_query_write(|conn| {
-                    <Db as XmtpDb>::TransactionManager::rollback_transaction(&mut *conn)
-                }) {
-                    Ok(()) => Err(err),
-                    Err(Error::BrokenTransactionManager) => Err(err),
-                    Err(rollback) => Err(StorageError::from(rollback).into()),
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

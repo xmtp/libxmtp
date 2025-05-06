@@ -1,9 +1,12 @@
 use std::{
+    collections::HashSet,
     pin::Pin,
     task::{ready, Context, Poll},
 };
 
-use crate::subscriptions::stream_messages::MessagesApiSubscription;
+use crate::subscriptions::{
+    stream_messages::MessagesApiSubscription, LocalEvents, SyncWorkerEvent,
+};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     Client,
@@ -11,7 +14,8 @@ use crate::{
 
 use futures::stream::Stream;
 use xmtp_db::{
-    group::{ConversationType, GroupQueryArgs},
+    consent_record::ConsentState,
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
     group_message::StoredGroupMessage,
 };
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -32,6 +36,7 @@ pin_project! {
         #[pin] messages: Messages,
         client: &'a C,
         conversation_type: Option<ConversationType>,
+        sync_groups: HashSet<Vec<u8>>
     }
 }
 
@@ -49,19 +54,38 @@ where
     pub async fn new(
         client: &'a Client<A, V>,
         conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
-        let active_conversations = async {
+        let (active_conversations, sync_groups) = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
 
-            let active_conversations = provider
-                .conn_ref()
-                .find_groups(GroupQueryArgs::default().maybe_conversation_type(conversation_type))?
+            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+                conversation_type,
+                consent_states,
+                include_duplicate_dms: true,
+                include_sync_groups: conversation_type.is_none(),
+
+                ..Default::default()
+            })?;
+
+            let sync_groups = groups
+                .iter()
+                .filter_map(|g| match g {
+                    StoredGroup {
+                        conversation_type: ConversationType::Sync,
+                        ..
+                    } => Some(g.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            let active_conversations = groups
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
                 .collect();
-            Ok::<_, SubscribeError>(active_conversations)
+
+            Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }
         .await?;
 
@@ -75,6 +99,7 @@ where
             conversation_type,
             messages,
             conversations,
+            sync_groups,
         })
     }
 }
@@ -98,6 +123,17 @@ where
         let mut this = self.as_mut().project();
 
         if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
+            if let Some(Ok(msg)) = &msg {
+                if self.sync_groups.contains(&msg.group_id) {
+                    let _ = self
+                        .client
+                        .local_events()
+                        .send(LocalEvents::SyncWorkerEvent(
+                            SyncWorkerEvent::NewSyncGroupMsg,
+                        ));
+                }
+            };
+
             return Ready(msg);
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
@@ -120,6 +156,8 @@ mod tests {
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
+    use tokio::time::sleep;
+
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
@@ -142,7 +180,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
 
         alix_group.send_message(b"first").await.unwrap();
@@ -197,7 +235,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
         bo_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
@@ -239,7 +277,7 @@ mod tests {
         {
             // start a stream with only group messages
             let stream = bo
-                .stream_all_messages(Some(ConversationType::Group))
+                .stream_all_messages(Some(ConversationType::Group), None)
                 .await
                 .unwrap();
             futures::pin_mut!(stream);
@@ -256,7 +294,7 @@ mod tests {
         {
             // Start a stream with only dms
             let stream = bo
-                .stream_all_messages(Some(ConversationType::Dm))
+                .stream_all_messages(Some(ConversationType::Dm), None)
                 .await
                 .unwrap();
             futures::pin_mut!(stream);
@@ -272,7 +310,7 @@ mod tests {
         }
         // Start a stream with all conversations
         // Wait for 2 seconds for the group creation to be streamed
-        let stream = bo.stream_all_messages(None).await.unwrap();
+        let stream = bo.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
         alix_group.send_message("first".as_bytes()).await.unwrap();
         assert_msg!(stream, "first");
@@ -325,7 +363,7 @@ mod tests {
         let provider = bo.store().mls_provider().unwrap();
         let bo_group = bo.sync_welcomes(&provider).await.unwrap()[0].clone();
 
-        let mut stream = caro.stream_all_messages(None).await.unwrap();
+        let mut stream = caro.stream_all_messages(None, None).await.unwrap();
 
         let alix_group_pointer = alix_group.clone();
         xmtp_common::spawn(None, async move {
@@ -401,11 +439,11 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let stream = caro.stream_all_messages(None).await.unwrap();
+        let stream = caro.stream_all_messages(None, None).await.unwrap();
 
         let caro_id = caro.inbox_id().to_string();
         xmtp_common::spawn(None, async move {
@@ -451,5 +489,78 @@ mod tests {
         .await;
         tracing::info!("Total Messages: {}", messages.len());
         assert_eq!(messages.len(), 5);
+    }
+
+    #[rstest::rstest]
+    #[case(ConsentState::Allowed, "msg in allowed")]
+    #[case(ConsentState::Denied, "msg in denied")]
+    #[case(ConsentState::Unknown, "msg in unknown")]
+    #[xmtp_common::test]
+    #[timeout(Duration::from_secs(20))]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_stream_all_messages_filters_by_consent_state(
+        #[case] filter: ConsentState,
+        #[case] expected_message: &str,
+    ) {
+        let sender = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create group with Allowed consent
+        let allowed_group = sender
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        allowed_group
+            .add_members_by_inbox_id(&[receiver.inbox_id()])
+            .await
+            .unwrap();
+
+        // Create group with Denied consent
+        let denied_group = sender
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        denied_group
+            .add_members_by_inbox_id(&[receiver.inbox_id()])
+            .await
+            .unwrap();
+        denied_group
+            .update_consent_state(ConsentState::Denied)
+            .unwrap();
+
+        // Create group with Unknown consent
+        let unknown_group = sender
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        unknown_group
+            .add_members_by_inbox_id(&[receiver.inbox_id()])
+            .await
+            .unwrap();
+        unknown_group
+            .update_consent_state(ConsentState::Unknown)
+            .unwrap();
+
+        let provider = sender.mls_provider().unwrap();
+        sender.sync_welcomes(&provider).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+
+        let stream = sender
+            .stream_all_messages(None, Some(vec![filter]))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        allowed_group
+            .send_message("msg in allowed".as_bytes())
+            .await
+            .unwrap();
+        denied_group
+            .send_message("msg in denied".as_bytes())
+            .await
+            .unwrap();
+        unknown_group
+            .send_message("msg in unknown".as_bytes())
+            .await
+            .unwrap();
+
+        assert_msg!(stream, expected_message);
     }
 }

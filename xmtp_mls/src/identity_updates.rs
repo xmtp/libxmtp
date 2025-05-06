@@ -1,8 +1,6 @@
-use crate::groups::device_sync::preference_sync::UserPreferenceUpdate;
 use crate::{
     client::ClientError,
     groups::group_membership::{GroupMembership, MembershipDiff},
-    subscriptions::LocalEvents,
     Client, XmtpApi,
 };
 use futures::future::try_join_all;
@@ -10,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::{association_state::StoredAssociationState, user_preferences::StoredUserPreferences};
+use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     associations::{
@@ -87,6 +85,7 @@ where
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_latest_association_state(
         &self,
         conn: &DbConnection,
@@ -124,6 +123,7 @@ where
 
         let unverified_updates = updates
             .into_iter()
+            // deserialize identity update payload
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
         let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
@@ -213,6 +213,7 @@ where
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
     /// If no nonce is provided, use 0
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn create_inbox(
         &self,
         identifier: Identifier,
@@ -250,6 +251,7 @@ where
     }
 
     /// Generate a `AssociateWallet` signature request using an existing wallet and a new wallet address
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn associate_identity(
         &self,
         new_identifier: Identifier,
@@ -267,6 +269,7 @@ where
             .identity()
             .installation_keys
             .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
+
         signature_request
             .add_signature(
                 UnverifiedSignature::new_installation_key(signature, installation_public_key),
@@ -307,6 +310,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
+        let provider = self.mls_provider()?;
         let inbox_id = self.inbox_id();
 
         let current_state = retry_async!(
@@ -327,16 +331,7 @@ where
         }
 
         // Cycle the HMAC key
-        let conn = self.store().conn()?;
-        let hmac_key = StoredUserPreferences::new_hmac_key(&conn)?;
-        // Sync the new key to other devices
-        let _ = self
-            .local_events
-            .send(LocalEvents::OutgoingPreferenceUpdates(vec![
-                UserPreferenceUpdate::HmacKeyUpdate {
-                    key: hmac_key.clone(),
-                },
-            ]));
+        self.cycle_hmac(&provider).await?;
 
         Ok(builder.build())
     }
@@ -402,6 +397,7 @@ where
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed
     /// between the two membership states.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
         conn: &DbConnection,
@@ -482,7 +478,7 @@ where
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
-#[tracing::instrument(level = "trace", skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
     conn: &DbConnection,
@@ -506,7 +502,6 @@ pub async fn load_identity_updates<ApiClient: XmtpApi>(
         .get_identity_updates_v2(filters)
         .await?
         .collect::<HashMap<_, Vec<InboxUpdate>>>();
-
     let to_store = updates
         .iter()
         .flat_map(move |(inbox_id, updates)| {
@@ -590,8 +585,13 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::{
+        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
+        utils::Tester, Client, XmtpApi,
+    };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
     use xmtp_id::{
         associations::{
             builder::{SignatureRequest, SignatureRequestError},
@@ -601,12 +601,6 @@ pub(crate) mod tests {
         },
         scw_verifier::SmartContractSignatureVerifier,
     };
-
-    use crate::{
-        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
-        Client, XmtpApi,
-    };
-    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 
     use xmtp_common::rand_vec;
 
@@ -711,7 +705,7 @@ pub(crate) mod tests {
         let wallet_ident = wallet.identifier();
         let wallet2_ident = wallet_2.identifier();
 
-        let client = ClientBuilder::new_test_client(&wallet).await;
+        let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
 
         let mut add_association_request = client
             .associate_identity(wallet2_ident.clone())
@@ -724,7 +718,6 @@ pub(crate) mod tests {
             .apply_signature_request(add_association_request)
             .await
             .unwrap();
-
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
         let members = association_state.members_by_parent(&wallet_ident.clone().into());
@@ -742,11 +735,13 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
         use xmtp_common::assert_logged;
+
         xmtp_common::traced_test!(async {
-            let wallet = generate_local_wallet();
-            let wallet_2 = generate_local_wallet();
-            let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
+            let client = Tester::new().await;
             let inbox_id = client.inbox_id();
+            client.wait_for_sync_worker_init().await;
+
+            let wallet_2 = generate_local_wallet();
 
             get_association_state(&client, inbox_id).await;
 
@@ -759,9 +754,11 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 2);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.builder.owner.identifier()
             );
-            assert!(association_state.get(&wallet.identifier().into()).is_some());
+            assert!(association_state
+                .get(&client.builder.owner.identifier().into())
+                .is_some());
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
@@ -791,7 +788,7 @@ pub(crate) mod tests {
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
                 association_state.recovery_identifier(),
-                &wallet.identifier()
+                &client.builder.owner.identifier()
             );
             assert!(association_state
                 .get(&wallet_2.member_identifier())

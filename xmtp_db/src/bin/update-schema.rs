@@ -1,10 +1,11 @@
 extern crate toml;
-extern crate xmtp_mls;
+extern crate xmtp_db;
 
 use std::{
     env,
     fs::{self, File},
     io::{Read, Write},
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -13,7 +14,7 @@ use toml::Table;
 
 use xmtp_db::{EncryptedMessageStore, StorageOption};
 
-const DIESEL_TOML: &str = "./diesel.toml";
+const DIESEL_TOML: &str = "diesel.toml";
 
 /// This binary is used to to generate the schema files from a sqlite database instance and update
 /// the appropriate file. The destination is read from the `diesel.toml` print_schema
@@ -54,7 +55,7 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     match diesel_result {
         Ok(v) => {
             let schema_path = get_schema_path()?;
-            println!("Writing Schema definitions to {}", schema_path);
+            println!("Writing Schema definitions to {}", schema_path.display());
             let mut file = File::create(schema_path)?;
             file.write_all(&v)?;
         }
@@ -66,13 +67,18 @@ async fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> 
     Ok(())
 }
 
-fn get_schema_path() -> Result<String, std::io::Error> {
+fn get_schema_path() -> Result<PathBuf, std::io::Error> {
     match env::current_exe() {
         Ok(exe_path) => println!("Path of this executable is: {}", exe_path.display()),
         Err(e) => println!("failed to get current exe path: {e}"),
     };
-
-    let mut file = File::open(DIESEL_TOML)?;
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let diesel_toml = Path::new(manifest).join(DIESEL_TOML);
+    println!(
+        "Location of Diesel Configuration File: {}",
+        diesel_toml.display()
+    );
+    let mut file = File::open(diesel_toml)?;
     let mut toml_contents = String::new();
     file.read_to_string(&mut toml_contents)?;
     let toml = toml_contents.parse::<Table>().unwrap();
@@ -83,7 +89,7 @@ fn get_schema_path() -> Result<String, std::io::Error> {
         .unwrap()
         .as_str()
         .unwrap();
-    Ok(format!("./{}", schema_file_path))
+    Ok(Path::new(manifest).join(schema_file_path))
 }
 
 fn exec_diesel(db: &str) -> Result<Vec<u8>, String> {

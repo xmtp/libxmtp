@@ -1,25 +1,23 @@
-use std::sync::Arc;
-
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
 use ethers::types::{BlockNumber, Bytes};
 use xmtp_api::ApiClientWrapper;
 
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
+    prelude::XmtpIdentityClient,
     xmtp::identity::api::v1::{
         VerifySmartContractWalletSignatureRequestSignature,
         VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
     },
 };
 
-pub struct RemoteSignatureVerifier<ApiClient> {
-    api: Arc<ApiClientWrapper<ApiClient>>,
+pub struct RemoteSignatureVerifier<C> {
+    api: ApiClientWrapper<C>,
 }
 
 impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
     pub fn new(api: ApiClientWrapper<ApiClient>) -> Self {
-        Self { api: Arc::new(api) }
+        Self { api }
     }
 }
 
@@ -27,7 +25,7 @@ impl<ApiClient> RemoteSignatureVerifier<ApiClient> {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> SmartContractSignatureVerifier for RemoteSignatureVerifier<C>
 where
-    C: XmtpApi,
+    C: XmtpIdentityClient + Send + Sync,
 {
     async fn is_valid_signature(
         &self,

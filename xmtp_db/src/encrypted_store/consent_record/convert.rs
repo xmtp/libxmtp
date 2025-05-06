@@ -10,6 +10,7 @@ impl TryFrom<ConsentSave> for StoredConsentRecord {
             entity_type,
             state,
             entity: value.entity,
+            consented_at_ns: value.consented_at_ns,
         })
     }
 }
@@ -23,6 +24,7 @@ impl From<StoredConsentRecord> for ConsentSave {
             entity_type: entity_type as i32,
             state: state as i32,
             entity: value.entity,
+            consented_at_ns: value.consented_at_ns,
         }
     }
 }
