@@ -300,6 +300,7 @@ pub struct MlsGroup<C> {
 pub struct ConversationListItem<C> {
     pub group: MlsGroup<C>,
     pub last_message: Option<StoredGroupMessage>,
+    pub dm_peer_inbox_id: Option<String>,
 }
 
 #[derive(Default, Clone)]

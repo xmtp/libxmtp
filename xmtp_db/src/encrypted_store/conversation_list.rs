@@ -26,7 +26,7 @@ pub struct ConversationListItem {
     pub added_by_inbox_id: String,
     /// The sequence id of the welcome message
     pub welcome_id: Option<i64>,
-    /// The inbox_id of the DM target
+    /// concatenation of dm participant inbox_ids in alphanumeric order
     pub dm_id: Option<String>,
     /// The last time the leaf node encryption key was rotated
     pub rotated_at_ns: i64,
@@ -114,7 +114,7 @@ impl DbConnection {
             query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut conversations = if let Some(consent_states) = consent_states {
+        let mut conversations: Vec<ConversationListItem> = if let Some(consent_states) = consent_states {
             if consent_states
                 .iter()
                 .any(|state| *state == ConsentState::Unknown)

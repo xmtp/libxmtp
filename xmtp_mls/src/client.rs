@@ -36,7 +36,8 @@ use xmtp_db::Fetch;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
-    group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
+    encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
+    group::{GroupMembershipState, GroupQueryArgs, StoredGroup, DmIdExt},
     group_message::StoredGroupMessage,
     refresh_state::EntityKind,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -770,7 +771,7 @@ where
             .conn()?
             .fetch_conversation_list(args)?
             .into_iter()
-            .map(|conversation_item| {
+            .map(|conversation_item: DbConversationListItem| {
                 let message = conversation_item.message_id.and_then(|message_id| {
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
@@ -793,6 +794,11 @@ where
                     }
                     msg
                 });
+                
+                let dm_peer_inbox_id = match conversation_item.dm_id {
+                    Some(dm_id) => Some(dm_id.other_inbox_id(self.inbox_id())),
+                    None => None,
+                };
 
                 ConversationListItem {
                     group: MlsGroup::new(
@@ -801,6 +807,7 @@ where
                         conversation_item.created_at_ns,
                     ),
                     last_message: message,
+                    dm_peer_inbox_id,
                 }
             })
             .collect())

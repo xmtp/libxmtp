@@ -1364,6 +1364,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id,
                 })
             })
             .collect();
@@ -1388,6 +1389,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id, // should always be None for groups
                 })
             })
             .collect();
@@ -1412,6 +1414,7 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
+                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id,
                 })
             })
             .collect();
@@ -1621,6 +1624,7 @@ pub struct FfiConversation {
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
+    dm_peer_inbox_id: Option<String>,
 }
 
 #[uniffi::export]
@@ -1630,6 +1634,9 @@ impl FfiConversationListItem {
     }
     pub fn last_message(&self) -> Option<FfiMessage> {
         self.last_message.clone()
+    }
+    pub fn dm_peer_inbox_id(&self) -> Option<String> {
+        self.dm_peer_inbox_id.clone()
     }
 }
 
@@ -8071,5 +8078,30 @@ mod tests {
         let duplicates = group_a.find_duplicate_dms().await.unwrap();
 
         assert_eq!(duplicates.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_can_quickly_fetch_dm_peer_inbox_id() {
+        let wallet_a = generate_local_wallet();
+        let wallet_b = generate_local_wallet();
+
+        let client_a = new_test_client_with_wallet(wallet_a).await;
+        let client_b = new_test_client_with_wallet(wallet_b).await;
+
+        let _dm = client_a
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        let client_a_conversation_list = client_a
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(client_a_conversation_list.len(), 1);
+        assert_eq!(
+            client_a_conversation_list[0].dm_peer_inbox_id,
+            Some(client_b.inbox_id())
+        );
     }
 }
