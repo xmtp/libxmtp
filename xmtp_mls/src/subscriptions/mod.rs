@@ -301,6 +301,7 @@ where
                 .await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
+
             while let Some(message) = stream.next().await {
                 callback(message)
             }

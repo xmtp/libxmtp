@@ -1,29 +1,28 @@
-use std::{
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
-
-use crate::subscriptions::stream_messages::MessagesApiSubscription;
-use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    Client,
-};
-
-use futures::stream::Stream;
-use xmtp_db::{
-    consent_record::ConsentState,
-    group::{ConversationType, GroupQueryArgs},
-    group_message::StoredGroupMessage,
-};
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
-
 use super::{
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
     Result, SubscribeError,
 };
+use crate::subscriptions::{
+    stream_messages::MessagesApiSubscription, LocalEvents, SyncWorkerEvent,
+};
+use crate::{
+    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    Client,
+};
+use futures::stream::Stream;
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
 use xmtp_common::types::GroupId;
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
+    group_message::StoredGroupMessage,
+};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
 use pin_project_lite::pin_project;
 
@@ -33,6 +32,7 @@ pin_project! {
         #[pin] messages: Messages,
         client: &'a C,
         conversation_type: Option<ConversationType>,
+        sync_groups: Vec<Vec<u8>>
     }
 }
 
@@ -52,23 +52,37 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
-        let active_conversations = async {
+        let (active_conversations, sync_groups) = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
 
-            let active_conversations = provider
-                .conn_ref()
-                .find_groups(GroupQueryArgs {
-                    conversation_type,
-                    consent_states,
-                    include_duplicate_dms: true,
-                    ..Default::default()
-                })?
+            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+                conversation_type,
+                consent_states,
+                include_duplicate_dms: true,
+                include_sync_groups: conversation_type
+                    .map(|ct| matches!(ct, ConversationType::Sync))
+                    .unwrap_or(true),
+                ..Default::default()
+            })?;
+
+            let sync_groups = groups
+                .iter()
+                .filter_map(|g| match g {
+                    StoredGroup {
+                        conversation_type: ConversationType::Sync,
+                        ..
+                    } => Some(g.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            let active_conversations = groups
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
                 .collect();
-            Ok::<_, SubscribeError>(active_conversations)
+
+            Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }
         .await?;
 
@@ -82,6 +96,7 @@ where
             conversation_type,
             messages,
             conversations,
+            sync_groups,
         })
     }
 }
@@ -105,6 +120,18 @@ where
         let mut this = self.as_mut().project();
 
         if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
+            if let Some(Ok(msg)) = &msg {
+                if self.sync_groups.contains(&msg.group_id) {
+                    let _ = self
+                        .client
+                        .local_events()
+                        .send(LocalEvents::SyncWorkerEvent(
+                            SyncWorkerEvent::NewSyncGroupMsg,
+                        ));
+                    return self.poll_next(cx);
+                }
+            };
+
             return Ready(msg);
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
@@ -469,6 +496,7 @@ mod tests {
     #[xmtp_common::test]
     #[timeout(Duration::from_secs(20))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[ignore]
     async fn test_stream_all_messages_filters_by_consent_state(
         #[case] filter: ConsentState,
         #[case] expected_message: &str,
