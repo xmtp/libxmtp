@@ -395,80 +395,6 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
         deserializer.deserialize_struct("xmtp.mls.message_contents.DeviceSyncKeyType", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for DeviceSyncKind {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::Unspecified => "DEVICE_SYNC_KIND_UNSPECIFIED",
-            Self::MessageHistory => "DEVICE_SYNC_KIND_MESSAGE_HISTORY",
-            Self::Consent => "DEVICE_SYNC_KIND_CONSENT",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for DeviceSyncKind {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "DEVICE_SYNC_KIND_UNSPECIFIED",
-            "DEVICE_SYNC_KIND_MESSAGE_HISTORY",
-            "DEVICE_SYNC_KIND_CONSENT",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = DeviceSyncKind;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                i32::try_from(v)
-                    .ok()
-                    .and_then(|x| x.try_into().ok())
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "DEVICE_SYNC_KIND_UNSPECIFIED" => Ok(DeviceSyncKind::Unspecified),
-                    "DEVICE_SYNC_KIND_MESSAGE_HISTORY" => Ok(DeviceSyncKind::MessageHistory),
-                    "DEVICE_SYNC_KIND_CONSENT" => Ok(DeviceSyncKind::Consent),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
 impl serde::Serialize for DeviceSyncReply {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -492,6 +418,9 @@ impl serde::Serialize for DeviceSyncReply {
         if self.kind != 0 {
             len += 1;
         }
+        if self.metadata.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DeviceSyncReply", len)?;
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
@@ -508,9 +437,12 @@ impl serde::Serialize for DeviceSyncReply {
             struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if self.kind != 0 {
-            let v = DeviceSyncKind::try_from(self.kind)
+            let v = super::super::device_sync::BackupElementSelection::try_from(self.kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
             struct_ser.serialize_field("kind", &v)?;
+        }
+        if let Some(v) = self.metadata.as_ref() {
+            struct_ser.serialize_field("metadata", v)?;
         }
         struct_ser.end()
     }
@@ -530,6 +462,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             "timestamp_ns",
             "timestampNs",
             "kind",
+            "metadata",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -539,6 +472,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             EncryptionKey,
             TimestampNs,
             Kind,
+            Metadata,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -565,6 +499,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
                             "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
                             "kind" => Ok(GeneratedField::Kind),
+                            "metadata" => Ok(GeneratedField::Metadata),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -589,6 +524,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                 let mut encryption_key__ = None;
                 let mut timestamp_ns__ = None;
                 let mut kind__ = None;
+                let mut metadata__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -621,7 +557,13 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("kind"));
                             }
-                            kind__ = Some(map_.next_value::<DeviceSyncKind>()? as i32);
+                            kind__ = Some(map_.next_value::<super::super::device_sync::BackupElementSelection>()? as i32);
+                        }
+                        GeneratedField::Metadata => {
+                            if metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadata"));
+                            }
+                            metadata__ = map_.next_value()?;
                         }
                     }
                 }
@@ -631,6 +573,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                     encryption_key: encryption_key__,
                     timestamp_ns: timestamp_ns__.unwrap_or_default(),
                     kind: kind__.unwrap_or_default(),
+                    metadata: metadata__,
                 })
             }
         }
@@ -648,6 +591,9 @@ impl serde::Serialize for DeviceSyncRequest {
         if !self.request_id.is_empty() {
             len += 1;
         }
+        if self.options.is_some() {
+            len += 1;
+        }
         if !self.pin_code.is_empty() {
             len += 1;
         }
@@ -658,11 +604,14 @@ impl serde::Serialize for DeviceSyncRequest {
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
         }
+        if let Some(v) = self.options.as_ref() {
+            struct_ser.serialize_field("options", v)?;
+        }
         if !self.pin_code.is_empty() {
             struct_ser.serialize_field("pinCode", &self.pin_code)?;
         }
         if self.kind != 0 {
-            let v = DeviceSyncKind::try_from(self.kind)
+            let v = super::super::device_sync::BackupElementSelection::try_from(self.kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
             struct_ser.serialize_field("kind", &v)?;
         }
@@ -678,6 +627,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
         const FIELDS: &[&str] = &[
             "request_id",
             "requestId",
+            "options",
             "pin_code",
             "pinCode",
             "kind",
@@ -686,6 +636,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
+            Options,
             PinCode,
             Kind,
         }
@@ -710,6 +661,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                     {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "options" => Ok(GeneratedField::Options),
                             "pinCode" | "pin_code" => Ok(GeneratedField::PinCode),
                             "kind" => Ok(GeneratedField::Kind),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -732,6 +684,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut request_id__ = None;
+                let mut options__ = None;
                 let mut pin_code__ = None;
                 let mut kind__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -741,6 +694,12 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                                 return Err(serde::de::Error::duplicate_field("requestId"));
                             }
                             request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Options => {
+                            if options__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("options"));
+                            }
+                            options__ = map_.next_value()?;
                         }
                         GeneratedField::PinCode => {
                             if pin_code__.is_some() {
@@ -752,12 +711,13 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("kind"));
                             }
-                            kind__ = Some(map_.next_value::<DeviceSyncKind>()? as i32);
+                            kind__ = Some(map_.next_value::<super::super::device_sync::BackupElementSelection>()? as i32);
                         }
                     }
                 }
                 Ok(DeviceSyncRequest {
                     request_id: request_id__.unwrap_or_default(),
+                    options: options__,
                     pin_code: pin_code__.unwrap_or_default(),
                     kind: kind__.unwrap_or_default(),
                 })

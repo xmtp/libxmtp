@@ -1,34 +1,31 @@
 #![allow(clippy::unwrap_used)]
 
 #[cfg(any(test, feature = "test-utils"))]
-pub mod tester;
-
-use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
-use std::sync::Arc;
-use tokio::sync::Notify;
-use xmtp_api::ApiIdentifier;
-use xmtp_id::{
-    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-};
-use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+pub mod tester_utils;
 
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     identity::IdentityStrategy,
     Client, InboxOwner, XmtpApi,
 };
+use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Notify;
+use xmtp_api::ApiIdentifier;
+use xmtp_common::time::Expired;
 use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
+use xmtp_id::{
+    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
+    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
+};
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tester_utils::*;
 
 pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
 
-// TODO: Dev-Versions of URL
-const HISTORY_SERVER_HOST: &str = "localhost";
-const HISTORY_SERVER_PORT: u16 = 5558;
-pub const HISTORY_SYNC_URL: &str =
-    const_format::concatcp!("http://", HISTORY_SERVER_HOST, ":", HISTORY_SERVER_PORT);
-
-#[cfg(not(any(feature = "http-api", target_arch = "wasm32", feature = "d14n")))]
+#[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
 use crate::groups::mls_sync::GroupMessageProcessingError;
@@ -63,17 +60,21 @@ impl<A, V> ClientBuilder<A, V> {
 }
 
 impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
-    pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local()
+    pub async fn new_api_client() -> TestClient {
+        <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = Self::new_api_client().await;
 
         build_with_verifier(
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
-            Some(HISTORY_SYNC_URL),
+            Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
         )
         .await
@@ -220,7 +221,7 @@ async fn build_with_verifier<A, V>(
     owner: impl InboxOwner,
     api_client: A,
     scw_verifier: V,
-    history_sync_url: Option<&str>,
+    sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
 ) -> Client<A, V>
 where
@@ -237,8 +238,8 @@ where
         .api_client(api_client)
         .with_scw_verifier(scw_verifier);
 
-    if let Some(history_sync_url) = history_sync_url {
-        builder = builder.device_sync_server_url(history_sync_url);
+    if let Some(sync_server_url) = sync_server_url {
+        builder = builder.device_sync_server_url(sync_server_url);
     }
 
     if let Some(sync_worker_mode) = sync_worker_mode {
@@ -313,12 +314,15 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 
 /// wait for a minimum amount of intents to be published
 /// TODO: Should wrap with a timeout
-pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) {
+pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) -> Result<(), Expired> {
     let mut published = conn.intents_published() as usize;
-    while published < n {
-        xmtp_common::yield_().await;
-        published = conn.intents_published() as usize;
-    }
+    xmtp_common::time::timeout(Duration::from_secs(5), async {
+        while published < n {
+            xmtp_common::yield_().await;
+            published = conn.intents_published() as usize;
+        }
+    })
+    .await
 }
 
 #[cfg(any(test, feature = "test-utils"))]

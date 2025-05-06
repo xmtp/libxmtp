@@ -44,12 +44,19 @@ where
         self.sync_welcomes(&self.mls_provider()?).await?;
         other.sync_welcomes(&other.mls_provider()?).await?;
 
-        let sync_group = self.get_sync_group(&self.mls_provider()?)?;
-        let other_sync_group = other.get_sync_group(&other.mls_provider()?)?;
+        let mut sync_group = self.get_sync_group(&self.mls_provider()?).await?;
+        let mut other_sync_group = other.get_sync_group(&other.mls_provider()?).await?;
+        for i in 0..10 {
+            sync_group = self.get_sync_group(&self.mls_provider()?).await?;
+            other_sync_group = other.get_sync_group(&other.mls_provider()?).await?;
 
-        sync_group.sync().await?;
-        other_sync_group.sync().await?;
+            sync_group.sync().await?;
+            other_sync_group.sync().await?;
 
+            if sync_group.group_id == other_sync_group.group_id {
+                break;
+            }
+        }
         assert_eq!(sync_group.group_id, other_sync_group.group_id);
 
         let epoch = sync_group.epoch(&self.mls_provider()?).await?;

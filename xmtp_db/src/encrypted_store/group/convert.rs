@@ -39,6 +39,7 @@ impl TryFrom<GroupMembershipStateSave> for GroupMembershipState {
             GroupMembershipStateSave::Allowed => Self::Allowed,
             GroupMembershipStateSave::Pending => Self::Pending,
             GroupMembershipStateSave::Rejected => Self::Rejected,
+            GroupMembershipStateSave::Restored => Self::Restored,
             GroupMembershipStateSave::Unspecified => {
                 return Err(ConversionError::Unspecified("group_membership_state"));
             }
@@ -62,34 +63,13 @@ impl TryFrom<ConversationTypeSave> for ConversationType {
     }
 }
 
-impl From<StoredGroup> for GroupSave {
-    fn from(value: StoredGroup) -> Self {
-        let membership_state: GroupMembershipStateSave = value.membership_state.into();
-        let conversation_type: ConversationTypeSave = value.conversation_type.into();
-
-        Self {
-            id: value.id,
-            created_at_ns: value.created_at_ns,
-            membership_state: membership_state as i32,
-            installations_last_checked: value.installations_last_checked,
-            added_by_inbox_id: value.added_by_inbox_id,
-            welcome_id: value.welcome_id,
-            rotated_at_ns: value.rotated_at_ns,
-            conversation_type: conversation_type as i32,
-            dm_id: value.dm_id,
-            last_message_ns: value.last_message_ns,
-            message_disappear_from_ns: value.message_disappear_from_ns,
-            message_disappear_in_ns: value.message_disappear_in_ns,
-        }
-    }
-}
-
 impl From<GroupMembershipState> for GroupMembershipStateSave {
     fn from(value: GroupMembershipState) -> Self {
         match value {
             GroupMembershipState::Allowed => Self::Allowed,
             GroupMembershipState::Pending => Self::Pending,
             GroupMembershipState::Rejected => Self::Rejected,
+            GroupMembershipState::Restored => Self::Restored,
         }
     }
 }

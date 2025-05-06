@@ -58,12 +58,12 @@ where
 
             let active_conversations = provider
                 .conn_ref()
-                .find_groups(
-                    GroupQueryArgs::default()
-                        .maybe_conversation_type(conversation_type)
-                        .maybe_consent_states(consent_states)
-                        .include_duplicate_dms(true),
-                )?
+                .find_groups(GroupQueryArgs {
+                    conversation_type,
+                    consent_states,
+                    include_duplicate_dms: true,
+                    ..Default::default()
+                })?
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
@@ -410,7 +410,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

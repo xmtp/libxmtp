@@ -18,7 +18,6 @@ use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
-use xmtp_proto::xmtp::mls::message_contents::DeviceSyncKind;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
@@ -287,23 +286,14 @@ impl Client {
   }
 
   #[napi]
-  pub async fn send_history_sync_request(&self) -> Result<()> {
-    self.send_sync_request(DeviceSyncKind::MessageHistory).await
-  }
-
-  #[napi]
-  pub async fn send_consent_sync_request(&self) -> Result<()> {
-    self.send_sync_request(DeviceSyncKind::Consent).await
-  }
-
-  async fn send_sync_request(&self, kind: DeviceSyncKind) -> Result<()> {
+  pub async fn send_sync_request(&self) -> Result<()> {
     let provider = self
       .inner_client
       .mls_provider()
       .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .send_sync_request(&provider, kind)
+      .send_sync_request(&provider)
       .await
       .map_err(ErrorWrapper::from)?;
 

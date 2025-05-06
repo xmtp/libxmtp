@@ -14,10 +14,11 @@ use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
   ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
-  HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+  PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
@@ -54,6 +55,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -62,6 +64,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -72,6 +75,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
@@ -103,6 +107,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: None,
       include_sync_groups: false,
+      activity_after_ns: None,
     }
   }
 }
@@ -558,6 +563,25 @@ impl Conversations {
     Ok(num_groups_synced)
   }
 
+  #[wasm_bindgen(js_name = syncDeviceSync)]
+  pub async fn sync_device_sync(&self) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .sync()
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
   #[wasm_bindgen]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
@@ -583,10 +607,10 @@ impl Conversations {
   ) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
@@ -604,9 +628,10 @@ impl Conversations {
   pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {

@@ -15,6 +15,7 @@ diesel::table! {
         entity_type -> Integer,
         state -> Integer,
         entity -> Text,
+        consented_at_ns -> BigInt,
     }
 }
 
@@ -122,6 +123,12 @@ diesel::table! {
 }
 
 diesel::table! {
+    processed_device_sync_messages (message_id) {
+        message_id -> Binary,
+    }
+}
+
+diesel::table! {
     refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
@@ -133,6 +140,7 @@ diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
+        hmac_key_cycled_at_ns -> Nullable<BigInt>,
     }
 }
 
@@ -151,6 +159,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     key_package_history,
     openmls_key_store,
     openmls_key_value,
+    processed_device_sync_messages,
     refresh_state,
     user_preferences,
     conversation_list
