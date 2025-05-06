@@ -1287,7 +1287,7 @@ impl FfiConversations {
         let target_identity = target_identity.try_into()?;
         log::info!("creating dm with target address: {target_identity:?}",);
         self.inner_client
-            .find_or_create_dm(target_identity, opts.into_dm_metadata_options())
+            .find_or_create_dm(target_identity, Some(opts.into_dm_metadata_options()))
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1300,7 +1300,7 @@ impl FfiConversations {
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
-            .find_or_create_dm_by_inbox_id(inbox_id, opts.into_dm_metadata_options())
+            .find_or_create_dm_by_inbox_id(inbox_id, Some(opts.into_dm_metadata_options()))
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)

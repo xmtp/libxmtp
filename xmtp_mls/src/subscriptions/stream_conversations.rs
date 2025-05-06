@@ -463,7 +463,7 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
+    use crate::groups::GroupMetadataOptions;
     use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
@@ -511,7 +511,7 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
             .await
             .unwrap();
         let result =
@@ -550,12 +550,9 @@ mod test {
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
 
-        alix.find_or_create_dm_by_inbox_id(
-            caro.inbox_id().to_string(),
-            DMMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
+        alix.find_or_create_dm_by_inbox_id(caro.inbox_id().to_string(), None)
+            .await
+            .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
 
@@ -565,21 +562,15 @@ mod test {
         let stream = alix.stream_conversations(None).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(
-            davon.inbox_id().to_string(),
-            DMMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
+        alix.find_or_create_dm_by_inbox_id(davon.inbox_id().to_string(), None)
+            .await
+            .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
         let dm = eri
-            .find_or_create_dm_by_inbox_id(
-                alix.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
@@ -641,7 +632,6 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_duplicate_dm_not_streamed() {
-        use crate::groups::DMMetadataOptions;
         use xmtp_cryptography::utils::generate_local_wallet;
 
         let client1 = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -651,10 +641,7 @@ mod test {
 
         // First DM - should stream
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(
-                client2.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -664,10 +651,7 @@ mod test {
 
         // Create a second DM with same participants — triggers duplicate logic
         let dm2 = client2
-            .find_or_create_dm_by_inbox_id(
-                client1.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(client1.inbox_id().to_string(), None)
             .await
             .unwrap();
 
