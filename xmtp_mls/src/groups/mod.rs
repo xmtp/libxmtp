@@ -2202,11 +2202,13 @@ pub(crate) mod tests {
         sender_mls_group: &mut openmls::prelude::MlsGroup,
         sender_provider: &XmtpOpenMlsProvider,
     ) {
+        use crate::identity::NewKeyPackageResult;
+
         use super::intents::{Installation, SendWelcomesAction};
         use openmls::prelude::tls_codec::Serialize;
         let new_member_provider = new_member_client.mls_provider().unwrap();
 
-        let key_package = new_member_client
+        let NewKeyPackageResult { key_package, .. } = new_member_client
             .identity()
             .new_key_package(&new_member_provider)
             .unwrap();
