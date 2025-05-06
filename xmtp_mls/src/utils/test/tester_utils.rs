@@ -6,9 +6,11 @@ use crate::{
     client::ClientError,
     configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    subscriptions::SubscribeError,
     Client,
 };
 use ethers::signers::LocalWallet;
+use futures::Stream;
 use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
@@ -19,8 +21,9 @@ use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_common::StreamHandle;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
-use xmtp_db::XmtpOpenMlsProvider;
+use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
 use xmtp_id::{
     associations::{
         ident,
@@ -41,20 +44,21 @@ where
     Owner: InboxOwner,
 {
     pub builder: TesterBuilder<Owner>,
-    pub client: Client,
+    pub client: Arc<Client>,
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
 }
 
 #[macro_export]
 macro_rules! tester {
-    ($name:ident $(, $rest:tt)*) => {
+    ($name:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
         let builder = $crate::utils::Tester::builder();
-        tester!(@process builder ; $name $(, $rest)*)
+        tester!(@process builder ; $name $(, $k $(($s))? $(($v))?)*)
     };
 
-    ($name:ident, from = $existing:ident $(, $rest:tt)*) => {
-        tester!(@process $existing.builder ; $name $(, $rest)*)
+    ($name:ident, from: $existing:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $existing.builder ; $name $(, $k $(($s))? $(($v))?)*)
     };
 
     (@process $builder:expr ; $name:ident) => {
@@ -66,12 +70,12 @@ macro_rules! tester {
         };
     };
 
-    (@process $builder:expr ; $name:ident, $key:ident = $value:expr $(, $rest:tt)*) => {
-        tester!(@process $builder.$key($value) ; $name $(, $rest)*)
+    (@process $builder:expr ; $name:ident, $key:ident: $value:expr $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $builder.$key($value) ; $name $(, $k $(($s))? $(($v))?)*)
     };
 
-    (@process $builder:expr ; $name:ident, $key:ident $(, $rest:tt)*) => {
-        tester!(@process $builder.$key() ; $name $(, $rest)*)
+    (@process $builder:expr ; $name:ident, $key:ident $(, $k:ident $(($s:tt))? $(($v:expr))?)*) => {
+        tester!(@process $builder.$key() ; $name $(, $k $(($s))? $(($v))?)*)
     };
 }
 
@@ -100,7 +104,7 @@ where
 
 impl<Owner> LocalTesterBuilder<Owner, FullXmtpClient> for TesterBuilder<Owner>
 where
-    Owner: InboxOwner + Clone,
+    Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
         let api_client = ClientBuilder::new_api_client().await;
@@ -112,6 +116,7 @@ where
             Some(self.sync_mode),
         )
         .await;
+        let client = Arc::new(client);
 
         let provider = client.mls_provider().unwrap();
         let worker = client.device_sync.worker_handle();
@@ -122,12 +127,17 @@ where
         }
         client.sync_welcomes(&provider).await;
 
-        Tester {
+        let mut tester = Tester {
             builder: self.clone(),
             client,
             provider: Arc::new(provider),
             worker,
-        }
+            stream_handle: None,
+        };
+
+        tester.stream().await;
+
+        tester
     }
 }
 
@@ -137,6 +147,17 @@ where
 {
     pub(crate) async fn new_with_owner(owner: Owner) -> Self {
         TesterBuilder::new().owner(owner).build().await
+    }
+
+    async fn stream(&mut self) {
+        let handle = FullXmtpClient::stream_all_messages_with_callback(
+            self.client.clone(),
+            None,
+            None,
+            |_| {},
+        );
+        let handle = Box::new(handle) as Box<_>;
+        self.stream_handle = Some(handle);
     }
 }
 
@@ -173,6 +194,7 @@ where
     pub sync_mode: SyncWorkerMode,
     pub sync_url: Option<String>,
     pub wait_for_init: bool,
+    pub stream: bool,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -188,6 +210,7 @@ impl Default for TesterBuilder<LocalWallet> {
             sync_mode: SyncWorkerMode::Disabled,
             sync_url: None,
             wait_for_init: true,
+            stream: false,
         }
     }
 }
@@ -205,6 +228,7 @@ where
             sync_mode: self.sync_mode,
             sync_url: self.sync_url,
             wait_for_init: self.wait_for_init,
+            stream: self.stream,
         }
     }
 
@@ -212,16 +236,23 @@ where
         self.owner(PasskeyUser::new().await)
     }
 
-    pub fn with_sync_worker(self) -> Self {
+    pub fn sync_worker(self) -> Self {
         Self {
             sync_mode: SyncWorkerMode::Enabled,
             ..self
         }
     }
 
-    pub fn with_sync_server(self) -> Self {
+    pub fn sync_server(self) -> Self {
         Self {
             sync_url: Some(DeviceSyncUrls::LOCAL_ADDRESS.to_string()),
+            ..self
+        }
+    }
+
+    pub fn stream(self) -> Self {
+        Self {
+            stream: true,
             ..self
         }
     }

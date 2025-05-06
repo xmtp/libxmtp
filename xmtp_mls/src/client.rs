@@ -1785,7 +1785,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn should_stream_consent() {
-        let alix = Tester::builder().with_sync_worker().build().await;
+        let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;
 
         let receiver = alix.local_events.subscribe();
