@@ -139,8 +139,7 @@ impl DbConnection {
                         .or(consent_dsl::state.eq(ConsentState::Unknown))
                         .or(consent_dsl::state.eq_any(filtered_states.clone())),
                 )
-                .select(conversation_list::all_columns())
-                .order(conversation_list_dsl::created_at_ns.asc());
+                .select(conversation_list::all_columns());
 
             self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
@@ -152,8 +151,7 @@ impl DbConnection {
                     .eq(consent_dsl::entity)),
                 )
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(conversation_list::all_columns())
-                .order(conversation_list_dsl::created_at_ns.asc());
+                .select(conversation_list::all_columns());
 
             self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
         };
