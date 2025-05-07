@@ -3,7 +3,7 @@ mod test_dm;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
+use super::{group_permissions::PolicySet, MlsGroup};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::groups::scoped_client::ScopedGroupClient;

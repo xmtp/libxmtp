@@ -812,10 +812,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 },
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
-                    group
+
+                    let group = group
                         .membership_state(GroupMembershipState::Pending)
                         .last_message_ns(welcome.created_ns as i64)
-                        .build()?
+                        .build()?;
+
+                    StoredConsentRecord::persist_consent(provider.conn_ref(), &group)?;
+
+                    group
                 }
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
