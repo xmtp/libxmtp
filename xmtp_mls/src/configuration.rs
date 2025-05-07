@@ -68,7 +68,7 @@ pub const DEFAULT_GROUP_IMAGE_URL_SQUARE: &str = "";
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
 pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 
-#[cfg(debug_assertions)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod debug_config {
     use super::*;
     pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600;
@@ -76,11 +76,11 @@ pub mod debug_config {
 }
 
 pub fn sync_update_installations_interval_ns() -> i64 {
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, feature = "test-utils"))]
     {
         debug_config::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(test, feature = "test-utils")))]
     {
         SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS
     }

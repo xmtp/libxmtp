@@ -13,18 +13,16 @@ pub trait LocalBuilder<Owner>
 where
     Owner: InboxOwner + Clone,
 {
-    async fn build(&self) -> Tester<Owner, Arc<FfiXmtpClient>>;
-    async fn build_no_panic(&self) -> Result<Tester<Owner, Arc<FfiXmtpClient>>, GenericError>;
+    async fn build(&self) -> Tester<Owner, FfiXmtpClient>;
+    async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, GenericError>;
 }
 impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
-    async fn build(&self) -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
+    async fn build(&self) -> Tester<LocalWallet, FfiXmtpClient> {
         self.build_no_panic().await.unwrap()
     }
 
     // Will not panic on registering identity. Will still panic on just about everything else.
-    async fn build_no_panic(
-        &self,
-    ) -> Result<Tester<LocalWallet, Arc<FfiXmtpClient>>, GenericError> {
+    async fn build_no_panic(&self) -> Result<Tester<LocalWallet, FfiXmtpClient>, GenericError> {
         let client = create_raw_client(self).await;
         let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
         let signature_request = client.signature_request().unwrap();
@@ -51,17 +49,16 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
             client,
             provider: Arc::new(provider),
             worker,
+            stream_handle: None,
         })
     }
 }
 impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
-    async fn build(&self) -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
+    async fn build(&self) -> Tester<PasskeyUser, FfiXmtpClient> {
         self.build_no_panic().await.unwrap()
     }
 
-    async fn build_no_panic(
-        &self,
-    ) -> Result<Tester<PasskeyUser, Arc<FfiXmtpClient>>, GenericError> {
+    async fn build_no_panic(&self) -> Result<Tester<PasskeyUser, FfiXmtpClient>, GenericError> {
         let client = create_raw_client(self).await;
         let signature_request = client.signature_request().unwrap();
         let text = signature_request.signature_text().await.unwrap();
@@ -94,23 +91,24 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             client,
             provider: Arc::new(provider),
             worker,
+            stream_handle: None,
         })
     }
 }
 
 pub trait LocalTester {
-    async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>>;
+    async fn new() -> Tester<LocalWallet, FfiXmtpClient>;
     #[allow(unused)]
-    async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>>;
+    async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient>;
 
     fn builder() -> TesterBuilder<LocalWallet>;
 }
-impl LocalTester for Tester<LocalWallet, Arc<FfiXmtpClient>> {
-    async fn new() -> Tester<LocalWallet, Arc<FfiXmtpClient>> {
+impl LocalTester for Tester<LocalWallet, FfiXmtpClient> {
+    async fn new() -> Tester<LocalWallet, FfiXmtpClient> {
         TesterBuilder::new().build().await
     }
-    async fn new_passkey() -> Tester<PasskeyUser, Arc<FfiXmtpClient>> {
-        TesterBuilder::new().passkey_owner().await.build().await
+    async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {
+        TesterBuilder::new().passkey().build().await
     }
 
     fn builder() -> TesterBuilder<LocalWallet> {

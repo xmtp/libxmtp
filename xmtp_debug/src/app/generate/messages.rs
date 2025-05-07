@@ -8,6 +8,7 @@ use crate::{
 use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
+use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
 
@@ -23,6 +24,8 @@ enum MessageSendError {
     Group(#[from] xmtp_mls::groups::GroupError),
     #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
+    #[error(transparent)]
+    Sync(#[from] SyncSummary),
 }
 
 pub struct GenerateMessages {

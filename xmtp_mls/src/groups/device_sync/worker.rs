@@ -13,6 +13,7 @@ use crate::{
         },
         device_sync_legacy::DeviceSyncContent,
         scoped_client::ScopedGroupClient,
+        GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
     Client,
@@ -513,7 +514,10 @@ where
         tracing::info!("\x1b[33mSending a sync request.");
 
         let sync_group = self.get_sync_group(provider).await?;
-        sync_group.sync_with_conn(provider).await?;
+        sync_group
+            .sync_with_conn(provider)
+            .await
+            .map_err(GroupError::from)?;
 
         let request = DeviceSyncRequestProto {
             request_id: xmtp_common::rand_string::<ENC_KEY_SIZE>(),

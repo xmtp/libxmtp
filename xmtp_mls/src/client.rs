@@ -1143,8 +1143,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+    use std::time::Duration;
+
     use super::Client;
     use crate::subscriptions::StreamMessages;
+    use crate::tester;
     use crate::utils::{LocalTesterBuilder, Tester};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
@@ -1452,8 +1455,8 @@ pub(crate) mod tests {
         tokio::test(flavor = "multi_thread", worker_threads = 2)
     )]
     async fn test_sync_all_groups_and_welcomes() {
-        let alix = Tester::new().await;
-        let bo = Tester::new_passkey().await;
+        tester!(alix);
+        tester!(bo, passkey);
 
         // Create two groups and add Bob
         let alix_bo_group1 = alix
@@ -1478,6 +1481,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(bob_received_groups, 2);
+
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         // Verify Bob initially has no messages
         let bo_group1 = bo.group(&alix_bo_group1.group_id.clone()).unwrap();
@@ -1802,7 +1807,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn should_stream_consent() {
-        let alix = Tester::builder().with_sync_worker().build().await;
+        let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;
 
         let receiver = alix.local_events.subscribe();

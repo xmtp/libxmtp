@@ -3346,11 +3346,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder()
-            .with_sync_worker()
-            .with_sync_server()
-            .build()
-            .await;
+        let alex = Tester::builder().sync_worker().sync_server().build().await;
         let worker = alex.client.inner_client.worker_handle().unwrap();
 
         let stats = alex.inner_client.api_stats();
@@ -6505,11 +6501,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_stream_consent() {
-        let alix_a = Tester::builder()
-            .with_sync_worker()
-            .with_sync_server()
-            .build()
-            .await;
+        let alix_a = Tester::builder().sync_worker().sync_server().build().await;
 
         let alix_b = alix_a.builder.build().await;
 
@@ -6656,7 +6648,7 @@ mod tests {
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
-            .with_sync_worker()
+            .sync_worker()
             .build()
             .instrument(alix_a_span)
             .await;
@@ -7955,11 +7947,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_consent() {
         // Create two test users
-        let alix = Tester::builder()
-            .with_sync_server()
-            .with_sync_worker()
-            .build()
-            .await;
+        let alix = Tester::builder().sync_server().sync_worker().build().await;
         let bo = Tester::new().await;
 
         // Create a group conversation
