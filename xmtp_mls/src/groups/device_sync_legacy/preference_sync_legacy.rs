@@ -7,9 +7,10 @@ use xmtp_common::time::now_ns;
 use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
 use xmtp_db::{StorageError, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::xmtp::device_sync::content::UserPreferenceUpdate as NewUserPreferenceUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
-    user_preference_update::Update as PreferenceUpdateProto, HmacKeyUpdate as HmacKeyUpdateProto,
+    preference_update::Update as PreferenceUpdateProto, HmacKeyUpdate as HmacKeyUpdateProto,
+    PreferenceUpdate as NewUserPreferenceUpdateProto,
+    V1UserPreferenceUpdate as UserPreferenceUpdateProto,
 };
 use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope as PlaintextEnvelopeProto;
 use xmtp_proto::ConversionError;
@@ -18,11 +19,10 @@ use xmtp_proto::{
     xmtp::mls::message_contents::{
         plaintext_envelope::v2::MessageType,
         plaintext_envelope::{Content, V2},
-        UserPreferenceUpdate as UserPreferenceUpdateProto,
     },
 };
 
-use super::UserPreferenceUpdate;
+use super::PreferenceUpdate;
 
 /// This struct is only kept around to deserialize messages from
 /// old libxmtp versions. It should not be used for any internal logic
@@ -34,11 +34,11 @@ pub enum LegacyUserPreferenceUpdate {
 }
 
 impl LegacyUserPreferenceUpdate {
-    pub fn decode(update: &[u8]) -> Result<UserPreferenceUpdate, bincode::Error> {
+    pub fn decode(update: &[u8]) -> Result<PreferenceUpdate, bincode::Error> {
         let update: Self = bincode::deserialize(update)?;
         let update = match update {
-            LegacyUserPreferenceUpdate::ConsentUpdate(c) => UserPreferenceUpdate::Consent(c),
-            LegacyUserPreferenceUpdate::HmacKeyUpdate { key } => UserPreferenceUpdate::Hmac {
+            LegacyUserPreferenceUpdate::ConsentUpdate(c) => PreferenceUpdate::Consent(c),
+            LegacyUserPreferenceUpdate::HmacKeyUpdate { key } => PreferenceUpdate::Hmac {
                 key,
                 cycled_at_ns: 0,
             },
@@ -52,7 +52,7 @@ pub(crate) fn process_incoming_preference_update<C>(
     update_proto: UserPreferenceUpdateProto,
     client: &C,
     provider: &XmtpOpenMlsProvider,
-) -> Result<Vec<UserPreferenceUpdate>, StorageError>
+) -> Result<Vec<PreferenceUpdate>, StorageError>
 where
     C: ScopedGroupClient,
 {
@@ -65,10 +65,10 @@ where
     for update in proto_content {
         if let Ok(update) = LegacyUserPreferenceUpdate::decode(&update) {
             match update.clone() {
-                UserPreferenceUpdate::Consent(consent_record) => {
+                PreferenceUpdate::Consent(consent_record) => {
                     consent_updates.push(consent_record);
                 }
-                UserPreferenceUpdate::Hmac { key, .. } => {
+                PreferenceUpdate::Hmac { key, .. } => {
                     updates.push(update);
                     StoredUserPreferences::store_hmac_key(conn, &key, None)?;
                 }
@@ -85,21 +85,14 @@ where
     // Insert all of the consent records at once.
     if !consent_updates.is_empty() {
         let changed = conn.insert_or_replace_consent_records(&consent_updates)?;
-        let changed: Vec<_> = changed
-            .into_iter()
-            .map(UserPreferenceUpdate::Consent)
-            .collect();
+        let changed: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
         updates.extend(changed);
     }
 
     if let Some(handle) = client.worker_handle() {
         updates.iter().for_each(|u| match u {
-            UserPreferenceUpdate::Consent(_) => {
-                handle.increment_metric(SyncMetric::V1ConsentReceived)
-            }
-            UserPreferenceUpdate::Hmac { .. } => {
-                handle.increment_metric(SyncMetric::V1HmacReceived)
-            }
+            PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
+            PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),
         });
     }
 
@@ -156,11 +149,11 @@ impl LegacyUserPreferenceUpdate {
     }
 }
 
-impl From<UserPreferenceUpdate> for LegacyUserPreferenceUpdate {
-    fn from(update: UserPreferenceUpdate) -> Self {
+impl From<PreferenceUpdate> for LegacyUserPreferenceUpdate {
+    fn from(update: PreferenceUpdate) -> Self {
         match update {
-            UserPreferenceUpdate::Consent(rec) => Self::ConsentUpdate(rec),
-            UserPreferenceUpdate::Hmac { key, .. } => Self::HmacKeyUpdate { key },
+            PreferenceUpdate::Consent(rec) => Self::ConsentUpdate(rec),
+            PreferenceUpdate::Hmac { key, .. } => Self::HmacKeyUpdate { key },
         }
     }
 }

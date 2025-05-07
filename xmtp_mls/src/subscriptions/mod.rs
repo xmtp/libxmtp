@@ -18,7 +18,7 @@ pub(crate) mod stream_messages;
 
 use crate::{
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, mls_sync::GroupMessageProcessingError,
+        device_sync::preference_sync::PreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
     },
     Client, XmtpApi,
@@ -53,7 +53,7 @@ pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
     SyncWorkerEvent(SyncWorkerEvent),
-    PreferencesChanged(Vec<UserPreferenceUpdate>),
+    PreferencesChanged(Vec<PreferenceUpdate>),
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ pub enum SyncWorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
     NewSyncGroupMsg,
     // The sync worker will auto-sync these with other devices.
-    SyncPreferences(Vec<UserPreferenceUpdate>),
+    SyncPreferences(Vec<PreferenceUpdate>),
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
@@ -93,7 +93,7 @@ impl LocalEvents {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::Consent(cr) => Some(cr),
+                        PreferenceUpdate::Consent(cr) => Some(cr),
                         _ => None,
                     })
                     .collect();
@@ -104,13 +104,13 @@ impl LocalEvents {
         }
     }
 
-    fn preference_filter(self) -> Option<Vec<UserPreferenceUpdate>> {
+    fn preference_filter(self) -> Option<Vec<PreferenceUpdate>> {
         match self {
             Self::PreferencesChanged(updates) => {
                 let updates = updates
                     .into_iter()
                     .filter_map(|pu| match pu {
-                        UserPreferenceUpdate::Consent(_) => None,
+                        PreferenceUpdate::Consent(_) => None,
                         _ => Some(pu),
                     })
                     .collect();
@@ -124,7 +124,7 @@ impl LocalEvents {
 pub(crate) trait StreamMessages {
     fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>>;
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
-    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>>>;
+    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
@@ -147,7 +147,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
     }
 
     #[instrument(level = "debug", skip_all)]
-    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<UserPreferenceUpdate>>> {
+    fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
                 .and_then(LocalEvents::preference_filter)
@@ -338,11 +338,10 @@ where
 
     pub fn stream_preferences_with_callback(
         client: Arc<Client<ApiClient, V>>,
-        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
+        #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
             + Send
             + 'static,
-        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<UserPreferenceUpdate>>)
-            + 'static,
+        #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 

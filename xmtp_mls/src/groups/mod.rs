@@ -59,7 +59,7 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
 };
-use device_sync::preference_sync::UserPreferenceUpdate;
+use device_sync::preference_sync::PreferenceUpdate;
 use intents::SendMessageIntentData;
 use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
@@ -1700,7 +1700,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let new_records: Vec<_> = conn
             .insert_or_replace_consent_records(&[consent_record.clone()])?
             .into_iter()
-            .map(UserPreferenceUpdate::Consent)
+            .map(PreferenceUpdate::Consent)
             .collect();
 
         if !new_records.is_empty() {
