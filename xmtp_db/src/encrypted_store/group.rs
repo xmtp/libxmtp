@@ -204,51 +204,50 @@ impl DbConnection {
             query = query.filter(dsl::conversation_type.eq(conversation_type));
         }
 
-        let mut groups = if let Some(consent_states) = consent_states {
-            if consent_states
-                .iter()
-                .any(|state| *state == ConsentState::Unknown)
-            {
-                // Include both `Unknown`, `null`, and other specified states
-                let query = query
-                    .left_join(
-                        consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                                .eq(consent_dsl::entity)),
-                    )
-                    .filter(
-                        consent_dsl::state
-                            .is_null()
-                            .or(consent_dsl::state.eq(ConsentState::Unknown))
-                            .or(consent_dsl::state.eq_any(
-                                consent_states
-                                    .iter()
-                                    .filter(|state| **state != ConsentState::Unknown)
-                                    .cloned()
-                                    .collect::<Vec<_>>(),
-                            )),
-                    )
-                    .select(dsl::groups::all_columns())
-                    .order(dsl::created_at_ns.asc());
+        let effective_consent_states = match &consent_states {
+            Some(states) => states.clone(),
+            None => vec![ConsentState::Allowed, ConsentState::Unknown],
+        };
 
-                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
-            } else {
-                // Only include the specified states
-                let query = query
-                    .inner_join(
-                        consent_dsl::consent_records
-                            .on(sql::<diesel::sql_types::Text>("lower(hex(groups.id))")
-                                .eq(consent_dsl::entity)),
-                    )
-                    .filter(consent_dsl::state.eq_any(consent_states.clone()))
-                    .select(dsl::groups::all_columns())
-                    .order(dsl::created_at_ns.asc());
+        let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
+        let includes_all = effective_consent_states.len() == 3;
 
-                self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
-            }
-        } else {
-            // Handle the case where `consent_states` is `None`
+        let filtered_states: Vec<_> = effective_consent_states
+            .iter()
+            .filter(|state| **state != ConsentState::Unknown)
+            .cloned()
+            .collect();
+
+        let mut groups = if includes_all {
+            // No filtering at all
             self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
+        } else if includes_unknown {
+            // LEFT JOIN: include Unknown + NULL + filtered states
+            let left_joined_query = query
+                .left_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
+                .filter(
+                    consent_dsl::state
+                        .is_null()
+                        .or(consent_dsl::state.eq(ConsentState::Unknown))
+                        .or(consent_dsl::state.eq_any(filtered_states.clone())),
+                )
+                .select(dsl::groups::all_columns())
+                .order(dsl::created_at_ns.asc());
+
+            self.raw_query_read(|conn| left_joined_query.load::<StoredGroup>(conn))?
+        } else {
+            // INNER JOIN: strict match only to specific states (no Unknown or NULL)
+            let inner_joined_query = query
+                .inner_join(consent_dsl::consent_records.on(
+                    sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
+                ))
+                .filter(consent_dsl::state.eq_any(filtered_states.clone()))
+                .select(dsl::groups::all_columns())
+                .order(dsl::created_at_ns.asc());
+
+            self.raw_query_read(|conn| inner_joined_query.load::<StoredGroup>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -985,8 +984,20 @@ pub(crate) mod tests {
             );
             test_group_3_consent.store(conn).unwrap();
 
-            let all_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            let all_results = conn
+                .find_groups(GroupQueryArgs {
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Unknown,
+                        ConsentState::Denied,
+                    ]),
+                    ..Default::default()
+                })
+                .unwrap();
             assert_eq!(all_results.len(), 4);
+
+            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+            assert_eq!(default_results.len(), 3);
 
             let allowed_results = conn
                 .find_groups(GroupQueryArgs {
@@ -1038,6 +1049,47 @@ pub(crate) mod tests {
                 g.store(conn).unwrap();
             }
             assert_eq!(vec![30, 10], conn.group_welcome_ids().unwrap());
+        })
+        .await
+    }
+
+    #[xmtp_common::test]
+    async fn test_find_group_default_excludes_denied() {
+        with_connection(|conn| {
+            // Create three groups: one allowed, one denied, one unknown (no consent)
+            let allowed_group = generate_group(Some(GroupMembershipState::Allowed));
+            allowed_group.store(conn).unwrap();
+
+            let denied_group = generate_group(Some(GroupMembershipState::Allowed));
+            denied_group.store(conn).unwrap();
+
+            let unknown_group = generate_group(Some(GroupMembershipState::Allowed));
+            unknown_group.store(conn).unwrap();
+
+            // Create consent records for allowed and denied; leave unknown_group without one
+            let allowed_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(allowed_group.id.clone()),
+            );
+            allowed_consent.store(conn).unwrap();
+
+            let denied_consent = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(denied_group.id.clone()),
+            );
+            denied_consent.store(conn).unwrap();
+
+            // Query using default args (no consent_states specified)
+            let default_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
+
+            // Expect to include only: allowed_group and unknown_group (2 total)
+            assert_eq!(default_results.len(), 2);
+            let returned_ids: Vec<_> = default_results.iter().map(|g| &g.id).collect();
+            assert!(returned_ids.contains(&&allowed_group.id));
+            assert!(returned_ids.contains(&&unknown_group.id));
+            assert!(!returned_ids.contains(&&denied_group.id));
         })
         .await
     }
