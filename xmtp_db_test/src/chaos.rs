@@ -23,7 +23,7 @@ const STATIC_PRE_WRITE_HOOK: &str = "STATIC_PRE_WRITE_HOOK";
 const STATIC_POST_READ_HOOK: &str = "STATIC_POST_READ_HOOK";
 const STATIC_POST_WRITE_HOOK: &str = "STATIC_POST_WRITE_HOOK";
 
-type HookFn<C> = Box<dyn Fn(&C) + Send + Sync>;
+type HookFn<C> = Box<dyn Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync>;
 
 #[derive(Builder)]
 #[builder(setter(into), build_fn(validate = "Self::validate"))]
@@ -60,6 +60,13 @@ where
     pub fn builder() -> ChaosConnectionBuilder<C> {
         Default::default()
     }
+
+    pub fn set_error_frequency(&mut self, frequency: f64) {
+        if !(0.0..1.0).contains(&frequency) {
+            panic!("error_frequency must be a value between 0.0 and 1.0 (EX: 0.40)");
+        }
+        self.error_frequency = frequency;
+    }
 }
 
 impl<C> ChaosConnectionBuilder<C> {
@@ -67,7 +74,7 @@ impl<C> ChaosConnectionBuilder<C> {
     fn validate(&self) -> Result<(), String> {
         // ensure error frequency is a percentage
         if let Some(frequency) = self.error_frequency {
-            if !(frequency < 1.0 && frequency > 0.0) {
+            if !(0.0..1.0).contains(&frequency) {
                 return Err(
                     "error_frequency must be a value between 0.0 and 1.0 (EX: 0.40)".to_string(),
                 );
@@ -83,23 +90,25 @@ impl<C> ChaosConnection<C> {
         m.get_mut(hook).map(|h| h.pop())?
     }
 
-    pub fn run_hook(&self, hook: &'static str) {
+    pub fn run_hook(&self, hook: &'static str) -> Result<(), xmtp_db::ConnectionError> {
         if let Some(f) = self.get_mod(hook) {
-            f(&self.db)
+            f(&self.db)?;
         }
+        Ok(())
     }
 
-    pub fn run_static_hooks(&self, hook: &'static str) {
+    pub fn run_static_hooks(&self, hook: &'static str) -> Result<(), xmtp_db::ConnectionError> {
         let h = self.static_hooks.lock();
         if let Some(f) = h.get(hook) {
-            f.iter().for_each(|h| h(&self.db));
+            f.iter().try_for_each(|h| h(&self.db))?;
         }
+        Ok(())
     }
 
     /// Add a hook to run after the next transaction is started
     pub fn start_transaction_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(TRANSACTION_START_HOOK)
@@ -110,7 +119,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run before the next read
     pub fn pre_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(PRE_READ_HOOK).or_default().push(Box::new(f))
@@ -119,7 +128,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run after the next read
     pub fn post_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(POST_READ_HOOK).or_default().push(Box::new(f))
@@ -128,7 +137,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run before the next write
     pub fn pre_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(PRE_WRITE_HOOK).or_default().push(Box::new(f))
@@ -137,7 +146,7 @@ impl<C> ChaosConnection<C> {
     /// Add a hook to run after the next write
     pub fn post_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.hooks.lock();
         m.entry(POST_WRITE_HOOK).or_default().push(Box::new(f))
@@ -149,7 +158,7 @@ impl<C> ChaosConnection<C> {
     /// transaction start hook.
     pub fn static_start_transaction_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_TRANSACTION_START_HOOK)
@@ -163,7 +172,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_pre_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_PRE_READ_HOOK).or_default().push(Box::new(f))
@@ -175,7 +184,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_post_read_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_POST_READ_HOOK)
@@ -189,7 +198,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_pre_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_PRE_WRITE_HOOK)
@@ -203,7 +212,7 @@ impl<C> ChaosConnection<C> {
     /// but after dynamic hooks in the 'POST' stage.
     pub fn static_post_write_hook<F>(&self, f: F)
     where
-        F: Fn(&C) + Send + Sync + 'static,
+        F: Fn(&C) -> Result<(), xmtp_db::ConnectionError> + Send + Sync + 'static,
     {
         let mut m = self.static_hooks.lock();
         m.entry(STATIC_POST_WRITE_HOOK)
@@ -232,47 +241,48 @@ impl<C> ChaosConnection<C> {
 impl<C> ConnectionExt for ChaosConnection<C>
 where
     C: ConnectionExt,
-    <C as ConnectionExt>::Error: From<xmtp_db::ConnectionError>,
 {
     type Connection = C::Connection;
-    type Error = <C as ConnectionExt>::Error;
 
-    fn start_transaction(&self) -> Result<xmtp_db::TransactionGuard<'_>, Self::Error> {
+    #[tracing::instrument(skip_all)]
+    fn start_transaction(&self) -> Result<xmtp_db::TransactionGuard<'_>, xmtp_db::ConnectionError> {
         self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.start_transaction();
-        self.run_static_hooks(STATIC_TRANSACTION_START_HOOK);
-        self.run_hook(TRANSACTION_START_HOOK);
-        result
+        let result = self.db.start_transaction()?;
+        self.run_static_hooks(STATIC_TRANSACTION_START_HOOK)?;
+        self.run_hook(TRANSACTION_START_HOOK)?;
+        Ok(result)
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    #[tracing::instrument(skip_all)]
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        self.run_static_hooks(STATIC_PRE_READ_HOOK);
-        self.run_hook(PRE_READ_HOOK);
+        self.run_static_hooks(STATIC_PRE_READ_HOOK)?;
+        self.run_hook(PRE_READ_HOOK)?;
         self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_read(fun);
+        let result = self.db.raw_query_read(fun)?;
         // TODO: we could potentially pass T into the POST hook,
         // and then the test could do some (probably unsafe) casting to
         // get a specific type out. Unsure if useful?
-        self.run_hook(POST_READ_HOOK);
-        self.run_static_hooks(STATIC_POST_READ_HOOK);
-        result
+        self.run_hook(POST_READ_HOOK)?;
+        self.run_static_hooks(STATIC_POST_READ_HOOK)?;
+        Ok(result)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    #[tracing::instrument(skip_all)]
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        self.run_static_hooks(STATIC_PRE_WRITE_HOOK);
-        self.run_hook(PRE_WRITE_HOOK);
+        self.run_static_hooks(STATIC_PRE_WRITE_HOOK)?;
+        self.run_hook(PRE_WRITE_HOOK)?;
         self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.raw_query_write(fun);
-        self.run_hook(POST_WRITE_HOOK);
-        self.run_static_hooks(STATIC_POST_WRITE_HOOK);
-        result
+        let result = self.db.raw_query_write(fun)?;
+        self.run_hook(POST_WRITE_HOOK)?;
+        self.run_static_hooks(STATIC_POST_WRITE_HOOK)?;
+        Ok(result)
     }
 }

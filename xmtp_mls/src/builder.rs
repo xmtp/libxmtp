@@ -81,7 +81,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub async fn build(self) -> Result<Client<ApiClient, Db>, ClientBuilderError>
     where
         ApiClient: XmtpApi + 'static + Send + Sync,
-        Db: xmtp_db::XmtpDb + 'static,
+        Db: xmtp_db::XmtpDb + 'static + Send + Sync,
     {
         let ClientBuilder {
             mut api_client,
@@ -256,7 +256,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     /// requires the 'api' to be set.
     pub fn with_remote_verifier(self) -> Result<ClientBuilder<ApiClient, Db>, ClientBuilderError>
     where
-        ApiClient: Clone + XmtpApi + 'static,
+        ApiClient: Clone + XmtpApi + Send + Sync + 'static,
     {
         let api = self
             .api_client
@@ -265,6 +265,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
                 parameter: "api_client",
             })?;
 
+        #[allow(clippy::arc_with_non_send_sync)]
         Ok(ClientBuilder {
             api_client: self.api_client,
             identity: self.identity,

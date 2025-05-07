@@ -230,7 +230,10 @@ impl<Db> XmtpMlsLocalContext<Db> {
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id<C>(&self, conn: &DbConnection<C>) -> Result<i64, xmtp_db::ConnectionError>
+    pub fn inbox_sequence_id<C>(
+        &self,
+        conn: &DbConnection<C>,
+    ) -> Result<i64, xmtp_db::ConnectionError>
     where
         C: ConnectionExt,
     {
@@ -396,7 +399,10 @@ where
 
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
     /// This may not be consistent with the latest state on the backend.
-    pub fn inbox_sequence_id(&self, conn: &DbConnection<<Db as XmtpDb>::Connection>) -> Result<i64, StorageError> {
+    pub fn inbox_sequence_id(
+        &self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+    ) -> Result<i64, StorageError> {
         self.context.inbox_sequence_id(conn).map_err(Into::into)
     }
 
@@ -1124,7 +1130,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let conn = amal.store().conn().unwrap();
+        let conn = amal.store().conn();
         conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
             .unwrap();
 

@@ -141,6 +141,7 @@ xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
+xmtp_db_test = { path = "xmtp_db_test" }
 
 
 [profile.dev]

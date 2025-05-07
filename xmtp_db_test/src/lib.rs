@@ -1,7 +1,5 @@
 use std::sync::Arc;
-use xmtp_db::{
-    ConnectionError, DbConnection, DefaultDatabase, EncryptionKey, StorageOption, XmtpDb,
-};
+use xmtp_db::{ConnectionError, DbConnection, DefaultDatabase, StorageOption, XmtpDb};
 
 pub mod chaos;
 
@@ -16,11 +14,19 @@ where
     conn: Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
 }
 
+impl<Db: XmtpDb> ChaosDb<Db> {
+    pub fn builder(db: Db) -> ChaosDbBuilder<Db> {
+        ChaosDbBuilder {
+            db,
+            error_frequency: 0.0,
+        }
+    }
+}
+
 impl<Db> XmtpDb for ChaosDb<Db>
 where
     Db: XmtpDb,
     <Db as XmtpDb>::Connection: Send + Sync,
-    <<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error: From<xmtp_db::ConnectionError>,
 {
     type Connection = Arc<chaos::ChaosConnection<Db::Connection>>;
 
@@ -47,12 +53,13 @@ where
 
 pub type EncryptedMessageStore = xmtp_db::store::EncryptedMessageStore<ChaosDb>;
 
-pub struct ChaosStoreBuilder<Db> {
+#[derive(Default)]
+pub struct ChaosDbBuilder<Db> {
     error_frequency: f64,
     db: Db,
 }
 
-impl<Db> ChaosStoreBuilder<Db> {
+impl<Db> ChaosDbBuilder<Db> {
     pub fn error_frequency(self, f: f64) -> Self {
         Self {
             error_frequency: f,
@@ -60,34 +67,32 @@ impl<Db> ChaosStoreBuilder<Db> {
         }
     }
 
-    pub fn db<NewDb>(self, db: NewDb) -> ChaosStoreBuilder<NewDb> {
-        ChaosStoreBuilder {
+    pub fn db<NewDb>(self, db: NewDb) -> ChaosDbBuilder<NewDb> {
+        ChaosDbBuilder {
             db,
             error_frequency: self.error_frequency,
         }
     }
 }
 
-impl<Db> ChaosStoreBuilder<Db>
+impl<Db> ChaosDbBuilder<Db>
 where
     Db: XmtpDb + Clone,
     <Db as XmtpDb>::Connection: Clone + Send + Sync,
-    xmtp_db::ConnectionError: From<<<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error>,
-    <<Db as XmtpDb>::Connection as xmtp_db::ConnectionExt>::Error: From<xmtp_db::ConnectionError>,
 {
     /// Build the EncryptedMessageStore with Chaos
     /// Returns a tuple of (ChaosConnection, EncryptedMessageStore)
     /// the ChaosConnection may be used to add cHaOS
     pub fn build(
         self,
-        opts: StorageOption,
-        _enc_key: EncryptionKey,
     ) -> (
         Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
         xmtp_db::store::EncryptedMessageStore<ChaosDb<Db>>,
     ) {
+        self.db.init(self.db.opts()).unwrap();
         let conn = chaos::ChaosConnection::builder()
             .db(self.db.conn())
+            // if we dont set frequency here, the chaos builder itself might fail building
             .error_frequency(self.error_frequency)
             .build()
             .unwrap();
@@ -96,7 +101,6 @@ where
             db: self.db,
             conn: conn.clone(),
         };
-        chaos_db.db.init(&opts).unwrap();
         let store = xmtp_db::store::EncryptedMessageStore::<ChaosDb<Db>>::builder()
             .db(chaos_db)
             .build()

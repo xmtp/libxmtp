@@ -207,6 +207,7 @@ pub async fn create_client(
 
   Ok(Client {
     account_identifier,
+    #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
     signature_requests: HashMap::new(),
   })
@@ -294,13 +295,9 @@ impl Client {
 
   #[wasm_bindgen(js_name = sendSyncRequest)]
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .send_sync_request(&provider)
+      .send_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

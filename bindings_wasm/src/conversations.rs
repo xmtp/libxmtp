@@ -507,14 +507,9 @@ impl Conversations {
 
   #[wasm_bindgen(js_name = syncDeviceSync)]
   pub async fn sync_device_sync(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
     self
       .inner_client
-      .get_sync_group(&provider)
+      .get_sync_group()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .sync()

@@ -51,10 +51,9 @@ where
         tracing::info!("Sending new HMAC key to sync group.");
 
         self.sync_preferences(vec![PreferenceUpdate::Hmac {
-                key: HmacKey::random_key(),
-                cycled_at_ns: now_ns(),
-            }],
-        )
+            key: HmacKey::random_key(),
+            cycled_at_ns: now_ns(),
+        }])
         .await?;
 
         Ok(())

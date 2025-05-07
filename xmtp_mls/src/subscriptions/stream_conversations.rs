@@ -680,7 +680,6 @@ mod test {
     async fn test_add_remove_re_add() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo_provider = bo.mls_provider().unwrap();
 
         let alix_group = alix
             .create_group_with_inbox_ids(
@@ -695,7 +694,7 @@ mod test {
             .remove_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
-        bo.sync_welcomes(&bo_provider).await.unwrap();
+        bo.sync_welcomes().await.unwrap();
         let stream = bo
             .stream_conversations(Some(ConversationType::Group))
             .await

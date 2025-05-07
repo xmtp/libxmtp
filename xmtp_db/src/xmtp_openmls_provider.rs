@@ -1,4 +1,4 @@
-use crate::{ConnectionExt, DbConnection, StorageError};
+use crate::{ConnectionExt, DbConnection};
 use crate::{MlsProviderExt, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
@@ -19,8 +19,10 @@ impl<C> XmtpOpenMlsProvider<C> {
     }
 }
 
-// C should be an Arc<>
-impl<C> XmtpOpenMlsProvider<C> {
+impl<C> XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
     pub fn conn_ref(&self) -> &DbConnection<C> {
         self.key_store.conn_ref()
     }
@@ -28,9 +30,7 @@ impl<C> XmtpOpenMlsProvider<C> {
     fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<<C as ConnectionExt>::Error> + std::error::Error,
-        E: From<crate::ConnectionError>,
-        C: ConnectionExt,
+        E: From<crate::ConnectionError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
@@ -54,7 +54,6 @@ impl<C> XmtpOpenMlsProvider<C> {
                         &mut *conn,
                     )
                 });
-                let result = result.map_err(crate::ConnectionError::from);
                 match result {
                     Ok(()) => Err(err),
                     Err(crate::ConnectionError::Database(
@@ -83,7 +82,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
+        E: From<crate::ConnectionError> + std::error::Error,
     {
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
     }
@@ -107,7 +106,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
+        E: std::error::Error + From<crate::ConnectionError>,
     {
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
     }
@@ -124,7 +123,6 @@ where
 impl<C> OpenMlsProvider for XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -145,7 +143,6 @@ where
 impl<C> OpenMlsProvider for &XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;

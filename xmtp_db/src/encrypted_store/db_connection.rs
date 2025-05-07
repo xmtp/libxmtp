@@ -21,18 +21,18 @@ impl<C> DbConnection<C>
 where
     C: ConnectionExt,
 {
-    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, <C as ConnectionExt>::Error> {
+    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         <Self as ConnectionExt>::start_transaction(self)
     }
 
-    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
+    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
     {
         <Self as ConnectionExt>::raw_query_read::<_, _>(self, fun)
     }
 
-    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
+    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
     {
@@ -45,13 +45,12 @@ where
     C: ConnectionExt,
 {
     type Connection = C::Connection;
-    type Error = <C as ConnectionExt>::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         self.conn.start_transaction()
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -59,7 +58,7 @@ where
         self.conn.raw_query_read(fun)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,

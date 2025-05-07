@@ -1,6 +1,5 @@
 mod sqlcipher_connection;
 
-use crate::TransactionGuard;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use crate::{StorageError, TransactionGuard};
@@ -256,9 +255,8 @@ impl EphemeralDbConnection {
 
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
-    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
         let mut c = self.conn.lock();
         AnsiTransactionManager::begin_transaction(&mut *c)?;
@@ -270,7 +268,7 @@ impl ConnectionExt for EphemeralDbConnection {
         })
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -279,7 +277,7 @@ impl ConnectionExt for EphemeralDbConnection {
         fun(&mut conn).map_err(ConnectionError::from)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -363,9 +361,8 @@ impl NativeDbConnection {
 
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
-    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
         let mut write = self.write.lock();
         AnsiTransactionManager::begin_transaction(&mut *write)?;
@@ -378,7 +375,7 @@ impl ConnectionExt for NativeDbConnection {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -404,7 +401,7 @@ impl ConnectionExt for NativeDbConnection {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,

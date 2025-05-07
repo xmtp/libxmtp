@@ -28,7 +28,7 @@ where
             diesel::update(dsl::user_preferences)
                 .set(self)
                 .execute(conn)
-        }).map_err(xmtp_db::ConnectionError::from)?;
+        })?;
 
         Ok(())
     }
@@ -49,9 +49,7 @@ impl HmacKey {
 
 impl StoredUserPreferences {
     pub fn load<C: ConnectionExt>(conn: &DbConnection<C>) -> Result<Self, StorageError> {
-        let pref = conn.raw_query_read(|conn| {
-            dsl::user_preferences.first(conn).optional()
-        })?;
+        let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
         Ok(pref.unwrap_or_default())
     }
 

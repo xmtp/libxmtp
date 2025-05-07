@@ -13,6 +13,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::Expired;
+use xmtp_db::XmtpDb;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
@@ -285,7 +286,7 @@ where
     }
 }
 
-pub async fn register_client<T: XmtpApi>(client: &Client<T>, owner: impl InboxOwner) {
+pub async fn register_client<T: XmtpApi, D: XmtpDb>(client: &Client<T, D>, owner: impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
