@@ -1569,9 +1569,7 @@ impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
     fn try_from(value: PreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
-            }
+            PreferenceUpdate::Hmac { key, .. } => Ok(FfiPreferenceUpdate::HMAC { key }),
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
             PreferenceUpdate::Consent(_) => Err(GenericError::Generic {
@@ -2739,7 +2737,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
-    HMAC { key: Vec<u8>, cycled_at_ns: i64 },
+    HMAC { key: Vec<u8> },
 }
 
 #[derive(uniffi::Object)]

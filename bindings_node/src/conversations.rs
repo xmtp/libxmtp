@@ -184,14 +184,14 @@ pub enum Tag<T> {
 #[derive(Serialize, Deserialize)]
 pub enum UserPreferenceUpdate {
   ConsentUpdate { consent: Consent },
-  HmacKeyUpdate { key: Vec<u8>, cycled_at_ns: i64 },
+  HmacKeyUpdate { key: Vec<u8> },
 }
 
 impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key, cycled_at_ns })
+      XmtpUserPreferenceUpdate::Hmac { key, .. } => {
+        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
       }
       XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
         consent: Consent::from(consent),
