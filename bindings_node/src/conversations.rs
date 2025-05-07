@@ -703,7 +703,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_group_messages(
     &self,
@@ -714,7 +714,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_dm_messages(
     &self,
