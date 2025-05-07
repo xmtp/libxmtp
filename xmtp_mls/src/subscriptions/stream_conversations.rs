@@ -446,6 +446,7 @@ where
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&group.id),
+            dm_id = group.dm_id,
             welcome_id = ?group.welcome_id,
             "loading existing group for welcome_id: {:?}",
             group.welcome_id
