@@ -1157,10 +1157,12 @@ impl From<&FfiMetadataField> for MetadataField {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
-    pub async fn create_group_optimistic(
+    pub fn create_group_optimistic(
         &self,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!("creating optimistic group");
+
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
             if opts.custom_permission_policy_set.is_none() {
                 return Err(GenericError::Generic {
@@ -1213,13 +1215,13 @@ impl FfiConversations {
                 .join(", ")
         );
 
-        let convo = self.create_group_optimistic(opts).await?;
+        let convo = self.create_group_optimistic(opts)?;
 
         if !account_identities.is_empty() {
             convo.add_members(account_identities).await?;
-        };
-
-        convo.sync().await?;
+        } else {
+            convo.sync().await?;
+        }
 
         Ok(convo)
     }
@@ -1234,13 +1236,13 @@ impl FfiConversations {
             inbox_ids.join(", ")
         );
 
-        let convo = self.create_group_optimistic(opts).await?;
+        let convo = self.create_group_optimistic(opts)?;
 
         if !inbox_ids.is_empty() {
             convo.add_members_by_inbox_id(inbox_ids).await?;
+        } else {
+            convo.sync().await?;
         };
-
-        convo.sync().await?;
 
         Ok(convo)
     }

@@ -271,7 +271,7 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn create_group_optimistic(
+  pub fn create_group_optimistic(
     &self,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
@@ -331,16 +331,16 @@ impl Conversations {
     account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let convo = self.create_group_optimistic(options).await?;
+    let convo = self.create_group_optimistic(options)?;
 
     if !account_identities.is_empty() {
       convo.add_members(account_identities).await?;
+    } else {
+      convo
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
     };
-
-    convo
-      .sync()
-      .await
-      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
 
     Ok(convo)
   }
@@ -351,16 +351,16 @@ impl Conversations {
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let convo = self.create_group_optimistic(options).await?;
+    let convo = self.create_group_optimistic(options)?;
 
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
-    };
-
-    convo
-      .sync()
-      .await
-      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+    } else {
+      convo
+        .sync()
+        .await
+        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+    }
 
     Ok(convo)
   }

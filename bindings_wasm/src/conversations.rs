@@ -316,7 +316,7 @@ impl Conversations {
 #[wasm_bindgen]
 impl Conversations {
   #[wasm_bindgen(js_name = createGroupOptimistic)]
-  pub async fn create_group_optimistic(
+  pub fn create_group_optimistic(
     &self,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
@@ -374,13 +374,13 @@ impl Conversations {
     account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
-    let convo = self.create_group_optimistic(options).await?;
+    let convo = self.create_group_optimistic(options)?;
 
     if !account_identifiers.is_empty() {
       convo.add_members(account_identifiers).await?;
+    } else {
+      convo.sync().await?;
     };
-
-    convo.sync().await?;
 
     Ok(convo)
   }
@@ -391,13 +391,13 @@ impl Conversations {
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
-    let convo = self.create_group_optimistic(options).await?;
+    let convo = self.create_group_optimistic(options)?;
 
     if !inbox_ids.is_empty() {
       convo.add_members_by_inbox_id(inbox_ids).await?;
+    } else {
+      convo.sync().await?;
     };
-
-    convo.sync().await?;
 
     Ok(convo)
   }
