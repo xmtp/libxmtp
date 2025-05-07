@@ -276,10 +276,11 @@ async fn test_add_member_conflict() {
         .await
         .expect("bola's add should succeed in a no-op");
 
-    amal_group
+    let summary = amal_group
         .receive(&amal.store().conn().unwrap().into())
         .await
-        .expect_err("expected error");
+        .unwrap();
+    assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
     let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
@@ -2559,14 +2560,11 @@ async fn process_messages_abort_on_retryable_error() {
         .unwrap();
 
     let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
-    if let Some(GroupError::ReceiveErrors(errors)) = process_result.err() {
-        assert_eq!(errors.len(), 1);
-        assert!(errors.iter().any(|err| err
-            .to_string()
-            .contains("cannot start a transaction within a transaction")));
-    } else {
-        panic!("Expected error")
-    }
+    assert!(process_result.is_errored());
+    assert_eq!(process_result.errored.len(), 1);
+    assert!(process_result.errored.iter().any(|(_, err)| err
+        .to_string()
+        .contains("cannot start a transaction within a transaction")));
 }
 
 #[xmtp_common::test]
@@ -2609,14 +2607,16 @@ async fn skip_already_processed_messages() {
     let process_result = bo_group
         .process_messages(bo_messages_from_api, &bo_client.mls_provider().unwrap())
         .await;
-    let Some(GroupError::ReceiveErrors(errors)) = process_result.err() else {
-        panic!("Expected error")
-    };
+    assert!(
+        process_result.is_errored(),
+        "expected process message error"
+    );
 
-    assert_eq!(errors.len(), 2);
-    assert!(errors
+    assert_eq!(process_result.errored.len(), 2);
+    assert!(process_result
+        .errored
         .iter()
-        .any(|err| err.to_string().contains("already processed")));
+        .any(|(_, err)| err.to_string().contains("already processed")));
 }
 
 #[xmtp_common::test]
@@ -3532,7 +3532,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
     let result = bo_group.send_message("Hello from Bo".as_bytes()).await;
     assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait)),
+        matches!(result, Err(GroupError::SyncFailedToWait(_))),
         "Expected SyncFailedToWait error, got {:?}",
         result
     );
@@ -3589,7 +3589,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .send_message("Second message from Bo".as_bytes())
         .await;
     assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait)),
+        matches!(result, Err(GroupError::SyncFailedToWait(_))),
         "Expected SyncFailedToWait error, got {:?}",
         result
     );
