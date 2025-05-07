@@ -93,7 +93,6 @@ impl DbConnection {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
-                .order(dsl::consented_at_ns.desc())
                 .first(conn)
                 .optional()
         })?)
@@ -237,6 +236,7 @@ impl DbConnection {
                 )
                 .filter(groups_dsl::dm_id.eq(dm_id))
                 .filter(dsl::entity_type.eq(ConsentType::ConversationId))
+                .order(dsl::consented_at_ns.desc())
                 .select(dsl::consent_records::all_columns())
                 .load::<StoredConsentRecord>(conn)
         });
