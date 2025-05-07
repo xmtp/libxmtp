@@ -6,7 +6,7 @@ use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
     groups::{
-        device_sync::preference_sync::UserPreferenceUpdate, group_metadata::DmMembers,
+        device_sync::preference_sync::PreferenceUpdate, group_metadata::DmMembers,
         group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
@@ -454,7 +454,7 @@ where
         if !changed_records.is_empty() {
             let updates: Vec<_> = changed_records
                 .into_iter()
-                .map(UserPreferenceUpdate::Consent)
+                .map(PreferenceUpdate::Consent)
                 .collect();
 
             // Broadcast the consent update changes

@@ -14,7 +14,7 @@ use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
