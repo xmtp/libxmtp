@@ -860,15 +860,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 },
                 ConversationType::Dm => {
                     validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
-
-                    let group = group
+                    group
                         .membership_state(GroupMembershipState::Pending)
                         .last_message_ns(welcome.created_ns as i64)
-                        .build()?;
-
-                    StoredConsentRecord::persist_consent(provider.conn_ref(), &group)?;
-
-                    group
+                        .build()?
                 }
                 ConversationType::Sync => {
                     // Let the DeviceSync worker know about the presence of a new
@@ -885,6 +880,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
+
+            StoredConsentRecord::persist_consent(provider.conn_ref(), &stored_group)?;
 
             Ok(Self::new(
                 client.clone(),
