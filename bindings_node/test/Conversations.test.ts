@@ -234,9 +234,7 @@ describe('Conversations', () => {
     const groups1 = client1.conversations().list()
     expect(groups1.length).toBe(1)
     expect(groups1[0].conversation.id()).toBe(group.id())
-    expect(groups1[0].conversation.dmPeerInboxId()).toBe(
-      client2.inboxId()
-    )
+    expect(groups1[0].conversation.dmPeerInboxId()).toBe(client2.inboxId())
 
     expect(client1.conversations().listDms().length).toBe(1)
     expect(client1.conversations().listGroups().length).toBe(0)
@@ -248,9 +246,7 @@ describe('Conversations', () => {
     const groups2 = client2.conversations().list()
     expect(groups2.length).toBe(1)
     expect(groups2[0].conversation.id()).toBe(group.id())
-    expect(groups2[0].conversation.dmPeerInboxId()).toBe(
-      client1.inboxId()
-    )
+    expect(groups2[0].conversation.dmPeerInboxId()).toBe(client1.inboxId())
 
     expect(client2.conversations().listDms().length).toBe(1)
     expect(client2.conversations().listGroups().length).toBe(0)
