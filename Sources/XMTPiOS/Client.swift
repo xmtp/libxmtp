@@ -157,8 +157,14 @@ public final class Client {
 					)
 				}
 			} else {
+				// add log messages here for logging 1) dbDirectory, 2) number of files in dbDirectory, 3) dbPath
+				let dbPathDirectory = URL(fileURLWithPath: dbPath).deletingLastPathComponent().path
+				XMTPLogger.database.error("custom dbDirectory: \(options.dbDirectory ?? "nil")")
+				XMTPLogger.database.error("dbPath: \(dbPath)")
+				XMTPLogger.database.error("dbPath Directory: \(dbPathDirectory)")
+				XMTPLogger.database.error("Number of files in dbDirectory: \(getNumberOfFilesInDirectory(directory: dbPathDirectory))")
 				throw ClientError.creationError(
-					"No v3 keys found, you must pass a SigningKey in order to enable alpha MLS features"
+					"No signing key found, you must pass a SigningKey in order to create an MLS client"
 				)
 			}
 		}
@@ -887,5 +893,53 @@ extension Client {
 		}
 		
 		return deletedCount
-	}
+    }
+    
+    private static func getNumberOfFilesInDirectory(directory: String?) -> Int {
+        guard let directory = directory else {
+            XMTPLogger.database.error("Directory is nil")
+            return 0
+        }
+        
+        let fileManager = FileManager.default
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        
+        // Check if directory exists
+        if !fileManager.fileExists(atPath: directory) {
+            XMTPLogger.database.error("Directory does not exist: \(directory)")
+            return 0
+        }
+        
+        do {
+            let contents = try fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: []
+            )
+            
+            // Log the contents found
+            XMTPLogger.database.debug("Found \(contents.count) items in directory")
+            
+            // Count only regular files, not directories
+            var fileCount = 0
+            for url in contents {
+                do {
+                    let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
+                    if resourceValues.isRegularFile == true {
+                        fileCount += 1
+                        XMTPLogger.database.debug("Regular file found: \(url.lastPathComponent)")
+                    } else {
+                        XMTPLogger.database.debug("Non-regular file found: \(url.lastPathComponent)")
+                    }
+                } catch {
+                    XMTPLogger.database.error("Error checking file type: \(error.localizedDescription)")
+                }
+            }
+            
+            return fileCount
+        } catch {
+            XMTPLogger.database.error("Error reading directory: \(error.localizedDescription)")
+            return 0
+        }
+    }
 }
