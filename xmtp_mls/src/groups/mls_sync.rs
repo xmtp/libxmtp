@@ -212,8 +212,12 @@ where
 
         // Also sync the "stitched DMs", if any...
         for other_dm in conn.other_dms(&self.group_id)? {
-            let other_dm =
-                Self::new_from_arc(self.client.clone(), other_dm.id, other_dm.created_at_ns);
+            let other_dm = Self::new_from_arc(
+                self.client.clone(),
+                other_dm.id,
+                other_dm.dm_id.clone(),
+                other_dm.created_at_ns,
+            );
             other_dm
                 .maybe_update_installations(&mls_provider, None)
                 .await?;

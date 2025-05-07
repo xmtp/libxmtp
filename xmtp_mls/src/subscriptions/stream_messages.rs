@@ -482,6 +482,7 @@ where
         let group = MlsGroup::new(
             &self.client,
             self.msg.group_id.clone(),
+            None,
             self.msg.created_ns as i64,
         );
         let epoch = group.epoch(&self.provider).await.unwrap_or(0);

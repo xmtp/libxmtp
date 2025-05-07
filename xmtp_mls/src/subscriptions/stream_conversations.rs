@@ -451,7 +451,12 @@ where
             group.welcome_id
         );
         Ok((
-            MlsGroup::new(self.client.clone(), group.id, group.created_at_ns),
+            MlsGroup::new(
+                self.client.clone(),
+                group.id,
+                group.dm_id,
+                group.created_at_ns,
+            ),
             id,
         ))
     }

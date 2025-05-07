@@ -16,6 +16,7 @@ use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
+use xmtp_db::group::DmIdExt;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -1364,7 +1365,6 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
-                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id,
                 })
             })
             .collect();
@@ -1389,7 +1389,6 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
-                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id, // should always be None for groups
                 })
             })
             .collect();
@@ -1414,7 +1413,6 @@ impl FfiConversations {
                     last_message: conversation_item
                         .last_message
                         .map(|stored_message| stored_message.into()),
-                    dm_peer_inbox_id: conversation_item.dm_peer_inbox_id,
                 })
             })
             .collect();
@@ -1624,7 +1622,6 @@ pub struct FfiConversation {
 pub struct FfiConversationListItem {
     conversation: FfiConversation,
     last_message: Option<FfiMessage>,
-    dm_peer_inbox_id: Option<String>,
 }
 
 #[uniffi::export]
@@ -1634,9 +1631,6 @@ impl FfiConversationListItem {
     }
     pub fn last_message(&self) -> Option<FfiMessage> {
         self.last_message.clone()
-    }
-    pub fn dm_peer_inbox_id(&self) -> Option<String> {
-        self.dm_peer_inbox_id.clone()
     }
 }
 
@@ -2295,8 +2289,11 @@ impl FfiConversation {
         }))
     }
 
-    pub fn dm_peer_inbox_id(&self) -> Result<String, GenericError> {
-        self.inner.dm_inbox_id().map_err(Into::into)
+    pub fn dm_peer_inbox_id(&self) -> Option<String> {
+        self.inner
+            .dm_id
+            .as_ref()
+            .map(|dm_id| dm_id.other_inbox_id(self.inner.client.inbox_id()))
     }
 
     pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
@@ -8100,7 +8097,9 @@ mod tests {
             .unwrap();
         assert_eq!(client_a_conversation_list.len(), 1);
         assert_eq!(
-            client_a_conversation_list[0].dm_peer_inbox_id,
+            client_a_conversation_list[0]
+                .conversation
+                .dm_peer_inbox_id(),
             Some(client_b.inbox_id())
         );
     }

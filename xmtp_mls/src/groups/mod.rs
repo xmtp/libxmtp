@@ -100,7 +100,6 @@ use xmtp_db::{
     sql_key_store,
 };
 use xmtp_db::{
-    group::DmIdExt,
     group_message::{ContentType, StoredGroupMessageWithReactions},
     refresh_state::EntityKind,
     NotFound, ProviderTransactions, StorageError,
@@ -291,6 +290,7 @@ impl RetryableError for GroupError {
 
 pub struct MlsGroup<C> {
     pub group_id: Vec<u8>,
+    pub dm_id: Option<String>,
     pub created_at_ns: i64,
     pub client: Arc<C>,
     mls_commit_lock: Arc<GroupCommitLock>,
@@ -300,7 +300,6 @@ pub struct MlsGroup<C> {
 pub struct ConversationListItem<C> {
     pub group: MlsGroup<C>,
     pub last_message: Option<StoredGroupMessage>,
-    pub dm_peer_inbox_id: Option<String>,
 }
 
 #[derive(Default, Clone)]
@@ -320,6 +319,7 @@ impl<C> Clone for MlsGroup<C> {
     fn clone(&self) -> Self {
         Self {
             group_id: self.group_id.clone(),
+            dm_id: self.dm_id.clone(),
             created_at_ns: self.created_at_ns,
             client: self.client.clone(),
             mutex: self.mutex.clone(),
@@ -402,8 +402,13 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 /// and validations.
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: ScopedClient, group_id: Vec<u8>, created_at_ns: i64) -> Self {
-        Self::new_from_arc(Arc::new(client), group_id, created_at_ns)
+    pub fn new(
+        client: ScopedClient,
+        group_id: Vec<u8>,
+        dm_id: Option<String>,
+        created_at_ns: i64,
+    ) -> Self {
+        Self::new_from_arc(Arc::new(client), group_id, dm_id, created_at_ns)
     }
 
     /// Creates a new group instance. Validate that the group exists in the DB before constructing
@@ -419,7 +424,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<(Self, StoredGroup), GroupError> {
         if let Some(group) = provider.conn_ref().find_group(&group_id)? {
             Ok((
-                Self::new_from_arc(Arc::new(client), group_id, group.created_at_ns),
+                Self::new_from_arc(
+                    Arc::new(client),
+                    group_id,
+                    group.dm_id.clone(),
+                    group.created_at_ns,
+                ),
                 group,
             ))
         } else {
@@ -431,12 +441,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub(crate) fn new_from_arc(
         client: Arc<ScopedClient>,
         group_id: Vec<u8>,
+        dm_id: Option<String>,
         created_at_ns: i64,
     ) -> Self {
         let mut mutexes = client.context().mutexes.clone();
         let context = client.context();
         Self {
             group_id: group_id.clone(),
+            dm_id,
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             client,
@@ -525,8 +537,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             permissions_policy_set,
             opts,
         )?;
-        let new_group =
-            Self::new_from_arc(client.clone(), stored_group.id, stored_group.created_at_ns);
+        let new_group = Self::new_from_arc(
+            client.clone(),
+            stored_group.id,
+            stored_group.dm_id,
+            stored_group.created_at_ns,
+        );
 
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
@@ -658,7 +674,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .build()?;
 
         stored_group.store(provider.conn_ref())?;
-        let new_group = Self::new_from_arc(client.clone(), group_id, stored_group.created_at_ns);
+        let new_group = Self::new_from_arc(
+            client.clone(),
+            group_id,
+            stored_group.dm_id.clone(),
+            stored_group.created_at_ns,
+        );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
         Ok(new_group)
@@ -696,7 +717,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
                 )))?;
-            let group = Self::new(client.clone(), group.id, group.created_at_ns);
+            let group = Self::new(client.clone(), group.id, group.dm_id, group.created_at_ns);
 
             return Ok(group);
         };
@@ -835,6 +856,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             Ok(Self::new(
                 client.clone(),
                 stored_group.id,
+                stored_group.dm_id,
                 stored_group.created_at_ns,
             ))
         })
@@ -879,7 +901,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             GroupMembershipState::Allowed,
         )?;
 
-        let group = Self::new_from_arc(client, stored_group.id, stored_group.created_at_ns);
+        let group = Self::new_from_arc(client, stored_group.id, None, stored_group.created_at_ns);
 
         Ok(group)
     }
@@ -1578,19 +1600,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(group.added_by_inbox_id)
     }
 
-    /// Find the `inbox_id` of the group member who is the peer of this dm
-    pub fn dm_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context().store().conn()?;
-        let group = conn
-            .find_group(&self.group_id)?
-            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
-        let inbox_id = self.client.inbox_id();
-        let dm_id = &group
-            .dm_id
-            .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
-        Ok(dm_id.other_inbox_id(inbox_id))
-    }
-
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
         let conn = self.context().store().conn()?;
@@ -1793,6 +1802,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(Self::new_from_arc(
             client,
             group_id,
+            stored_group.dm_id.clone(),
             stored_group.created_at_ns,
         ))
     }
@@ -3482,6 +3492,7 @@ pub(crate) mod tests {
         let bola_group = MlsGroup::<FullXmtpClient>::new(
             bola.clone(),
             amal_group.group_id.clone(),
+            amal_group.dm_id.clone(),
             amal_group.created_at_ns,
         );
         bola_group
