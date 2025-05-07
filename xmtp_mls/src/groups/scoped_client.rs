@@ -571,7 +571,7 @@ where
         for group in inner_result {
             // Create a new MlsGroup with self as the client
             let new_group =
-                MlsGroup::new(self.clone(), group.group_id.clone(), group.created_at_ns);
+                MlsGroup::new(self.clone(), group.group_id.clone(), group.dm_id.clone(), group.created_at_ns);
             result.push(new_group);
         }
 
