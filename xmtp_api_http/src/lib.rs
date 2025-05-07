@@ -580,8 +580,7 @@ pub mod tests {
             .contains("invalid identity"));
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn test_get_inbox_ids() {
         use xmtp_proto::xmtp::identity::api::v1::{
             get_inbox_ids_request::Request, GetInboxIdsRequest,
