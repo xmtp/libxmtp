@@ -47,7 +47,7 @@ use xmtp_mls::{
     groups::{
         device_sync::{
             backup::{BackupImporter, BackupMetadata},
-            preference_sync::UserPreferenceUpdate,
+            preference_sync::PreferenceUpdate,
             ENC_KEY_SIZE,
         },
         group_metadata::GroupMetadata,
@@ -1565,16 +1565,16 @@ impl From<FfiConversationType> for ConversationType {
     }
 }
 
-impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
+impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
-    fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
+    fn try_from(value: PreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+            PreferenceUpdate::Hmac { key, cycled_at_ns } => {
                 Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
             }
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
-            UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
+            PreferenceUpdate::Consent(_) => Err(GenericError::Generic {
                 err: "Consent updates should be filtered out.".to_string(),
             }),
         }

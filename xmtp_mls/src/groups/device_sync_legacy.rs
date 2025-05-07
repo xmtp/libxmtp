@@ -1,7 +1,7 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
-use super::device_sync::preference_sync::UserPreferenceUpdate;
+use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::DeviceSyncError;
 use super::scoped_client::ScopedGroupClient;
 use crate::subscriptions::SyncWorkerEvent;
@@ -23,16 +23,18 @@ use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-use xmtp_proto::xmtp::device_sync::BackupElementSelection;
-use xmtp_proto::xmtp::mls::message_contents::device_sync_key_type::Key as EncKeyProto;
+use xmtp_proto::xmtp::device_sync::{
+    content::{
+        device_sync_key_type::Key as EncKeyProto, DeviceSyncKeyType as DeviceSyncKeyTypeProto,
+        DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
+        V1UserPreferenceUpdate as UserPreferenceUpdateProto,
+    },
+    BackupElementSelection,
+};
+
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType, plaintext_envelope::V2,
-    DeviceSyncKeyType as DeviceSyncKeyTypeProto, PlaintextEnvelope,
-};
-use xmtp_proto::xmtp::mls::message_contents::{
-    DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-    UserPreferenceUpdate as UserPreferenceUpdateProto,
+    plaintext_envelope::v2::MessageType, plaintext_envelope::V2, PlaintextEnvelope,
 };
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
