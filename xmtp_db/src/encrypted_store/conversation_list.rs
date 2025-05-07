@@ -4,6 +4,7 @@ use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use crate::{DbConnection, StorageError};
 use diesel::dsl::sql;
+use diesel::sql_types::BigInt;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
 };
@@ -134,26 +135,34 @@ impl DbConnection {
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
-                .left_join(consent_dsl::consent_records.on(
-                    sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))").eq(consent_dsl::entity),
-                ))
+                .left_join(
+                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
+                        "lower(hex(conversation_list.id))",
+                    )
+                    .eq(consent_dsl::entity)),
+                )
                 .filter(
                     consent_dsl::state
                         .is_null()
                         .or(consent_dsl::state.eq(ConsentState::Unknown))
                         .or(consent_dsl::state.eq_any(filtered_states.clone())),
                 )
-                .select(conversation_list::all_columns());
+                .select(conversation_list::all_columns())
+                .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
             self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
             // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
-                .inner_join(consent_dsl::consent_records.on(
-                    sql::<diesel::sql_types::Text>("lower(hex(conversation_list.id))").eq(consent_dsl::entity),
-                ))
+                .inner_join(
+                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
+                        "lower(hex(conversation_list.id))",
+                    )
+                    .eq(consent_dsl::entity)),
+                )
                 .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(conversation_list::all_columns());
+                .select(conversation_list::all_columns())
+                .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
             self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
         };
