@@ -41,7 +41,7 @@ class Dm(
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
 
     val peerInboxId: InboxId
-        get() = libXMTPGroup.dmPeerInboxId()
+        get() = libXMTPGroup.dmPeerInboxId() ?: throw XMTPException("peerInboxId not found")
 
     val disappearingMessageSettings: DisappearingMessageSettings?
         get() = runCatching {

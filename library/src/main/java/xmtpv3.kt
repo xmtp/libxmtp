@@ -1157,6 +1157,8 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1307,6 +1309,8 @@ fun uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type(
 fun uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversations_create_group(
+): Short
+fun uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversations_create_group_with_inbox_ids(
 ): Short
@@ -1644,6 +1648,8 @@ fun uniffi_xmtpv3_fn_free_fficonversations(`ptr`: Pointer,uniffi_out_err: Uniffi
 ): Unit
 fun uniffi_xmtpv3_fn_method_fficonversations_create_group(`ptr`: Pointer,`accountIdentities`: RustBuffer.ByValue,`opts`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_method_fficonversations_create_group_optimistic(`ptr`: Pointer,`opts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Pointer
 fun uniffi_xmtpv3_fn_method_fficonversations_create_group_with_inbox_ids(`ptr`: Pointer,`inboxIds`: RustBuffer.ByValue,`opts`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversations_find_or_create_dm(`ptr`: Pointer,`targetIdentity`: RustBuffer.ByValue,`opts`: RustBuffer.ByValue,
@@ -2053,7 +2059,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 59526.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 2178.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 15813.toShort()) {
@@ -2180,6 +2186,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 5386.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 41612.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group_with_inbox_ids() != 56407.toShort()) {
@@ -3219,7 +3228,7 @@ public interface FfiConversationInterface {
     
     fun `createdAtNs`(): kotlin.Long
     
-    fun `dmPeerInboxId`(): kotlin.String
+    fun `dmPeerInboxId`(): kotlin.String?
     
     suspend fun `findDuplicateDms`(): List<FfiConversation>
     
@@ -3574,11 +3583,10 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     }
     
 
-    
-    @Throws(GenericException::class)override fun `dmPeerInboxId`(): kotlin.String {
-            return FfiConverterString.lift(
+    override fun `dmPeerInboxId`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
     callWithPointer {
-    uniffiRustCallWithError(GenericException) { _status ->
+    uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_dm_peer_inbox_id(
         it, _status)
 }
@@ -5160,6 +5168,8 @@ public interface FfiConversationsInterface {
     
     suspend fun `createGroup`(`accountIdentities`: List<FfiIdentifier>, `opts`: FfiCreateGroupOptions): FfiConversation
     
+    fun `createGroupOptimistic`(`opts`: FfiCreateGroupOptions): FfiConversation
+    
     suspend fun `createGroupWithInboxIds`(`inboxIds`: List<kotlin.String>, `opts`: FfiCreateGroupOptions): FfiConversation
     
     suspend fun `findOrCreateDm`(`targetIdentity`: FfiIdentifier, `opts`: FfiCreateDmOptions): FfiConversation
@@ -5313,6 +5323,19 @@ open class FfiConversations: Disposable, AutoCloseable, FfiConversationsInterfac
         GenericException.ErrorHandler,
     )
     }
+
+    
+    @Throws(GenericException::class)override fun `createGroupOptimistic`(`opts`: FfiCreateGroupOptions): FfiConversation {
+            return FfiConverterTypeFfiConversation.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_create_group_optimistic(
+        it, FfiConverterTypeFfiCreateGroupOptions.lower(`opts`),_status)
+}
+    }
+    )
+    }
+    
 
     
     @Throws(GenericException::class)

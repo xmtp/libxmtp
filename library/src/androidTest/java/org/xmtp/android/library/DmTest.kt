@@ -298,7 +298,7 @@ class DmTest {
             },
             2
         )
-        assertEquals(runBlocking { boClient.conversations.listDms().size }, 2)
+        assertEquals(runBlocking { boClient.conversations.listDms().size }, 1)
     }
 
     @Test

@@ -257,6 +257,33 @@ data class Conversations(
         return Group(client, group)
     }
 
+    fun newGroupOptimistic(
+        permissions: GroupPermissionPreconfiguration = GroupPermissionPreconfiguration.ALL_MEMBERS,
+        groupName: String = "",
+        groupImageUrlSquare: String = "",
+        groupDescription: String = "",
+        disappearingMessageSettings: DisappearingMessageSettings? = null,
+    ): Group {
+        val group = ffiConversations.createGroupOptimistic(
+            opts = FfiCreateGroupOptions(
+                permissions = GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
+                    permissions
+                ),
+                groupName = groupName,
+                groupImageUrlSquare = groupImageUrlSquare,
+                groupDescription = groupDescription,
+                customPermissionPolicySet = null,
+                messageDisappearingSettings = disappearingMessageSettings?.let {
+                    FfiMessageDisappearingSettings(
+                        it.disappearStartingAtNs,
+                        it.retentionDurationInNs
+                    )
+                }
+            )
+        )
+        return Group(client, group)
+    }
+
     // Sync from the network the latest list of conversations
     suspend fun sync() {
         ffiConversations.sync()
