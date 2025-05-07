@@ -562,7 +562,7 @@ where
     async fn create_dm_by_inbox_id(
         &self,
         dm_target_inbox_id: InboxId,
-        opts: DMMetadataOptions,
+        opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
         let provider = self.mls_provider()?;
@@ -572,7 +572,7 @@ where
             Arc::new(self.clone()),
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
-            opts,
+            opts.unwrap_or_default(),
         )?;
 
         group
@@ -591,7 +591,7 @@ where
     pub async fn find_or_create_dm(
         &self,
         target_identity: Identifier,
-        opts: DMMetadataOptions,
+        opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Self>, ClientError> {
         tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider()?;
@@ -612,7 +612,7 @@ where
     pub async fn find_or_create_dm_by_inbox_id(
         &self,
         inbox_id: impl AsIdRef,
-        opts: DMMetadataOptions,
+        opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<Self>, ClientError> {
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
@@ -1126,22 +1126,11 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use std::time::Duration;
-
     use super::Client;
+    use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;
     use crate::utils::{LocalTesterBuilder, Tester};
-    use diesel::RunQueryDsl;
-    use futures::stream::StreamExt;
-    use xmtp_common::time::now_ns;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
-    use xmtp_id::associations::test_utils::WalletTestExt;
-    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-
-    use crate::groups::DMMetadataOptions;
-    use crate::identity::IdentityError;
     use crate::{
         builder::ClientBuilder,
         groups::GroupMetadataOptions,
@@ -1149,10 +1138,18 @@ pub(crate) mod tests {
         identity::serialize_key_package_hash_ref,
         XmtpApi,
     };
+    use diesel::RunQueryDsl;
+    use futures::stream::StreamExt;
+    use std::time::Duration;
+    use xmtp_common::time::now_ns;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
         schema::identity_updates,
     };
+    use xmtp_id::associations::test_utils::WalletTestExt;
+    use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
     #[xmtp_common::test]
     async fn test_group_member_recovery() {
@@ -1287,20 +1284,20 @@ pub(crate) mod tests {
         let bob_provider = bob.mls_provider().unwrap();
 
         let alice_dm = alice
-            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
             .await
             .unwrap();
         alice_dm.send_message(b"Welcome 1").await.unwrap();
 
         let bob_dm = bob
-            .create_dm_by_inbox_id(alice.inbox_id().to_string(), DMMetadataOptions::default())
+            .create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
             .await
             .unwrap();
 
         let alice2 = ClientBuilder::new_test_client(&alice_wallet).await;
         let alice2_provider = alice2.mls_provider().unwrap();
         let alice_dm2 = alice
-            .create_dm_by_inbox_id(bob.inbox_id().to_string(), DMMetadataOptions::default())
+            .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
             .await
             .unwrap();
         alice_dm2.send_message(b"Welcome 2").await.unwrap();
@@ -1748,10 +1745,7 @@ pub(crate) mod tests {
 
         // First call should create a new DM
         let dm1 = client1
-            .find_or_create_dm_by_inbox_id(
-                client2.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 
@@ -1771,10 +1765,7 @@ pub(crate) mod tests {
 
         // Second call should find the existing DM
         let dm2 = client1
-            .find_or_create_dm_by_inbox_id(
-                client2.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
             .await
             .unwrap();
 

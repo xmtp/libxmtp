@@ -149,7 +149,6 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::groups::DMMetadataOptions;
     use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
     use futures::StreamExt;
     use std::sync::Arc;
@@ -183,7 +182,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(caro_wallet.identifier(), DMMetadataOptions::default())
+            .find_or_create_dm(caro_wallet.identifier(), None)
             .await
             .unwrap();
 
@@ -263,7 +262,7 @@ mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
             .await
             .unwrap();
         // TODO: This test does not work on web
