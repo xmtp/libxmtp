@@ -1265,6 +1265,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
     let bola_group = MlsGroup::<FullXmtpClient>::new(
         bola.clone(),
         amal_group.group_id.clone(),
+        amal_group.dm_id.clone(),
         amal_group.created_at_ns,
     );
     bola_group

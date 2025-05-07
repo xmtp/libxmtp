@@ -36,6 +36,7 @@ use xmtp_db::Fetch;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
+    encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
     group_message::StoredGroupMessage,
     refresh_state::EntityKind,
@@ -622,7 +623,12 @@ where
             member_two_inbox_id: inbox_id,
         })?;
         if let Some(group) = group {
-            return Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns));
+            return Ok(MlsGroup::new(
+                self.clone(),
+                group.id,
+                group.dm_id,
+                group.created_at_ns,
+            ));
         }
         self.create_dm_by_inbox_id(inbox_id.to_string(), opts).await
     }
@@ -638,7 +644,7 @@ where
     ) -> Result<MlsGroup<Self>, ClientError> {
         let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
             .ok_or(NotFound::GroupById(group_id.clone()))
             .map_err(Into::into)
     }
@@ -672,7 +678,7 @@ where
     ) -> Result<MlsGroup<Self>, ClientError> {
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
             .ok_or(NotFound::GroupById(group_id.to_vec()))
             .map_err(Into::into)
     }
@@ -687,7 +693,7 @@ where
 
         let mls_groups = duplicates
             .into_iter()
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
             .collect();
 
         Ok(mls_groups)
@@ -731,7 +737,12 @@ where
                 member_two_inbox_id: &target_inbox_id,
             })?
             .ok_or(NotFound::DmByInbox(target_inbox_id))?;
-        Ok(MlsGroup::new(self.clone(), group.id, group.created_at_ns))
+        Ok(MlsGroup::new(
+            self.clone(),
+            group.id,
+            group.dm_id,
+            group.created_at_ns,
+        ))
     }
 
     /// Look up a message by its ID
@@ -756,7 +767,12 @@ where
             .find_groups(args)?
             .into_iter()
             .map(|stored_group| {
-                MlsGroup::new(self.clone(), stored_group.id, stored_group.created_at_ns)
+                MlsGroup::new(
+                    self.clone(),
+                    stored_group.id,
+                    stored_group.dm_id,
+                    stored_group.created_at_ns,
+                )
             })
             .collect())
     }
@@ -770,7 +786,7 @@ where
             .conn()?
             .fetch_conversation_list(args)?
             .into_iter()
-            .map(|conversation_item| {
+            .map(|conversation_item: DbConversationListItem| {
                 let message = conversation_item.message_id.and_then(|message_id| {
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
@@ -798,6 +814,7 @@ where
                     group: MlsGroup::new(
                         self.clone(),
                         conversation_item.id,
+                        conversation_item.dm_id,
                         conversation_item.created_at_ns,
                     ),
                     last_message: message,
@@ -1043,7 +1060,7 @@ where
             .conn_ref()
             .find_groups(query_args)?
             .into_iter()
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
             .collect();
         let active_groups_count = self.sync_all_groups(groups, provider).await?;
 
@@ -1059,7 +1076,7 @@ where
             .conn_ref()
             .all_sync_groups()?
             .into_iter()
-            .map(|g| MlsGroup::new(self.clone(), g.id, g.created_at_ns))
+            .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
             .collect();
         let active_groups_count = self.sync_all_groups(groups, provider).await?;
 

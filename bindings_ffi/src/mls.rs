@@ -16,6 +16,7 @@ use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
+use xmtp_db::group::DmIdExt;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
@@ -2256,8 +2257,11 @@ impl FfiConversation {
         }))
     }
 
-    pub fn dm_peer_inbox_id(&self) -> Result<String, GenericError> {
-        self.inner.dm_inbox_id().map_err(Into::into)
+    pub fn dm_peer_inbox_id(&self) -> Option<String> {
+        self.inner
+            .dm_id
+            .as_ref()
+            .map(|dm_id| dm_id.other_inbox_id(self.inner.client.inbox_id()))
     }
 
     pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
@@ -8027,5 +8031,91 @@ mod tests {
         let duplicates = group_a.find_duplicate_dms().await.unwrap();
 
         assert_eq!(duplicates.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_can_quickly_fetch_dm_peer_inbox_id() {
+        let wallet_a = generate_local_wallet();
+        let wallet_b = generate_local_wallet();
+
+        let client_a = new_test_client_with_wallet(wallet_a).await;
+        let client_b = new_test_client_with_wallet(wallet_b).await;
+
+        // Initialize streaming at the beginning, before creating the DM
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream = client_a
+            .conversations()
+            .stream(stream_callback.clone())
+            .await;
+
+        // Wait for the streaming to initialize
+        stream.wait_for_ready().await;
+
+        // Test find_or_create_dm returns correct dm_peer_inbox_id
+        let dm = client_a
+            .conversations()
+            .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(dm.dm_peer_inbox_id().unwrap(), client_b.inbox_id());
+
+        // Test conversations.list returns correct dm_peer_inbox_id
+        let client_a_conversation_list = client_a
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap();
+        assert_eq!(client_a_conversation_list.len(), 1);
+        assert_eq!(
+            client_a_conversation_list[0]
+                .conversation()
+                .dm_peer_inbox_id()
+                .unwrap(),
+            client_b.inbox_id()
+        );
+
+        // Wait for streaming to receive the conversation
+        // This is similar to how test_conversation_streaming and other streaming tests work
+        for _ in 0..10 {
+            let conversation_count = {
+                let conversations = stream_callback.conversations.lock().len();
+                conversations
+            };
+
+            if conversation_count > 0 {
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        // Get the streamed conversations
+        let streamed_conversations = {
+            let conversations = stream_callback.conversations.lock().clone();
+            conversations
+        };
+
+        // Verify we received the conversation from the stream
+        assert!(
+            !streamed_conversations.is_empty(),
+            "Should have received the conversation from the stream"
+        );
+
+        // Verify the streamed conversation has the correct dm_peer_inbox_id
+        let found_matching_peer = streamed_conversations.iter().any(|conversation| {
+            if let Some(dm_peer_id) = conversation.dm_peer_inbox_id() {
+                dm_peer_id == client_b.inbox_id()
+            } else {
+                false
+            }
+        });
+
+        assert!(
+            found_matching_peer,
+            "Should have received conversation with matching peer inbox ID"
+        );
+
+        // Clean up the stream
+        stream.end_and_wait().await.unwrap();
     }
 }

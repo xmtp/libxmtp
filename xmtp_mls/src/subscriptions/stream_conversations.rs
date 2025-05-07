@@ -507,12 +507,18 @@ where
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&group.id),
+            dm_id = group.dm_id,
             welcome_id = ?group.welcome_id,
             "loading existing group for welcome_id: {:?}",
             group.welcome_id
         );
         Ok((
-            MlsGroup::new(self.client.clone(), group.id, group.created_at_ns),
+            MlsGroup::new(
+                self.client.clone(),
+                group.id,
+                group.dm_id,
+                group.created_at_ns,
+            ),
             id,
         ))
     }
