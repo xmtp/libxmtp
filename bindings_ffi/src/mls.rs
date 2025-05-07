@@ -1158,25 +1158,11 @@ impl From<&FfiMetadataField> for MetadataField {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
-    pub async fn create_group(
+    pub fn create_group_optimistic(
         &self,
-        account_identities: Vec<FfiIdentifier>,
         opts: FfiCreateGroupOptions,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let account_identities: Result<Vec<Identifier>, _> = account_identities
-            .into_iter()
-            .map(|ident| ident.try_into())
-            .collect();
-        let account_identities = account_identities?;
-
-        log::info!(
-            "creating group with account addresses: {}",
-            account_identities
-                .iter()
-                .map(|ident| format!("{ident}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        log::info!("creating optimistic group");
 
         if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
             if opts.custom_permission_policy_set.is_none() {
@@ -1209,19 +1195,36 @@ impl FfiConversations {
             _ => None,
         };
 
-        let convo = if account_identities.is_empty() {
-            let group = self
-                .inner_client
-                .create_group(group_permissions, metadata_options)?;
-            group.sync().await?;
-            group
-        } else {
-            self.inner_client
-                .create_group_with_members(&account_identities, group_permissions, metadata_options)
-                .await?
-        };
+        let convo = self
+            .inner_client
+            .create_group(group_permissions, metadata_options)?;
 
         Ok(Arc::new(convo.into()))
+    }
+
+    pub async fn create_group(
+        &self,
+        account_identities: Vec<FfiIdentifier>,
+        opts: FfiCreateGroupOptions,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        log::info!(
+            "creating group with account addresses: {}",
+            account_identities
+                .iter()
+                .map(|ident| format!("{ident}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let convo = self.create_group_optimistic(opts)?;
+
+        if !account_identities.is_empty() {
+            convo.add_members(account_identities).await?;
+        } else {
+            convo.sync().await?;
+        }
+
+        Ok(convo)
     }
 
     pub async fn create_group_with_inbox_ids(
@@ -1234,50 +1237,15 @@ impl FfiConversations {
             inbox_ids.join(", ")
         );
 
-        if let Some(FfiGroupPermissionsOptions::CustomPolicy) = opts.permissions {
-            if opts.custom_permission_policy_set.is_none() {
-                return Err(GenericError::Generic {
-                    err: "CustomPolicy must include policy set".to_string(),
-                });
-            }
-        } else if opts.custom_permission_policy_set.is_some() {
-            return Err(GenericError::Generic {
-                err: "Only CustomPolicy may specify a policy set".to_string(),
-            });
-        }
+        let convo = self.create_group_optimistic(opts)?;
 
-        let metadata_options = opts.clone().into_group_metadata_options();
-
-        let group_permissions = match opts.permissions {
-            Some(FfiGroupPermissionsOptions::Default) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set())
-            }
-            Some(FfiGroupPermissionsOptions::AdminOnly) => {
-                Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set())
-            }
-            Some(FfiGroupPermissionsOptions::CustomPolicy) => {
-                if let Some(policy_set) = opts.custom_permission_policy_set {
-                    Some(policy_set.try_into()?)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let convo = if inbox_ids.is_empty() {
-            let group = self
-                .inner_client
-                .create_group(group_permissions, metadata_options)?;
-            group.sync().await?;
-            group
+        if !inbox_ids.is_empty() {
+            convo.add_members_by_inbox_id(inbox_ids).await?;
         } else {
-            self.inner_client
-                .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
-                .await?
+            convo.sync().await?;
         };
 
-        Ok(Arc::new(convo.into()))
+        Ok(convo)
     }
 
     pub async fn find_or_create_dm(
@@ -1288,7 +1256,7 @@ impl FfiConversations {
         let target_identity = target_identity.try_into()?;
         log::info!("creating dm with target address: {target_identity:?}",);
         self.inner_client
-            .find_or_create_dm(target_identity, opts.into_dm_metadata_options())
+            .find_or_create_dm(target_identity, Some(opts.into_dm_metadata_options()))
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)
@@ -1301,7 +1269,7 @@ impl FfiConversations {
     ) -> Result<Arc<FfiConversation>, GenericError> {
         log::info!("creating dm with target inbox_id: {}", inbox_id);
         self.inner_client
-            .find_or_create_dm_by_inbox_id(inbox_id, opts.into_dm_metadata_options())
+            .find_or_create_dm_by_inbox_id(inbox_id, Some(opts.into_dm_metadata_options()))
             .await
             .map(|g| Arc::new(g.into()))
             .map_err(Into::into)

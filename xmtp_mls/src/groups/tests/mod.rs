@@ -1,29 +1,16 @@
+mod test_dm;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+use super::{group_permissions::PolicySet, MlsGroup};
+use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::groups::scoped_client::ScopedGroupClient;
-use crate::utils::Tester;
-use diesel::connection::SimpleConnection;
-use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
-use futures::future::join_all;
-use prost::Message;
-use std::sync::Arc;
-use wasm_bindgen_test::wasm_bindgen_test;
-use xmtp_common::time::now_ns;
-use xmtp_common::{assert_err, assert_ok};
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
-use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_id::associations::test_utils::WalletTestExt;
-use xmtp_id::associations::Identifier;
-use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
-use super::{group_permissions::PolicySet, DMMetadataOptions, MlsGroup};
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
+use crate::utils::Tester;
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -39,7 +26,17 @@ use crate::{
     },
     utils::test::FullXmtpClient,
 };
+use diesel::connection::SimpleConnection;
+use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+use futures::future::join_all;
+use prost::Message;
+use std::sync::Arc;
+use wasm_bindgen_test::wasm_bindgen_test;
+use xmtp_common::time::now_ns;
 use xmtp_common::StreamHandle as _;
+use xmtp_common::{assert_err, assert_ok};
+use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::schema::groups;
 use xmtp_db::{
@@ -49,6 +46,10 @@ use xmtp_db::{
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
+use xmtp_id::associations::test_utils::WalletTestExt;
+use xmtp_id::associations::Identifier;
+use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
     client
@@ -393,11 +394,11 @@ async fn test_dm_stitching() {
     let bo = Tester::new().await;
 
     let bo_dm = bo
-        .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), DMMetadataOptions::default())
+        .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
         .await
         .unwrap();
     let alix_dm = alix
-        .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
+        .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -668,7 +669,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 3) Amal creates a DM group targeting Bola
     let amal_dm = amal
-        .find_or_create_dm_by_inbox_id(bola_1.inbox_id().to_string(), DMMetadataOptions::default())
+        .find_or_create_dm_by_inbox_id(bola_1.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -775,9 +776,8 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
     );
 
     // 3) Attempt to create the DM group, which should fail
-    let result = amal
-        .find_or_create_dm(bola_wallet.identifier(), DMMetadataOptions::default())
-        .await;
+
+    let result = amal.find_or_create_dm(bola_wallet.identifier(), None).await;
 
     // 4) Ensure DM creation fails with the correct error
     assert!(result.is_err());
@@ -2460,7 +2460,7 @@ async fn test_dm_creation() {
 
     // Amal creates a dm group targetting bola
     let amal_dm = amal
-        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), DMMetadataOptions::default())
+        .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
         .await
         .unwrap();
 
@@ -3026,7 +3026,7 @@ async fn test_validate_dm_group() {
         None,
         None,
         None,
-        DMMetadataOptions::default(),
+        None,
     )
     .unwrap();
     assert!(valid_dm_group
@@ -3045,7 +3045,7 @@ async fn test_validate_dm_group() {
         None,
         None,
         None,
-        DMMetadataOptions::default(),
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -3068,7 +3068,7 @@ async fn test_validate_dm_group() {
         None,
         None,
         None,
-        DMMetadataOptions::default(),
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -3089,7 +3089,7 @@ async fn test_validate_dm_group() {
         Some(non_empty_admin_list),
         None,
         None,
-        DMMetadataOptions::default(),
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -3111,7 +3111,7 @@ async fn test_validate_dm_group() {
         None,
         None,
         Some(invalid_permissions),
-        DMMetadataOptions::default(),
+        None,
     )
     .unwrap();
     assert!(matches!(

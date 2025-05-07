@@ -903,6 +903,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
+            StoredConsentRecord::persist_consent(provider.conn_ref(), &stored_group)?;
+
             Ok(Self::new(
                 client.clone(),
                 stored_group.id,
@@ -1818,7 +1820,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         custom_mutable_metadata: Option<Extension>,
         custom_group_membership: Option<Extension>,
         custom_mutable_permissions: Option<PolicySet>,
-        opts: DMMetadataOptions,
+        opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
         let context = client.context();
         let conn = context.store().conn()?;
@@ -1832,7 +1834,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             build_dm_mutable_metadata_extension_default(
                 context.inbox_id(),
                 &dm_target_inbox_id,
-                opts,
+                opts.unwrap_or_default(),
             )
             .unwrap()
         });
