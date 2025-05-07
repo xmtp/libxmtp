@@ -8073,12 +8073,26 @@ mod tests {
         let client_a = new_test_client_with_wallet(wallet_a).await;
         let client_b = new_test_client_with_wallet(wallet_b).await;
 
-        let _dm = client_a
+        // Initialize streaming at the beginning, before creating the DM
+        let stream_callback = Arc::new(RustStreamCallback::default());
+        let stream = client_a
+            .conversations()
+            .stream(stream_callback.clone())
+            .await;
+
+        // Wait for the streaming to initialize
+        stream.wait_for_ready().await;
+
+        // Test find_or_create_dm returns correct dm_peer_inbox_id
+        let dm = client_a
             .conversations()
             .find_or_create_dm_by_inbox_id(client_b.inbox_id(), FfiCreateDMOptions::default())
             .await
             .unwrap();
 
+        assert_eq!(dm.dm_peer_inbox_id().unwrap(), client_b.inbox_id());
+
+        // Test conversations.list returns correct dm_peer_inbox_id
         let client_a_conversation_list = client_a
             .conversations()
             .list(FfiListConversationsOptions::default())
@@ -8086,9 +8100,54 @@ mod tests {
         assert_eq!(client_a_conversation_list.len(), 1);
         assert_eq!(
             client_a_conversation_list[0]
-                .conversation
-                .dm_peer_inbox_id(),
-            Some(client_b.inbox_id())
+                .conversation()
+                .dm_peer_inbox_id()
+                .unwrap(),
+            client_b.inbox_id()
         );
+
+        // Wait for streaming to receive the conversation
+        // This is similar to how test_conversation_streaming and other streaming tests work
+        for _ in 0..10 {
+            let conversation_count = {
+                let conversations = stream_callback.conversations.lock().len();
+                conversations
+            };
+
+            if conversation_count > 0 {
+                break;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        // Get the streamed conversations
+        let streamed_conversations = {
+            let conversations = stream_callback.conversations.lock().clone();
+            conversations
+        };
+
+        // Verify we received the conversation from the stream
+        assert!(
+            !streamed_conversations.is_empty(),
+            "Should have received the conversation from the stream"
+        );
+
+        // Verify the streamed conversation has the correct dm_peer_inbox_id
+        let found_matching_peer = streamed_conversations.iter().any(|conversation| {
+            if let Some(dm_peer_id) = conversation.dm_peer_inbox_id() {
+                dm_peer_id == client_b.inbox_id()
+            } else {
+                false
+            }
+        });
+
+        assert!(
+            found_matching_peer,
+            "Should have received conversation with matching peer inbox ID"
+        );
+
+        // Clean up the stream
+        stream.end_and_wait().await.unwrap();
     }
 }
