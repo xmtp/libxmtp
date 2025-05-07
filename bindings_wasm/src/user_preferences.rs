@@ -15,7 +15,6 @@ pub enum UserPreference {
     // serde bytes converts to Uint8Array
     #[serde(with = "serde_bytes")]
     key: Vec<u8>,
-    cycled_at_ns: i64,
   },
 }
 
@@ -25,9 +24,7 @@ impl From<PreferenceUpdate> for UserPreference {
       PreferenceUpdate::Consent(c) => UserPreference::Consent {
         consent: Consent::from(c),
       },
-      PreferenceUpdate::Hmac { key, cycled_at_ns } => {
-        UserPreference::HmacKeyUpdate { key, cycled_at_ns }
-      }
+      PreferenceUpdate::Hmac { key, .. } => UserPreference::HmacKeyUpdate { key },
     }
   }
 }
