@@ -3453,7 +3453,7 @@ mod tests {
             .unwrap();
         let challenge = sig_request.signature_text().await.unwrap();
         let UnverifiedSignature::Passkey(sig) = passkey.sign(&challenge).unwrap() else {
-            unreachable!()
+            unreachable!("Should always be a passkey.")
         };
         sig_request
             .add_passkey_signature(FfiPasskeySignature {

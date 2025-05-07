@@ -233,7 +233,7 @@ where
         let mut this = Pin::new(self);
         if this.poll_next_unpin(&mut cx).is_ready() {
             tracing::error!("Stream ready before established");
-            unreachable!()
+            unreachable!("Stream ready before established")
         }
     }
 }
@@ -254,7 +254,7 @@ where
         let mut this = unsafe { Pin::new_unchecked(self) };
         if this.as_mut().poll_next(&mut cx).is_ready() {
             tracing::error!("stream ready before established...");
-            unreachable!()
+            unreachable!("stream ready before established...")
         }
     }
 }

@@ -234,7 +234,7 @@ where
                         // this will return immediately if we have already processed the welcome
                         // and it exists in the db
                         let Processing { future } = this.state.project() else {
-                            unreachable!()
+                            unreachable!("Streaming processing future should exist.")
                         };
                         let poll = future.poll(cx);
                         self.as_mut().try_process(poll, cx)
