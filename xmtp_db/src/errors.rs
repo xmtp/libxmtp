@@ -54,7 +54,7 @@ pub enum StorageError {
 impl From<std::convert::Infallible> for StorageError {
     fn from(_: std::convert::Infallible) -> StorageError {
         // infallible can never fail/occur
-        unreachable!()
+        unreachable!("Infallible conversion should never fail.")
     }
 }
 

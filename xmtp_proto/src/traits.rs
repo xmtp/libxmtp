@@ -210,7 +210,7 @@ where
 // Infallible errors by definition can never occur
 impl<E: std::error::Error> From<std::convert::Infallible> for ApiClientError<E> {
     fn from(_v: std::convert::Infallible) -> ApiClientError<E> {
-        unreachable!()
+        unreachable!("Infallible errors can never occur")
     }
 }
 

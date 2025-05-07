@@ -325,7 +325,7 @@ where
             );
             response.error_for_status()?;
             // checked for error, the above line bubbled up
-            unreachable!();
+            unreachable!("v1 create reply: Already checked for an error");
         }
 
         let url = format!("{url}/files/{}", response.text().await?);
