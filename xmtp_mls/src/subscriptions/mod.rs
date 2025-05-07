@@ -8,7 +8,9 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use stream_all::StreamAllMessages;
-use stream_conversations::{ProcessWelcomeFuture, StreamConversations, WelcomeOrGroup};
+use stream_conversations::{
+    ProcessWelcomeFuture, ProcessWelcomeResult, StreamConversations, WelcomeOrGroup,
+};
 
 mod stream_all;
 mod stream_conversations;
@@ -220,13 +222,13 @@ where
             WelcomeOrGroup::Welcome(envelope),
             None,
         )?;
-        future
-            .process()
-            .await?
-            .map(|(group, _)| group)
-            .ok_or_else(|| {
-                stream_conversations::ConversationStreamError::InvalidConversationType.into()
-            })
+        match future.process().await? {
+            ProcessWelcomeResult::New { group, .. } => Ok(group),
+            ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
+            ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
+                Err(stream_conversations::ConversationStreamError::InvalidConversationType.into())
+            }
+        }
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
