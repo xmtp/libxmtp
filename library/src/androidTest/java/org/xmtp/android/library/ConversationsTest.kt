@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -19,6 +20,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import java.security.SecureRandom
 import kotlin.time.Duration.Companion.seconds
 
 @RunWith(AndroidJUnit4::class)
@@ -221,6 +223,43 @@ class ConversationsTest {
     }
 
     @Test
+    fun testCanStreamAllMessagesFilterConsent() {
+        val group =
+            runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
+        val conversation =
+            runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
+        val blockedGroup =
+            runBlocking { boClient.conversations.newGroup(listOf(alixClient.inboxId)) }
+        val blockedConversation =
+            runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
+        blockedGroup.updateConsentState(ConsentState.DENIED)
+        blockedConversation.updateConsentState(ConsentState.DENIED)
+        runBlocking { boClient.conversations.sync() }
+
+        val allMessages = mutableListOf<DecodedMessage>()
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                boClient.conversations.streamAllMessages(consentStates = listOf(ConsentState.ALLOWED))
+                    .collect { message ->
+                        allMessages.add(message)
+                    }
+            } catch (e: Exception) {
+            }
+        }
+        Thread.sleep(1000)
+        runBlocking {
+            group.send("hi")
+            conversation.send("hi")
+            blockedGroup.send("hi")
+            blockedConversation.send("hi")
+        }
+        Thread.sleep(1000)
+        assertEquals(2, allMessages.size)
+        job.cancel()
+    }
+
+    @Test
     fun testCanStreamGroupsAndConversations() {
         val allMessages = mutableListOf<String>()
 
@@ -263,6 +302,66 @@ class ConversationsTest {
         val topics = hmacKeys.hmacKeysMap.keys
         conversations.forEach { convo ->
             assertTrue(topics.contains(convo.topic))
+        }
+    }
+
+    @Test
+    fun testReturnsAllTopics() {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val eriWallet = PrivateKeyBuilder()
+
+        val eriClient = runBlocking {
+            Client.create(
+                account = eriWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key
+                )
+            )
+        }
+        val dm1 = runBlocking { eriClient.conversations.newConversation(boClient.inboxId) }
+        val group = runBlocking { boClient.conversations.newGroup(listOf(eriClient.inboxId)) }
+        val eriClient2 = runBlocking {
+            Client.create(
+                account = eriWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = key,
+                    dbDirectory = context.filesDir.absolutePath.toString()
+                )
+            )
+        }
+        val dm2 = runBlocking { eriClient2.conversations.newConversation(boClient.inboxId) }
+
+        runBlocking {
+            boClient.conversations.syncAllConversations()
+            eriClient2.conversations.syncAllConversations()
+            eriClient.conversations.syncAllConversations()
+        }
+
+        val allTopics = eriClient.conversations.allPushTopics()
+        val conversations = runBlocking { eriClient.conversations.list() }
+        val allHmacKeys = eriClient.conversations.getHmacKeys()
+        val dmHmacKeys = dm1.getHmacKeys()
+        val dmTopics = runBlocking { dm1.getPushTopics() }
+
+        assertEquals(allTopics.size, 3)
+        assertEquals(conversations.size, 2)
+
+        val hmacTopics = allHmacKeys.hmacKeysMap.keys
+        allTopics.forEach { topic ->
+            assertTrue(hmacTopics.contains(topic))
+        }
+
+        assertEquals(dmTopics.size, 2)
+        assertTrue(allTopics.containsAll(dmTopics))
+
+        val dmHmacTopics = dmHmacKeys.hmacKeysMap.keys
+        dmTopics.forEach { topic ->
+            assertTrue(dmHmacTopics.contains(topic))
         }
     }
 

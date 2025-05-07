@@ -45,11 +45,11 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val listItems = mutableListOf<MainListItem>()
             try {
-                val conversations = ClientManager.client.conversations.list()
-                val subscriptions = conversations.map {
+                val conversations = ClientManager.client.conversations
+                val subscriptions = conversations.allPushTopics().map {
                     val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
                     val hmacKeys = hmacKeysResult.hmacKeysMap
-                    val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
+                    val result = hmacKeys[it]?.valuesList?.map { hmacKey ->
                         Service.Subscription.HmacKey.newBuilder().also { sub_key ->
                             sub_key.key = hmacKey.hmacKey
                             sub_key.thirtyDayPeriodsSinceEpoch = hmacKey.thirtyDayPeriodsSinceEpoch
@@ -58,7 +58,7 @@ class MainViewModel : ViewModel() {
 
                     Service.Subscription.newBuilder().also { sub ->
                         sub.addAllHmacKeys(result)
-                        sub.topic = it.topic
+                        sub.topic = it
                         sub.isSilent = false
                     }.build()
                 }.toMutableList()
@@ -71,7 +71,7 @@ class MainViewModel : ViewModel() {
 
                 PushNotificationTokenManager.xmtpPush.subscribeWithMetadata(subscriptions)
                 listItems.addAll(
-                    conversations.map { conversation ->
+                    conversations.list().map { conversation ->
                         val lastMessage = fetchMostRecentMessage(conversation)
                         MainListItem.ConversationItem(
                             id = conversation.topic,

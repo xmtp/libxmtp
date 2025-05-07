@@ -168,5 +168,10 @@ class GroupUpdatedTest {
                 content?.metadataFieldChangesList?.first()?.newValue
             )
         }
+        runBlocking {
+            assertEquals(group.getDebugInformation().epoch, 2)
+            assertEquals(group.getDebugInformation().maybeForked, false)
+            assertEquals(group.getDebugInformation().forkDetails, "")
+        }
     }
 }

@@ -446,7 +446,10 @@ data class Conversations(
             awaitClose { stream.end() }
         }
 
-    fun streamAllMessages(type: ConversationFilterType = ConversationFilterType.ALL): Flow<DecodedMessage> =
+    fun streamAllMessages(
+        type: ConversationFilterType = ConversationFilterType.ALL,
+        consentStates: List<ConsentState>? = null,
+    ): Flow<DecodedMessage> =
         callbackFlow {
             val messageCallback = object : FfiMessageCallback {
                 override fun onMessage(message: FfiMessage) {
@@ -458,11 +461,25 @@ data class Conversations(
                     Log.e("XMTP all message stream", error.message.toString())
                 }
             }
+            val states = consentStates?.let { states ->
+                states.map { ConsentState.toFfiConsentState(it) }
+            }
 
             val stream = when (type) {
-                ConversationFilterType.ALL -> ffiConversations.streamAllMessages(messageCallback)
-                ConversationFilterType.GROUPS -> ffiConversations.streamAllGroupMessages(messageCallback)
-                ConversationFilterType.DMS -> ffiConversations.streamAllDmMessages(messageCallback)
+                ConversationFilterType.ALL -> ffiConversations.streamAllMessages(
+                    messageCallback,
+                    states
+                )
+
+                ConversationFilterType.GROUPS -> ffiConversations.streamAllGroupMessages(
+                    messageCallback,
+                    states
+                )
+
+                ConversationFilterType.DMS -> ffiConversations.streamAllDmMessages(
+                    messageCallback,
+                    states
+                )
             }
 
             awaitClose { stream.end() }
@@ -485,5 +502,18 @@ data class Conversations(
             )
         }
         return hmacKeysResponse.build()
+    }
+
+    fun allPushTopics(): List<String> {
+        val conversations = ffiConversations.list(
+            FfiListConversationsOptions(
+                null,
+                null,
+                null,
+                null,
+                includeDuplicateDms = true
+            )
+        )
+        return conversations.map { Topic.groupMessage(it.conversation().id().toHex()).description }
     }
 }

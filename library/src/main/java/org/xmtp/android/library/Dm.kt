@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -12,6 +13,7 @@ import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
+import org.xmtp.proto.keystore.api.v1.Keystore
 import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
@@ -21,6 +23,7 @@ import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiSubscribeException
+import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import java.util.Date
 
 class Dm(
@@ -206,17 +209,13 @@ class Dm(
                     } else {
                         Log.w(
                             "XMTP Dm stream",
-                            "Failed to decode message: id=${message.id.toHex()}, " +
-                                "convoId=${message.conversationId.toHex()}, " +
-                                "senderInboxId=${message.senderInboxId}"
+                            "Failed to decode message: id=${message.id.toHex()}, " + "conversationId=${message.conversationId.toHex()}, " + "senderInboxId=${message.senderInboxId}"
                         )
                     }
                 } catch (e: Exception) {
                     Log.e(
                         "XMTP Dm stream",
-                        "Error decoding message: id=${message.id.toHex()}, " +
-                            "convoId=${message.conversationId.toHex()}, " +
-                            "senderInboxId=${message.senderInboxId}",
+                        "Error decoding message: id=${message.id.toHex()}, " + "conversationId=${message.conversationId.toHex()}, " + "senderInboxId=${message.senderInboxId}",
                         e
                     )
                 }
@@ -268,5 +267,33 @@ class Dm(
     // Returns null if dm is not paused, otherwise the min version required to unpause this dm
     fun pausedForVersion(): String? {
         return libXMTPGroup.pausedForVersion()
+    }
+
+    fun getHmacKeys(): Keystore.GetConversationHmacKeysResponse {
+        val hmacKeysResponse = Keystore.GetConversationHmacKeysResponse.newBuilder()
+        val conversations = libXMTPGroup.getHmacKeys()
+        conversations.iterator().forEach {
+            val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
+            val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
+            hmacKeyData.hmacKey = it.key.toByteString()
+            hmacKeyData.thirtyDayPeriodsSinceEpoch = it.epoch.toInt()
+            hmacKeys.addValues(hmacKeyData)
+            hmacKeysResponse.putHmacKeys(
+                Topic.groupMessage(libXMTPGroup.id().toHex()).description,
+                hmacKeys.build()
+            )
+        }
+        return hmacKeysResponse.build()
+    }
+
+    suspend fun getPushTopics(): List<String> {
+        val duplicates = libXMTPGroup.findDuplicateDms()
+        val topicIds = duplicates.map { it.id().toHex() }.toMutableList()
+        topicIds.add(id)
+        return topicIds.map { Topic.groupMessage(it).description }
+    }
+
+    suspend fun getDebugInformation(): ConversationDebugInfo {
+        return ConversationDebugInfo(libXMTPGroup.conversationDebugInfo())
     }
 }

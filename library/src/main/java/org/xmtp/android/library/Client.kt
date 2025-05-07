@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,7 +54,7 @@ class Client(
     val installationId: String,
     val inboxId: InboxId,
     val environment: XMTPEnvironment,
-    val publicIdentity: PublicIdentity
+    val publicIdentity: PublicIdentity,
 ) {
     val preferences: PrivatePreferences =
         PrivatePreferences(client = this, ffiClient = libXMTPClient)
@@ -77,7 +78,12 @@ class Client(
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
 
-        fun activatePersistentLibXMTPLogWriter(appContext: Context, logLevel: FfiLogLevel, rotationSchedule: FfiLogRotation, maxFiles: Int) {
+        fun activatePersistentLibXMTPLogWriter(
+            appContext: Context,
+            logLevel: FfiLogLevel,
+            rotationSchedule: FfiLogRotation,
+            maxFiles: Int,
+        ) {
             val logDirectory = File(appContext.filesDir, "xmtp_logs")
             if (!logDirectory.exists()) {
                 logDirectory.mkdirs()
@@ -172,8 +178,8 @@ class Client(
                 inboxId = inboxId,
                 nonce = 0.toULong(),
                 legacySignedPrivateKeyProto = null,
-                historySyncUrl = null,
-                syncWorkerMode = null
+                deviceSyncServerUrl = null,
+                deviceSyncMode = null
             )
 
             return useClient(ffiClient)
@@ -237,8 +243,23 @@ class Client(
                 }
             }
             ffiClient.signatureRequest()?.let { signatureRequest ->
-                signingKey?.let { handleSignature(SignatureRequest(signatureRequest), it) }
-                    ?: throw XMTPException("No signer passed but signer was required.")
+                signingKey?.let {
+                    handleSignature(SignatureRequest(signatureRequest), it)
+                } ?: run {
+                    Log.d("XMTP", "No signer provided. Logging DB context...")
+                    Log.d("XMTP", "dbPath: $dbPath")
+
+                    if (clientOptions.dbDirectory != null) {
+                        Log.d("XMTP", "dbDirectory: ${clientOptions.dbDirectory}")
+
+                        val dbDirFile = File(clientOptions.dbDirectory)
+                        val fileCount = dbDirFile.listFiles()?.size ?: 0
+
+                        Log.d("XMTP", "Files in dbDirectory: $fileCount")
+                    }
+                    throw XMTPException("No signer passed but signer was required.")
+                }
+
                 ffiClient.registerIdentity(signatureRequest)
             }
 
@@ -302,8 +323,8 @@ class Client(
                 inboxId = inboxId,
                 nonce = 0.toULong(),
                 legacySignedPrivateKeyProto = null,
-                historySyncUrl = options.historySyncUrl,
-                syncWorkerMode = FfiSyncWorkerMode.ENABLED
+                deviceSyncServerUrl = options.historySyncUrl,
+                deviceSyncMode = FfiSyncWorkerMode.ENABLED
             )
 
             return Pair(ffiClient, dbPath)
@@ -326,6 +347,7 @@ class Client(
                         signingKey.blockNumber?.toULong()
                     )
                 }
+
                 else -> {
                     signatureRequest.addEcdsaSignature(signedData.rawData)
                 }

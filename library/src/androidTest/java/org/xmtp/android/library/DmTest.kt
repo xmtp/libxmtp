@@ -64,6 +64,9 @@ class DmTest {
             alixClient.conversations.sync()
             val sameConvo1 = alixClient.conversations.findOrCreateDm(boClient.inboxId)
             assertEquals(convo1.id, sameConvo1.id)
+            assertEquals(convo1.getDebugInformation().epoch, 1)
+            assertEquals(convo1.getDebugInformation().maybeForked, false)
+            assertEquals(convo1.getDebugInformation().forkDetails, "")
         }
     }
 
