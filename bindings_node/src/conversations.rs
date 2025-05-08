@@ -93,7 +93,7 @@ pub struct ListConversationsOptions {
   pub conversation_type: Option<ConversationType>,
   pub created_after_ns: Option<i64>,
   pub created_before_ns: Option<i64>,
-  pub include_duplicate_dms: bool,
+  pub include_duplicate_dms: Option<bool>,
   pub limit: Option<i64>,
 }
 
@@ -105,7 +105,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
         .map(|vec| vec.into_iter().map(Into::into).collect()),
       created_before_ns: opts.created_before_ns,
       created_after_ns: opts.created_after_ns,
-      include_duplicate_dms: opts.include_duplicate_dms,
+      include_duplicate_dms: opts.include_duplicate_dms.unwrap_or_default(),
       limit: opts.limit,
       allowed_states: None,
       conversation_type: opts.conversation_type.map(Into::into),

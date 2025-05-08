@@ -92,7 +92,7 @@ pub struct ListConversationsOptions {
   #[wasm_bindgen(js_name = createdBeforeNs)]
   pub created_before_ns: Option<i64>,
   #[wasm_bindgen(js_name = includeDuplicateDms)]
-  pub include_duplicate_dms: bool,
+  pub include_duplicate_dms: Option<bool>,
   pub limit: Option<i64>,
 }
 
@@ -104,7 +104,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
         .map(|states| states.into_iter().map(From::from).collect()),
       created_after_ns: opts.created_after_ns,
       created_before_ns: opts.created_before_ns,
-      include_duplicate_dms: opts.include_duplicate_dms,
+      include_duplicate_dms: opts.include_duplicate_dms.unwrap_or_default(),
       limit: opts.limit,
       allowed_states: None,
       conversation_type: opts.conversation_type.map(Into::into),
