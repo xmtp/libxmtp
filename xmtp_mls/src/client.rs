@@ -95,6 +95,8 @@ pub enum ClientError {
     Group(Box<GroupError>),
     #[error(transparent)]
     LocalEvent(#[from] LocalEventError),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -126,6 +128,7 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Group(group_error) => retryable!(group_error),
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
+            ClientError::Db(db) => retryable!(db),
             ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
@@ -213,7 +216,7 @@ impl XmtpMlsLocalContext {
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, xmtp_db::ConnectionError> {
         self.identity.sequence_id(conn)
     }
 
@@ -411,7 +414,7 @@ where
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
     /// This may not be consistent with the latest state on the backend.
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
-        self.context.inbox_sequence_id(conn)
+        self.context.inbox_sequence_id(conn).map_err(Into::into)
     }
 
     /// Get the [`AssociationState`] for the client's `inbox_id`
@@ -603,7 +606,7 @@ where
         tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider()?;
         let inbox_id = match self
-            .find_inbox_id_from_identifier(&provider.conn_ref(), target_identity.clone())
+            .find_inbox_id_from_identifier(provider.conn_ref(), target_identity.clone())
             .await?
         {
             Some(id) => id,
@@ -930,7 +933,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
-        let envelopes = self.query_welcome_messages(&provider.conn_ref()).await?;
+        let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
@@ -1166,7 +1169,6 @@ pub(crate) mod tests {
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
-    use xmtp_db::StorageError;
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
         schema::identity_updates, ConnectionExt,
@@ -1193,10 +1195,8 @@ pub(crate) mod tests {
             .unwrap();
 
         let conn = amal.store().conn().unwrap();
-        conn.raw_query_write::<_, _, StorageError>(|conn| {
-            diesel::delete(identity_updates::table).execute(conn)
-        })
-        .unwrap();
+        conn.raw_query_write(|conn| diesel::delete(identity_updates::table).execute(conn))
+            .unwrap();
 
         let members = group.members().await.unwrap();
         // The three installations should count as two members

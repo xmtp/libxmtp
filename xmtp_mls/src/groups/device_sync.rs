@@ -105,6 +105,8 @@ pub enum DeviceSyncError {
     MissingSyncServerUrl,
     #[error("Missing sync group")]
     MissingSyncGroup,
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
 }
@@ -231,7 +233,7 @@ where
         let conn = provider.conn_ref();
 
         let sync_group = match conn.primary_sync_group()? {
-            Some(sync_group) => self.group_with_conn(&conn, &sync_group.id)?,
+            Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
             None => {
                 let sync_group =
                     MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;

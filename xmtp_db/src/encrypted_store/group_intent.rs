@@ -119,9 +119,9 @@ impl_fetch!(StoredGroupIntent, group_intents, ID);
 impl Delete<StoredGroupIntent> for DbConnection {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|raw_conn| {
+        Ok(self.raw_query_write(|raw_conn| {
             diesel::delete(dsl::group_intents.find(key)).execute(raw_conn)
-        })
+        })?)
     }
 }
 
@@ -163,8 +163,8 @@ impl DbConnection {
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
-    ) -> Result<StoredGroupIntent, StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+    ) -> Result<StoredGroupIntent, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
                 .get_result(conn)
@@ -178,7 +178,7 @@ impl DbConnection {
         group_id: Vec<u8>,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
-    ) -> Result<Vec<StoredGroupIntent>, StorageError> {
+    ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));
@@ -206,7 +206,7 @@ impl DbConnection {
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
     ) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Published is from
@@ -240,7 +240,7 @@ impl DbConnection {
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed: usize = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let rows_changed: usize = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from
@@ -260,7 +260,7 @@ impl DbConnection {
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to Committed is from
@@ -280,7 +280,7 @@ impl DbConnection {
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     pub fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 // State machine requires that the only valid state transition to ToPublish is from
@@ -306,7 +306,7 @@ impl DbConnection {
     /// Set the intent with the given ID to `Error`
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
-        let rows_changed = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 .set(dsl::state.eq(IntentState::Error))
@@ -340,7 +340,7 @@ impl DbConnection {
         &self,
         intent_id: ID,
     ) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
                 .set(dsl::publish_attempts.eq(dsl::publish_attempts + 1))

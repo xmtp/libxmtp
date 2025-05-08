@@ -278,6 +278,8 @@ pub enum GroupError {
     GroupInactive,
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
 }
 
 impl RetryableError for GroupError {
@@ -305,6 +307,7 @@ impl RetryableError for GroupError {
             Self::LockFailedToAcquire => true,
             Self::SyncFailedToWait(_) => true,
             Self::Sync(s) => s.is_retryable(),
+            Self::Db(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::GroupMetadata(_)
             | Self::GroupMutableMetadata(_)
@@ -809,7 +812,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client, &provider.conn_ref(), &staged_welcome).await?;
+        validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -922,7 +925,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(&provider.conn_ref(), &stored_group)?;
+            StoredConsentRecord::persist_consent(provider.conn_ref(), &stored_group)?;
 
             Ok(Self::new(
                 client.clone(),
@@ -966,7 +969,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
-            &provider.conn_ref(),
+            provider.conn_ref(),
             group_id,
             now_ns(),
             GroupMembershipState::Allowed,

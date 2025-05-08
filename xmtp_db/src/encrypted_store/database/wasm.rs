@@ -1,7 +1,7 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
 use crate::PersistentOrMem;
-use crate::{ConnectionExt, StorageError, StorageOption, TransactionGuard, XmtpDb};
+use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
 use diesel::{connection::TransactionManager, prelude::SqliteConnection};
 use diesel::{
     connection::{AnsiTransactionManager, SimpleConnection},
@@ -179,8 +179,9 @@ impl WasmDbConnection {
 
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
+    type Error = crate::ConnectionError;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         let guard = self.transaction_lock.lock();
         let mut c = self.conn.lock();
         AnsiTransactionManager::begin_transaction(&mut *c)?;
@@ -192,30 +193,24 @@ impl ConnectionExt for WasmDbConnection {
         })
     }
 
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
-        E: From<crate::ConnectionError>,
     {
         tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
-        return fun(&mut *conn)
-            .map_err(crate::ConnectionError::from)
-            .map_err(E::from);
+        Ok(fun(&mut *conn).map_err(crate::ConnectionError::from)?)
     }
 
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<crate::ConnectionError>,
         Self: Sized,
     {
         tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
-        return fun(&mut *conn)
-            .map_err(crate::ConnectionError::from)
-            .map_err(E::from);
+        Ok(fun(&mut *conn).map_err(crate::ConnectionError::from)?)
     }
 }
 

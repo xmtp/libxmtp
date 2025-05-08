@@ -14,25 +14,24 @@ pub struct EncryptedMessageStore<Db> {
 impl<Db, E> EncryptedMessageStore<Db>
 where
     Db: XmtpDb<Error = E>,
+    StorageError: From<<<Db as XmtpDb>::Connection as ConnectionExt>::Error>,
     StorageError: From<E>,
 {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
         self.db.validate(&self.opts)?;
-        self.db
-            .conn()
-            .raw_query_write::<_, _, StorageError>(|conn| {
-                conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-                conn.run_pending_migrations(MIGRATIONS)
-                    .map_err(diesel::result::Error::QueryBuilderError)?;
+        self.db.conn().raw_query_write::<_, _>(|conn| {
+            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+            conn.run_pending_migrations(MIGRATIONS)
+                .map_err(diesel::result::Error::QueryBuilderError)?;
 
-                let sqlite_version =
-                    sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-                tracing::info!("sqlite_version={}", sqlite_version[0].version);
+            let sqlite_version =
+                sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
+            tracing::info!("sqlite_version={}", sqlite_version[0].version);
 
-                tracing::info!("Migrations successful");
-                Ok(())
-            })?;
+            tracing::info!("Migrations successful");
+            Ok(())
+        })?;
 
         Ok::<_, StorageError>(())
     }

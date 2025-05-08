@@ -113,7 +113,7 @@ impl DbConnection {
             NotFound::RefreshStateByIdAndKind(entity_id.as_ref().to_vec(), entity_kind),
         )?;
 
-        let num_updated = self.raw_query_write::<_, StorageError, _>(|conn| {
+        let num_updated = self.raw_query_write(|conn| {
             diesel::update(&state)
                 .filter(dsl::cursor.lt(cursor))
                 .set(dsl::cursor.eq(cursor))

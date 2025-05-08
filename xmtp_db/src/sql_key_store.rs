@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{ConnectionExt, DbConnection};
@@ -28,21 +26,19 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub struct SqlKeyStore<C = crate::DefaultConnection, E = SqlKeyStoreError> {
+pub struct SqlKeyStore<C = crate::DefaultConnection> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnection<C, E>,
-    _marker: PhantomData<E>,
+    conn: DbConnection<C>,
 }
 
-impl<C, E> SqlKeyStore<C, E> {
+impl<C> SqlKeyStore<C> {
     pub fn new(conn: C) -> Self {
         Self {
-            conn: DbConnection::<_, E>::new(conn),
-            _marker: PhantomData,
+            conn: DbConnection::<_>::new(conn),
         }
     }
 
-    pub fn conn_ref(&self) -> &DbConnection<C, E> {
+    pub fn conn_ref(&self) -> &DbConnection<C> {
         &self.conn
     }
 }
@@ -50,17 +46,20 @@ impl<C, E> SqlKeyStore<C, E> {
 impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
+    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,
-    ) -> Result<Vec<StorageData>, SqlKeyStoreError> {
-        self.conn.raw_query_read(|conn| {
-            sql_query(SELECT_QUERY)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .load(conn)
-        })
+    ) -> Result<Vec<StorageData>, crate::ConnectionError> {
+        self.conn
+            .raw_query_read(|conn| {
+                sql_query(SELECT_QUERY)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .load(conn)
+            })
+            .map_err(Into::into)
     }
 
     fn replace_query<const VERSION: u16>(
@@ -68,13 +67,15 @@ where
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
-        self.conn_ref().raw_query_write(|conn| {
-            sql_query(REPLACE_QUERY)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                .bind::<diesel::sql_types::Binary, _>(&value)
-                .execute(conn)
-        })
+        self.conn_ref()
+            .raw_query_write(|conn| {
+                sql_query(REPLACE_QUERY)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                    .bind::<diesel::sql_types::Binary, _>(&value)
+                    .execute(conn)
+            })
+            .map_err(Into::into)
     }
 
     fn update_query<const VERSION: u16>(
@@ -82,13 +83,13 @@ where
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, crate::ConnectionError> {
-        self.conn_ref().raw_query_write(|conn| {
+        Ok(self.conn_ref().raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
-        })
+        })?)
     }
 
     pub fn write<const VERSION: u16>(
@@ -177,8 +178,6 @@ where
         label: &[u8],
         key: &[u8],
     ) -> Result<Option<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::trace!("read {}", String::from_utf8_lossy(label));
-
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
         let data = self.select_query::<VERSION>(&storage_key)?;
@@ -198,8 +197,6 @@ where
         label: &[u8],
         key: &[u8],
     ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::trace!("read_list {}", String::from_utf8_lossy(label));
-
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let results = self.select_query::<VERSION>(&storage_key)?;
 
@@ -232,12 +229,13 @@ where
 
         let _ = self
             .conn_ref()
-            .raw_query_write::<_, SqlKeyStoreError, _>(|conn| {
+            .raw_query_write(|conn| {
                 sql_query(DELETE_QUERY)
                     .bind::<diesel::sql_types::Binary, _>(&storage_key)
                     .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                     .execute(conn)
-            })?;
+            })
+            .map_err(crate::ConnectionError::from)?;
         Ok(())
     }
 }
@@ -301,6 +299,7 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
     C: ConnectionExt,
+    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type Error = SqlKeyStoreError;
 
@@ -821,12 +820,15 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
-            sql_query(query)
-                .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                .load(conn)
-        })?;
+        let data: Vec<StorageData> = self
+            .conn_ref()
+            .raw_query_read(|conn| {
+                sql_query(query)
+                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                    .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                    .load(conn)
+            })
+            .map_err(crate::ConnectionError::from)?;
 
         if let Some(entry) = data.into_iter().next() {
             match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {

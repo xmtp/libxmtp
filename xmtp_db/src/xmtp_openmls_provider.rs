@@ -1,17 +1,16 @@
-use crate::sql_key_store::SqlKeyStoreError;
-use crate::{ConnectionExt, DbConnection, StorageError};
+use crate::{ConnectionExt, DbConnection};
 use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection, E = SqlKeyStoreError> {
+pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection> {
     crypto: RustCrypto,
-    key_store: SqlKeyStore<C, E>,
+    key_store: SqlKeyStore<C>,
 }
 
-impl<C, E> XmtpOpenMlsProvider<C, E> {
+impl<C> XmtpOpenMlsProvider<C> {
     pub fn new(conn: C) -> Self {
         Self {
             crypto: RustCrypto::default(),
@@ -21,9 +20,9 @@ impl<C, E> XmtpOpenMlsProvider<C, E> {
 }
 
 // C should be an Arc<>
-impl<C: Clone, E> XmtpOpenMlsProvider<C, E> {
-    pub fn conn_ref(&self) -> DbConnection<C> {
-        self.key_store.conn_ref().transmute::<StorageError>()
+impl<C> XmtpOpenMlsProvider<C> {
+    pub fn conn_ref(&self) -> &DbConnection<C> {
+        self.key_store.conn_ref()
     }
 }
 
@@ -35,7 +34,8 @@ impl XmtpOpenMlsProvider {
 
 impl<C> ProviderTransactions<C> for XmtpOpenMlsProvider<C>
 where
-    C: ConnectionExt + Clone,
+    C: ConnectionExt,
+    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     /// Start a new database transaction with the OpenMLS Provider from XMTP
     /// with the provided connection
@@ -55,7 +55,8 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
+        E: From<<C as ConnectionExt>::Error> + std::error::Error,
+        E: From<crate::ConnectionError>,
     {
         tracing::debug!("Transaction beginning");
 
@@ -74,13 +75,15 @@ where
             }
             Err(err) => {
                 tracing::debug!("Transaction being rolled back");
-                match conn.raw_query_write(|conn| {
+                let result = conn.raw_query_write(|conn| {
                     <C::Connection as Connection>::TransactionManager::rollback_transaction(
                         &mut *conn,
                     )
-                }) {
+                });
+                let result = result.map_err(crate::ConnectionError::from);
+                match result {
                     Ok(()) => Err(err),
-                    Err(StorageError::DieselResult(
+                    Err(crate::ConnectionError::Database(
                         diesel::result::Error::BrokenTransactionManager,
                     )) => Err(err),
                     Err(rollback) => Err(rollback.into()),
@@ -93,11 +96,11 @@ where
 impl<C> OpenMlsProvider for XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
+    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
     type StorageProvider = SqlKeyStore<C>;
-
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto
     }
@@ -114,6 +117,7 @@ where
 impl<C> OpenMlsProvider for &XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
+    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;

@@ -126,25 +126,19 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     }
 
     // alix1 should have it's own created sync group and alix2's sync group
-    let alix1_sync_groups: Vec<StoredGroup> = alix1
-        .provider
-        .conn_ref()
-        .raw_query_read::<_, StorageError, _>(|conn| {
-            dsl::groups
-                .filter(dsl::conversation_type.eq(ConversationType::Sync))
-                .load(conn)
-        })?;
+    let alix1_sync_groups: Vec<StoredGroup> = alix1.provider.conn_ref().raw_query_read(|conn| {
+        dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .load(conn)
+    })?;
     assert_eq!(alix1_sync_groups.len(), 2);
 
     // alix2 should not be added to alix1's old sync group
     alix2.sync_welcomes(&alix2.provider).await?;
-    let alix2_sync_groups: Vec<StoredGroup> = alix2
-        .provider
-        .conn_ref()
-        .raw_query_read::<_, StorageError, _>(|conn| {
-            dsl::groups
-                .filter(dsl::conversation_type.eq(ConversationType::Sync))
-                .load(conn)
-        })?;
+    let alix2_sync_groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
+        dsl::groups
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .load(conn)
+    })?;
     assert_eq!(alix2_sync_groups.len(), 1);
 }

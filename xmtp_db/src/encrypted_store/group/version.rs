@@ -4,7 +4,7 @@ impl DbConnection {
     pub fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
                 .set(dsl::paused_for_version.eq(Some(min_version.to_string())))
                 .execute(conn)
@@ -16,7 +16,7 @@ impl DbConnection {
     pub fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::groups.filter(dsl::id.eq(group_id)))
                 .set(dsl::paused_for_version.eq::<Option<String>>(None))
                 .execute(conn)

@@ -133,7 +133,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         // get sequence_id from identity updates and loaded into the DB
         load_identity_updates(
             &api,
-            &provider.conn_ref(),
+            provider.conn_ref(),
             vec![identity.inbox_id.as_str()].as_slice(),
         )
         .await?;

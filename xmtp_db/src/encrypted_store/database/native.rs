@@ -1,8 +1,8 @@
 mod sqlcipher_connection;
 
+use crate::TransactionGuard;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, NotFound};
-use crate::{StorageError, TransactionGuard};
 use diesel::connection::TransactionManager;
 use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
@@ -238,8 +238,9 @@ impl EphemeralDbConnection {
 
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
+    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         let guard = self.global_transaction_lock.lock();
         let mut c = self.conn.lock();
         AnsiTransactionManager::begin_transaction(&mut *c)?;
@@ -251,28 +252,22 @@ impl ConnectionExt for EphemeralDbConnection {
         })
     }
 
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
-        E: From<ConnectionError>,
     {
         let mut conn = self.conn.lock();
-        fun(&mut conn)
-            .map_err(ConnectionError::from)
-            .map_err(E::from)
+        fun(&mut conn).map_err(ConnectionError::from)
     }
 
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
-        fun(&mut conn)
-            .map_err(ConnectionError::from)
-            .map_err(E::from)
+        fun(&mut conn).map_err(ConnectionError::from)
     }
 }
 
@@ -350,8 +345,9 @@ impl NativeDbConnection {
 
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
+    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::StorageError> {
+    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, Self::Error> {
         let guard = self.global_transaction_lock.lock();
         let mut write = self.write.lock();
         AnsiTransactionManager::begin_transaction(&mut *write)?;
@@ -364,45 +360,35 @@ impl ConnectionExt for NativeDbConnection {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         if self.in_transaction.load(Ordering::SeqCst) {
             tracing::debug!("read in transaction");
             let mut conn = self.write.lock();
-            return fun(&mut conn)
-                .map_err(ConnectionError::from)
-                .map_err(E::from);
+            return fun(&mut conn).map_err(ConnectionError::from);
         } else if let Some(pool) = &*self.read.read() {
             tracing::trace!(
                 "pulling connection from pool, idle={}, total={}",
                 pool.state().idle_connections,
                 pool.state().connections
             );
-            let mut conn = pool
-                .get()
-                .map_err(PlatformStorageError::from)
-                .map_err(ConnectionError::from)
-                .map_err(E::from)?;
+            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
 
-            return fun(&mut conn)
-                .map_err(ConnectionError::from)
-                .map_err(E::from);
+            return fun(&mut conn).map_err(ConnectionError::from);
         } else {
-            return Err(E::from(ConnectionError::from(
+            return Err(ConnectionError::from(
                 PlatformStorageError::PoolNeedsConnection,
-            )));
+            ));
         };
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         let _guard;
@@ -410,9 +396,7 @@ impl ConnectionExt for NativeDbConnection {
             _guard = self.global_transaction_lock.lock();
         }
         let mut locked = self.write.lock();
-        fun(&mut locked)
-            .map_err(ConnectionError::from)
-            .map_err(E::from)
+        fun(&mut locked).map_err(ConnectionError::from)
     }
 }
 
@@ -489,7 +473,7 @@ mod tests {
         assert!(
             matches!(
                 err,
-                StorageError::Platform(PlatformStorageError::SqlCipherKeyIncorrect)
+                crate::StorageError::Platform(PlatformStorageError::SqlCipherKeyIncorrect)
             ),
             "Expected SqlCipherKeyIncorrect error, got {}",
             err

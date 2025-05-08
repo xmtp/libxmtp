@@ -39,7 +39,6 @@ use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::schema::groups;
-use xmtp_db::StorageError;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs},
@@ -417,7 +416,7 @@ async fn test_dm_stitching() {
     let alix_groups = alix
         .provider
         .conn_ref()
-        .raw_query_read::<_, StorageError, _>(|conn| {
+        .raw_query_read(|conn| {
             groups::table
                 .order(groups::created_at_ns.desc())
                 .load::<StoredGroup>(conn)
@@ -2554,7 +2553,7 @@ async fn process_messages_abort_on_retryable_error() {
 
     let conn_1: XmtpOpenMlsProvider = bo.store().db().into();
     let db = bo.store().db();
-    db.raw_query_write::<_, StorageError, _>(|c| {
+    db.raw_query_write(|c| {
         c.batch_execute("BEGIN EXCLUSIVE").unwrap();
         Ok::<_, diesel::result::Error>(())
     })

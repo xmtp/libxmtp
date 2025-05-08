@@ -131,9 +131,7 @@ impl DbConnection {
 
         let mut conversations = if includes_all {
             // No filtering at all
-            self.raw_query_read(|conn| {
-                query.load::<ConversationListItem>(conn)
-            })?
+            self.raw_query_read(|conn| query.load::<ConversationListItem>(conn))?
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
@@ -152,9 +150,7 @@ impl DbConnection {
                 .select(conversation_list::all_columns())
                 .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
-            self.raw_query_read(|conn| {
-                left_joined_query.load::<ConversationListItem>(conn)
-            })?
+            self.raw_query_read(|conn| left_joined_query.load::<ConversationListItem>(conn))?
         } else {
             // INNER JOIN: strict match only to specific states (no Unknown or NULL)
             let inner_joined_query = query
@@ -168,9 +164,7 @@ impl DbConnection {
                 .select(conversation_list::all_columns())
                 .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
-            self.raw_query_read(|conn| {
-                inner_joined_query.load::<ConversationListItem>(conn)
-            })?
+            self.raw_query_read(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
         };
 
         // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
@@ -178,8 +172,7 @@ impl DbConnection {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups =
-                self.raw_query_read(|conn| query.load(conn))?;
+            let mut sync_groups = self.raw_query_read(|conn| query.load(conn))?;
             conversations.append(&mut sync_groups);
         }
 

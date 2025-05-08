@@ -103,6 +103,7 @@ impl RetryableError for ConnectionError {
 }
 
 pub trait ConnectionExt {
+    type Error;
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
@@ -110,24 +111,22 @@ pub trait ConnectionExt {
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
         + Send;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError>;
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error>;
 
     /// Run a scoped read-only query
     /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized;
 
     /// Run a scoped write-only query
     /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized;
 }
 
@@ -136,24 +135,23 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
+    type Error = <C as ConnectionExt>::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         <C as ConnectionExt>::start_transaction(self)
     }
 
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_read(self, fun)
     }
 
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
@@ -164,25 +162,24 @@ impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
 {
+    type Error = <C as ConnectionExt>::Error;
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         <C as ConnectionExt>::start_transaction(self)
     }
 
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_read(self, fun)
     }
 
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
@@ -282,13 +279,13 @@ macro_rules! impl_fetch {
         impl<C> $crate::Fetch<$model> for C
         where
             C: $crate::ConnectionExt,
+            $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
-                    $table.first(conn).optional()
-                })
+                self.raw_query_read::<_, _>(|conn| $table.first(conn).optional())
+                    .map_err(Into::into)
             }
         }
     };
@@ -297,13 +294,13 @@ macro_rules! impl_fetch {
         impl<C> $crate::Fetch<$model> for C
         where
             C: $crate::ConnectionExt,
+            $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
-                self.raw_query_read::<_, _, $crate::StorageError>(|conn| {
-                    $table.find(key.clone()).first(conn).optional()
-                })
+                self.raw_query_read::<_, _>(|conn| $table.find(key.clone()).first(conn).optional())
+                    .map_err(Into::into)
             }
         }
     };
@@ -315,6 +312,7 @@ macro_rules! impl_fetch_list {
         impl<C> $crate::FetchList<$model> for C
         where
             C: $crate::ConnectionExt,
+            StorageError: From<<C as $crate::ConnectionExt>::Error>,
         {
             fn fetch_list(&self) -> Result<Vec<$model>, $crate::StorageError> {
                 use $crate::encrypted_store::schema::$table::dsl::*;
@@ -331,16 +329,18 @@ macro_rules! impl_store {
         impl<C> $crate::Store<C> for $model
         where
             C: $crate::ConnectionExt,
+            $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
         {
             type Output = ();
             fn store(&self, into: &C) -> Result<(), $crate::StorageError> {
-                into.raw_query_write::<_, _, $crate::StorageError>(|conn| {
+                into.raw_query_write::<_, _>(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
                         .map_err(Into::into)
                         .map(|_| ())
                 })
+                .map_err(Into::into)
             }
         }
     };
@@ -353,6 +353,7 @@ macro_rules! impl_store_or_ignore {
         impl<C> $crate::StoreOrIgnore<C> for $model
         where
             C: $crate::ConnectionExt,
+            $crate::StorageError: From<<C as $crate::ConnectionExt>::Error>,
         {
             type Output = ();
 
@@ -364,6 +365,7 @@ macro_rules! impl_store_or_ignore {
                         .map_err(Into::into)
                         .map(|_| ())
                 })
+                .map_err(Into::into)
             }
         }
     };
@@ -389,7 +391,8 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error;
+        E: From<<C as ConnectionExt>::Error> + std::error::Error,
+        E: From<crate::ConnectionError>;
 }
 
 #[cfg(test)]
@@ -467,7 +470,7 @@ pub(crate) mod tests {
         store
             .db
             .conn()
-            .raw_query_write::<_, _, StorageError>(|conn| {
+            .raw_query_write(|conn| {
                 for _ in 0..15 {
                     conn.run_next_migration(MIGRATIONS).unwrap();
                 }
@@ -512,14 +515,14 @@ pub(crate) mod tests {
         store
             .db
             .conn()
-            .raw_query_write::<_, _, StorageError>(|conn| {
+            .raw_query_write(|conn| {
                 conn.run_pending_migrations(MIGRATIONS).unwrap();
                 Ok(())
             })
             .unwrap();
 
         let groups = conn
-            .raw_query_read::<_, _, StorageError>(|conn| groups::table.load::<StoredGroup>(conn))
+            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
             .unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");

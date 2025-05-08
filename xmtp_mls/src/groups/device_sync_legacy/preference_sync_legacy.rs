@@ -70,7 +70,7 @@ where
                 }
                 PreferenceUpdate::Hmac { key, .. } => {
                     updates.push(update);
-                    StoredUserPreferences::store_hmac_key(&conn, &key, None)?;
+                    StoredUserPreferences::store_hmac_key(conn, &key, None)?;
                 }
             }
         } else {

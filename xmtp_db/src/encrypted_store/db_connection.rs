@@ -1,7 +1,7 @@
-use crate::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use std::{fmt, marker::PhantomData};
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use std::fmt;
 
-use super::{ConnectionError, ConnectionExt, TransactionGuard};
+use super::{ConnectionExt, TransactionGuard};
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
@@ -11,79 +11,61 @@ use super::{ConnectionError, ConnectionExt, TransactionGuard};
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
 #[doc(hidden)]
-pub struct DbConnection<C = crate::DefaultConnection, E = StorageError> {
+pub struct DbConnection<C = crate::DefaultConnection> {
     conn: C,
-    _marker: PhantomData<E>,
 }
 
-impl<C, E> DbConnection<C, E> {
-    pub(crate) fn new(conn: C) -> DbConnection<C, E> {
-        Self {
-            conn,
-            _marker: PhantomData,
-        }
+impl<C> DbConnection<C> {
+    pub(crate) fn new(conn: C) -> DbConnection<C> {
+        Self { conn }
     }
 }
 
-impl<C: Clone, E> DbConnection<C, E> {
-    /// Transmute the error type from one to another
-    pub fn transmute<E2>(&self) -> DbConnection<C, E2> {
-        DbConnection {
-            conn: self.conn.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<C, E> DbConnection<C, E>
+impl<C> DbConnection<C>
 where
     C: ConnectionExt,
-    E: From<ConnectionError>,
 {
-    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, <C as ConnectionExt>::Error> {
         <Self as ConnectionExt>::start_transaction(self)
     }
 
-    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, E>
+    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
     {
-        <Self as ConnectionExt>::raw_query_read::<_, _, E>(self, fun)
+        <Self as ConnectionExt>::raw_query_read::<_, _>(self, fun)
     }
 
-    pub fn raw_query_write<T, E2, F>(&self, fun: F) -> Result<T, E2>
+    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
-        E2: From<ConnectionError>,
     {
-        <Self as ConnectionExt>::raw_query_write::<_, _, E2>(self, fun)
+        <Self as ConnectionExt>::raw_query_write::<_, _>(self, fun)
     }
 }
 
-impl<C, E> ConnectionExt for DbConnection<C, E>
+impl<C> ConnectionExt for DbConnection<C>
 where
     C: ConnectionExt,
-    E: From<ConnectionError>,
 {
     type Connection = C::Connection;
+    type Error = <C as ConnectionExt>::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         self.conn.start_transaction()
     }
 
-    fn raw_query_read<T, F, E2>(&self, fun: F) -> Result<T, E2>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E2: From<super::ConnectionError>,
         Self: Sized,
     {
         self.conn.raw_query_read(fun)
     }
 
-    fn raw_query_write<T, F, E2>(&self, fun: F) -> Result<T, E2>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E2: From<super::ConnectionError>,
         Self: Sized,
     {
         self.conn.raw_query_write(fun)

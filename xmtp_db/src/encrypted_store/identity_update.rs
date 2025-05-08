@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{StorageError, impl_store};
+use crate::impl_store;
 
 use super::{
     db_connection::DbConnection,
@@ -45,7 +45,7 @@ impl DbConnection {
         inbox_id: InboxId,
         from_sequence_id: Option<i64>,
         to_sequence_id: Option<i64>,
-    ) -> Result<Vec<StoredIdentityUpdate>, StorageError> {
+    ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
         let mut query = dsl::identity_updates
             .order(dsl::sequence_id.asc())
             .filter(dsl::inbox_id.eq(inbox_id.as_ref()))
@@ -67,17 +67,19 @@ impl DbConnection {
     pub fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
-    ) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+    ) -> Result<(), crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             diesel::insert_or_ignore_into(dsl::identity_updates)
                 .values(updates)
-                .execute(conn)?;
-
-            Ok(())
-        })
+                .execute(conn)
+        })?;
+        Ok(())
     }
 
-    pub fn get_latest_sequence_id_for_inbox(&self, inbox_id: &str) -> Result<i64, StorageError> {
+    pub fn get_latest_sequence_id_for_inbox(
+        &self,
+        inbox_id: &str,
+    ) -> Result<i64, crate::ConnectionError> {
         let query = dsl::identity_updates
             .select(dsl::sequence_id)
             .order(dsl::sequence_id.desc())
@@ -93,7 +95,7 @@ impl DbConnection {
     pub fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
-    ) -> Result<HashMap<String, i64>, StorageError> {
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
         // Query IdentityUpdates grouped by inbox_id, getting the max sequence_id
         let query = dsl::identity_updates
             .group_by(dsl::inbox_id)
@@ -118,7 +120,7 @@ impl DbConnection {
     pub fn filter_inbox_ids_needing_updates<'a>(
         &self,
         filters: &[(&'a str, i64)],
-    ) -> Result<Vec<&'a str>, StorageError> {
+    ) -> Result<Vec<&'a str>, crate::ConnectionError> {
         let existing_sequence_ids =
             self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
 

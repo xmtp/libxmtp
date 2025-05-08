@@ -153,7 +153,19 @@ impl RetryableError for StorageError {
             Self::Io(_) => true,
             Self::OpenMlsStorage(storage) => retryable!(storage),
             Self::Platform(p) => retryable!(p),
-            _ => false,
+            Self::Connection(e) => retryable!(e),
+            Self::MigrationError(_)
+                | Self::Conversion(_)
+                | Self::NotFound(_)
+                | Self::FromHex(_)
+                | Self::Generic(_) // TODO Audit generic errors and turn into variants
+                | Self::IntentionalRollback
+                | Self::DbDeserialize
+                | Self::DbSerialize
+                | Self::MissingRequired(_)
+                | Self::Builder(_)
+                | Self::Prost(_)
+            => false
         }
     }
 }

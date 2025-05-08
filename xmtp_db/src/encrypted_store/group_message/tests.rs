@@ -68,7 +68,7 @@ async fn it_cannot_insert_message_without_group() {
     let result = message.store(&conn);
     assert_err!(
         result,
-        StorageError::Connection(crate::ConnectionError::Database(
+        crate::StorageError::Connection(crate::ConnectionError::Database(
             diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
         ))
     );

@@ -46,6 +46,8 @@ pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
 }
 
@@ -54,6 +56,7 @@ impl RetryableError for InstallationDiffError {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
             InstallationDiffError::Storage(e) => retryable!(e),
+            InstallationDiffError::Db(e) => retryable!(e),
         }
     }
 }
@@ -578,6 +581,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(unused)] // b/c wasm & native
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{

@@ -65,7 +65,7 @@ impl DbConnection {
         &self,
         id: i32,
     ) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.lt(id)),
@@ -77,7 +77,7 @@ impl DbConnection {
     }
 
     pub fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.eq(id)),

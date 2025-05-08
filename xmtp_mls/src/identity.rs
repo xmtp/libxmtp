@@ -221,6 +221,8 @@ pub enum IdentityError {
     ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
 }
 
 impl RetryableError for IdentityError {
@@ -451,7 +453,7 @@ impl Identity {
         &self.inbox_id
     }
 
-    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, xmtp_db::ConnectionError> {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 

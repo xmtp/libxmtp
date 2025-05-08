@@ -1,8 +1,9 @@
 use super::*;
+use crate::ConnectionError;
 
 impl DbConnection {
     /// Same behavior as fetched, but will stitch DM groups
-    pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query_read(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
@@ -29,7 +30,7 @@ impl DbConnection {
         })
     }
 
-    pub fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, StorageError>
+    pub fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
@@ -41,10 +42,9 @@ impl DbConnection {
     }
 
     /// Load the other DMs that are stitched into this group
-    pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, StorageError> {
+    pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
-        let groups: Vec<StoredGroup> =
-            self.raw_query_read(|conn| query.load(conn))?;
+        let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group
         let Some(StoredGroup {
@@ -60,8 +60,7 @@ impl DbConnection {
             .filter(dsl::dm_id.eq(dm_id))
             .filter(dsl::id.ne(id));
 
-        let other_dms: Vec<StoredGroup> =
-            self.raw_query_read(|conn| query.load(conn))?;
+        let other_dms: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
         Ok(other_dms)
     }
 }

@@ -80,7 +80,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ) -> Result<StoredGroupIntent, GroupError> {
         let res = provider.transaction(|provider| {
             let conn = provider.conn_ref();
-            self.queue_intent_with_conn(&conn, intent_kind, intent_data, should_push)
+            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
         });
 
         res

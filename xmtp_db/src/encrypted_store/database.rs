@@ -14,9 +14,7 @@ pub use wasm_exports::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native_exports::*;
 
-use crate::StorageError;
-
-use super::{ConnectionError, ConnectionExt, TransactionGuard};
+use super::{ConnectionExt, TransactionGuard};
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub mod wasm_exports {
@@ -51,24 +49,25 @@ pub enum PersistentOrMem<P, M> {
     Mem(M),
 }
 
+// P and M must share connection & error types
 impl<P, M> ConnectionExt for PersistentOrMem<P, M>
 where
     P: ConnectionExt,
-    M: ConnectionExt<Connection = P::Connection>,
+    M: ConnectionExt<Connection = P::Connection, Error = P::Error>,
 {
     type Connection = P::Connection;
+    type Error = P::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, StorageError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
         match self {
             Self::Persistent(p) => p.start_transaction(),
             Self::Mem(m) => m.start_transaction(),
         }
     }
 
-    fn raw_query_read<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         match self {
@@ -77,10 +76,9 @@ where
         }
     }
 
-    fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        E: From<ConnectionError>,
         Self: Sized,
     {
         match self {
