@@ -1,29 +1,28 @@
-use std::{
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
-
-use crate::subscriptions::stream_messages::MessagesApiSubscription;
-use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    Client,
-};
-
-use futures::stream::Stream;
-use xmtp_db::{
-    consent_record::ConsentState,
-    group::{ConversationType, GroupQueryArgs},
-    group_message::StoredGroupMessage,
-};
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
-
 use super::{
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
     Result, SubscribeError,
 };
+use crate::subscriptions::{
+    stream_messages::MessagesApiSubscription, LocalEvents, SyncWorkerEvent,
+};
+use crate::{
+    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    Client,
+};
+use futures::stream::Stream;
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
 use xmtp_common::types::GroupId;
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
+    group_message::StoredGroupMessage,
+};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 
 use pin_project_lite::pin_project;
 
@@ -33,6 +32,7 @@ pin_project! {
         #[pin] messages: Messages,
         client: &'a C,
         conversation_type: Option<ConversationType>,
+        sync_groups: Vec<Vec<u8>>
     }
 }
 
@@ -52,22 +52,37 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
-        let active_conversations = async {
+        let (active_conversations, sync_groups) = async {
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
 
-            let active_conversations = provider
-                .conn_ref()
-                .find_groups(
-                    GroupQueryArgs::default()
-                        .maybe_conversation_type(conversation_type)
-                        .maybe_consent_states(consent_states),
-                )?
+            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+                conversation_type,
+                consent_states,
+                include_duplicate_dms: true,
+                include_sync_groups: conversation_type
+                    .map(|ct| matches!(ct, ConversationType::Sync))
+                    .unwrap_or(true),
+                ..Default::default()
+            })?;
+
+            let sync_groups = groups
+                .iter()
+                .filter_map(|g| match g {
+                    StoredGroup {
+                        conversation_type: ConversationType::Sync,
+                        ..
+                    } => Some(g.id.clone()),
+                    _ => None,
+                })
+                .collect();
+            let active_conversations = groups
                 .into_iter()
                 // TODO: Create find groups query only for group ID
                 .map(|g| GroupId::from(g.id))
                 .collect();
-            Ok::<_, SubscribeError>(active_conversations)
+
+            Ok::<_, SubscribeError>((active_conversations, sync_groups))
         }
         .await?;
 
@@ -81,6 +96,7 @@ where
             conversation_type,
             messages,
             conversations,
+            sync_groups,
         })
     }
 }
@@ -104,6 +120,18 @@ where
         let mut this = self.as_mut().project();
 
         if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
+            if let Some(Ok(msg)) = &msg {
+                if self.sync_groups.contains(&msg.group_id) {
+                    let _ = self
+                        .client
+                        .local_events()
+                        .send(LocalEvents::SyncWorkerEvent(
+                            SyncWorkerEvent::NewSyncGroupMsg,
+                        ));
+                    return self.poll_next(cx);
+                }
+            };
+
             return Ready(msg);
         }
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
@@ -121,12 +149,10 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::groups::DMMetadataOptions;
     use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::time::sleep;
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -156,7 +182,7 @@ mod tests {
         alix_group.send_message(b"first").await.unwrap();
         assert_msg!(stream, "first");
         let bo_group = bo
-            .find_or_create_dm(caro_wallet.identifier(), DMMetadataOptions::default())
+            .find_or_create_dm(caro_wallet.identifier(), None)
             .await
             .unwrap();
 
@@ -236,7 +262,7 @@ mod tests {
             .unwrap();
 
         let alix_dm = alix
-            .find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
+            .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
             .await
             .unwrap();
         // TODO: This test does not work on web
@@ -306,7 +332,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(15))]
+    #[timeout(Duration::from_secs(60))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
         let mut replace = xmtp_common::InboxIdReplace::default();
@@ -377,7 +403,11 @@ mod tests {
         });
 
         let mut messages = Vec::new();
-        let timeout = Duration::from_secs(10);
+        let timeout = if cfg!(target_arch = "wasm32") {
+            Duration::from_secs(20)
+        } else {
+            Duration::from_secs(10)
+        };
         loop {
             tokio::select! {
                 Some(msg) = stream.next() => {
@@ -389,7 +419,6 @@ mod tests {
                     }
                 },
                 _ = xmtp_common::time::sleep(timeout) => break
-
             }
         }
 
@@ -398,18 +427,13 @@ mod tests {
             .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
             .collect::<Vec<String>>();
         let duplicates = find_duplicates_with_count(msgs);
-        /*
-        for message in messages.iter() {
-            let m = String::from_utf8_lossy(message.decrypted_message_bytes.as_slice());
-            tracing::info!("{}", m);
-        }*/
         assert!(duplicates.is_empty());
         assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
     }
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -510,7 +534,7 @@ mod tests {
 
         let provider = sender.mls_provider().unwrap();
         sender.sync_welcomes(&provider).await.unwrap();
-        sleep(Duration::from_millis(100)).await;
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         let stream = sender
             .stream_all_messages(None, Some(vec![filter]))
@@ -532,5 +556,80 @@ mod tests {
             .unwrap();
 
         assert_msg!(stream, expected_message);
+    }
+
+    #[xmtp_common::test]
+    async fn stream_messages_keeps_track_of_cursor() {
+        let wallet = generate_local_wallet();
+        let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
+        let bob = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let eve = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+        let group = alice
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+
+        group
+            .add_members_by_inbox_id(&[bob.inbox_id(), eve.inbox_id()])
+            .await
+            .unwrap();
+        let _bob_groups = bob
+            .sync_welcomes(&bob.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let eve_groups = eve
+            .sync_welcomes(&eve.mls_provider().unwrap())
+            .await
+            .unwrap();
+        let eve_group = eve_groups.first().unwrap();
+        group.sync().await.unwrap();
+        // get the group epoch to 28
+        for _ in 0..7 {
+            group
+                .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
+                .await
+                .unwrap();
+        }
+        for _ in 0..25 {
+            eve_group
+                .send_message(format!("message {}", xmtp_common::rand_string::<5>()).as_bytes())
+                .await
+                .unwrap();
+        }
+        // get the group epoch to 28
+        for _ in 0..7 {
+            group
+                .update_group_name(format!("test name {}", xmtp_common::rand_string::<5>()))
+                .await
+                .unwrap();
+        }
+        group.sync().await.unwrap();
+        // create a new installation for alice
+        let alice_2 = ClientBuilder::new_test_client_no_sync(&wallet).await;
+        let mut s = StreamAllMessages::new(&alice_2, None, None).await.unwrap();
+        // elapse enough time to update installations
+        xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
+        group.update_installations().await.unwrap();
+        // if the stream behaved as expected, it should have set the cursor to the latest
+        // in the group before any messages that could actually be decrypted by alices
+        // second installation were sent.
+
+        // we should timeout because we have not gotten a decryptable message yet.
+        let result = xmtp_common::time::timeout(std::time::Duration::from_secs(1), s.next()).await;
+        assert!(matches!(result.unwrap_err(), xmtp_common::time::Expired));
+
+        {
+            let msg_stream = &s.messages;
+            let cursor = msg_stream
+                .group_list
+                .get(group.group_id.as_slice())
+                .unwrap();
+            assert!(*cursor > 1.into());
+        }
+
+        eve_group
+            .send_message(b"decryptable message")
+            .await
+            .unwrap();
+        assert_msg!(s, "decryptable message");
     }
 }

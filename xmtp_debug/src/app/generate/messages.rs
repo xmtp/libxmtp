@@ -8,6 +8,7 @@ use crate::{
 use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
+use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
 
@@ -23,6 +24,8 @@ enum MessageSendError {
     Group(#[from] xmtp_mls::groups::GroupError),
     #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
+    #[error(transparent)]
+    Sync(#[from] SyncSummary),
 }
 
 pub struct GenerateMessages {
@@ -119,7 +122,7 @@ impl GenerateMessages {
             let client = app::client_from_identity(&identity, &network).await?;
             let provider = client.mls_provider()?;
             client.sync_welcomes(&provider).await?;
-            let group = client.group(group.id.into())?;
+            let group = client.group(&group.id.to_vec())?;
             group.maybe_update_installations(&provider, None).await?;
             group.sync_with_conn(&provider).await?;
             let words = rng.gen_range(0..*max_message_size);

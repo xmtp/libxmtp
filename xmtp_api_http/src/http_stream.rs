@@ -80,7 +80,8 @@ where
         match item {
             Some(bytes) => {
                 let bytes = bytes.map_err(HttpClientError::from)?;
-                let item = Self::on_bytes(bytes, this.remaining)?.pop();
+                let mut items = Self::on_bytes(bytes, this.remaining)?;
+                let item = items.pop();
                 if let Some(item) = item {
                     Ready(Some(Ok(item)))
                 } else {
@@ -188,7 +189,6 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use ProjectHttpStream::*;
-        tracing::trace!("Polling http stream id={}", &self.id);
         let mut this = self.as_mut().project();
         match this.state.as_mut().project() {
             NotStarted { future } => {
@@ -196,11 +196,11 @@ where
                 this.state.set(HttpStreamState::Started {
                     stream: HttpPostStream::new(stream),
                 });
-                tracing::trace!("Stream {} ready, polling for the first time...", &self.id);
+                tracing::trace!("stream {} ready, polling for the first time...", &self.id);
                 self.poll_next(cx)
             }
-            Started { stream } => {
-                let item = ready!(stream.poll_next(cx));
+            Started { mut stream } => {
+                let item = ready!(stream.as_mut().poll_next(cx));
                 tracing::trace!("stream id={} ready with item", &self.id);
                 Poll::Ready(item)
             }
@@ -233,7 +233,7 @@ where
         let mut this = Pin::new(self);
         if this.poll_next_unpin(&mut cx).is_ready() {
             tracing::error!("Stream ready before established");
-            unreachable!()
+            unreachable!("Stream ready before established")
         }
     }
 }
@@ -254,7 +254,7 @@ where
         let mut this = unsafe { Pin::new_unchecked(self) };
         if this.as_mut().poll_next(&mut cx).is_ready() {
             tracing::error!("stream ready before established...");
-            unreachable!()
+            unreachable!("stream ready before established...")
         }
     }
 }

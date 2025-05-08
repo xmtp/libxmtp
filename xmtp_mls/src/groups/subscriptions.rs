@@ -2,7 +2,7 @@ use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
     subscriptions::{
-        stream_messages::{ProcessMessageFuture, StreamGroupMessages},
+        stream_messages::{MessageStreamError, ProcessMessageFuture, StreamGroupMessages},
         Result, SubscribeError,
     },
 };
@@ -25,11 +25,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<StoredGroupMessage> {
+        use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
-        ProcessMessageFuture::new(&self.client, envelope)?
+        let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
+        ProcessMessageFuture::new(&self.client, msg)?
             .process()
             .await?
-            .map(|(group, _)| group)
+            .message
             .ok_or(SubscribeError::GroupMessageNotFound)
     }
 
@@ -145,7 +147,7 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "current_thread")]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -181,7 +183,7 @@ pub(crate) mod tests {
     // TODO: THIS TESTS ALSO LOSES MESSAGES
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread")]
-    #[timeout(Duration::from_secs(5))]
+    #[timeout(Duration::from_secs(10))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);

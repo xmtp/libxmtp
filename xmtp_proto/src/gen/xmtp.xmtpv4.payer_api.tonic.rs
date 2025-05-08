@@ -119,6 +119,34 @@ pub mod payer_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        ///
+        pub async fn get_reader_node(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetReaderNodeRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetReaderNodeResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.xmtpv4.payer_api.PayerApi/GetReaderNode",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.xmtpv4.payer_api.PayerApi", "GetReaderNode"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -136,6 +164,14 @@ pub mod payer_api_server {
             request: tonic::Request<super::PublishClientEnvelopesRequest>,
         ) -> std::result::Result<
             tonic::Response<super::PublishClientEnvelopesResponse>,
+            tonic::Status,
+        >;
+        ///
+        async fn get_reader_node(
+            &self,
+            request: tonic::Request<super::GetReaderNodeRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetReaderNodeResponse>,
             tonic::Status,
         >;
     }
@@ -248,6 +284,51 @@ pub mod payer_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = PublishClientEnvelopesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.xmtpv4.payer_api.PayerApi/GetReaderNode" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetReaderNodeSvc<T: PayerApi>(pub Arc<T>);
+                    impl<
+                        T: PayerApi,
+                    > tonic::server::UnaryService<super::GetReaderNodeRequest>
+                    for GetReaderNodeSvc<T> {
+                        type Response = super::GetReaderNodeResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetReaderNodeRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as PayerApi>::get_reader_node(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetReaderNodeSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

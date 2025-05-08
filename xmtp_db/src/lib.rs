@@ -14,6 +14,7 @@ pub use xmtp_openmls_provider::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+pub use diesel;
 use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;

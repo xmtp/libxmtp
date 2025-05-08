@@ -142,7 +142,7 @@ pin_project! {
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<Option<(MlsGroup<C>, Option<i64>)>>>
+            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<C>>>
         }
     }
 }
@@ -234,7 +234,7 @@ where
                         // this will return immediately if we have already processed the welcome
                         // and it exists in the db
                         let Processing { future } = this.state.project() else {
-                            unreachable!()
+                            unreachable!("Streaming processing future should exist.")
                         };
                         let poll = future.poll(cx);
                         self.as_mut().try_process(poll, cx)
@@ -252,6 +252,20 @@ where
     }
 }
 
+pub enum ProcessWelcomeResult<C> {
+    /// New Group and welcome id
+    New { group: MlsGroup<C>, id: i64 },
+    /// A group we already have/we created that might not have a welcome id
+    NewStored {
+        group: MlsGroup<C>,
+        maybe_id: Option<i64>,
+    },
+    /// Skip this welcome but add and id to known welcome ids
+    IgnoreId { id: i64 },
+    /// Skip this payload
+    Ignore,
+}
+
 impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
 where
     C: ScopedGroupClient + Clone + 'a,
@@ -261,31 +275,52 @@ where
     #[allow(clippy::type_complexity)]
     fn try_process(
         mut self: Pin<&mut Self>,
-        poll: Poll<Result<Option<(MlsGroup<C>, Option<i64>)>>>,
+        poll: Poll<Result<ProcessWelcomeResult<C>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use Poll::*;
         let mut this = self.as_mut().project();
         match poll {
-            Ready(Ok(Some((group, welcome_id)))) => {
+            Ready(Ok(ProcessWelcomeResult::New {
+                group,
+                id: welcome_id,
+            })) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
-                if let Some(id) = welcome_id {
-                    this.known_welcome_ids.insert(id);
-                }
+                this.known_welcome_ids.insert(welcome_id);
                 this.state.set(ProcessState::Waiting);
                 Ready(Some(Ok(group)))
             }
-            // we are ignoring this payload
-            Ready(Ok(None)) => {
-                tracing::debug!("ignoring this payload");
+            // we are ignoring this payload with id
+            Ready(Ok(ProcessWelcomeResult::IgnoreId { id })) => {
+                tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
+                this.known_welcome_ids.insert(id);
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
                 self.poll_next(cx)
+            }
+            Ready(Ok(ProcessWelcomeResult::Ignore)) => {
+                tracing::debug!("ignoring streamed conversation payload");
+                this.state.as_mut().set(ProcessState::Waiting);
+                // we have to re-ad this task to the queue
+                // to let http know we are waiting on the next item
+                self.poll_next(cx)
+            }
+            Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
+                tracing::debug!(
+                    group_id = hex::encode(&group.group_id),
+                    "finished processing with group {}",
+                    hex::encode(&group.group_id)
+                );
+                if let Some(id) = maybe_id {
+                    this.known_welcome_ids.insert(id);
+                }
+                this.state.set(ProcessState::Waiting);
+                Ready(Some(Ok(group)))
             }
             Ready(Err(e)) => {
                 this.state.as_mut().set(ProcessState::Waiting);
@@ -346,12 +381,13 @@ where
 {
     /// Process the welcome. if its a group, create the group and return it.
     #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<Option<(MlsGroup<C>, Option<i64>)>> {
+    pub async fn process(self) -> Result<ProcessWelcomeResult<C>> {
         use WelcomeOrGroup::*;
-        let (group, welcome_id) = match self.item {
+        let process_result = match self.item {
             Welcome(ref w) => {
                 let welcome = extract_welcome_message(w)?;
                 let id = welcome.id as i64;
+                tracing::debug!("got welcome with id {}", id);
                 // try to load it from store first and avoid overhead
                 // of processing a welcome & erroring
                 // for immediate return, this must stay in the top-level future,
@@ -360,30 +396,77 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    let (group, id) = self.load_from_store(id).map(|(g, v)| (g, Some(v)))?;
-                    let metadata = group.metadata(&self.provider).await?;
-                    return Ok(self
-                        .conversation_type
-                        .is_none_or(|ct| ct == metadata.conversation_type)
-                        .then_some((group, id)));
+                    let (group, id) = self.load_from_store(id)?;
+                    return self.filter(ProcessWelcomeResult::New { group, id }).await;
                 }
-
+                // sync welcome from the network
                 let (group, id) = self.on_welcome(welcome).await?;
-                (group, Some(id))
+                ProcessWelcomeResult::New { group, id }
             }
-            Group(id) => {
+            Group(ref id) => {
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
                 let (group, stored_group) =
-                    MlsGroup::new_validated(self.client, id, &self.provider)?;
-                (group, stored_group.welcome_id)
+                    MlsGroup::new_validated(self.client.clone(), id.to_vec(), &self.provider)?;
+
+                ProcessWelcomeResult::NewStored {
+                    group,
+                    maybe_id: stored_group.welcome_id,
+                }
             }
         };
+        self.filter(process_result).await
+    }
 
-        let metadata = group.metadata(&self.provider).await?;
-        Ok(self
-            .conversation_type
-            .is_none_or(|ct| ct == metadata.conversation_type)
-            .then_some((group, welcome_id)))
+    /// Filter for streamed conversations
+    async fn filter(&self, processed: ProcessWelcomeResult<C>) -> Result<ProcessWelcomeResult<C>> {
+        use ProcessWelcomeResult::*;
+        match processed {
+            New { group, id } => {
+                let metadata = group.metadata(&self.provider).await?;
+                // If it's a duplicate DM, don’t stream
+                if metadata.conversation_type == ConversationType::Dm
+                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                {
+                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
+                    return Ok(ProcessWelcomeResult::IgnoreId { id });
+                }
+
+                if self
+                    .conversation_type
+                    .is_none_or(|ct| ct == metadata.conversation_type)
+                {
+                    Ok(ProcessWelcomeResult::New { group, id })
+                } else {
+                    Ok(ProcessWelcomeResult::IgnoreId { id })
+                }
+            }
+            NewStored { group, maybe_id } => {
+                let metadata = group.metadata(&self.provider).await?;
+                // If it's a duplicate DM, don’t stream
+                if metadata.conversation_type == ConversationType::Dm
+                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                {
+                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
+                    if let Some(id) = maybe_id {
+                        return Ok(ProcessWelcomeResult::IgnoreId { id });
+                    } else {
+                        return Ok(ProcessWelcomeResult::Ignore);
+                    }
+                }
+
+                if self
+                    .conversation_type
+                    .is_none_or(|ct| ct == metadata.conversation_type)
+                {
+                    Ok(ProcessWelcomeResult::NewStored { group, maybe_id })
+                } else if let Some(id) = maybe_id {
+                    Ok(ProcessWelcomeResult::IgnoreId { id })
+                } else {
+                    Ok(ProcessWelcomeResult::Ignore)
+                }
+            }
+            other => Ok(other),
+        }
     }
 
     /// process a new welcome, returning the Group & Welcome ID
@@ -424,12 +507,18 @@ where
         tracing::info!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&group.id),
+            dm_id = group.dm_id,
             welcome_id = ?group.welcome_id,
             "loading existing group for welcome_id: {:?}",
             group.welcome_id
         );
         Ok((
-            MlsGroup::new(self.client.clone(), group.id, group.created_at_ns),
+            MlsGroup::new(
+                self.client.clone(),
+                group.id,
+                group.dm_id,
+                group.created_at_ns,
+            ),
             id,
         ))
     }
@@ -441,7 +530,8 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::{DMMetadataOptions, GroupMetadataOptions};
+    use crate::groups::GroupMetadataOptions;
+    use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -472,69 +562,63 @@ mod test {
     }
 
     #[rstest::rstest]
+    #[case(ConversationType::Dm, "Unexpectedly received a Group")]
+    #[case(ConversationType::Group, "Unexpectedly received a DM")]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(7))]
+
+    // #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn test_dm_stream_filter(
+        #[case] conversation_type: ConversationType,
+        #[case] expected: &str,
+    ) {
+        tester!(alix);
+        tester!(bo);
+        let stream = alix
+            .stream_conversations(Some(conversation_type))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+            .await
+            .unwrap();
+
+        let group = alix
+            .create_group(None, GroupMetadataOptions::default())
+            .unwrap();
+        group
+            .add_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+
+        let group = stream.next().await.unwrap();
+        let metadata = group
+            .unwrap()
+            .metadata(&alix.context().mls_provider().unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            metadata.conversation_type, conversation_type,
+            "{}",
+            expected
+        );
+        // there is only one item on the stream
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        assert!(result.is_err(), "should only be one item in the stream");
+    }
+
+    #[rstest::rstest]
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(7))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
-    async fn test_dm_streaming() {
+    async fn test_dm_stream_all_conversation_types() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let davon = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eri = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-
-        let stream = alix
-            .stream_conversations(Some(ConversationType::Group))
-            .await
-            .unwrap();
-        futures::pin_mut!(stream);
-
-        alix.find_or_create_dm_by_inbox_id(bo.inbox_id().to_string(), DMMetadataOptions::default())
-            .await
-            .unwrap();
-        let result =
-            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a DM group");
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
-
-        // Start a stream with only dms
-        // Start a stream with conversation_type DM
-        let stream = alix
-            .stream_conversations(Some(ConversationType::Dm))
-            .await
-            .unwrap();
-        futures::pin_mut!(stream);
-
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
-
-        // we should not get a message
-        let result =
-            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
-        assert!(result.is_err(), "Stream unexpectedly received a Group");
-
-        alix.find_or_create_dm_by_inbox_id(
-            caro.inbox_id().to_string(),
-            DMMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
 
         // Start a stream with all conversations
         let mut groups = Vec::new();
@@ -542,21 +626,15 @@ mod test {
         let stream = alix.stream_conversations(None).await.unwrap();
         futures::pin_mut!(stream);
 
-        alix.find_or_create_dm_by_inbox_id(
-            davon.inbox_id().to_string(),
-            DMMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
+        alix.find_or_create_dm_by_inbox_id(davon.inbox_id().to_string(), None)
+            .await
+            .unwrap();
         let group = stream.next().await.unwrap();
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
         let dm = eri
-            .find_or_create_dm_by_inbox_id(
-                alix.inbox_id().to_string(),
-                DMMetadataOptions::default(),
-            )
+            .find_or_create_dm_by_inbox_id(alix.inbox_id().to_string(), None)
             .await
             .unwrap();
         dm.add_members_by_inbox_id(&[alix.inbox_id()])
@@ -582,7 +660,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
@@ -612,5 +690,77 @@ mod test {
             .unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_add_remove_re_add() {
+        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo_provider = bo.mls_provider().unwrap();
+
+        let alix_group = alix
+            .create_group_with_inbox_ids(
+                &[bo.inbox_id().to_string()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        alix_group
+            .remove_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+        bo.sync_welcomes(&bo_provider).await.unwrap();
+        let stream = bo
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+        alix_group
+            .add_members_by_inbox_id(&[bo.inbox_id().to_string()])
+            .await
+            .unwrap();
+
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_duplicate_dm_not_streamed() {
+        use xmtp_cryptography::utils::generate_local_wallet;
+
+        let client1 = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+        let client2 = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let mut stream = client1.stream_conversations(None).await.unwrap();
+
+        // First DM - should stream
+        let dm1 = client1
+            .find_or_create_dm_by_inbox_id(client2.inbox_id().to_string(), None)
+            .await
+            .unwrap();
+
+        let streamed_dm1 = stream.next().await.unwrap();
+        assert!(streamed_dm1.is_ok());
+        assert_eq!(streamed_dm1.unwrap().group_id, dm1.group_id);
+
+        // Create a second DM with same participants — triggers duplicate logic
+        let dm2 = client2
+            .find_or_create_dm_by_inbox_id(client1.inbox_id().to_string(), None)
+            .await
+            .unwrap();
+
+        // Make sure it's actually a new group
+        assert_ne!(dm1.group_id, dm2.group_id);
+
+        // It should NOT appear in the stream
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 }

@@ -13,13 +13,12 @@ use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
-use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate as XmtpUserPreferenceUpdate;
-use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
-};
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
+use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
@@ -62,6 +61,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -70,6 +70,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -80,6 +81,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
@@ -107,6 +109,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: None,
       include_sync_groups: false,
+      activity_after_ns: None,
     }
   }
 }
@@ -187,14 +190,12 @@ pub enum UserPreferenceUpdate {
 impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::HmacKeyUpdate { key } => {
+      XmtpUserPreferenceUpdate::Hmac { key, .. } => {
         Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
       }
-      XmtpUserPreferenceUpdate::ConsentUpdate(consent) => {
-        Tag::V(UserPreferenceUpdate::ConsentUpdate {
-          consent: Consent::from(consent),
-        })
-      }
+      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
+        consent: Consent::from(consent),
+      }),
     }
   }
 }
@@ -270,9 +271,8 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn create_group(
+  pub fn create_group_optimistic(
     &self,
-    account_identities: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -317,29 +317,32 @@ impl Conversations {
       _ => None,
     };
 
-    let convo = if account_identities.is_empty() {
-      let group = self
-        .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
+    let group = self
+      .inner_client
+      .create_group(group_permissions, metadata_options)
+      .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
+
+    Ok(group.into())
+  }
+
+  #[napi]
+  pub async fn create_group(
+    &self,
+    account_identities: Vec<Identifier>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation> {
+    let convo = self.create_group_optimistic(options)?;
+
+    if !account_identities.is_empty() {
+      convo.add_members(account_identities).await?;
+    } else {
+      convo
         .sync()
         .await
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
-    } else {
-      self
-        .inner_client
-        .create_group_with_members(
-          &account_identities.to_internal()?,
-          group_permissions,
-          metadata_options,
-        )
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
     };
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[napi]
@@ -348,67 +351,18 @@ impl Conversations {
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation> {
-    let options = options.unwrap_or(CreateGroupOptions {
-      permissions: None,
-      group_name: None,
-      group_image_url_square: None,
-      group_description: None,
-      custom_permission_policy_set: None,
-      message_disappearing_settings: None,
-    });
+    let convo = self.create_group_optimistic(options)?;
 
-    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
-      if options.custom_permission_policy_set.is_none() {
-        return Err(Error::from_reason("CustomPolicy must include policy set"));
-      }
-    } else if options.custom_permission_policy_set.is_some() {
-      return Err(Error::from_reason(
-        "Only CustomPolicy may specify a policy set",
-      ));
-    }
-
-    let metadata_options = options.clone().into_group_metadata_options();
-
-    let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::Default) => {
-        Some(PreconfiguredPolicies::Default.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::AdminOnly) => {
-        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::CustomPolicy) => {
-        if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| Error::from_reason(format!("{}", e).as_str()))?,
-          )
-        } else {
-          None
-        }
-      }
-      _ => None,
-    };
-
-    let convo = if inbox_ids.is_empty() {
-      let group = self
-        .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
+    if !inbox_ids.is_empty() {
+      convo.add_members_by_inbox_id(inbox_ids).await?;
+    } else {
+      convo
         .sync()
         .await
         .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
-      group
-    } else {
-      self
-        .inner_client
-        .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
-        .await
-        .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?
-    };
+    }
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[napi(js_name = "createDm")]
@@ -421,7 +375,7 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(
         account_identity.try_into()?,
-        options.unwrap_or_default().into_dm_metadata_options(),
+        options.map(|opt| opt.into_dm_metadata_options()),
       )
       .await
       .map_err(ErrorWrapper::from)?;
@@ -437,10 +391,7 @@ impl Conversations {
   ) -> Result<Conversation> {
     let convo = self
       .inner_client
-      .find_or_create_dm_by_inbox_id(
-        inbox_id,
-        options.unwrap_or_default().into_dm_metadata_options(),
-      )
+      .find_or_create_dm_by_inbox_id(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -535,6 +486,24 @@ impl Conversations {
   }
 
   #[napi]
+  pub async fn sync_device_sync(&self) -> Result<()> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(ErrorWrapper::from)?;
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .await
+      .map_err(ErrorWrapper::from)?
+      .sync()
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
@@ -559,10 +528,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -583,9 +552,10 @@ impl Conversations {
   ) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(ErrorWrapper::from)?
       .into_iter()
       .map(|conversation_item| ConversationListItem {
@@ -733,7 +703,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_group_messages(
     &self,
@@ -744,7 +714,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined, consentStates: ConsentState[] | undefined) => void"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_dm_messages(
     &self,

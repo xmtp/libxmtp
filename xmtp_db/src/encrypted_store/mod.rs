@@ -12,7 +12,7 @@
 
 pub mod association_state;
 pub mod consent_record;
-mod conversation_list;
+pub mod conversation_list;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -22,6 +22,7 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod processed_device_sync_messages;
 pub mod refresh_state;
 pub mod schema;
 mod schema_gen;
@@ -205,32 +206,37 @@ macro_rules! impl_fetch_list {
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
         impl $crate::Store<$crate::encrypted_store::db_connection::DbConnection> for $model {
+            type Output = ();
+
             fn store(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_into($table::table)
                         .values(self)
                         .execute(conn)
-                })?;
-                Ok(())
+                        .map_err(Into::into)
+                        .map(|_| ())
+                })
             }
         }
     };
 }
 
-// Inserts the model into the database by primary key, silently skipping on unique constraints
 #[macro_export]
 macro_rules! impl_store_or_ignore {
+    // Original variant without return type parameter (defaults to returning ())
     ($model:ty, $table:ident) => {
         impl $crate::StoreOrIgnore<$crate::encrypted_store::db_connection::DbConnection>
             for $model
         {
+            type Output = ();
+
             fn store_or_ignore(
                 &self,
                 into: &$crate::encrypted_store::db_connection::DbConnection,
-            ) -> Result<(), $crate::StorageError> {
+            ) -> Result<Self::Output, $crate::StorageError> {
                 into.raw_query_write(|conn| {
                     diesel::insert_or_ignore_into($table::table)
                         .values(self)
@@ -247,7 +253,8 @@ impl<T> Store<DbConnection> for Vec<T>
 where
     T: Store<DbConnection>,
 {
-    fn store(&self, into: &DbConnection) -> Result<(), StorageError> {
+    type Output = ();
+    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }

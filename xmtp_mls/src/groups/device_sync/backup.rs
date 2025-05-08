@@ -1,30 +1,19 @@
-use super::DeviceSyncError;
-use backup_exporter::BackupExporter;
-use std::{path::Path, sync::Arc};
+pub use importer::BackupImporter;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave};
-
-pub use backup_importer::BackupImporter;
+use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
 
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
-mod backup_exporter;
-mod backup_importer;
 mod export_stream;
+pub mod exporter;
+pub mod importer;
 
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error("Missing metadata")]
     MissingMetadata,
-}
-
-pub struct BackupOptions {
-    pub start_ns: Option<i64>,
-    pub end_ns: Option<i64>,
-    pub elements: Vec<BackupElementSelection>,
 }
 
 #[derive(Default)]
@@ -48,44 +37,35 @@ impl BackupMetadata {
     }
 }
 
-impl From<BackupOptions> for BackupMetadataSave {
-    fn from(value: BackupOptions) -> Self {
+pub(crate) trait OptionsToSave {
+    fn from_options(options: BackupOptions) -> BackupMetadataSave;
+}
+impl OptionsToSave for BackupMetadataSave {
+    fn from_options(options: BackupOptions) -> BackupMetadataSave {
         Self {
-            end_ns: value.end_ns,
-            start_ns: value.start_ns,
-            elements: value.elements.iter().map(|&e| e as i32).collect(),
+            end_ns: options.end_ns,
+            start_ns: options.start_ns,
+            elements: options.elements,
             exported_at_ns: now_ns(),
         }
-    }
-}
-
-impl BackupOptions {
-    pub async fn export_to_file(
-        self,
-        provider: XmtpOpenMlsProvider,
-        path: impl AsRef<Path>,
-        key: &[u8],
-    ) -> Result<(), DeviceSyncError> {
-        let provider = Arc::new(provider);
-        let mut exporter = BackupExporter::new(self, &provider, key);
-        exporter.write_to_file(path).await?;
-
-        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::Tester;
     use crate::{
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
-    use backup_exporter::BackupExporter;
-    use backup_importer::BackupImporter;
-    use diesel::RunQueryDsl;
+    use diesel::prelude::*;
+    use exporter::BackupExporter;
     use futures::io::Cursor;
+    use importer::BackupImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::group_message::MsgQueryArgs;
+
     use xmtp_db::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
@@ -98,12 +78,8 @@ mod tests {
         use futures::io::BufReader;
         use futures_util::AsyncReadExt;
 
-        let alix_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let alix_provider = Arc::new(alix.mls_provider().unwrap());
-
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
 
         let alix_group = alix
             .create_group(None, GroupMetadataOptions::default())
@@ -118,8 +94,8 @@ mod tests {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Consent,
+                BackupElementSelection::Messages as i32,
+                BackupElementSelection::Consent as i32,
             ],
         };
 
@@ -127,7 +103,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
+            let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -146,7 +122,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = BackupImporter::load(reader, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        importer.run(&alix2).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -156,115 +132,112 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = "true")]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
-        use crate::utils::HISTORY_SYNC_URL;
+        use crate::tester;
+        use diesel::QueryDsl;
+        use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        let alix_wallet = generate_local_wallet();
-        let alix =
-            ClientBuilder::new_test_client_with_history(&alix_wallet, HISTORY_SYNC_URL).await;
-        let alix_conn = alix.store().conn().unwrap();
-        let alix_provider = Arc::new(alix.mls_provider().unwrap());
+        tester!(alix, sync_worker, sync_server);
+        tester!(bo);
 
-        let bo_wallet = generate_local_wallet();
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
 
         // wait for user preference update
-        wait_for_min_intents(&alix_conn, 1).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 2).await?;
 
-        alix_group
-            .add_members_by_inbox_id(&[bo.inbox_id()])
-            .await
-            .unwrap();
+        alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+        alix_group.update_group_name("My group".to_string()).await?;
+
+        bo.sync_welcomes(&bo.provider).await?;
+        let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
-        wait_for_min_intents(&alix_conn, 2).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 1).await?;
 
-        alix_group.send_message(b"hello there").await.unwrap();
+        alix_group.send_message(b"hello there").await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(&alix_conn, 7).await;
+        wait_for_min_intents(alix.provider.conn_ref(), 4).await?;
 
-        let mut consent_records: Vec<StoredConsentRecord> = alix_provider
+        let mut consent_records: Vec<StoredConsentRecord> = alix
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
-            .unwrap();
+            .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
-        let old_consent_record = consent_records.pop().unwrap();
+        let old_consent_record = consent_records.pop()?;
 
-        let mut groups: Vec<StoredGroup> = alix_provider
+        let mut groups: Vec<StoredGroup> = alix
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
-            .unwrap();
+            .raw_query_read(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
-        let old_group = groups.pop().unwrap();
+        let old_group = groups.pop()?;
 
-        let old_messages: Vec<StoredGroupMessage> = alix_provider
+        let old_messages: Vec<StoredGroupMessage> = alix
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
-            .unwrap();
+            .raw_query_read(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 6);
 
         let opts = BackupOptions {
             start_ns: None,
             end_ns: None,
             elements: vec![
-                BackupElementSelection::Messages,
-                BackupElementSelection::Consent,
+                BackupElementSelection::Messages.into(),
+                BackupElementSelection::Consent.into(),
             ],
         };
 
-        let key = vec![7; 32];
-        let mut exporter = BackupExporter::new(opts, &alix_provider, &key);
+        let key = xmtp_common::rand_vec::<32>();
+        let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
         let path = Path::new("archive.xmtp");
-        let _ = std::fs::remove_file(path);
-        exporter.write_to_file(path).await.unwrap();
+        let _ = tokio::fs::remove_file(path).await;
+        exporter.write_to_file(path).await?;
 
-        let alix2_wallet = generate_local_wallet();
-        let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
-        let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
+        let alix2 = Tester::new().await;
+        alix2.wait_for_sync_worker_init().await;
 
         // No consent before
-        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+        let consent_records: Vec<StoredConsentRecord> = alix2
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
-            .unwrap();
+            .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
-        let mut importer = BackupImporter::from_file(path, &key).await.unwrap();
-        importer.insert(&alix2_provider).await.unwrap();
+        let mut importer = BackupImporter::from_file(path, &key).await?;
+        importer.run(&*alix2).await?;
 
         // Consent is there after the import
-        let consent_records: Vec<StoredConsentRecord> = alix2_provider
+        let consent_records: Vec<StoredConsentRecord> = alix2
+            .provider
             .conn_ref()
-            .raw_query_read(|conn| consent_records::table.load(conn))
-            .unwrap();
+            .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2_provider
-            .conn_ref()
-            .raw_query_read(|conn| groups::table.load(conn))
-            .unwrap();
-        assert_eq!(groups.len(), 2);
+        let groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
+            groups::table
+                .filter(groups::conversation_type.ne(ConversationType::Sync))
+                .load(conn)
+        })?;
+        assert_eq!(groups.len(), 1);
         // It's the same group
-        assert_eq!(groups[1].id, old_group.id);
+        assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> = alix2_provider
-            .conn_ref()
-            .raw_query_read(|conn| group_messages::table.load(conn))
-            .unwrap();
+        let messages: Vec<StoredGroupMessage> =
+            alix2.provider.conn_ref().raw_query_read(|conn| {
+                group_messages::table
+                    .filter(group_messages::group_id.eq(&groups[0].id))
+                    .load(conn)
+            })?;
         // Only the application messages should sync
         assert_eq!(messages.len(), 1);
         for msg in messages {
-            let old_msg = old_messages.iter().find(|m| msg.id == m.id).unwrap();
+            let old_msg = old_messages.iter().find(|m| msg.id == m.id)?;
             assert_eq!(old_msg.authority_id, msg.authority_id);
             assert_eq!(old_msg.decrypted_message_bytes, msg.decrypted_message_bytes);
             assert_eq!(old_msg.sent_at_ns, msg.sent_at_ns);
@@ -272,6 +245,39 @@ mod tests {
             assert_eq!(old_msg.sender_inbox_id, msg.sender_inbox_id);
             assert_eq!(old_msg.group_id, msg.group_id);
         }
+
+        let alix2_group = alix2.group(&old_group.id)?;
+        // Loading all the groups works fine
+        let _groups = alix2.find_groups(GroupQueryArgs::default())?;
+        // Can fetch the group name no problem
+        alix2_group.group_name(&alix2.provider)?;
+        assert!(!alix2_group.is_active(&alix2.provider)?);
+
+        // Add the new inbox to the groups
+        alix_group
+            .add_members_by_inbox_id(&[alix2.inbox_id()])
+            .await?;
+        alix2.sync_welcomes(&alix2.provider).await?;
+
+        // The group restores to being fully functional
+        let alix2_group = alix2.group(&old_group.id)?;
+        assert!(alix2_group.is_active(&alix2.provider)?);
+
+        // The old messages should be stitched in
+        let msgs = alix2_group.find_messages(&MsgQueryArgs::default())?;
+        let old_msg_exists = msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == b"hello there");
+        assert!(old_msg_exists);
+
+        // Bo should see the new message from alix2
+        alix2_group.send_message(b"this should send").await?;
+        bo_group.sync().await?;
+        let msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
+        let new_msg_exists = msgs
+            .iter()
+            .any(|msg| msg.decrypted_message_bytes == b"this should send");
+        assert!(new_msg_exists);
 
         // cleanup
         let _ = tokio::fs::remove_file(path).await;

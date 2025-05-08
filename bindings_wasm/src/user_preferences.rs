@@ -2,7 +2,7 @@ use crate::consent_state::Consent;
 use serde::{Deserialize, Serialize};
 use tsify_next::Tsify;
 use wasm_bindgen::prelude::wasm_bindgen;
-use xmtp_mls::groups::device_sync::preference_sync::UserPreferenceUpdate;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
 
 #[derive(Tsify, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -18,13 +18,13 @@ pub enum UserPreference {
   },
 }
 
-impl From<UserPreferenceUpdate> for UserPreference {
-  fn from(v: UserPreferenceUpdate) -> UserPreference {
+impl From<PreferenceUpdate> for UserPreference {
+  fn from(v: PreferenceUpdate) -> UserPreference {
     match v {
-      UserPreferenceUpdate::ConsentUpdate(c) => UserPreference::Consent {
+      PreferenceUpdate::Consent(c) => UserPreference::Consent {
         consent: Consent::from(c),
       },
-      UserPreferenceUpdate::HmacKeyUpdate { key } => UserPreference::HmacKeyUpdate { key },
+      PreferenceUpdate::Hmac { key, .. } => UserPreference::HmacKeyUpdate { key },
     }
   }
 }
