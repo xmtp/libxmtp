@@ -5,4 +5,4 @@
 file = "src/encrypted_store/schema_gen.rs"
 
 [migrations_directory]
-dir = "migrations"
+dir = "../xmtp_db/migrations"

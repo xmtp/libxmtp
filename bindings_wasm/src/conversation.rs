@@ -1,5 +1,5 @@
 use crate::client::RustXmtpClient;
-use crate::conversations::{HmacKey, MessageDisappearingSettings};
+use crate::conversations::{ConversationDebugInfo, HmacKey, MessageDisappearingSettings};
 use crate::encoded_content::EncodedContent;
 use crate::identity::{Identifier, IdentityExt};
 use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
@@ -9,7 +9,7 @@ use crate::{consent_state::ConsentState, permissions::GroupPermissions};
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
-use xmtp_db::group::ConversationType;
+use xmtp_db::group::{ConversationType, DmIdExt};
 use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_mls::groups::{
   group_metadata::GroupMetadata as XmtpGroupMetadata,
@@ -96,14 +96,21 @@ impl GroupMember {
 pub struct Conversation {
   inner_client: Arc<RustXmtpClient>,
   group_id: Vec<u8>,
+  dm_id: Option<String>,
   created_at_ns: i64,
 }
 
 impl Conversation {
-  pub fn new(inner_client: Arc<RustXmtpClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+  pub fn new(
+    inner_client: Arc<RustXmtpClient>,
+    group_id: Vec<u8>,
+    dm_id: Option<String>,
+    created_at_ns: i64,
+  ) -> Self {
     Self {
       inner_client,
       group_id,
+      dm_id,
       created_at_ns,
     }
   }
@@ -112,6 +119,7 @@ impl Conversation {
     MlsGroup::new(
       self.inner_client.clone(),
       self.group_id.clone(),
+      self.dm_id.clone(),
       self.created_at_ns,
     )
   }
@@ -122,6 +130,7 @@ impl From<MlsGroup<RustXmtpClient>> for Conversation {
     Conversation {
       inner_client: mls_group.client,
       group_id: mls_group.group_id,
+      dm_id: mls_group.dm_id,
       created_at_ns: mls_group.created_at_ns,
     }
   }
@@ -590,11 +599,16 @@ impl Conversation {
 
   #[wasm_bindgen(js_name = dmPeerInboxId)]
   pub fn dm_peer_inbox_id(&self) -> Result<String, JsError> {
-    let group = self.to_mls_group();
+    let inbox_id = self.inner_client.inbox_id();
 
-    group
-      .dm_inbox_id()
-      .map_err(|e| JsError::new(&format!("{e}")))
+    Ok(
+      self
+        .to_mls_group()
+        .dm_id
+        .as_ref()
+        .ok_or(JsError::new("Not a DM conversation or missing DM ID"))?
+        .other_inbox_id(inbox_id),
+    )
   }
 
   #[wasm_bindgen(js_name = updatePermissionPolicy)]
@@ -676,6 +690,31 @@ impl Conversation {
       .collect::<Vec<HmacKey>>();
 
     Ok(crate::to_value(&keys)?)
+  }
+
+  #[wasm_bindgen(js_name = getDebugInfo)]
+  pub async fn get_debug_info(&self) -> Result<JsValue, JsError> {
+    let group = self.to_mls_group();
+    let debug_info = group
+      .debug_info()
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(crate::to_value(&ConversationDebugInfo::new(debug_info))?)
+  }
+
+  #[wasm_bindgen(js_name = findDuplicateDms)]
+  pub async fn find_duplicate_dms(&self) -> Result<Vec<Conversation>, JsError> {
+    // Await the async function first, then handle the error
+    let dms = self
+      .inner_client
+      .clone()
+      .find_duplicate_dms_for_group(&self.group_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
+
+    Ok(conversations)
   }
 }
 

@@ -55,7 +55,7 @@ pub struct ClientBuilder<ApiClient, V> {
     device_sync_worker_mode: SyncWorkerMode,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
 pub enum SyncWorkerMode {
     Disabled,
     Enabled,
@@ -77,7 +77,6 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store: None,
             identity_strategy: strategy,
             scw_verifier: None,
-
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
         }
@@ -145,7 +144,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
             store,
             scw_verifier,
             device_sync_server_url.clone(),
-            device_sync_worker_mode.clone(),
+            device_sync_worker_mode,
         );
 
         // start workers
@@ -155,14 +154,18 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         Ok(client)
     }
 
-    pub fn identity(mut self, identity: Identity) -> Self {
-        self.identity = Some(identity);
-        self
+    pub fn identity(self, identity: Identity) -> Self {
+        Self {
+            identity: Some(identity),
+            ..self
+        }
     }
 
-    pub fn store(mut self, store: EncryptedMessageStore) -> Self {
-        self.store = Some(store);
-        self
+    pub fn store(self, store: EncryptedMessageStore) -> Self {
+        Self {
+            store: Some(store),
+            ..self
+        }
     }
 
     pub fn device_sync_server_url(self, url: &str) -> Self {

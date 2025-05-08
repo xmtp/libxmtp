@@ -1,5 +1,5 @@
 use crate::consent_state::{Consent, ConsentState};
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::streams::{StreamCallback, StreamCloser};
@@ -14,9 +14,11 @@ use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
 use xmtp_mls::groups::{
-  DMMetadataOptions, GroupMetadataOptions, HmacKey as XmtpHmacKey, PreconfiguredPolicies,
+  ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
+  PreconfiguredPolicies,
 };
 
 #[wasm_bindgen]
@@ -53,6 +55,7 @@ pub enum GroupMembershipState {
   Allowed = 0,
   Rejected = 1,
   Pending = 2,
+  Restored = 3,
 }
 
 impl From<XmtpGroupMembershipState> for GroupMembershipState {
@@ -61,6 +64,7 @@ impl From<XmtpGroupMembershipState> for GroupMembershipState {
       XmtpGroupMembershipState::Allowed => GroupMembershipState::Allowed,
       XmtpGroupMembershipState::Rejected => GroupMembershipState::Rejected,
       XmtpGroupMembershipState::Pending => GroupMembershipState::Pending,
+      XmtpGroupMembershipState::Restored => GroupMembershipState::Restored,
     }
   }
 }
@@ -71,6 +75,7 @@ impl From<GroupMembershipState> for XmtpGroupMembershipState {
       GroupMembershipState::Allowed => XmtpGroupMembershipState::Allowed,
       GroupMembershipState::Rejected => XmtpGroupMembershipState::Rejected,
       GroupMembershipState::Pending => XmtpGroupMembershipState::Pending,
+      GroupMembershipState::Restored => XmtpGroupMembershipState::Restored,
     }
   }
 }
@@ -102,6 +107,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       allowed_states: None,
       conversation_type: None,
       include_sync_groups: false,
+      activity_after_ns: None,
     }
   }
 }
@@ -158,6 +164,27 @@ impl MessageDisappearingSettings {
   #[wasm_bindgen(constructor)]
   pub fn new(from_ns: i64, in_ns: i64) -> Self {
     Self { from_ns, in_ns }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, serde::Serialize)]
+pub struct ConversationDebugInfo {
+  #[wasm_bindgen(js_name = epoch)]
+  pub epoch: u64,
+  #[wasm_bindgen(js_name = maybeForked)]
+  pub maybe_forked: bool,
+  #[wasm_bindgen(js_name = forkDetails)]
+  pub fork_details: String,
+}
+
+impl ConversationDebugInfo {
+  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
+    Self {
+      epoch: xmtp_debug_info.epoch,
+      maybe_forked: xmtp_debug_info.maybe_forked,
+      fork_details: xmtp_debug_info.fork_details,
+    }
   }
 }
 
@@ -288,10 +315,9 @@ impl Conversations {
 
 #[wasm_bindgen]
 impl Conversations {
-  #[wasm_bindgen(js_name = createGroup)]
-  pub async fn create_group(
+  #[wasm_bindgen(js_name = createGroupOptimistic)]
+  pub fn create_group_optimistic(
     &self,
-    account_identifiers: Vec<Identifier>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
     let options = options.unwrap_or(CreateGroupOptions {
@@ -334,29 +360,29 @@ impl Conversations {
       _ => None,
     };
 
-    let convo = if account_identifiers.is_empty() {
-      let group = self
-        .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-      group
-        .sync()
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-      group
+    let group = self
+      .inner_client
+      .create_group(group_permissions, metadata_options)
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(group.into())
+  }
+
+  #[wasm_bindgen(js_name = createGroup)]
+  pub async fn create_group(
+    &self,
+    account_identifiers: Vec<Identifier>,
+    options: Option<CreateGroupOptions>,
+  ) -> Result<Conversation, JsError> {
+    let convo = self.create_group_optimistic(options)?;
+
+    if !account_identifiers.is_empty() {
+      convo.add_members(account_identifiers).await?;
     } else {
-      self
-        .inner_client
-        .create_group_with_members(
-          &account_identifiers.to_internal()?,
-          group_permissions,
-          metadata_options,
-        )
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      convo.sync().await?;
     };
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[wasm_bindgen(js_name = createGroupByInboxIds)]
@@ -365,65 +391,15 @@ impl Conversations {
     inbox_ids: Vec<String>,
     options: Option<CreateGroupOptions>,
   ) -> Result<Conversation, JsError> {
-    let options = options.unwrap_or(CreateGroupOptions {
-      permissions: None,
-      group_name: None,
-      group_image_url_square: None,
-      group_description: None,
-      custom_permission_policy_set: None,
-      message_disappearing_settings: None,
-    });
+    let convo = self.create_group_optimistic(options)?;
 
-    if let Some(GroupPermissionsOptions::CustomPolicy) = options.permissions {
-      if options.custom_permission_policy_set.is_none() {
-        return Err(JsError::new("CustomPolicy must include policy set"));
-      }
-    } else if options.custom_permission_policy_set.is_some() {
-      return Err(JsError::new("Only CustomPolicy may specify a policy set"));
-    }
-
-    let metadata_options = options.clone().into_group_metadata_options();
-
-    let group_permissions = match options.permissions {
-      Some(GroupPermissionsOptions::Default) => {
-        Some(PreconfiguredPolicies::Default.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::AdminOnly) => {
-        Some(PreconfiguredPolicies::AdminsOnly.to_policy_set())
-      }
-      Some(GroupPermissionsOptions::CustomPolicy) => {
-        if let Some(policy_set) = options.custom_permission_policy_set {
-          Some(
-            policy_set
-              .try_into()
-              .map_err(|e| JsError::new(format!("{}", e).as_str()))?,
-          )
-        } else {
-          None
-        }
-      }
-      _ => None,
-    };
-
-    let convo = if inbox_ids.is_empty() {
-      let group = self
-        .inner_client
-        .create_group(group_permissions, metadata_options)
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-      group
-        .sync()
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-      group
+    if !inbox_ids.is_empty() {
+      convo.add_members_by_inbox_id(inbox_ids).await?;
     } else {
-      self
-        .inner_client
-        .create_group_with_inbox_ids(&inbox_ids, group_permissions, metadata_options)
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      convo.sync().await?;
     };
 
-    Ok(convo.into())
+    Ok(convo)
   }
 
   #[wasm_bindgen(js_name = createDm)]
@@ -436,7 +412,7 @@ impl Conversations {
       .inner_client
       .find_or_create_dm(
         account_identifier.try_into()?,
-        options.unwrap_or_default().into_dm_metadata_options(),
+        options.map(|opt| opt.into_dm_metadata_options()),
       )
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -452,10 +428,7 @@ impl Conversations {
   ) -> Result<Conversation, JsError> {
     let convo = self
       .inner_client
-      .find_or_create_dm_by_inbox_id(
-        inbox_id,
-        options.unwrap_or_default().into_dm_metadata_options(),
-      )
+      .find_or_create_dm_by_inbox_id(inbox_id, options.map(|opt| opt.into_dm_metadata_options()))
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -536,6 +509,25 @@ impl Conversations {
     Ok(num_groups_synced)
   }
 
+  #[wasm_bindgen(js_name = syncDeviceSync)]
+  pub async fn sync_device_sync(&self) -> Result<(), JsError> {
+    let provider = self
+      .inner_client
+      .mls_provider()
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    self
+      .inner_client
+      .get_sync_group(&provider)
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+      .sync()
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
   #[wasm_bindgen]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
@@ -561,10 +553,10 @@ impl Conversations {
   ) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default())
-          .conversation_type(XmtpConversationType::Group),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Group),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
@@ -582,9 +574,10 @@ impl Conversations {
   pub fn list_dms(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self
       .inner_client
-      .list_conversations(
-        GroupQueryArgs::from(opts.unwrap_or_default()).conversation_type(XmtpConversationType::Dm),
-      )
+      .list_conversations(GroupQueryArgs {
+        conversation_type: Some(XmtpConversationType::Dm),
+        ..GroupQueryArgs::from(opts.unwrap_or_default())
+      })
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .into_iter()
       .map(|group| {
@@ -656,10 +649,15 @@ impl Conversations {
     &self,
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
+    consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser, JsError> {
+    let consents: Option<Vec<XmtpConsentState>> =
+      consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
+      consents,
       move |message| match message {
         Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),

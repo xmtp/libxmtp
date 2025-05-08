@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use super::D14nClient;
 use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::traits::Envelope;
-use crate::protocol::traits::Extractor;
+use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use xmtp_common::RetryableError;
@@ -16,6 +15,7 @@ use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
 use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
@@ -41,9 +41,9 @@ where
             r#type: std::any::type_name::<identity_v1::PublishIdentityUpdateRequest>(),
         })?;
 
-        let envelopes = update.client_envelopes()?;
+        let envelopes = update.client_envelope()?;
         PublishClientEnvelopes::builder()
-            .envelopes(envelopes)
+            .envelope(envelopes)
             .build()?
             .query(&self.payer_client)
             .await?;
@@ -61,12 +61,17 @@ where
         }
 
         let topics = request.requests.topics()?;
-
+        //todo: replace with returned node_id
+        let node_id = 100;
+        let last_seen = Some(Cursor {
+            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
+                .into(),
+        });
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {
                 topics: topics.clone(),
                 originator_node_ids: vec![],
-                last_seen: None, //todo: set later
+                last_seen,
             })
             .build()?
             .query(&self.message_client)

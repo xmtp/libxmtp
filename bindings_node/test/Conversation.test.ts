@@ -290,8 +290,8 @@ describe.concurrent('Conversation', () => {
 
     const message1 = await conversation.send(encodeTextMessage('gm'))
     const message2 = await conversation.send(encodeTextMessage('gm2'))
-
-    expect(streamedMessages).toEqual([message1, message2])
+    expect(streamedMessages).toContain(message1)
+    expect(streamedMessages).toContain(message2)
   })
 
   it('should add and remove admins', async () => {

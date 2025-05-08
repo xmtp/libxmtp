@@ -346,7 +346,7 @@ macro_rules! retry_async {
                             break Err(e);
                         }
                     } else {
-                        tracing::info!("error is not retryable. {:?}:{}", e, e);
+                        tracing::trace!("error is not retryable. {:?}:{}", e, e);
                         break Err(e);
                     }
                 }

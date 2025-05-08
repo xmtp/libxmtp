@@ -1,9 +1,13 @@
-use crate::{StorageError, impl_store};
+use crate::{StorageError, Store, impl_store};
 
 use super::Sqlite;
+use super::group::StoredGroup;
 use super::{
     db_connection::DbConnection,
-    schema::consent_records::{self, dsl},
+    schema::{
+        consent_records::{self, dsl},
+        groups::dsl as groups_dsl,
+    },
 };
 use diesel::{
     backend::Backend,
@@ -15,6 +19,7 @@ use diesel::{
     upsert::excluded,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 use xmtp_proto::{
     ConversionError,
     xmtp::device_sync::consent_backup::{ConsentSave, ConsentStateSave, ConsentTypeSave},
@@ -22,7 +27,7 @@ use xmtp_proto::{
 mod convert;
 
 /// StoredConsentRecord holds a serialized ConsentRecord
-#[derive(Insertable, Queryable, Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
 #[diesel(primary_key(entity_type, entity))]
 pub struct StoredConsentRecord {
@@ -32,6 +37,16 @@ pub struct StoredConsentRecord {
     pub state: ConsentState,
     /// The entity of what was consented (0x00 etc..)
     pub entity: String,
+
+    pub consented_at_ns: i64,
+}
+
+impl PartialEq for StoredConsentRecord {
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+            && self.entity_type == other.entity_type
+            && self.state == other.state
+    }
 }
 
 impl StoredConsentRecord {
@@ -40,7 +55,28 @@ impl StoredConsentRecord {
             entity_type,
             state,
             entity,
+            consented_at_ns: now_ns(),
         }
+    }
+
+    /// This function will perform some logic to see if a new group should be auto-consented
+    /// or auto-denied based on past consent.
+    pub fn persist_consent(conn: &DbConnection, group: &StoredGroup) -> Result<(), StorageError> {
+        if let Some(dm_id) = &group.dm_id {
+            let mut past_consent = conn.find_consent_by_dm_id(dm_id)?;
+            let Some(last_consent) = past_consent.pop() else {
+                return Ok(());
+            };
+
+            let cr = Self::new(
+                ConsentType::ConversationId,
+                last_consent.state,
+                hex::encode(&group.id),
+            );
+            cr.store(conn)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -77,6 +113,45 @@ impl DbConnection {
             .offset(offset);
 
         Ok(self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?)
+    }
+
+    // returns true if newer
+    pub fn insert_newer_consent_record(
+        &self,
+        record: StoredConsentRecord,
+    ) -> Result<bool, StorageError> {
+        self.raw_query_write(|conn| {
+            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
+                diesel::insert_into(dsl::consent_records)
+                    .values(&record)
+                    .on_conflict_do_nothing()
+                    .get_result(conn)
+                    .optional()?;
+
+            // if record was not inserted...
+            if maybe_inserted_consent_record.is_none() {
+                let old_record = dsl::consent_records
+                    .find((&record.entity_type, &record.entity))
+                    .first::<StoredConsentRecord>(conn)?;
+
+                if old_record.eq(&record) {
+                    return Ok(false);
+                }
+
+                let should_replace = old_record.consented_at_ns < record.consented_at_ns;
+                if should_replace {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                return Ok(should_replace);
+            }
+
+            Ok(true)
+        })
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
@@ -147,6 +222,25 @@ impl DbConnection {
 
             Ok(None)
         })
+    }
+
+    pub fn find_consent_by_dm_id(
+        &self,
+        dm_id: &str,
+    ) -> Result<Vec<StoredConsentRecord>, StorageError> {
+        let result = self.raw_query_read(|conn| {
+            dsl::consent_records
+                .inner_join(
+                    groups_dsl::groups
+                        .on(dsl::entity.eq(diesel::dsl::sql("lower(hex(groups.id))"))),
+                )
+                .filter(groups_dsl::dm_id.eq(dm_id))
+                .filter(dsl::entity_type.eq(ConsentType::ConversationId))
+                .order(dsl::consented_at_ns.desc())
+                .select(dsl::consent_records::all_columns())
+                .load::<StoredConsentRecord>(conn)
+        });
+        Ok(result?)
     }
 }
 
@@ -223,7 +317,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::with_connection;
+    use crate::{Store, group::tests::generate_group, test_utils::with_connection};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -238,7 +332,30 @@ mod tests {
             entity_type,
             state,
             entity,
+            consented_at_ns: now_ns(),
         }
+    }
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn find_consent_by_dm_id() {
+        with_connection(|conn| {
+            let mut g = generate_group(None);
+            g.dm_id = Some("dm:alpha:beta".to_string());
+            g.store(conn)?;
+
+            let cr = generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Allowed,
+                hex::encode(g.id),
+            );
+            cr.store(conn)?;
+
+            let mut records = conn.find_consent_by_dm_id("dm:alpha:beta")?;
+
+            assert_eq!(records.len(), 1);
+            assert_eq!(records.pop()?, cr);
+        })
+        .await;
     }
 
     #[xmtp_common::test]
