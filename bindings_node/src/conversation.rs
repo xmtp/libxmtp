@@ -120,10 +120,7 @@ impl Conversation {
 
   #[napi]
   pub fn id(&self) -> String {
-    match self.inner_client.stitched_group(&self.group_id) {
-      Ok(group) => hex::encode(group.group_id.clone()),
-      Err(_) => hex::encode(self.group_id.clone()),
-    }
+    hex::encode(self.group_id.clone())
   }
 
   #[napi]

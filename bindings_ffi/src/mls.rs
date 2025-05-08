@@ -2299,10 +2299,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        match self.inner.client.stitched_group(&self.inner.group_id) {
-            Ok(group) => group.group_id.clone(),
-            Err(_) => self.inner.group_id.clone(),
-        }
+        self.inner.group_id.clone()
     }
 }
 
@@ -7742,10 +7739,10 @@ mod tests {
             convo_bo_2.id(),
             "Conversations should match"
         );
-        assert_eq!(
+        assert_ne!(
             convo_alix.id(),
             convo_bo.id(),
-            "Conversations should get updated to match"
+            "Conversations id should not match dms should be matched on peerInboxId"
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");
