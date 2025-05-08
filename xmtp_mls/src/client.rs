@@ -1054,6 +1054,7 @@ where
         let query_args = GroupQueryArgs {
             consent_states,
             include_duplicate_dms: true,
+            include_sync_groups: true,
             ..GroupQueryArgs::default()
         };
         let groups = provider
