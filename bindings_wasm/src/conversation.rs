@@ -693,7 +693,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = getDebugInfo)]
-  pub async fn get_debug_info(&self) -> Result<JsValue, JsError> {
+  pub async fn debug_info(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
     let debug_info = group
       .debug_info()
