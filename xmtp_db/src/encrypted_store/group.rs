@@ -451,6 +451,17 @@ impl DbConnection {
 
             if maybe_inserted_group.is_none() {
                 let existing_group: StoredGroup = dsl::groups.find(&group.id).first(conn)?;
+
+                // A restored group should be overwritten
+                if matches!(
+                    existing_group.membership_state,
+                    GroupMembershipState::Restored
+                ) {
+                    diesel::update(dsl::groups.find(&group.id))
+                        .set(&group)
+                        .execute(conn)?;
+                }
+
                 if existing_group.welcome_id == group.welcome_id {
                     tracing::info!("Group welcome id already exists");
                     // Error so OpenMLS db transaction are rolled back on duplicate welcomes
