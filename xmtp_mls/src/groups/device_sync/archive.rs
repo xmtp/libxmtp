@@ -115,7 +115,7 @@ mod tests {
 
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2_provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 0);
@@ -127,7 +127,7 @@ mod tests {
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
         assert_eq!(messages.len(), 1);
@@ -146,7 +146,7 @@ mod tests {
         let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
 
         // wait for user preference update
-        wait_for_min_intents(alix.provider.conn_ref(), 2).await?;
+        wait_for_min_intents(alix.provider.db(), 2).await?;
 
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
@@ -155,31 +155,31 @@ mod tests {
         let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
-        wait_for_min_intents(alix.provider.conn_ref(), 1).await?;
+        wait_for_min_intents(alix.provider.db(), 1).await?;
 
         alix_group.send_message(b"hello there").await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(alix.provider.conn_ref(), 4).await?;
+        wait_for_min_intents(alix.provider.db(), 4).await?;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix
             .provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop()?;
 
         let mut groups: Vec<StoredGroup> = alix
             .provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
         let old_messages: Vec<StoredGroupMessage> = alix
             .provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 6);
 
@@ -204,7 +204,7 @@ mod tests {
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2
             .provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
@@ -214,13 +214,13 @@ mod tests {
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2
             .provider
-            .conn_ref()
+            .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2.provider.conn_ref().raw_query_read(|conn| {
+        let groups: Vec<StoredGroup> = alix2.provider.db().raw_query_read(|conn| {
             groups::table
                 .filter(groups::conversation_type.ne(ConversationType::Sync))
                 .load(conn)
@@ -229,12 +229,11 @@ mod tests {
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> =
-            alix2.provider.conn_ref().raw_query_read(|conn| {
-                group_messages::table
-                    .filter(group_messages::group_id.eq(&groups[0].id))
-                    .load(conn)
-            })?;
+        let messages: Vec<StoredGroupMessage> = alix2.provider.db().raw_query_read(|conn| {
+            group_messages::table
+                .filter(group_messages::group_id.eq(&groups[0].id))
+                .load(conn)
+        })?;
         // Only the application messages should sync
         assert_eq!(messages.len(), 1);
         for msg in messages {

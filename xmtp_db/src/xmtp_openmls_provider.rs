@@ -23,8 +23,8 @@ impl<C> XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
 {
-    pub fn conn_ref(&self) -> &DbConnection<C> {
-        self.key_store.conn_ref()
+    pub fn db(&self) -> &DbConnection<C> {
+        self.key_store.db()
     }
 
     fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
@@ -34,7 +34,7 @@ where
     {
         tracing::debug!("Transaction beginning");
 
-        let conn = self.conn_ref();
+        let conn = self.db();
         let _guard = conn.start_transaction()?;
 
         match fun(self) {
@@ -87,8 +87,8 @@ where
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
     }
 
-    fn conn_ref(&self) -> &DbConnection<C> {
-        self.key_store.conn_ref()
+    fn db(&self) -> &DbConnection<C> {
+        self.key_store.db()
     }
 
     fn key_store(&self) -> &SqlKeyStore<C> {
@@ -111,8 +111,8 @@ where
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
     }
 
-    fn conn_ref(&self) -> &DbConnection<C> {
-        self.key_store.conn_ref()
+    fn db(&self) -> &DbConnection<C> {
+        self.key_store.db()
     }
 
     fn key_store(&self) -> &SqlKeyStore<C> {

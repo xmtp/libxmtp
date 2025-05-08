@@ -119,7 +119,7 @@ impl IdentityStrategy {
 
         info!("Initializing identity");
         let stored_identity: Option<Identity> = provider
-            .conn_ref()
+            .db()
             .fetch(&())?
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
@@ -558,7 +558,7 @@ impl Identity {
         provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = provider.conn_ref().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = provider.db().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());
@@ -566,7 +566,7 @@ impl Identity {
 
         self.rotate_and_upload_key_package(provider, api_client)
             .await?;
-        Ok(StoredIdentity::try_from(self)?.store(&provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -575,7 +575,7 @@ impl Identity {
         provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let conn = provider.conn_ref();
+        let conn = provider.db();
 
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
@@ -587,7 +587,7 @@ impl Identity {
                 let old_id = history_id - 1;
                 provider.transaction(|provider| {
                     let old_key_packages = provider
-                        .conn_ref()
+                        .db()
                         .find_key_package_history_entries_before_id(old_id)?;
                     for kp in old_key_packages {
                         self.delete_key_package(provider, kp.key_package_hash_ref)?;

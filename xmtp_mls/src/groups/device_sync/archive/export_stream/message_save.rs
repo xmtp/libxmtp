@@ -20,7 +20,7 @@ impl BackupRecordProvider for GroupMessageSave {
 
         let batch = streamer
             .provider
-            .conn_ref()
+            .db()
             .group_messages_paged(&args, streamer.cursor)
             .expect("Failed to load group records");
 

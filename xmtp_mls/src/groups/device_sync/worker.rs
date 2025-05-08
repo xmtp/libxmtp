@@ -168,7 +168,7 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if provider.conn_ref().primary_sync_group()?.is_none() {
+            if provider.db().primary_sync_group()?.is_none() {
                 client.get_sync_group().await?;
 
                 // Ask the sync group for a sync payload if the url is present.
@@ -223,7 +223,7 @@ where
     /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider();
-        if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
+        if let Some(msg) = provider.db().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Reply(reply) = content {
                 self.client.v1_process_sync_reply(reply).await?;
@@ -235,7 +235,7 @@ where
     /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider();
-        if let Some(msg) = provider.conn_ref().get_group_message(&message_id)? {
+        if let Some(msg) = provider.db().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
                 self.client

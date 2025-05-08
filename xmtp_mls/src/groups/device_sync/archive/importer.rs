@@ -127,10 +127,10 @@ where
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            provider.conn_ref().insert_newer_consent_record(consent)?;
+            provider.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(_)) = provider.conn_ref().find_group(&save.id) {
+            if let Ok(Some(_)) = provider.db().find_group(&save.id) {
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -155,7 +155,7 @@ where
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            message.store_or_ignore(&provider.conn_ref())?;
+            message.store_or_ignore(provider.db())?;
         }
         _ => {}
     }

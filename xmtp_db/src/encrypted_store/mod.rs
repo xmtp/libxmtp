@@ -352,7 +352,7 @@ pub trait MlsProviderExt: OpenMlsProvider {
         E: std::error::Error + From<crate::ConnectionError>;
 
     /// Get the underlying DbConnection this provider is using
-    fn conn_ref(&self) -> &DbConnection<Self::Connection>;
+    fn db(&self) -> &DbConnection<Self::Connection>;
 
     fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
 }
