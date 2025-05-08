@@ -685,6 +685,14 @@ where
                 )
                 .await?;
 
+                let metadata_changes = &validated_commit.metadata_validation_info.metadata_field_changes;
+                for change in metadata_changes {
+                    if change.field_name == MetadataField::GroupName.as_str() && validated_commit.actor.inbox_id != self.client.inbox_id() {
+                        tracing::info!("TEST CODE FOR GENERATING FORK ON OTHER USER NAME UPDATE");
+                        return Err(GroupMessageProcessingError::CommitValidation(CommitValidationError::RejectNextCommit));
+                    }
+                }
+
                 Some(validated_commit)
             }
             _ => None,

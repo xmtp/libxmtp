@@ -8116,4 +8116,45 @@ mod tests {
         // Clean up the stream
         stream.end_and_wait().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_simulate_fork_on_name_update() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+
+        let alix_group = alix.conversations().create_group_with_inbox_ids(vec![bo.inbox_id()], FfiCreateGroupOptions::default()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap();
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
+
+        alix_group.send(b"Hello".to_vec()).await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        let bo_messages = bo_group.find_messages(FfiListMessagesOptions::default()).await.unwrap();
+        assert_eq!(bo_messages.len(), 1);
+        assert_eq!(bo_messages[0].content, b"Hello".to_vec());
+
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        assert_eq!(bo_group.conversation_debug_info().await.unwrap().epoch, alix_group.conversation_debug_info().await.unwrap().epoch);
+        assert_eq!(bo_group.conversation_debug_info().await.unwrap().maybe_forked, false);
+        assert_eq!(alix_group.conversation_debug_info().await.unwrap().maybe_forked, false);
+
+        bo_group.update_group_name("New Name".to_string()).await.unwrap();
+
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+
+        assert_ne!(bo_group.conversation_debug_info().await.unwrap().epoch, alix_group.conversation_debug_info().await.unwrap().epoch);
+
+        alix_group.send(b"Hello".to_vec()).await.unwrap();
+        bo_group.send(b"Hello".to_vec()).await.unwrap();
+
+        alix_group.sync().await.unwrap();
+        bo_group.sync().await.unwrap();
+
+        assert_eq!(bo_group.conversation_debug_info().await.unwrap().maybe_forked, false);
+        println!("alix_group.conversation_debug_info().await.unwrap().fork details: {:?}", alix_group.conversation_debug_info().await.unwrap().fork_details);
+        assert_eq!(alix_group.conversation_debug_info().await.unwrap().maybe_forked, true);
+    }
 }

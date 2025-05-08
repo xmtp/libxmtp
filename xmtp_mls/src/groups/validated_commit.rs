@@ -96,6 +96,8 @@ pub enum CommitValidationError {
     TooManyCharacters { length: usize },
     #[error("Version part missing")]
     VersionMissing,
+    #[error("Reject next commit")]
+    RejectNextCommit,
 }
 
 impl RetryableError for CommitValidationError {
