@@ -2304,6 +2304,10 @@ impl FfiConversation {
             Err(_) => self.inner.group_id.clone(),
         }
     }
+
+    pub fn topic_id(&self) -> Vec<u8> {
+        self.inner.group_id.clone()
+    }
 }
 
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
@@ -7745,6 +7749,11 @@ mod tests {
         assert_eq!(
             convo_alix.id(),
             convo_bo.id(),
+            "Conversations should get updated to match"
+        );
+        assert_ne!(
+            convo_alix.topic_id(),
+            convo_bo.topic_id(),
             "Conversations should get updated to match"
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
