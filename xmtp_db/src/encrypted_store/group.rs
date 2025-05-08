@@ -221,7 +221,7 @@ impl DbConnection {
 
         let mut groups = if includes_all {
             // No filtering at all
-            self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroup>(conn))?
+            self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?
         } else if includes_unknown {
             // LEFT JOIN: include Unknown + NULL + filtered states
             let left_joined_query = query
@@ -237,7 +237,7 @@ impl DbConnection {
                 .select(dsl::groups::all_columns())
                 .order(dsl::created_at_ns.asc());
 
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 left_joined_query.load::<StoredGroup>(conn)
             })?
         } else {
@@ -250,7 +250,7 @@ impl DbConnection {
                 .select(dsl::groups::all_columns())
                 .order(dsl::created_at_ns.asc());
 
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 inner_joined_query.load::<StoredGroup>(conn)
             })?
         };
@@ -260,7 +260,7 @@ impl DbConnection {
         if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
             let query = dsl::groups.filter(dsl::conversation_type.eq(ConversationType::Sync));
             let mut sync_groups =
-                self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+                self.raw_query_read(|conn| query.load(conn))?;
             groups.append(&mut sync_groups);
         }
 
@@ -293,7 +293,7 @@ impl DbConnection {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroup>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroup>(conn))
     }
 
     /// Updates group membership state
@@ -316,7 +316,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))
+        self.raw_query_read(|conn| query.load(conn))
     }
 
     pub fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
@@ -324,7 +324,7 @@ impl DbConnection {
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.first(conn).optional())
+        self.raw_query_read(|conn| query.first(conn).optional())
     }
 
     pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
@@ -332,7 +332,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.first(conn).optional())
+        self.raw_query_read(|conn| query.first(conn).optional())
     }
 
     /// Return a single group that matches the given ID
@@ -341,7 +341,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .limit(1)
             .filter(dsl::id.eq(id));
-        let groups = self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
 
         Ok(groups.into_iter().next())
     }
@@ -355,7 +355,7 @@ impl DbConnection {
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
 
-        let groups = self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+        let groups = self.raw_query_read(|conn| query.load(conn))?;
 
         if groups.len() > 1 {
             tracing::warn!(
@@ -367,7 +367,7 @@ impl DbConnection {
     }
 
     pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts: Option<i64> = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let last_ts: Option<i64> = self.raw_query_read(|conn| {
             dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
@@ -393,7 +393,7 @@ impl DbConnection {
     }
 
     pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
-        let last_ts = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let last_ts = self.raw_query_read(|conn| {
             dsl::groups
                 .find(&group_id)
                 .select(dsl::installations_last_checked)
@@ -457,7 +457,7 @@ impl DbConnection {
 
         if maybe_inserted_group.is_none() {
             let existing_group: StoredGroup =
-                self.raw_query_read::<_, StorageError, _>(|conn| {
+                self.raw_query_read(|conn| {
                     dsl::groups.find(&group.id).first(conn)
                 })?;
             // A restored group should be overwritten
@@ -496,13 +496,13 @@ impl DbConnection {
             }
         } else {
             tracing::info!("Group is inserted");
-            Ok(self.raw_query_read::<_, StorageError, _>(|c| dsl::groups.find(group.id).first(c))?)
+            Ok(self.raw_query_read(|c| dsl::groups.find(group.id).first(c))?)
         }
     }
 
     /// Get all the welcome ids turned into groups
     pub fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read(|conn| {
             Ok(dsl::groups
                 .filter(dsl::welcome_id.is_not_null())
                 .select(dsl::welcome_id)
@@ -746,7 +746,7 @@ pub(crate) mod tests {
 
             test_group.store(conn).unwrap();
             assert_eq!(
-                conn.raw_query_read::<_, StorageError, _>(
+                conn.raw_query_read(
                     |raw_conn| groups.first::<StoredGroup>(raw_conn)
                 )
                 .unwrap(),

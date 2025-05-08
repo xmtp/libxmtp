@@ -97,7 +97,7 @@ impl StoredAssociationState {
                     .and(dsl::sequence_id.eq_any(sequence_ids)),
             );
 
-        let association_states = conn.raw_query_read::<_, StorageError, _>(|query_conn| {
+        let association_states = conn.raw_query_read(|query_conn| {
             query.load::<StoredAssociationState>(query_conn)
         })?;
 

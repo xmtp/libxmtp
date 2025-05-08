@@ -72,7 +72,7 @@ impl DbConnection {
         entity_kind: EntityKind,
     ) -> Result<Option<RefreshState>, StorageError> {
         use super::schema::refresh_state::dsl;
-        let res = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let res = self.raw_query_read(|conn| {
             dsl::refresh_state
                 .find((entity_id.as_ref(), entity_kind))
                 .first(conn)

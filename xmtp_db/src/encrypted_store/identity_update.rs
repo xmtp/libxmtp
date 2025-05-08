@@ -59,7 +59,7 @@ impl DbConnection {
             query = query.filter(dsl::sequence_id.le(sequence_id));
         }
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredIdentityUpdate>(conn))
+        self.raw_query_read(|conn| query.load::<StoredIdentityUpdate>(conn))
     }
 
     /// Batch insert identity updates, ignoring duplicates.
@@ -85,7 +85,7 @@ impl DbConnection {
             .filter(dsl::inbox_id.eq(inbox_id))
             .into_boxed();
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.first::<i64>(conn))
+        self.raw_query_read(|conn| query.first::<i64>(conn))
     }
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
@@ -102,7 +102,7 @@ impl DbConnection {
 
         // Get the results as a Vec of (inbox_id, sequence_id) tuples
         let result_tuples: Vec<(String, i64)> = self
-            .raw_query_read::<_, StorageError, _>(|conn| query.load::<(String, Option<i64>)>(conn))?
+            .raw_query_read(|conn| query.load::<(String, Option<i64>)>(conn))?
             .into_iter()
             // Diesel needs an Option type for aggregations like max(sequence_id), so we
             // unwrap the option here

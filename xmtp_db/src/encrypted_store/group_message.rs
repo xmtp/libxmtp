@@ -313,7 +313,7 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupMessage>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     pub fn group_messages_paged(
@@ -344,7 +344,7 @@ impl DbConnection {
         }
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredGroupMessage>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Query for group messages with their reactions
@@ -394,7 +394,7 @@ impl DbConnection {
         };
 
         let reactions: Vec<StoredGroupMessage> =
-            self.raw_query_read::<_, StorageError, _>(|conn| reactions_query.load(conn))?;
+            self.raw_query_read(|conn| reactions_query.load(conn))?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -430,7 +430,7 @@ impl DbConnection {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first(conn)
@@ -456,7 +456,7 @@ impl DbConnection {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(timestamp))

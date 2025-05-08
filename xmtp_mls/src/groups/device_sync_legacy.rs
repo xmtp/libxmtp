@@ -118,11 +118,11 @@ where
         let conn = provider.conn_ref();
 
         let records = match request.kind() {
-            BackupElementSelection::Consent => vec![self.v1_syncable_consent_records(conn)?],
+            BackupElementSelection::Consent => vec![self.v1_syncable_consent_records(&conn)?],
             BackupElementSelection::Messages => {
                 vec![
-                    self.v1_syncable_groups(conn)?,
-                    self.v1_syncable_messages(conn)?,
+                    self.v1_syncable_groups(&conn)?,
+                    self.v1_syncable_messages(&conn)?,
                 ]
             }
             BackupElementSelection::Unspecified => {
@@ -279,7 +279,7 @@ where
             ..Default::default()
         })?;
         for StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group_with_conn(provider.conn_ref(), &id)?;
+            let group = self.group_with_conn(&provider.conn_ref(), &id)?;
             group.maybe_update_installations(provider, None).await?;
             Box::pin(group.sync_with_conn(provider)).await?;
         }
@@ -369,7 +369,7 @@ where
                     conn.insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {
-                    if let Err(err) = group_message.store(conn) {
+                    if let Err(err) = group_message.store(&conn) {
                         match err {
                             // this is fine because we are inserting messages that already exist
                             StorageError::DieselResult(

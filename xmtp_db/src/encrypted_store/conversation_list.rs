@@ -131,7 +131,7 @@ impl DbConnection {
 
         let mut conversations = if includes_all {
             // No filtering at all
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 query.load::<ConversationListItem>(conn)
             })?
         } else if includes_unknown {
@@ -152,7 +152,7 @@ impl DbConnection {
                 .select(conversation_list::all_columns())
                 .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 left_joined_query.load::<ConversationListItem>(conn)
             })?
         } else {
@@ -168,7 +168,7 @@ impl DbConnection {
                 .select(conversation_list::all_columns())
                 .order(sql::<BigInt>("COALESCE(sent_at_ns, created_at_ns) DESC"));
 
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 inner_joined_query.load::<ConversationListItem>(conn)
             })?
         };
@@ -179,7 +179,7 @@ impl DbConnection {
             let query = conversation_list_dsl::conversation_list
                 .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
             let mut sync_groups =
-                self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+                self.raw_query_read(|conn| query.load(conn))?;
             conversations.append(&mut sync_groups);
         }
 

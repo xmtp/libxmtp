@@ -31,7 +31,7 @@ impl DbConnection {
     ) -> Result<Option<String>, StorageError> {
         use crate::schema::groups::dsl;
 
-        let paused_version = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let paused_version = self.raw_query_read(|conn| {
             dsl::groups
                 .select(dsl::paused_for_version)
                 .filter(dsl::id.eq(group_id))

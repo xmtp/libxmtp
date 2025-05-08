@@ -284,7 +284,7 @@ where
         let mut summary = SyncSummary::default();
 
         let conn = provider.conn_ref();
-        if let Err(e) = self.handle_group_paused(conn) {
+        if let Err(e) = self.handle_group_paused(&conn) {
             if matches!(e, GroupError::GroupPausedUntilUpdate(_)) {
                 // nothing synced
                 return Ok(summary);
@@ -309,7 +309,7 @@ where
             }
         }
 
-        if let Err(e) = self.post_commit(conn).await {
+        if let Err(e) = self.post_commit(&conn).await {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
         }
@@ -364,7 +364,7 @@ where
                     summary.extend(s);
                 }
             }
-            match Fetch::<StoredGroupIntent>::fetch(provider.conn_ref(), &intent_id) {
+            match Fetch::<StoredGroupIntent>::fetch(&provider.conn_ref(), &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(summary);
@@ -516,7 +516,7 @@ where
 
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.client,
-                        provider.conn_ref(),
+                        &provider.conn_ref(),
                         &staged_commit,
                         mls_group,
                     )
@@ -607,7 +607,7 @@ where
             } else {
                 // If no error committing the change, write a transcript message
                 let msg =
-                    self.save_transcript_message(conn, validated_commit, envelope_timestamp_ns)?;
+                    self.save_transcript_message(&conn, validated_commit, envelope_timestamp_ns)?;
                 return Ok((IntentState::Committed, msg.map(|m| m.id)));
             }
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
@@ -680,7 +680,7 @@ where
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
                 let validated_commit = ValidatedCommit::from_staged_commit(
                     &self.client,
-                    provider.conn_ref(),
+                    &provider.conn_ref(),
                     staged_commit,
                     mls_group,
                 )
@@ -825,7 +825,7 @@ where
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
                         };
-                        message.store_or_ignore(provider.conn_ref())?;
+                        message.store_or_ignore(&provider.conn_ref())?;
 
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
@@ -875,7 +875,7 @@ where
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
                                 };
-                                message.store_or_ignore(provider.conn_ref())?;
+                                message.store_or_ignore(&provider.conn_ref())?;
 
                                 tracing::info!("Received a history request.");
                                 let _ =
@@ -911,7 +911,7 @@ where
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
                                 };
-                                message.store_or_ignore(provider.conn_ref())?;
+                                message.store_or_ignore(&provider.conn_ref())?;
 
                                 tracing::info!("Received a history reply.");
                                 let _ =
@@ -989,7 +989,7 @@ where
 
                 mls_group.merge_staged_commit(provider, staged_commit)?;
                 let msg = self.save_transcript_message(
-                    provider.conn_ref(),
+                    &provider.conn_ref(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
@@ -1370,7 +1370,7 @@ where
     ) -> Result<ProcessSummary, GroupError> {
         let messages = self
             .client
-            .query_group_messages(&self.group_id, provider.conn_ref())
+            .query_group_messages(&self.group_id, &provider.conn_ref())
             .await?;
         let summary = self.process_messages(messages, provider).await;
         tracing::info!("{summary}");
@@ -1861,7 +1861,7 @@ where
             inbox_ids.extend_from_slice(inbox_ids_to_add);
             let conn = provider.conn_ref();
             // Load any missing updates from the network
-            load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
+            load_identity_updates(self.client.api(), &conn, &inbox_ids).await?;
 
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
@@ -2095,7 +2095,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     let mut installation_diff = client
         .get_installation_diff(
-            provider.conn_ref(),
+            &provider.conn_ref(),
             old_group_membership,
             new_group_membership,
             &membership_diff,

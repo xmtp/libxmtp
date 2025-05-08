@@ -283,7 +283,7 @@ where
         }
 
         for msg in unprocessed_messages {
-            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
+            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(&provider.conn_ref())?;
         }
 
         Ok(())

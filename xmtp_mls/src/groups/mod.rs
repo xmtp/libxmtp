@@ -679,7 +679,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
-        stored_group.store_or_ignore(provider.conn_ref())?;
+        stored_group.store_or_ignore(&provider.conn_ref())?;
 
         Ok(stored_group)
     }
@@ -742,7 +742,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ))
             .build()?;
 
-        stored_group.store(provider.conn_ref())?;
+        stored_group.store(&provider.conn_ref())?;
         let new_group = Self::new_from_arc(
             client.clone(),
             group_id,
@@ -809,7 +809,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client, provider.conn_ref(), &staged_welcome).await?;
+        validate_initial_group_membership(client, &provider.conn_ref(), &staged_welcome).await?;
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -922,7 +922,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.conn_ref(), &stored_group)?;
+            StoredConsentRecord::persist_consent(&provider.conn_ref(), &stored_group)?;
 
             Ok(Self::new(
                 client.clone(),
@@ -966,7 +966,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
-            provider.conn_ref(),
+            &provider.conn_ref(),
             group_id,
             now_ns(),
             GroupMembershipState::Allowed,
@@ -1113,7 +1113,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
         };
-        group_message.store(provider.conn_ref())?;
+        group_message.store(&provider.conn_ref())?;
 
         Ok(message_id)
     }
@@ -1893,7 +1893,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ))
             .build()?;
 
-        stored_group.store(provider.conn_ref())?;
+        stored_group.store(&provider.conn_ref())?;
         Ok(Self::new_from_arc(
             client,
             group_id,

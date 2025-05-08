@@ -46,7 +46,7 @@ impl HmacKey {
 
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
-        let pref = conn.raw_query_read::<_, StorageError, _>(|conn| {
+        let pref = conn.raw_query_read(|conn| {
             dsl::user_preferences.first(conn).optional()
         })?;
         Ok(pref.unwrap_or_default())
@@ -120,7 +120,7 @@ mod tests {
             // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());
             let result = conn
-                .raw_query_read::<_, StorageError, _>(|conn| {
+                .raw_query_read(|conn| {
                     query.load::<StoredUserPreferences>(conn)
                 })
                 .unwrap();

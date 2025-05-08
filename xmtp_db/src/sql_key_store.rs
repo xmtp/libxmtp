@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{ConnectionExt, DbConnection};
@@ -26,20 +28,21 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
-pub struct SqlKeyStore<C = crate::DefaultConnection> {
+pub struct SqlKeyStore<C = crate::DefaultConnection, E = SqlKeyStoreError> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnection<C>,
+    conn: DbConnection<C, E>,
+    _marker: PhantomData<E>,
 }
 
-impl<C> SqlKeyStore<C> {
+impl<C, E> SqlKeyStore<C, E> {
     pub fn new(conn: C) -> Self {
         Self {
-            conn: DbConnection::new(conn),
+            conn: DbConnection::<_, E>::new(conn),
+            _marker: PhantomData,
         }
     }
 
-    pub fn conn_ref(&self) -> &DbConnection<C> {
+    pub fn conn_ref(&self) -> &DbConnection<C, E> {
         &self.conn
     }
 }
@@ -51,8 +54,8 @@ where
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,
-    ) -> Result<Vec<StorageData>, crate::ConnectionError> {
-        self.conn_ref().raw_query_read(|conn| {
+    ) -> Result<Vec<StorageData>, SqlKeyStoreError> {
+        self.conn.raw_query_read(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -818,14 +821,12 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> =
-            self.conn_ref()
-                .raw_query_read::<_, SqlKeyStoreError, _>(|conn| {
-                    sql_query(query)
-                        .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                        .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                        .load(conn)
-                })?;
+        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                .load(conn)
+        })?;
 
         if let Some(entry) = data.into_iter().next() {
             match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {

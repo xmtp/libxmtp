@@ -97,7 +97,7 @@ pub(super) fn store_preference_updates(
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
                 StoredUserPreferences::store_hmac_key(
-                    provider.conn_ref(),
+                    &provider.conn_ref(),
                     &key,
                     Some(cycled_at_ns),
                 )?;

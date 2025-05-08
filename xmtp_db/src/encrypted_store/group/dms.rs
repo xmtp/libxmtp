@@ -3,7 +3,7 @@ use super::*;
 impl DbConnection {
     /// Same behavior as fetched, but will stitch DM groups
     pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
-        let group = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let group = self.raw_query_read(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
                 .first::<StoredGroup>(conn)
@@ -44,7 +44,7 @@ impl DbConnection {
     pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, StorageError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
         let groups: Vec<StoredGroup> =
-            self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+            self.raw_query_read(|conn| query.load(conn))?;
 
         // Grab the dm_id of the group
         let Some(StoredGroup {
@@ -61,7 +61,7 @@ impl DbConnection {
             .filter(dsl::id.ne(id));
 
         let other_dms: Vec<StoredGroup> =
-            self.raw_query_read::<_, StorageError, _>(|conn| query.load(conn))?;
+            self.raw_query_read(|conn| query.load(conn))?;
         Ok(other_dms)
     }
 }

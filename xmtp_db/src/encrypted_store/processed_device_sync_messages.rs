@@ -26,7 +26,7 @@ impl_store!(
 
 impl DbConnection {
     pub fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let result = self.raw_query_read::<_, StorageError, _>(|conn| {
+        let result = self.raw_query_read(|conn| {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
                 .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))

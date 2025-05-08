@@ -603,7 +603,7 @@ where
         tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider()?;
         let inbox_id = match self
-            .find_inbox_id_from_identifier(provider.conn_ref(), target_identity.clone())
+            .find_inbox_id_from_identifier(&provider.conn_ref(), target_identity.clone())
             .await?
         {
             Some(id) => id,
@@ -930,7 +930,7 @@ where
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<MlsGroup<Self>>, GroupError> {
-        let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
+        let envelopes = self.query_welcome_messages(&provider.conn_ref()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())

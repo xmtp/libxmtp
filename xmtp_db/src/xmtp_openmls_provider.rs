@@ -1,3 +1,4 @@
+use crate::sql_key_store::SqlKeyStoreError;
 use crate::{ConnectionExt, DbConnection, StorageError};
 use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
 use diesel::Connection;
@@ -5,22 +6,24 @@ use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-#[derive(Debug)]
-pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection> {
+pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection, E = SqlKeyStoreError> {
     crypto: RustCrypto,
-    key_store: SqlKeyStore<C>,
+    key_store: SqlKeyStore<C, E>,
 }
 
-impl<C> XmtpOpenMlsProvider<C> {
+impl<C, E> XmtpOpenMlsProvider<C, E> {
     pub fn new(conn: C) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
         }
     }
+}
 
-    pub fn conn_ref(&self) -> &DbConnection<C> {
-        self.key_store.conn_ref()
+// C should be an Arc<>
+impl<C: Clone, E> XmtpOpenMlsProvider<C, E> {
+    pub fn conn_ref(&self) -> DbConnection<C> {
+        self.key_store.conn_ref().transmute::<StorageError>()
     }
 }
 
@@ -32,7 +35,7 @@ impl XmtpOpenMlsProvider {
 
 impl<C> ProviderTransactions<C> for XmtpOpenMlsProvider<C>
 where
-    C: ConnectionExt,
+    C: ConnectionExt + Clone,
 {
     /// Start a new database transaction with the OpenMLS Provider from XMTP
     /// with the provided connection

@@ -89,7 +89,7 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| -> diesel::QueryResult<_> {
+        self.raw_query_read(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
@@ -99,7 +99,7 @@ impl DbConnection {
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read(|conn| {
             super::schema::consent_records::table.load(conn)
         })
     }
@@ -114,7 +114,7 @@ impl DbConnection {
             .limit(limit)
             .offset(offset);
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredConsentRecord>(conn))
+        self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))
     }
 
     // returns true if newer
@@ -231,7 +231,7 @@ impl DbConnection {
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        self.raw_query_read(|conn| {
             dsl::consent_records
                 .inner_join(
                     groups_dsl::groups

@@ -51,7 +51,7 @@ where
 
         let conn = provider.conn_ref();
         let mut association_states: Vec<AssociationState> =
-            StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
+            StoredAssociationState::batch_read_from_cache(&conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata(provider)?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
@@ -71,7 +71,7 @@ where
 
             let mut new_states = self
                 .client
-                .batch_get_association_state(conn, &missing_requests)
+                .batch_get_association_state(&conn, &missing_requests)
                 .await?;
             association_states.append(&mut new_states);
 

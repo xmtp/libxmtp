@@ -561,7 +561,7 @@ impl Identity {
 
         self.rotate_and_upload_key_package(provider, api_client)
             .await?;
-        Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(&provider.conn_ref())?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

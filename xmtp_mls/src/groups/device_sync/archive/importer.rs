@@ -160,7 +160,7 @@ where
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            message.store_or_ignore(provider.conn_ref())?;
+            message.store_or_ignore(&provider.conn_ref())?;
         }
         _ => {}
     }
