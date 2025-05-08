@@ -227,6 +227,435 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
         deserializer.deserialize_struct("xmtp.device_sync.content.DeviceSyncContent", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DeviceSyncKeyType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.key.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncKeyType", len)?;
+        if let Some(v) = self.key.as_ref() {
+            match v {
+                device_sync_key_type::Key::Aes256Gcm(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    struct_ser.serialize_field("aes256Gcm", pbjson::private::base64::encode(&v).as_str())?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "aes_256_gcm",
+            "aes256Gcm",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Aes256Gcm,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "aes256Gcm" | "aes_256_gcm" => Ok(GeneratedField::Aes256Gcm),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DeviceSyncKeyType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.device_sync.content.DeviceSyncKeyType")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DeviceSyncKeyType, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Aes256Gcm => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("aes256Gcm"));
+                            }
+                            key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| device_sync_key_type::Key::Aes256Gcm(x.0));
+                        }
+                    }
+                }
+                Ok(DeviceSyncKeyType {
+                    key: key__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.device_sync.content.DeviceSyncKeyType", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DeviceSyncReply {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.request_id.is_empty() {
+            len += 1;
+        }
+        if !self.url.is_empty() {
+            len += 1;
+        }
+        if self.encryption_key.is_some() {
+            len += 1;
+        }
+        if self.timestamp_ns != 0 {
+            len += 1;
+        }
+        if self.kind != 0 {
+            len += 1;
+        }
+        if self.metadata.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncReply", len)?;
+        if !self.request_id.is_empty() {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if !self.url.is_empty() {
+            struct_ser.serialize_field("url", &self.url)?;
+        }
+        if let Some(v) = self.encryption_key.as_ref() {
+            struct_ser.serialize_field("encryptionKey", v)?;
+        }
+        if self.timestamp_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+        }
+        if self.kind != 0 {
+            let v = super::BackupElementSelection::try_from(self.kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
+            struct_ser.serialize_field("kind", &v)?;
+        }
+        if let Some(v) = self.metadata.as_ref() {
+            struct_ser.serialize_field("metadata", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "request_id",
+            "requestId",
+            "url",
+            "encryption_key",
+            "encryptionKey",
+            "timestamp_ns",
+            "timestampNs",
+            "kind",
+            "metadata",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RequestId,
+            Url,
+            EncryptionKey,
+            TimestampNs,
+            Kind,
+            Metadata,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "url" => Ok(GeneratedField::Url),
+                            "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
+                            "kind" => Ok(GeneratedField::Kind),
+                            "metadata" => Ok(GeneratedField::Metadata),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DeviceSyncReply;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.device_sync.content.DeviceSyncReply")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DeviceSyncReply, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut request_id__ = None;
+                let mut url__ = None;
+                let mut encryption_key__ = None;
+                let mut timestamp_ns__ = None;
+                let mut kind__ = None;
+                let mut metadata__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Url => {
+                            if url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("url"));
+                            }
+                            url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::EncryptionKey => {
+                            if encryption_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encryptionKey"));
+                            }
+                            encryption_key__ = map_.next_value()?;
+                        }
+                        GeneratedField::TimestampNs => {
+                            if timestamp_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestampNs"));
+                            }
+                            timestamp_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Kind => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kind"));
+                            }
+                            kind__ = Some(map_.next_value::<super::BackupElementSelection>()? as i32);
+                        }
+                        GeneratedField::Metadata => {
+                            if metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("metadata"));
+                            }
+                            metadata__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(DeviceSyncReply {
+                    request_id: request_id__.unwrap_or_default(),
+                    url: url__.unwrap_or_default(),
+                    encryption_key: encryption_key__,
+                    timestamp_ns: timestamp_ns__.unwrap_or_default(),
+                    kind: kind__.unwrap_or_default(),
+                    metadata: metadata__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.device_sync.content.DeviceSyncReply", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DeviceSyncRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.request_id.is_empty() {
+            len += 1;
+        }
+        if !self.pin_code.is_empty() {
+            len += 1;
+        }
+        if self.kind != 0 {
+            len += 1;
+        }
+        if self.options.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncRequest", len)?;
+        if !self.request_id.is_empty() {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if !self.pin_code.is_empty() {
+            struct_ser.serialize_field("pinCode", &self.pin_code)?;
+        }
+        if self.kind != 0 {
+            let v = super::BackupElementSelection::try_from(self.kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
+            struct_ser.serialize_field("kind", &v)?;
+        }
+        if let Some(v) = self.options.as_ref() {
+            struct_ser.serialize_field("options", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "request_id",
+            "requestId",
+            "pin_code",
+            "pinCode",
+            "kind",
+            "options",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RequestId,
+            PinCode,
+            Kind,
+            Options,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "pinCode" | "pin_code" => Ok(GeneratedField::PinCode),
+                            "kind" => Ok(GeneratedField::Kind),
+                            "options" => Ok(GeneratedField::Options),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DeviceSyncRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.device_sync.content.DeviceSyncRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DeviceSyncRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut request_id__ = None;
+                let mut pin_code__ = None;
+                let mut kind__ = None;
+                let mut options__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::PinCode => {
+                            if pin_code__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pinCode"));
+                            }
+                            pin_code__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Kind => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kind"));
+                            }
+                            kind__ = Some(map_.next_value::<super::BackupElementSelection>()? as i32);
+                        }
+                        GeneratedField::Options => {
+                            if options__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("options"));
+                            }
+                            options__ = map_.next_value()?;
+                        }
+                    }
+                }
+                Ok(DeviceSyncRequest {
+                    request_id: request_id__.unwrap_or_default(),
+                    pin_code: pin_code__.unwrap_or_default(),
+                    kind: kind__.unwrap_or_default(),
+                    options: options__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.device_sync.content.DeviceSyncRequest", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for HmacKeyUpdate {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -344,6 +773,115 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
         deserializer.deserialize_struct("xmtp.device_sync.content.HmacKeyUpdate", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for PreferenceUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.update.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.PreferenceUpdate", len)?;
+        if let Some(v) = self.update.as_ref() {
+            match v {
+                preference_update::Update::Consent(v) => {
+                    struct_ser.serialize_field("consent", v)?;
+                }
+                preference_update::Update::Hmac(v) => {
+                    struct_ser.serialize_field("hmac", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PreferenceUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "consent",
+            "hmac",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Consent,
+            Hmac,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "consent" => Ok(GeneratedField::Consent),
+                            "hmac" => Ok(GeneratedField::Hmac),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PreferenceUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.device_sync.content.PreferenceUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PreferenceUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut update__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Consent => {
+                            if update__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("consent"));
+                            }
+                            update__ = map_.next_value::<::std::option::Option<_>>()?.map(preference_update::Update::Consent)
+;
+                        }
+                        GeneratedField::Hmac => {
+                            if update__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hmac"));
+                            }
+                            update__ = map_.next_value::<::std::option::Option<_>>()?.map(preference_update::Update::Hmac)
+;
+                        }
+                    }
+                }
+                Ok(PreferenceUpdate {
+                    update: update__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.device_sync.content.PreferenceUpdate", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PreferenceUpdates {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -435,7 +973,7 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdates {
         deserializer.deserialize_struct("xmtp.device_sync.content.PreferenceUpdates", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for UserPreferenceUpdate {
+impl serde::Serialize for V1UserPreferenceUpdate {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -443,38 +981,29 @@ impl serde::Serialize for UserPreferenceUpdate {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.update.is_some() {
+        if !self.contents.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.UserPreferenceUpdate", len)?;
-        if let Some(v) = self.update.as_ref() {
-            match v {
-                user_preference_update::Update::Consent(v) => {
-                    struct_ser.serialize_field("consent", v)?;
-                }
-                user_preference_update::Update::Hmac(v) => {
-                    struct_ser.serialize_field("hmac", v)?;
-                }
-            }
+        let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.V1UserPreferenceUpdate", len)?;
+        if !self.contents.is_empty() {
+            struct_ser.serialize_field("contents", &self.contents.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
+impl<'de> serde::Deserialize<'de> for V1UserPreferenceUpdate {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "consent",
-            "hmac",
+            "contents",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Consent,
-            Hmac,
+            Contents,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -496,8 +1025,7 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
                         E: serde::de::Error,
                     {
                         match value {
-                            "consent" => Ok(GeneratedField::Consent),
-                            "hmac" => Ok(GeneratedField::Hmac),
+                            "contents" => Ok(GeneratedField::Contents),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -507,40 +1035,35 @@ impl<'de> serde::Deserialize<'de> for UserPreferenceUpdate {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = UserPreferenceUpdate;
+            type Value = V1UserPreferenceUpdate;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.device_sync.content.UserPreferenceUpdate")
+                formatter.write_str("struct xmtp.device_sync.content.V1UserPreferenceUpdate")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<UserPreferenceUpdate, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<V1UserPreferenceUpdate, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut update__ = None;
+                let mut contents__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Consent => {
-                            if update__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("consent"));
+                        GeneratedField::Contents => {
+                            if contents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contents"));
                             }
-                            update__ = map_.next_value::<::std::option::Option<_>>()?.map(user_preference_update::Update::Consent)
-;
-                        }
-                        GeneratedField::Hmac => {
-                            if update__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("hmac"));
-                            }
-                            update__ = map_.next_value::<::std::option::Option<_>>()?.map(user_preference_update::Update::Hmac)
-;
+                            contents__ = 
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
                         }
                     }
                 }
-                Ok(UserPreferenceUpdate {
-                    update: update__,
+                Ok(V1UserPreferenceUpdate {
+                    contents: contents__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.device_sync.content.UserPreferenceUpdate", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.device_sync.content.V1UserPreferenceUpdate", FIELDS, GeneratedVisitor)
     }
 }

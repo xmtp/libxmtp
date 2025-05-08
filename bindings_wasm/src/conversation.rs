@@ -140,10 +140,7 @@ impl From<MlsGroup<RustXmtpClient>> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    match self.inner_client.stitched_group(&self.group_id) {
-      Ok(group) => hex::encode(group.group_id.clone()),
-      Err(_) => hex::encode(self.group_id.clone()),
-    }
+    hex::encode(self.group_id.clone())
   }
 
   #[wasm_bindgen]
@@ -693,7 +690,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = getDebugInfo)]
-  pub async fn get_debug_info(&self) -> Result<JsValue, JsError> {
+  pub async fn debug_info(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
     let debug_info = group
       .debug_info()

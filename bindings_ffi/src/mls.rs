@@ -47,7 +47,7 @@ use xmtp_mls::{
     groups::{
         device_sync::{
             backup::{BackupImporter, BackupMetadata},
-            preference_sync::UserPreferenceUpdate,
+            preference_sync::PreferenceUpdate,
             ENC_KEY_SIZE,
         },
         group_metadata::GroupMetadata,
@@ -1565,16 +1565,14 @@ impl From<FfiConversationType> for ConversationType {
     }
 }
 
-impl TryFrom<UserPreferenceUpdate> for FfiPreferenceUpdate {
+impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
     type Error = GenericError;
-    fn try_from(value: UserPreferenceUpdate) -> Result<Self, Self::Error> {
+    fn try_from(value: PreferenceUpdate) -> Result<Self, Self::Error> {
         match value {
-            UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
-                Ok(FfiPreferenceUpdate::HMAC { key, cycled_at_ns })
-            }
+            PreferenceUpdate::Hmac { key, .. } => Ok(FfiPreferenceUpdate::HMAC { key }),
             // These are filtered out in the stream and should not be here
             // We're keeping preference update and consent streams separate right now.
-            UserPreferenceUpdate::Consent(_) => Err(GenericError::Generic {
+            PreferenceUpdate::Consent(_) => Err(GenericError::Generic {
                 err: "Consent updates should be filtered out.".to_string(),
             }),
         }
@@ -2301,10 +2299,7 @@ impl FfiConversation {
 #[uniffi::export]
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
-        match self.inner.client.stitched_group(&self.inner.group_id) {
-            Ok(group) => group.group_id.clone(),
-            Err(_) => self.inner.group_id.clone(),
-        }
+        self.inner.group_id.clone()
     }
 }
 
@@ -2739,7 +2734,7 @@ pub trait FfiPreferenceCallback: Send + Sync {
 
 #[derive(uniffi::Enum, Debug)]
 pub enum FfiPreferenceUpdate {
-    HMAC { key: Vec<u8>, cycled_at_ns: i64 },
+    HMAC { key: Vec<u8> },
 }
 
 #[derive(uniffi::Object)]
@@ -3453,7 +3448,7 @@ mod tests {
             .unwrap();
         let challenge = sig_request.signature_text().await.unwrap();
         let UnverifiedSignature::Passkey(sig) = passkey.sign(&challenge).unwrap() else {
-            unreachable!()
+            unreachable!("Should always be a passkey.")
         };
         sig_request
             .add_passkey_signature(FfiPasskeySignature {
@@ -7744,10 +7739,10 @@ mod tests {
             convo_bo_2.id(),
             "Conversations should match"
         );
-        assert_eq!(
+        assert_ne!(
             convo_alix.id(),
             convo_bo.id(),
-            "Conversations should get updated to match"
+            "Conversations id should not match dms should be matched on peerInboxId"
         );
         assert_eq!(convo_alix.id(), topic_bo_same.id(), "Topics should match");
         assert_eq!(convo_alix.id(), topic_alix_same.id(), "Topics should match");

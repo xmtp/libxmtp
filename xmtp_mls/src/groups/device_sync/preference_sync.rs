@@ -7,13 +7,13 @@ use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
-    device_sync_content::Content as ContentProto, user_preference_update::Update as UpdateProto,
-    PreferenceUpdates, UserPreferenceUpdate as UserPreferenceUpdateProto,
+    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
+    PreferenceUpdate as PreferenceUpdateProto, PreferenceUpdates,
 };
 use xmtp_proto::ConversionError;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum UserPreferenceUpdate {
+pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
@@ -26,7 +26,7 @@ where
     pub(crate) async fn sync_preferences(
         &self,
         provider: &XmtpOpenMlsProvider,
-        updates: Vec<UserPreferenceUpdate>,
+        updates: Vec<PreferenceUpdate>,
     ) -> Result<(), ClientError> {
         self.send_device_sync_message(
             provider,
@@ -38,10 +38,8 @@ where
 
         if let Some(handle) = self.worker_handle() {
             updates.iter().for_each(|update| match update {
-                UserPreferenceUpdate::Consent(_) => {
-                    handle.increment_metric(SyncMetric::ConsentSent)
-                }
-                UserPreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),
+                PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::ConsentSent),
+                PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),
             });
         }
 
@@ -60,7 +58,7 @@ where
 
         self.sync_preferences(
             provider,
-            vec![UserPreferenceUpdate::Hmac {
+            vec![PreferenceUpdate::Hmac {
                 key: HmacKey::random_key(),
                 cycled_at_ns: now_ns(),
             }],
@@ -72,10 +70,10 @@ where
 }
 
 pub(super) fn store_preference_updates(
-    updates: Vec<UserPreferenceUpdateProto>,
+    updates: Vec<PreferenceUpdateProto>,
     provider: &XmtpOpenMlsProvider,
     handle: &WorkerHandle<SyncMetric>,
-) -> Result<Vec<UserPreferenceUpdate>, StorageError> {
+) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];
     for update in updates.into_iter().filter_map(|u| u.update) {
         match update {
@@ -91,7 +89,7 @@ pub(super) fn store_preference_updates(
                     .insert_newer_consent_record(consent_record.clone())?;
 
                 if updated {
-                    changed.push(UserPreferenceUpdate::Consent(consent_record));
+                    changed.push(PreferenceUpdate::Consent(consent_record));
                 }
 
                 handle.increment_metric(SyncMetric::ConsentReceived);
@@ -103,7 +101,7 @@ pub(super) fn store_preference_updates(
                     &key,
                     Some(cycled_at_ns),
                 )?;
-                changed.push(UserPreferenceUpdate::Hmac { key, cycled_at_ns });
+                changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
         }
@@ -112,16 +110,16 @@ pub(super) fn store_preference_updates(
     Ok(changed)
 }
 
-impl TryFrom<UserPreferenceUpdateProto> for UserPreferenceUpdate {
+impl TryFrom<PreferenceUpdateProto> for PreferenceUpdate {
     type Error = ConversionError;
-    fn try_from(update: UserPreferenceUpdateProto) -> Result<Self, Self::Error> {
+    fn try_from(update: PreferenceUpdateProto) -> Result<Self, Self::Error> {
         let Some(update) = update.update else {
             return Err(ConversionError::Unspecified("update"));
         };
         update.try_into()
     }
 }
-impl TryFrom<UpdateProto> for UserPreferenceUpdate {
+impl TryFrom<UpdateProto> for PreferenceUpdate {
     type Error = ConversionError;
     fn try_from(update: UpdateProto) -> Result<Self, Self::Error> {
         let update = match update {
@@ -134,12 +132,12 @@ impl TryFrom<UpdateProto> for UserPreferenceUpdate {
     }
 }
 
-impl From<UserPreferenceUpdate> for UserPreferenceUpdateProto {
-    fn from(update: UserPreferenceUpdate) -> Self {
-        UserPreferenceUpdateProto {
+impl From<PreferenceUpdate> for PreferenceUpdateProto {
+    fn from(update: PreferenceUpdate) -> Self {
+        PreferenceUpdateProto {
             update: Some(match update {
-                UserPreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
-                UserPreferenceUpdate::Hmac { key, cycled_at_ns } => {
+                PreferenceUpdate::Consent(consent) => UpdateProto::Consent(consent.into()),
+                PreferenceUpdate::Hmac { key, cycled_at_ns } => {
                     UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns })
                 }
             }),

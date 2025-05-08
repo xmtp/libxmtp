@@ -1,6 +1,6 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
-    preference_sync::{store_preference_updates, UserPreferenceUpdate},
+    preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
 };
 use crate::{
@@ -32,18 +32,14 @@ use xmtp_db::{
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
-    xmtp::{
-        device_sync::{
-            content::{
-                device_sync_content::Content as ContentProto, DeviceSyncAcknowledge,
-                PreferenceUpdates as PreferenceUpdatesProto,
-            },
-            BackupElementSelection, BackupOptions,
-        },
-        mls::message_contents::{
-            device_sync_key_type::Key, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
+    xmtp::device_sync::{
+        content::{
+            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
+            DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
+            PreferenceUpdates as PreferenceUpdatesProto,
         },
+        BackupElementSelection, BackupOptions,
     },
     ConversionError,
 };
@@ -221,7 +217,7 @@ where
 
     async fn evt_sync_preferences(
         &self,
-        updates: Vec<UserPreferenceUpdate>,
+        updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
         let provider = self.client.mls_provider()?;
         self.client.sync_preferences(&provider, updates).await?;
