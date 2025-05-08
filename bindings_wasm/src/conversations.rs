@@ -122,7 +122,7 @@ impl ListConversationsOptions {
     conversation_type: Option<ConversationType>,
     created_after_ns: Option<i64>,
     created_before_ns: Option<i64>,
-    include_duplicate_dms: bool,
+    include_duplicate_dms: Option<bool>,
     limit: Option<i64>,
   ) -> Self {
     Self {
