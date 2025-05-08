@@ -470,6 +470,16 @@ impl DbConnection {
                     )));
                 } else {
                     tracing::info!("Group already exists");
+                    // If the welcome id is greater than the existing group welcome, update the welcome id
+                    // on the existing group
+                    if group.welcome_id.is_some()
+                        && (existing_group.welcome_id.is_none()
+                            || group.welcome_id > existing_group.welcome_id)
+                    {
+                        diesel::update(dsl::groups.find(&group.id))
+                            .set(dsl::welcome_id.eq(group.welcome_id))
+                            .execute(conn)?;
+                    }
                     return Ok(existing_group);
                 }
             } else {

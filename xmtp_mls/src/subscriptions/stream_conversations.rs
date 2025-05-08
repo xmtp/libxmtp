@@ -695,6 +695,42 @@ mod test {
     #[rstest::rstest]
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_add_remove_re_add() {
+        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo_provider = bo.mls_provider().unwrap();
+
+        let alix_group = alix
+            .create_group_with_inbox_ids(
+                &[bo.inbox_id().to_string()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        alix_group
+            .remove_members_by_inbox_id(&[bo.inbox_id()])
+            .await
+            .unwrap();
+        bo.sync_welcomes(&bo_provider).await.unwrap();
+        let stream = bo
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+        alix_group
+            .add_members_by_inbox_id(&[bo.inbox_id().to_string()])
+            .await
+            .unwrap();
+
+        let group = stream.next().await.unwrap();
+        assert!(group.is_ok());
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_duplicate_dm_not_streamed() {
         use xmtp_cryptography::utils::generate_local_wallet;
 
