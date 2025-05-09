@@ -24,6 +24,7 @@ tracing.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 xmtp_common.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }

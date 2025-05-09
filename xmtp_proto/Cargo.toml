@@ -21,6 +21,7 @@ thiserror.workspace = true
 tonic = { workspace = true, default-features = false }
 tracing.workspace = true
 xmtp_common.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 openmls = { workspace = true }

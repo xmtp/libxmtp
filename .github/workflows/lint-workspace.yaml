@@ -13,6 +13,7 @@ on:
       - "xmtp_id/**"
       - "xmtp_mls/**"
       - "xmtp_db/**"
+      - "xmtp_db_test/**"
       - "xmtp_api/**"
       - "xmtp_api_d14n/**"
       - "xmtp_content_types/**"
@@ -49,3 +50,7 @@ jobs:
         run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings
       - name: Run format check
         run: cargo fmt --check
+      - name: validate workspace hack
+        run: |
+          cargo hakari generate --diff  # workspace-hack Cargo.toml is up-to-date
+          cargo hakari manage-deps --dry-run  # all workspace crates depend on workspace-hack

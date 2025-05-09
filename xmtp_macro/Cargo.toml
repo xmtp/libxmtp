@@ -13,6 +13,7 @@ syn = { version = "2.0", default-features = false, features = [
   "derive",
   "printing",
 ] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [lib]
 proc-macro = true

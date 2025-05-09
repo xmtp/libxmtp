@@ -36,3 +36,6 @@ wasm-bindgen-test.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 chrono = { workspace = true }
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

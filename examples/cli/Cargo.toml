@@ -46,3 +46,4 @@ xmtp_db = { path = "../../xmtp_db" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full"] }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

@@ -37,6 +37,7 @@ xmtp_common.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
