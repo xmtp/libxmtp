@@ -38,6 +38,13 @@ pub async fn init_sqlite() {}
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
+
+    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn _setup() {
+        xmtp_common::logger();
+    }
+
     use super::*;
     use diesel::{RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow, sql_query};
     impl DbConnection {
@@ -105,7 +112,7 @@ pub mod test_util {
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -121,7 +128,7 @@ pub mod test_util {
                     ))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -135,7 +142,7 @@ pub mod test_util {
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )
@@ -149,7 +156,7 @@ pub mod test_util {
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();
                 let row = row.next().unwrap().unwrap();
-                Ok::<_, StorageError>(
+                Ok(
                     <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)
                         .unwrap(),
                 )

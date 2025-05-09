@@ -41,14 +41,12 @@ pub enum StorageError {
     MissingRequired(#[from] MissingRequired),
     #[error("required fields missing from stored db type {0}")]
     Builder(#[from] derive_builder::UninitializedFieldError),
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
-    Native(#[from] crate::database::native::NativeStorageError),
-    #[cfg(target_arch = "wasm32")]
-    #[cfg_attr(target_arch = "wasm32", error(transparent))]
-    Wasm(#[from] crate::database::wasm::WasmStorageError),
+    #[error(transparent)]
+    Platform(#[from] crate::database::PlatformStorageError),
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Connection(#[from] crate::ConnectionError),
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -69,7 +67,7 @@ impl StorageError {
     pub fn db_needs_connection(&self) -> bool {
         matches!(
             self,
-            Self::Native(crate::database::native::NativeStorageError::PoolNeedsConnection)
+            Self::Platform(crate::database::native::PlatformStorageError::PoolNeedsConnection)
         )
     }
 }
@@ -154,11 +152,20 @@ impl RetryableError for StorageError {
             Self::Duplicate(d) => retryable!(d),
             Self::Io(_) => true,
             Self::OpenMlsStorage(storage) => retryable!(storage),
-            #[cfg(not(target_arch = "wasm32"))]
-            Self::Native(_) => true,
-            #[cfg(target_arch = "wasm32")]
-            Self::Wasm(_) => true,
-            _ => false,
+            Self::Platform(p) => retryable!(p),
+            Self::Connection(e) => retryable!(e),
+            Self::MigrationError(_)
+                | Self::Conversion(_)
+                | Self::NotFound(_)
+                | Self::FromHex(_)
+                | Self::Generic(_) // TODO Audit generic errors and turn into variants
+                | Self::IntentionalRollback
+                | Self::DbDeserialize
+                | Self::DbSerialize
+                | Self::MissingRequired(_)
+                | Self::Builder(_)
+                | Self::Prost(_)
+            => false
         }
     }
 }

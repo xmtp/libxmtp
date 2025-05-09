@@ -105,6 +105,8 @@ pub enum DeviceSyncError {
     MissingSyncServerUrl,
     #[error("Missing sync group")]
     MissingSyncGroup,
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
 }

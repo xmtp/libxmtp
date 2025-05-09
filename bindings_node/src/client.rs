@@ -305,11 +305,7 @@ impl Client {
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>> {
-    let conn = self
-      .inner_client()
-      .store()
-      .conn()
-      .map_err(ErrorWrapper::from)?;
+    let conn = self.inner_client().store().db();
 
     let inbox_id = self
       .inner_client
