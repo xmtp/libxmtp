@@ -6,7 +6,7 @@ use super::{
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
-use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store};
+use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::{
     backend::Backend,
@@ -81,6 +81,7 @@ pub struct StoredGroup {
 // TODO: Create two more structs that delegate to StoredGroup
 impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
+impl_store_or_ignore!(StoredGroup, groups);
 
 impl StoredGroupBuilder {
     fn default_conversation_type(&self) -> ConversationType {
@@ -142,7 +143,7 @@ impl DbConnection {
     pub fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
-    ) -> Result<Vec<StoredGroup>, StorageError> {
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         use crate::schema::consent_records::dsl as consent_dsl;
         let GroupQueryArgs {
             allowed_states,
@@ -269,7 +270,7 @@ impl DbConnection {
         &self,
         args: A,
         offset: i64,
-    ) -> Result<Vec<StoredGroup>, StorageError> {
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let GroupQueryArgs {
             created_after_ns,
             created_before_ns,
@@ -291,7 +292,7 @@ impl DbConnection {
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroup>(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredGroup>(conn))
     }
 
     /// Updates group membership state
@@ -299,7 +300,7 @@ impl DbConnection {
         &self,
         group_id: GroupId,
         state: GroupMembershipState,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
@@ -309,32 +310,35 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
+    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        Ok(self.raw_query_read(|conn| query.load(conn))?)
+        self.raw_query_read(|conn| query.load(conn))
     }
 
-    pub fn find_sync_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn find_sync_group(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
 
-        Ok(self.raw_query_read(|conn| query.first(conn).optional())?)
+        self.raw_query_read(|conn| query.first(conn).optional())
     }
 
-    pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
-        Ok(self.raw_query_read(|conn| query.first(conn).optional())?)
+        self.raw_query_read(|conn| query.first(conn).optional())
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, StorageError> {
+    pub fn find_group(&self, id: &[u8]) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .limit(1)
@@ -348,7 +352,7 @@ impl DbConnection {
     pub fn find_group_by_welcome_id(
         &self,
         welcome_id: i64,
-    ) -> Result<Option<StoredGroup>, StorageError> {
+    ) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.asc())
             .filter(dsl::welcome_id.eq(welcome_id));
@@ -366,12 +370,11 @@ impl DbConnection {
 
     pub fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query_read(|conn| {
-            let ts = dsl::groups
+            dsl::groups
                 .find(&group_id)
                 .select(dsl::rotated_at_ns)
                 .first(conn)
-                .optional()?;
-            Ok::<Option<i64>, StorageError>(ts)
+                .optional()
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
@@ -393,12 +396,11 @@ impl DbConnection {
 
     pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts = self.raw_query_read(|conn| {
-            let ts = dsl::groups
+            dsl::groups
                 .find(&group_id)
                 .select(dsl::installations_last_checked)
                 .first(conn)
-                .optional()?;
-            Ok::<_, StorageError>(ts)
+                .optional()
         })?;
 
         last_ts.ok_or(NotFound::InstallationTimeForGroup(group_id).into())
@@ -446,71 +448,67 @@ impl DbConnection {
 
     pub fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         tracing::info!("Trying to insert group");
-        let stored_group = self.raw_query_write(|conn| {
-            let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
+        let maybe_inserted_group: Option<StoredGroup> = self.raw_query_write(|conn| {
+            diesel::insert_into(dsl::groups)
                 .values(&group)
                 .on_conflict_do_nothing()
                 .get_result(conn)
-                .optional()?;
-
-            if maybe_inserted_group.is_none() {
-                let existing_group: StoredGroup = dsl::groups.find(&group.id).first(conn)?;
-
-                // A restored group should be overwritten
-                if matches!(
-                    existing_group.membership_state,
-                    GroupMembershipState::Restored
-                ) {
-                    diesel::update(dsl::groups.find(&group.id))
-                        .set(&group)
-                        .execute(conn)?;
-                }
-
-                if existing_group.welcome_id == group.welcome_id {
-                    tracing::info!("Group welcome id already exists");
-                    // Error so OpenMLS db transaction are rolled back on duplicate welcomes
-                    return Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
-                        existing_group.welcome_id,
-                    )));
-                } else {
-                    tracing::info!("Group already exists");
-                    // If the welcome id is greater than the existing group welcome, update the welcome id
-                    // on the existing group
-                    if group.welcome_id.is_some()
-                        && (existing_group.welcome_id.is_none()
-                            || group.welcome_id > existing_group.welcome_id)
-                    {
-                        diesel::update(dsl::groups.find(&group.id))
-                            .set(dsl::welcome_id.eq(group.welcome_id))
-                            .execute(conn)?;
-                    }
-                    return Ok(existing_group);
-                }
-            } else {
-                tracing::info!("Group is inserted");
-            }
-
-            match maybe_inserted_group {
-                Some(group) => Ok(group),
-                None => Ok(dsl::groups.find(group.id).first(conn)?),
-            }
+                .optional()
         })?;
 
-        Ok(stored_group)
+        if maybe_inserted_group.is_none() {
+            let existing_group: StoredGroup =
+                self.raw_query_read(|conn| dsl::groups.find(&group.id).first(conn))?;
+            // A restored group should be overwritten
+            if matches!(
+                existing_group.membership_state,
+                GroupMembershipState::Restored
+            ) {
+                self.raw_query_write(|conn| {
+                    diesel::update(dsl::groups.find(&group.id))
+                        .set(&group)
+                        .execute(conn)
+                })?;
+            }
+
+            if existing_group.welcome_id == group.welcome_id {
+                tracing::info!("Group welcome id already exists");
+                // Error so OpenMLS db transaction are rolled back on duplicate welcomes
+                Err(StorageError::Duplicate(DuplicateItem::WelcomeId(
+                    existing_group.welcome_id,
+                )))
+            } else {
+                tracing::info!("Group already exists");
+                // If the welcome id is greater than the existing group welcome, update the welcome id
+                // on the existing group
+                if group.welcome_id.is_some()
+                    && (existing_group.welcome_id.is_none()
+                        || group.welcome_id > existing_group.welcome_id)
+                {
+                    self.raw_query_write(|c| {
+                        diesel::update(dsl::groups.find(&group.id))
+                            .set(dsl::welcome_id.eq(group.welcome_id))
+                            .execute(c)
+                    })?;
+                }
+                Ok(existing_group)
+            }
+        } else {
+            tracing::info!("Group is inserted");
+            Ok(self.raw_query_read(|c| dsl::groups.find(group.id).first(c))?)
+        }
     }
 
     /// Get all the welcome ids turned into groups
-    pub fn group_welcome_ids(&self) -> Result<Vec<i64>, StorageError> {
+    pub fn group_welcome_ids(&self) -> Result<Vec<i64>, crate::ConnectionError> {
         self.raw_query_read(|conn| {
-            Ok::<_, StorageError>(
-                dsl::groups
-                    .filter(dsl::welcome_id.is_not_null())
-                    .select(dsl::welcome_id)
-                    .load::<Option<i64>>(conn)?
-                    .into_iter()
-                    .map(|id| id.expect("SQL explicity filters for none"))
-                    .collect(),
-            )
+            Ok(dsl::groups
+                .filter(dsl::welcome_id.is_not_null())
+                .select(dsl::welcome_id)
+                .load::<Option<i64>>(conn)?
+                .into_iter()
+                .map(|id| id.expect("SQL explicity filters for none"))
+                .collect())
         })
     }
 
@@ -531,17 +529,19 @@ impl DbConnection {
         Ok(())
     }
 
-    pub fn clear_fork_flag_for_group(&self, group_id: &Vec<u8>) -> Result<(), StorageError> {
+    pub fn clear_fork_flag_for_group(
+        &self,
+        group_id: &Vec<u8>,
+    ) -> Result<(), crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::groups.find(&group_id))
                 .set((dsl::maybe_forked.eq(false), dsl::fork_details.eq("")))
                 .execute(conn)
         })?;
-
         Ok(())
     }
 
-    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, StorageError> {
+    pub fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError> {
         self.raw_query_read(|conn| {
             let dm_id: Option<String> = dsl::groups
                 .filter(dsl::id.eq(group_id))

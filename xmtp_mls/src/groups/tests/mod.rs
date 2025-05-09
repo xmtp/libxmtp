@@ -144,7 +144,7 @@ async fn test_receive_self_message() {
     group.send_message(msg).await.expect("send message");
 
     group
-        .receive(&client.store().conn().unwrap().into())
+        .receive(&client.mls_provider().unwrap())
         .await
         .unwrap();
     // Check for messages
@@ -277,13 +277,13 @@ async fn test_add_member_conflict() {
         .expect("bola's add should succeed in a no-op");
 
     let summary = amal_group
-        .receive(&amal.store().conn().unwrap().into())
+        .receive(&amal.mls_provider().unwrap())
         .await
         .unwrap();
     assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
-    let amal_db = XmtpOpenMlsProvider::from(amal.context.store().conn().unwrap());
+    let amal_db = XmtpOpenMlsProvider::from(amal.context.db());
     let amal_members_len = amal_group
         .load_mls_group_with_lock(&amal_db, |mls_group| Ok(mls_group.members().count()))
         .unwrap();
@@ -291,7 +291,7 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_members_len, 3);
 
     // Check Bola's MLS group state.
-    let bola_db = XmtpOpenMlsProvider::from(bola.context.store().conn().unwrap());
+    let bola_db = XmtpOpenMlsProvider::from(bola.context.db());
     let bola_members_len = bola_group
         .load_mls_group_with_lock(&bola_db, |mls_group| Ok(mls_group.members().count()))
         .unwrap();
@@ -1130,7 +1130,7 @@ async fn test_key_update() {
         .unwrap();
     assert_eq!(messages.len(), 2);
 
-    let provider: XmtpOpenMlsProvider = client.context.store().conn().unwrap().into();
+    let provider: XmtpOpenMlsProvider = client.context.db().into();
     let pending_commit_is_none = group
         .load_mls_group_with_lock(&provider, |mls_group| {
             Ok(mls_group.pending_commit().is_none())
@@ -1305,7 +1305,7 @@ async fn test_add_missing_installations() {
 
     assert_eq!(group.members().await.unwrap().len(), 2);
 
-    let provider: XmtpOpenMlsProvider = amal.context.store().conn().unwrap().into();
+    let provider: XmtpOpenMlsProvider = amal.mls_provider().unwrap();
     // Finished with setup
 
     // add a second installation for amal using the same wallet
@@ -2547,18 +2547,17 @@ async fn process_messages_abort_on_retryable_error() {
     // Get the group messages before we lock the DB, simulating an error that happens
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
-        .query_group_messages(&bo_group.group_id, &bo.store().conn().unwrap())
+        .query_group_messages(&bo_group.group_id, &bo.context().db())
         .await
         .unwrap();
 
-    let conn_1: XmtpOpenMlsProvider = bo.store().conn().unwrap().into();
-    let conn_2 = bo.store().conn().unwrap();
-    conn_2
-        .raw_query_write(|c| {
-            c.batch_execute("BEGIN EXCLUSIVE").unwrap();
-            Ok::<_, diesel::result::Error>(())
-        })
-        .unwrap();
+    let conn_1: XmtpOpenMlsProvider = bo.store().db().into();
+    let db = bo.store().db();
+    db.raw_query_write(|c| {
+        c.batch_execute("BEGIN EXCLUSIVE").unwrap();
+        Ok::<_, diesel::result::Error>(())
+    })
+    .unwrap();
 
     let process_result = bo_group.process_messages(bo_messages, &conn_1).await;
     assert!(process_result.is_errored());
@@ -2594,7 +2593,7 @@ async fn skip_already_processed_messages() {
     let bo_group = bo_groups.first().unwrap();
 
     let mut bo_messages_from_api = bo_client
-        .query_group_messages(&bo_group.group_id, &bo_client.store().conn().unwrap())
+        .query_group_messages(&bo_group.group_id, &bo_client.store().db())
         .await
         .unwrap();
 

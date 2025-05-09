@@ -221,6 +221,8 @@ pub enum IdentityError {
     ApiClient(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
 }
 
 impl RetryableError for IdentityError {
@@ -451,7 +453,7 @@ impl Identity {
         &self.inbox_id
     }
 
-    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+    pub fn sequence_id(&self, conn: &DbConnection) -> Result<i64, xmtp_db::ConnectionError> {
         conn.get_latest_sequence_id_for_inbox(self.inbox_id.as_str())
     }
 
@@ -496,7 +498,7 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) fn new_key_package(
         &self,
-        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
+        provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::DefaultConnection>>,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let key_package_extensions = Extensions::single(last_resort);
@@ -561,7 +563,7 @@ impl Identity {
 
         self.rotate_and_upload_key_package(provider, api_client)
             .await?;
-        Ok(StoredIdentity::try_from(self)?.store(provider.conn_ref())?)
+        Ok(StoredIdentity::try_from(self)?.store(&provider.conn_ref())?)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
@@ -620,7 +622,7 @@ impl Identity {
 
 pub(crate) fn serialize_key_package_hash_ref(
     kp: &KeyPackage,
-    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore<xmtp_db::RawDbConnection>>,
+    provider: &impl OpenMlsProvider<StorageProvider = SqlKeyStore>,
 ) -> Result<Vec<u8>, IdentityError> {
     let key_package_hash_ref = kp
         .hash_ref(provider.crypto())

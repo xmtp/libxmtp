@@ -31,7 +31,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-use crate::{StorageError, impl_fetch, impl_store, impl_store_or_ignore};
+use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 mod convert;
 
 #[derive(
@@ -268,7 +268,7 @@ impl DbConnection {
         &self,
         group_id: &[u8],
         args: &MsgQueryArgs,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         // Get all messages that have a group with an id equal the provided id,
         // or a dm_id equal to the dm_id that belongs to the loaded group with the provided id.
         let mut query = dsl::group_messages
@@ -317,14 +317,14 @@ impl DbConnection {
             query = query.limit(limit);
         }
 
-        Ok(self.raw_query_read(|conn| query.load(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     pub fn group_messages_paged(
         &self,
         args: &MsgQueryArgs,
         offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         let MsgQueryArgs {
             sent_after_ns,
             sent_before_ns,
@@ -348,7 +348,7 @@ impl DbConnection {
         }
 
         query = query.limit(limit.unwrap_or(100)).offset(offset);
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
     }
 
     /// Query for group messages with their reactions
@@ -356,7 +356,7 @@ impl DbConnection {
         &self,
         group_id: &[u8],
         args: &MsgQueryArgs,
-    ) -> Result<Vec<StoredGroupMessageWithReactions>, StorageError> {
+    ) -> Result<Vec<StoredGroupMessageWithReactions>, crate::ConnectionError> {
         // First get all the main messages
         let mut modified_args = args.clone();
         // filter out reactions from the main query so we don't get them twice
@@ -433,62 +433,62 @@ impl DbConnection {
     pub fn get_group_message<MessageId: AsRef<[u8]>>(
         &self,
         id: MessageId,
-    ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read(|conn| {
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first(conn)
                 .optional()
-        })?)
+        })
     }
 
     /// Get a particular group message using the write connection
     pub fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
         &self,
         id: MessageId,
-    ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
                 .first(conn)
                 .optional()
-        })?)
+        })
     }
 
     pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
         &self,
         group_id: GroupId,
         timestamp: i64,
-    ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        Ok(self.raw_query_read(|conn| {
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        self.raw_query_read(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(timestamp))
                 .first(conn)
                 .optional()
-        })?)
+        })
     }
 
     pub fn get_sync_group_messages(
         &self,
         group_id: &[u8],
         offset: i64,
-    ) -> Result<Vec<StoredGroupMessage>, StorageError> {
+    ) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
         let query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
             .order(dsl::sent_at_ns.asc())
             .offset(offset);
 
         // Using write connection here to avoid potential race-conditions
-        Ok(self.raw_query_write(|conn| query.load(conn))?)
+        self.raw_query_write(|conn| query.load(conn))
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
         timestamp: u64,
-    ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -496,23 +496,23 @@ impl DbConnection {
                     dsl::sent_at_ns.eq(timestamp as i64),
                 ))
                 .execute(conn)
-        })?)
+        })
     }
 
     pub fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
-    ) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
                 .execute(conn)
-        })?)
+        })
     }
 
-    pub fn delete_expired_messages(&self) -> Result<usize, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+    pub fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             use diesel::prelude::*;
             let disappear_from_ns = groups_dsl::message_disappear_from_ns
                 .assume_not_null()
@@ -554,6 +554,6 @@ impl DbConnection {
             // Then delete the rows by their IDs
             diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
                 .execute(conn)
-        })?)
+        })
     }
 }

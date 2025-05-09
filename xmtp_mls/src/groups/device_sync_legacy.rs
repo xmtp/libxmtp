@@ -369,7 +369,7 @@ where
                     conn.insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {
-                    if let Err(err) = group_message.store(conn) {
+                    if let Err(err) = group_message.store(&conn) {
                         match err {
                             // this is fine because we are inserting messages that already exist
                             StorageError::DieselResult(

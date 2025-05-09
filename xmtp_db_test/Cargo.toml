@@ -1,0 +1,13 @@
+[package]
+name = "xmtp_db_test"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+derive_builder.workspace = true
+diesel.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_db = { workspace = true, features = ["test-utils"] }

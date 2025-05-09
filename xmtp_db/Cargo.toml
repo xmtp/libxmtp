@@ -13,6 +13,7 @@ required-features = ["update-schema"]
 
 [dependencies]
 bincode.workspace = true
+ctor.workspace = true
 derive_builder.workspace = true
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
@@ -84,5 +85,5 @@ tokio = { workspace = true, features = [
 wasm-bindgen-test.workspace = true
 
 [features]
-test-utils = []
-update-schema = ["dep:toml", "dep:anyhow", "dep:tokio"]
+update-schema = ["dep:toml", "dep:anyhow"]
+test-utils = ["xmtp_common/test-utils"]
