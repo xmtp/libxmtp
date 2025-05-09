@@ -1,5 +1,5 @@
 use crate::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use std::fmt;
+use std::{fmt, marker::PhantomData};
 
 use super::{ConnectionError, ConnectionExt, TransactionGuard};
 
@@ -11,17 +11,21 @@ use super::{ConnectionError, ConnectionExt, TransactionGuard};
 // Do not derive clone here.
 // callers should be able to accomplish everything with one conn/reference.
 #[doc(hidden)]
-pub struct DbConnection<C = crate::DefaultConnection> {
+pub struct DbConnection<C = crate::DefaultConnection, E = ConnectionError> {
     conn: C,
+    _phantom: PhantomData<E>,
 }
 
 impl<C> DbConnection<C> {
     pub(crate) fn new(conn: C) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<C> DbConnection<C>
+impl<C, E> DbConnection<C, E>
 where
     C: ConnectionExt,
 {
@@ -29,7 +33,7 @@ where
         <Self as ConnectionExt>::start_transaction(self)
     }
 
-    pub fn raw_query_read<T, E, F>(&self, fun: F) -> Result<T, E>
+    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
         E: From<ConnectionError>,
@@ -37,7 +41,7 @@ where
         <Self as ConnectionExt>::raw_query_read::<_, _, E>(self, fun)
     }
 
-    pub fn raw_query_write<T, E, F>(&self, fun: F) -> Result<T, E>
+    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
         E: From<ConnectionError>,
@@ -46,7 +50,7 @@ where
     }
 }
 
-impl<C> ConnectionExt for DbConnection<C>
+impl<C, Err> ConnectionExt for DbConnection<C, Err>
 where
     C: ConnectionExt,
 {
@@ -62,7 +66,7 @@ where
         E: From<super::ConnectionError>,
         Self: Sized,
     {
-        self.conn.raw_query_read(fun)
+        Ok(self.conn.raw_query_read(fun)?)
     }
 
     fn raw_query_write<T, F, E>(&self, fun: F) -> Result<T, E>

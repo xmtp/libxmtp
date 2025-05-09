@@ -21,7 +21,7 @@ pub struct StoredUserPreferences {
 impl Store<DbConnection> for StoredUserPreferences {
     type Output = ();
     fn store(&self, conn: &DbConnection) -> Result<Self::Output, StorageError> {
-        conn.raw_query_write::<_, StorageError, _>(|conn| {
+        conn.raw_query_write(|conn| {
             diesel::update(dsl::user_preferences)
                 .set(self)
                 .execute(conn)
@@ -46,14 +46,12 @@ impl HmacKey {
 
 impl StoredUserPreferences {
     pub fn load(conn: &DbConnection) -> Result<Self, StorageError> {
-        let pref = conn.raw_query_read::<_, StorageError, _>(|conn| {
-            dsl::user_preferences.first(conn).optional()
-        })?;
+        let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
         Ok(pref.unwrap_or_default())
     }
 
     fn store(&self, conn: &DbConnection) -> Result<(), StorageError> {
-        conn.raw_query_write::<_, StorageError, _>(|conn| {
+        conn.raw_query_write(|conn| {
             insert_into(dsl::user_preferences)
                 .values(self)
                 .on_conflict(user_preferences::id)
@@ -120,9 +118,7 @@ mod tests {
             // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());
             let result = conn
-                .raw_query_read::<_, StorageError, _>(|conn| {
-                    query.load::<StoredUserPreferences>(conn)
-                })
+                .raw_query_read(|conn| query.load::<StoredUserPreferences>(conn))
                 .unwrap();
             assert_eq!(result.len(), 1);
         })

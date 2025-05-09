@@ -39,33 +39,29 @@ impl DbConnection {
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
-        let result = self.raw_query_read::<_, StorageError, _>(|conn| {
+        Ok(self.raw_query_read(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::key_package_hash_ref.eq(hash_ref))
                 .first::<StoredKeyPackageHistoryEntry>(conn)
-        })?;
-
-        Ok(result)
+        })?)
     }
 
     pub fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
-        let result = self.raw_query_read::<_, StorageError, _>(|conn| {
+        Ok(self.raw_query_read(|conn| {
             key_package_history::dsl::key_package_history
                 .filter(key_package_history::dsl::id.lt(id))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
-        })?;
-
-        Ok(result)
+        })?)
     }
 
     pub fn delete_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.lt(id)),
@@ -77,7 +73,7 @@ impl DbConnection {
     }
 
     pub fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
+        self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
                     .filter(key_package_history::dsl::id.eq(id)),

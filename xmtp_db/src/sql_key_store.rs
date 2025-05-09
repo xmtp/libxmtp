@@ -227,14 +227,12 @@ where
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self
-            .conn_ref()
-            .raw_query_write::<_, SqlKeyStoreError, _>(|conn| {
-                sql_query(DELETE_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .execute(conn)
-            })?;
+        let _ = self.conn_ref().raw_query_write(|conn| {
+            sql_query(DELETE_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .execute(conn)
+        })?;
         Ok(())
     }
 }
@@ -818,14 +816,12 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> =
-            self.conn_ref()
-                .raw_query_read::<_, SqlKeyStoreError, _>(|conn| {
-                    sql_query(query)
-                        .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                        .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                        .load(conn)
-                })?;
+        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                .load(conn)
+        })?;
 
         if let Some(entry) = data.into_iter().next() {
             match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {

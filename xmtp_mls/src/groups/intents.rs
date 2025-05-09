@@ -40,7 +40,7 @@ use xmtp_common::types::Address;
 use xmtp_db::{
     db_connection::DbConnection,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    ProviderTransactions,
+    ProviderTransactions, StorageError,
 };
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -78,12 +78,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_data: Vec<u8>,
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
-        let res = provider.transaction(|provider| {
+        provider.transaction(|provider| {
             let conn = provider.conn_ref();
             self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
-        });
-
-        res
+        })
     }
 
     fn queue_intent_with_conn(

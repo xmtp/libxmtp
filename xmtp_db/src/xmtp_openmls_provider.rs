@@ -1,4 +1,4 @@
-use crate::{ConnectionExt, DbConnection, StorageError};
+use crate::{ConnectionError, ConnectionExt, DbConnection, StorageError};
 use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
@@ -52,7 +52,7 @@ where
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<StorageError> + std::error::Error,
+        E: From<crate::StorageError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
@@ -65,7 +65,8 @@ where
                     <C::Connection as Connection>::TransactionManager::commit_transaction(
                         &mut *conn,
                     )
-                })?;
+                })
+                .map_err(StorageError::Connection)?;
                 tracing::debug!("Transaction being committed");
                 Ok(value)
             }
@@ -77,10 +78,10 @@ where
                     )
                 }) {
                     Ok(()) => Err(err),
-                    Err(StorageError::DieselResult(
+                    Err(ConnectionError::Database(
                         diesel::result::Error::BrokenTransactionManager,
                     )) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
+                    Err(rollback) => Err(StorageError::Connection(rollback).into()),
                 }
             }
         }

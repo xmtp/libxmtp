@@ -21,17 +21,13 @@ pub use errors::*;
 impl DbConnection {
     #[allow(unused)]
     pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
-            conn.batch_execute("PRAGMA query_only = ON;")
-        })?;
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
         Ok(())
     }
 
     #[allow(unused)]
     pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
-        self.raw_query_write::<_, StorageError, _>(|conn| {
-            conn.batch_execute("PRAGMA query_only = OFF;")
-        })?;
+        self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
 }
@@ -96,9 +92,7 @@ pub mod test_util {
 
             for query in queries {
                 let query = diesel::sql_query(query);
-                let _ = self
-                    .raw_query_write::<_, StorageError, _>(|conn| query.execute(conn))
-                    .unwrap();
+                let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
             }
         }
 
@@ -106,16 +100,12 @@ pub mod test_util {
         pub fn disable_memory_security(&self) {
             let query = r#"PRAGMA cipher_memory_security = OFF"#;
             let query = diesel::sql_query(query);
-            let _ = self
-                .raw_query_read::<_, StorageError, _>(|c| query.clone().execute(c))
-                .unwrap();
-            let _ = self
-                .raw_query_write::<_, StorageError, _>(|c| query.execute(c))
-                .unwrap();
+            let _ = self.raw_query_read(|c| query.clone().execute(c)).unwrap();
+            let _ = self.raw_query_write(|c| query.execute(c)).unwrap();
         }
 
         pub fn intents_published(&self) -> i32 {
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_published FROM test_metadata WHERE rowid = 1",
@@ -131,7 +121,7 @@ pub mod test_util {
         }
 
         pub fn intents_processed(&self) -> i32 {
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query(
                         "SELECT intents_processed FROM test_metadata WHERE rowid = 1",
@@ -147,7 +137,7 @@ pub mod test_util {
         }
 
         pub fn intents_deleted(&self) -> i32 {
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_deleted FROM test_metadata"))
                     .unwrap();
@@ -161,7 +151,7 @@ pub mod test_util {
         }
 
         pub fn intents_created(&self) -> i32 {
-            self.raw_query_read::<_, StorageError, _>(|conn| {
+            self.raw_query_read(|conn| {
                 let mut row = conn
                     .load(sql_query("SELECT intents_created FROM test_metadata"))
                     .unwrap();

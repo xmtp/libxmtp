@@ -89,19 +89,17 @@ impl DbConnection {
         entity: String,
         entity_type: ConsentType,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| -> diesel::QueryResult<_> {
+        Ok(self.raw_query_read(|conn| -> diesel::QueryResult<_> {
             dsl::consent_records
                 .filter(dsl::entity.eq(entity))
                 .filter(dsl::entity_type.eq(entity_type))
                 .first(conn)
                 .optional()
-        })
+        })?)
     }
 
     pub fn consent_records(&self) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
-            super::schema::consent_records::table.load(conn)
-        })
+        Ok(self.raw_query_read(|conn| super::schema::consent_records::table.load(conn))?)
     }
 
     pub fn consent_records_paged(
@@ -114,7 +112,7 @@ impl DbConnection {
             .limit(limit)
             .offset(offset);
 
-        self.raw_query_read::<_, StorageError, _>(|conn| query.load::<StoredConsentRecord>(conn))
+        Ok(self.raw_query_read(|conn| query.load::<StoredConsentRecord>(conn))?)
     }
 
     // returns true if newer
@@ -122,7 +120,7 @@ impl DbConnection {
         &self,
         record: StoredConsentRecord,
     ) -> Result<bool, StorageError> {
-        self.raw_query_write(|conn| {
+        let result = self.raw_query_write(|conn| {
             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
                 diesel::insert_into(dsl::consent_records)
                     .values(&record)
@@ -153,7 +151,8 @@ impl DbConnection {
             }
 
             Ok(true)
-        })
+        });
+        Ok(result?)
     }
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
@@ -176,29 +175,28 @@ impl DbConnection {
             );
         }
 
-        let changed =
-            self.raw_query_write::<_, StorageError, _>(|conn| -> diesel::QueryResult<_> {
-                let existing: Vec<StoredConsentRecord> = query.load(conn)?;
-                let changed: Vec<_> = records
-                    .iter()
-                    .filter(|r| !existing.contains(r))
-                    .cloned()
-                    .collect();
+        let changed = self.raw_query_write(|conn| -> diesel::QueryResult<_> {
+            let existing: Vec<StoredConsentRecord> = query.load(conn)?;
+            let changed: Vec<_> = records
+                .iter()
+                .filter(|r| !existing.contains(r))
+                .cloned()
+                .collect();
 
-                conn.transaction::<_, diesel::result::Error, _>(|conn| {
-                    for record in records.iter() {
-                        diesel::insert_into(dsl::consent_records)
-                            .values(record)
-                            .on_conflict((dsl::entity_type, dsl::entity))
-                            .do_update()
-                            .set(dsl::state.eq(excluded(dsl::state)))
-                            .execute(conn)?;
-                    }
-                    Ok(())
-                })?;
-
-                Ok(changed)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                for record in records.iter() {
+                    diesel::insert_into(dsl::consent_records)
+                        .values(record)
+                        .on_conflict((dsl::entity_type, dsl::entity))
+                        .do_update()
+                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .execute(conn)?;
+                }
+                Ok(())
             })?;
+
+            Ok(changed)
+        })?;
 
         Ok(changed)
     }
@@ -207,7 +205,7 @@ impl DbConnection {
         &self,
         record: &StoredConsentRecord,
     ) -> Result<Option<StoredConsentRecord>, StorageError> {
-        self.raw_query_write(|conn| {
+        let result = self.raw_query_write(|conn| {
             let maybe_inserted_consent_record: Option<StoredConsentRecord> =
                 diesel::insert_into(dsl::consent_records)
                     .values(record)
@@ -224,14 +222,15 @@ impl DbConnection {
             }
 
             Ok(None)
-        })
+        });
+        Ok(result?)
     }
 
     pub fn find_consent_by_dm_id(
         &self,
         dm_id: &str,
     ) -> Result<Vec<StoredConsentRecord>, StorageError> {
-        self.raw_query_read::<_, StorageError, _>(|conn| {
+        let result = self.raw_query_read(|conn| {
             dsl::consent_records
                 .inner_join(
                     groups_dsl::groups
@@ -242,7 +241,8 @@ impl DbConnection {
                 .order(dsl::consented_at_ns.desc())
                 .select(dsl::consent_records::all_columns())
                 .load::<StoredConsentRecord>(conn)
-        })
+        });
+        Ok(result?)
     }
 }
 
