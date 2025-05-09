@@ -179,6 +179,8 @@ pub enum SubscribeError {
     ApiClient(#[from] xmtp_api::ApiError),
     #[error("{0}")]
     BoxError(Box<dyn RetryableError + Send + Sync>),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
 }
 
 impl RetryableError for SubscribeError {
@@ -195,6 +197,7 @@ impl RetryableError for SubscribeError {
             ConversationStream(e) => retryable!(e),
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
+            Db(c) => retryable!(c),
         }
     }
 }

@@ -1,10 +1,10 @@
-use super::{BackupError, BackupMetadata};
+use super::{ArchiveError, BackupMetadata};
 use crate::{
     groups::{
         device_sync::{DeviceSyncError, NONCE_SIZE},
         group_permissions::PolicySet,
         scoped_client::ScopedGroupClient,
-        GroupError, GroupMetadataOptions, MlsGroup,
+        GroupMetadataOptions, MlsGroup,
     },
     XmtpOpenMlsProvider,
 };
@@ -16,14 +16,14 @@ use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, StorageError, Store,
+    group_message::StoredGroupMessage, StoreOrIgnore,
 };
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
 
-pub struct BackupImporter {
+pub struct ArchiveImporter {
     pub metadata: BackupMetadata,
     decoded: Vec<u8>,
     decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
@@ -32,7 +32,7 @@ pub struct BackupImporter {
     nonce: GenericArray<u8, typenum::U12>,
 }
 
-impl BackupImporter {
+impl ArchiveImporter {
     pub(crate) async fn load(
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],
@@ -57,7 +57,7 @@ impl BackupImporter {
             element: Some(Element::Metadata(metadata)),
         }) = importer.next_element().await?
         else {
-            return Err(BackupError::MissingMetadata)?;
+            return Err(ArchiveError::MissingMetadata)?;
         };
 
         importer.metadata = BackupMetadata::from_metadata_save(metadata, version);
@@ -144,7 +144,7 @@ where
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
-            let result = MlsGroup::insert(
+            MlsGroup::insert(
                 client,
                 provider,
                 Some(&save.id),
@@ -156,30 +156,14 @@ where
                     description: attributes.get("description").cloned(),
                     ..Default::default()
                 },
-            );
-
-            if let Err(GroupError::Storage(storage_error)) = result {
-                ignore_unique_constraints::<()>(Err(storage_error))?;
-            } else {
-                result?;
-            }
+            )?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            ignore_unique_constraints(message.store(provider.conn_ref()))?;
+            message.store_or_ignore(&provider.conn_ref())?;
         }
         _ => {}
     }
 
     Ok(())
-}
-
-// If the record is already there, it's fine. Backup does not overwrite existing records.
-fn ignore_unique_constraints<T>(result: Result<T, StorageError>) -> Result<(), StorageError> {
-    use xmtp_db::diesel::result::{DatabaseErrorKind::UniqueViolation, Error as DieselError};
-    match result {
-        Err(StorageError::DieselResult(DieselError::DatabaseError(UniqueViolation, _))) => Ok(()),
-        Ok(_) => Ok(()),
-        Err(err) => Err(err),
-    }
 }

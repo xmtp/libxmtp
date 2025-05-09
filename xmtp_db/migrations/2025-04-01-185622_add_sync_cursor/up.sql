@@ -8,8 +8,9 @@ CREATE TABLE user_preferences (
 );
 
 INSERT INTO
-    user_preferences (hmac_key)
+    user_preferences (id, hmac_key)
 SELECT
+    0,
     hmac_key
 FROM
     user_preferences_old

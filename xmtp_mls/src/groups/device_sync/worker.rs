@@ -8,8 +8,8 @@ use crate::{
     configuration::WORKER_RESTART_DELAY,
     groups::{
         device_sync::{
-            backup::{exporter::BackupExporter, BackupImporter},
-            default_backup_options,
+            archive::{exporter::ArchiveExporter, ArchiveImporter},
+            default_archive_options,
         },
         device_sync_legacy::DeviceSyncContent,
         scoped_client::ScopedGroupClient,
@@ -269,15 +269,21 @@ where
         for (msg, content) in unprocessed_messages.clone().iter_with_content() {
             let is_external = msg.sender_installation_id != installation_id;
 
-            tracing::info!("Message content: (external: {is_external}) {content:?}");
+            tracing::info!(
+                "Message content: (external: {is_external}) id={}, {content:?}",
+                xmtp_common::fmt::truncate_hex(hex::encode(&msg.id))
+            );
 
             if let Err(err) = self.process_message(provider, handle, &msg, content).await {
-                tracing::error!("Message processing: {err:?}");
+                tracing::error!(
+                    "Message processing: err processing msg {}: {err:?}",
+                    xmtp_common::fmt::truncate_hex(hex::encode(msg.id))
+                );
             };
         }
 
         for msg in unprocessed_messages {
-            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(provider.conn_ref())?;
+            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(&provider.conn_ref())?;
         }
 
         Ok(())
@@ -312,7 +318,6 @@ where
                     // Ignore our own messages
                     return Ok(());
                 }
-
                 self.process_sync_payload(reply).await?;
                 handle.increment_metric(SyncMetric::PayloadProcessed);
             }
@@ -423,7 +428,7 @@ where
             request_id = request.request_id;
             options
         } else {
-            default_backup_options()
+            default_archive_options()
         };
 
         // Generate a random encryption key
@@ -432,7 +437,7 @@ where
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
-        let exporter = BackupExporter::new(options, &provider, &key);
+        let exporter = ArchiveExporter::new(options, &provider, &key);
         let metadata = exporter.metadata().clone();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -631,7 +636,7 @@ where
             return Err(ConversionError::Unspecified("encryption_key"))?;
         };
 
-        let mut importer = BackupImporter::load(Box::pin(reader), &key).await?;
+        let mut importer = ArchiveImporter::load(Box::pin(reader), &key).await?;
 
         tracing::info!("Importing the sync payload.");
         // Run the import.

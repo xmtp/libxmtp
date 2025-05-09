@@ -4,7 +4,7 @@ use crate::{
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
-use backup::BackupError;
+use archive::ArchiveError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use prost::Message;
@@ -36,7 +36,7 @@ use xmtp_proto::{
     },
 };
 
-pub mod backup;
+pub mod archive;
 pub mod handle;
 pub mod preference_sync;
 pub mod worker;
@@ -92,7 +92,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] BackupError),
+    Backup(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -105,6 +105,8 @@ pub enum DeviceSyncError {
     MissingSyncServerUrl,
     #[error("Missing sync group")]
     MissingSyncGroup,
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
 }
@@ -273,7 +275,7 @@ where
     }
 }
 
-fn default_backup_options() -> BackupOptions {
+fn default_archive_options() -> BackupOptions {
     BackupOptions {
         elements: vec![
             BackupElementSelection::Messages as i32,

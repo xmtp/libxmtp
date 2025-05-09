@@ -48,7 +48,7 @@ resolver = "2"
 
 [workspace.package]
 license = "MIT"
-version = "1.2.0-rc2"
+version = "1.2.0-rc3"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -187,4 +187,4 @@ opt-level = "s"
 diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_derives = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
 diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master" }
-# sqlite-wasm-rs = { git = "https://github.com/insipx/sqlite-wasm-rs", branch = "insipx/update-deps" }
+tracing-forest = { git = "https://github.com/QnnOkabayashi/tracing-forest", branch = "main" }

@@ -38,7 +38,7 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
+use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -46,7 +46,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
         device_sync::{
-            backup::{BackupImporter, BackupMetadata},
+            archive::{ArchiveImporter, BackupMetadata},
             preference_sync::PreferenceUpdate,
             ENC_KEY_SIZE,
         },
@@ -390,7 +390,7 @@ impl FfiXmtpClient {
         identifier: FfiIdentifier,
     ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = self.inner_client.store().conn()?;
+        let conn = self.inner_client.context().db();
         let result = inner
             .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
             .await?;
@@ -467,7 +467,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiInboxState, GenericError> {
         let state = self
             .inner_client
-            .get_latest_association_state(&self.inner_client.store().conn()?, &inbox_id)
+            .get_latest_association_state(&self.inner_client.context().db(), &inbox_id)
             .await?;
         Ok(state.into())
     }
@@ -700,35 +700,35 @@ impl FfiXmtpClient {
         }))
     }
 
-    /// Backup your application to file for later restoration.
-    pub async fn backup_to_file(
+    /// Archive application elements to file for later restoration.
+    pub async fn create_archive(
         &self,
         path: String,
-        opts: FfiBackupOptions,
+        opts: FfiArchiveOptions,
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let options: BackupOptions = opts.into();
-        BackupExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
+        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
 
         Ok(())
     }
 
-    /// Import a previous backup
-    pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+    /// Import a previous archive
+    pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
         importer.run(&self.inner_client).await?;
         Ok(())
     }
 
-    /// Load the metadata for a backup to see what it contains.
+    /// Load the metadata for an archive to see what it contains.
     /// Reads only the metadata without loading the entire file, so this function is quick.
-    pub async fn backup_metadata(
+    pub async fn archive_metadata(
         &self,
         path: String,
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, GenericError> {
-        let importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        let importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
         Ok(importer.metadata.into())
     }
 }
@@ -771,13 +771,13 @@ impl From<BackupMetadata> for FfiBackupMetadata {
 }
 
 #[derive(uniffi::Record)]
-pub struct FfiBackupOptions {
+pub struct FfiArchiveOptions {
     start_ns: Option<i64>,
     end_ns: Option<i64>,
     elements: Vec<FfiBackupElementSelection>,
 }
-impl From<FfiBackupOptions> for BackupOptions {
-    fn from(value: FfiBackupOptions) -> Self {
+impl From<FfiArchiveOptions> for BackupOptions {
+    fn from(value: FfiArchiveOptions) -> Self {
         Self {
             start_ns: value.start_ns,
             end_ns: value.start_ns,
@@ -1293,6 +1293,7 @@ impl FfiConversations {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
@@ -3080,7 +3081,7 @@ mod tests {
         .await
         .unwrap();
 
-        let conn = client.inner_client.context().store().conn().unwrap();
+        let conn = client.inner_client.context().db();
         conn.register_triggers();
 
         register_client_with_wallet(&ffi_inbox_owner, &client).await;
@@ -3112,7 +3113,7 @@ mod tests {
         )
         .await?;
 
-        let conn = client.inner_client.context().store().conn().unwrap();
+        let conn = client.inner_client.context().db();
         conn.register_triggers();
 
         register_client_with_wallet_no_panic(&ffi_inbox_owner, &client).await?;
@@ -3381,7 +3382,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().conn().unwrap();
+        let conn = client.inner_client.store().db();
         let state = client
             .inner_client
             .get_latest_association_state(&conn, &inbox_id)
@@ -3496,7 +3497,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().conn().unwrap();
+        let conn = client.inner_client.store().db();
         let state = client
             .inner_client
             .get_latest_association_state(&conn, &inbox_id)
@@ -7923,7 +7924,6 @@ mod tests {
         assert_eq!(initial_consent, FfiConsentState::Allowed);
 
         let alix2 = alix.builder.build().await;
-
         let state = alix2.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 2);
 
