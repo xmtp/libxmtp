@@ -482,8 +482,6 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        let conn = store.db.conn();
-
         store
             .db
             .conn()
