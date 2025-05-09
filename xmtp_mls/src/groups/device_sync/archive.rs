@@ -1,4 +1,4 @@
-pub use importer::BackupImporter;
+pub use importer::ArchiveImporter;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
@@ -11,7 +11,7 @@ pub mod exporter;
 pub mod importer;
 
 #[derive(Debug, Error)]
-pub enum BackupError {
+pub enum ArchiveError {
     #[error("Missing metadata")]
     MissingMetadata,
 }
@@ -59,9 +59,9 @@ mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use diesel::prelude::*;
-    use exporter::BackupExporter;
+    use exporter::ArchiveExporter;
     use futures::io::Cursor;
-    use importer::BackupImporter;
+    use importer::ArchiveImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
@@ -103,7 +103,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
+            let mut exporter = ArchiveExporter::new(opts, &alix.provider, &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -121,7 +121,7 @@ mod tests {
 
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
-        let mut importer = BackupImporter::load(reader, &key).await.unwrap();
+        let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
         importer.run(&alix2).await.unwrap();
 
         // One message.
@@ -192,7 +192,7 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = BackupExporter::new(opts, &alix.provider, &key);
+        let mut exporter = ArchiveExporter::new(opts, &alix.provider, &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
@@ -207,7 +207,7 @@ mod tests {
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
 
-        let mut importer = BackupImporter::from_file(path, &key).await?;
+        let mut importer = ArchiveImporter::from_file(path, &key).await?;
         importer.run(&*alix2).await?;
 
         // Consent is there after the import

@@ -38,7 +38,7 @@ use xmtp_id::{
     },
     InboxId,
 };
-use xmtp_mls::groups::device_sync::backup::exporter::BackupExporter;
+use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -46,7 +46,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
         device_sync::{
-            backup::{BackupImporter, BackupMetadata},
+            archive::{ArchiveImporter, BackupMetadata},
             preference_sync::PreferenceUpdate,
             ENC_KEY_SIZE,
         },
@@ -700,35 +700,35 @@ impl FfiXmtpClient {
         }))
     }
 
-    /// Backup your application to file for later restoration.
-    pub async fn backup_to_file(
+    /// Archive application elements to file for later restoration.
+    pub async fn create_archive(
         &self,
         path: String,
-        opts: FfiBackupOptions,
+        opts: FfiArchiveOptions,
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider()?;
         let options: BackupOptions = opts.into();
-        BackupExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
+        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
 
         Ok(())
     }
 
-    /// Import a previous backup
-    pub async fn import_from_file(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let mut importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+    /// Import a previous archive
+    pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
+        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
         importer.run(&self.inner_client).await?;
         Ok(())
     }
 
-    /// Load the metadata for a backup to see what it contains.
+    /// Load the metadata for an archive to see what it contains.
     /// Reads only the metadata without loading the entire file, so this function is quick.
-    pub async fn backup_metadata(
+    pub async fn archive_metadata(
         &self,
         path: String,
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, GenericError> {
-        let importer = BackupImporter::from_file(path, &check_key(key)?).await?;
+        let importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
         Ok(importer.metadata.into())
     }
 }
@@ -771,13 +771,13 @@ impl From<BackupMetadata> for FfiBackupMetadata {
 }
 
 #[derive(uniffi::Record)]
-pub struct FfiBackupOptions {
+pub struct FfiArchiveOptions {
     start_ns: Option<i64>,
     end_ns: Option<i64>,
     elements: Vec<FfiBackupElementSelection>,
 }
-impl From<FfiBackupOptions> for BackupOptions {
-    fn from(value: FfiBackupOptions) -> Self {
+impl From<FfiArchiveOptions> for BackupOptions {
+    fn from(value: FfiArchiveOptions) -> Self {
         Self {
             start_ns: value.start_ns,
             end_ns: value.start_ns,

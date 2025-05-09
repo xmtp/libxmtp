@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::device_sync::{
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pub struct BackupExporter {
+pub struct ArchiveExporter {
     stage: Stage,
     metadata: BackupMetadataSave,
     stream: BatchExportStream,
@@ -39,7 +39,7 @@ pub(super) enum Stage {
     Elements,
 }
 
-impl BackupExporter {
+impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: BackupOptions,
@@ -88,7 +88,7 @@ impl BackupExporter {
 //
 // To get around this, we implement AsyncRead using future_util, and use a
 // compat layer from tokio_util to be able to interact with it in tokio.
-impl AsyncRead for BackupExporter {
+impl AsyncRead for ArchiveExporter {
     /// This function encrypts first, and compresses second.
     fn poll_read(
         self: Pin<&mut Self>,

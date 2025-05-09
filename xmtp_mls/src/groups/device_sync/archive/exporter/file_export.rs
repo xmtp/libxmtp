@@ -1,10 +1,10 @@
-use super::BackupExporter;
+use super::ArchiveExporter;
 use crate::groups::device_sync::DeviceSyncError;
 use futures_util::AsyncReadExt;
 use std::path::Path;
 use tokio::{fs::File, io::AsyncWriteExt};
 
-impl BackupExporter {
+impl ArchiveExporter {
     pub async fn write_to_file(&mut self, path: impl AsRef<Path>) -> Result<(), DeviceSyncError> {
         let mut file = File::create(path.as_ref()).await?;
         let mut buffer = [0u8; 1024];
