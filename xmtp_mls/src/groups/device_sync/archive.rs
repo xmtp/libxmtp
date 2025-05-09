@@ -11,7 +11,7 @@ pub mod exporter;
 pub mod importer;
 
 #[derive(Debug, Error)]
-pub enum BackupError {
+pub enum ArchiveError {
     #[error("Missing metadata")]
     MissingMetadata,
 }

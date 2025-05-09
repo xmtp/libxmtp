@@ -1,4 +1,4 @@
-use super::{BackupError, BackupMetadata};
+use super::{ArchiveError, BackupMetadata};
 use crate::{
     groups::{
         device_sync::{DeviceSyncError, NONCE_SIZE},
@@ -57,7 +57,7 @@ impl ArchiveImporter {
             element: Some(Element::Metadata(metadata)),
         }) = importer.next_element().await?
         else {
-            return Err(BackupError::MissingMetadata)?;
+            return Err(ArchiveError::MissingMetadata)?;
         };
 
         importer.metadata = BackupMetadata::from_metadata_save(metadata, version);

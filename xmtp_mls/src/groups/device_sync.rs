@@ -4,7 +4,7 @@ use crate::{
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
-use archive::BackupError;
+use archive::ArchiveError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use prost::Message;
@@ -92,7 +92,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] BackupError),
+    Backup(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
