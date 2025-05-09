@@ -27,7 +27,7 @@ pub(crate) fn generate_message(
         authority_id: "unknown".to_string(),
         reference_id: None,
         sequence_id: None,
-        originator_id: None
+        originator_id: None,
     }
 }
 
