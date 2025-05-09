@@ -399,17 +399,11 @@ where
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use diesel::sql_types::{BigInt, Blob, Integer, Text};
-    use group::ConversationType;
-    use schema::groups;
+    use diesel::sql_types::Blob;
 
     use super::*;
-    use crate::{
-        Fetch, Store,
-        group::{GroupMembershipState, StoredGroup},
-        identity::StoredIdentity,
-    };
-    use xmtp_common::{rand_vec, time::now_ns, tmp_path};
+    use crate::{Fetch, Store, identity::StoredIdentity};
+    use xmtp_common::{rand_vec, tmp_path};
 
     #[xmtp_common::test]
     async fn ephemeral_store() {
@@ -454,7 +448,7 @@ pub(crate) mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_dm_id_migration() {
+    async fn test_migration_25() {
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
 
@@ -471,46 +465,22 @@ pub(crate) mod tests {
             .db
             .conn()
             .raw_query_write(|conn| {
-                for _ in 0..15 {
+                for _ in 0..25 {
                     conn.run_next_migration(MIGRATIONS).unwrap();
                 }
 
                 sql_query(
                     r#"
-                INSERT INTO groups (
-                    id,
-                    created_at_ns,
-                    membership_state,
-                    installations_last_checked,
-                    added_by_inbox_id,
-                    rotated_at_ns,
-                    conversation_type,
-                    dm_inbox_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+                INSERT INTO user_preferences (
+                    hmac_key
+                ) VALUES ($1)"#,
                 )
                 .bind::<Blob, _>(vec![1, 2, 3, 4, 5])
-                .bind::<BigInt, _>(now_ns())
-                .bind::<Integer, _>(GroupMembershipState::Allowed as i32)
-                .bind::<BigInt, _>(now_ns())
-                .bind::<Text, _>("121212")
-                .bind::<BigInt, _>(now_ns())
-                .bind::<Integer, _>(ConversationType::Dm as i32)
-                .bind::<Text, _>("98765")
                 .execute(conn)?;
 
                 Ok(())
             })
             .unwrap();
-
-        let conn = store.db.conn();
-
-        let inbox_id = "inbox_id";
-        StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
-            .store(&conn)
-            .unwrap();
-
-        let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
-        assert_eq!(fetched_identity.inbox_id, inbox_id);
 
         store
             .db
@@ -520,12 +490,6 @@ pub(crate) mod tests {
                 Ok(())
             })
             .unwrap();
-
-        let groups = conn
-            .raw_query_read(|conn| groups::table.load::<StoredGroup>(conn))
-            .unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(&**groups[0].dm_id.as_ref().unwrap(), "dm:98765:inbox_id");
     }
 
     #[xmtp_common::test]
