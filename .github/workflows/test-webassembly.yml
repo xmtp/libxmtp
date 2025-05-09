@@ -39,13 +39,16 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: dev/docker/up-v3
+        run: |
+          dev/build_validation_service_local
+          dev/docker/up
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
           cd emsdk
           ./emsdk install latest
           ./emsdk activate latest
+          cd ..
       - name: Build WebAssembly Packages
         env:
           RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
@@ -55,9 +58,8 @@ jobs:
       - name: test with chrome
         env:
           RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          CHROMEDRIVER: "chromedriver"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
             --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
         working-directory: ./
-        env:
-          CHROMEDRIVER: "chromedriver"

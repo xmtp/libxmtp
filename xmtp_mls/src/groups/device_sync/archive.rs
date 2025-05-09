@@ -55,24 +55,15 @@ impl OptionsToSave for BackupMetadataSave {
 mod tests {
     #![allow(unused)]
     use super::*;
-    use crate::utils::Tester;
-    use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
-    };
+    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions, utils::Tester};
     use diesel::prelude::*;
     use exporter::ArchiveExporter;
     use futures::io::Cursor;
     use importer::ArchiveImporter;
-    use std::{path::Path, sync::Arc};
+    use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::group_message::MsgQueryArgs;
 
-    use xmtp_db::{
-        consent_record::StoredConsentRecord,
-        group::StoredGroup,
-        group_message::StoredGroupMessage,
-        schema::{consent_records, group_messages, groups},
-    };
+    use xmtp_db::{group_message::StoredGroupMessage, schema::group_messages};
 
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
@@ -137,8 +128,16 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
         use crate::tester;
+        use crate::utils::test::wait_for_min_intents;
         use diesel::QueryDsl;
+        use std::path::Path;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
+        use xmtp_db::group_message::MsgQueryArgs;
+        use xmtp_db::{
+            consent_record::StoredConsentRecord,
+            group::StoredGroup,
+            schema::{consent_records, groups},
+        };
 
         tester!(alix, sync_worker, sync_server);
         tester!(bo);
