@@ -4,7 +4,7 @@ use crate::{
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
-use backup::BackupError;
+use archive::BackupError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use prost::Message;
@@ -36,7 +36,7 @@ use xmtp_proto::{
     },
 };
 
-pub mod backup;
+pub mod archive;
 pub mod handle;
 pub mod preference_sync;
 pub mod worker;
@@ -273,7 +273,7 @@ where
     }
 }
 
-fn default_backup_options() -> BackupOptions {
+fn default_archive_options() -> BackupOptions {
     BackupOptions {
         elements: vec![
             BackupElementSelection::Messages as i32,

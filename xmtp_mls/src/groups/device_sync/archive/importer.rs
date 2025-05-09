@@ -23,7 +23,7 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
 
-pub struct BackupImporter {
+pub struct ArchiveImporter {
     pub metadata: BackupMetadata,
     decoded: Vec<u8>,
     decoder: ZstdDecoder<Pin<Box<dyn AsyncBufRead + Send>>>,
@@ -32,7 +32,7 @@ pub struct BackupImporter {
     nonce: GenericArray<u8, typenum::U12>,
 }
 
-impl BackupImporter {
+impl ArchiveImporter {
     pub(crate) async fn load(
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],

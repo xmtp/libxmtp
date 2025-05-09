@@ -8,8 +8,8 @@ use crate::{
     configuration::WORKER_RESTART_DELAY,
     groups::{
         device_sync::{
-            backup::{exporter::BackupExporter, BackupImporter},
-            default_backup_options,
+            archive::{exporter::ArchiveExporter, ArchiveImporter},
+            default_archive_options,
         },
         device_sync_legacy::DeviceSyncContent,
         scoped_client::ScopedGroupClient,
@@ -423,7 +423,7 @@ where
             request_id = request.request_id;
             options
         } else {
-            default_backup_options()
+            default_archive_options()
         };
 
         // Generate a random encryption key
@@ -432,7 +432,7 @@ where
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
-        let exporter = BackupExporter::new(options, &provider, &key);
+        let exporter = ArchiveExporter::new(options, &provider, &key);
         let metadata = exporter.metadata().clone();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -631,7 +631,7 @@ where
             return Err(ConversionError::Unspecified("encryption_key"))?;
         };
 
-        let mut importer = BackupImporter::load(Box::pin(reader), &key).await?;
+        let mut importer = ArchiveImporter::load(Box::pin(reader), &key).await?;
 
         tracing::info!("Importing the sync payload.");
         // Run the import.
