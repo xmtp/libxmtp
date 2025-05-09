@@ -1028,7 +1028,7 @@ class GroupTest {
 
         assertEquals(runBlocking { alixGroup.messages() }.size, 1)
         assertEquals(runBlocking { alixGroup2.messages() }.size, 1)
-        assertEquals(numGroups, 2u)
+        assertEquals(numGroups, 3u)
 
         runBlocking {
             boGroup2.removeMembers(listOf(alixClient.inboxId))
@@ -1043,13 +1043,13 @@ class GroupTest {
         assertEquals(runBlocking { alixGroup.messages() }.size, 3)
         assertEquals(runBlocking { alixGroup2.messages() }.size, 2)
         // First syncAllGroups after remove includes the group you're removed from
-        assertEquals(numGroups, 2u)
+        assertEquals(numGroups, 3u)
 
         runBlocking {
             numGroups = alixClient.conversations.syncAllConversations()
         }
         // Next syncAllGroups will not include the inactive group
-        assertEquals(numGroups, 1u)
+        assertEquals(numGroups, 2u)
     }
 
     @Test

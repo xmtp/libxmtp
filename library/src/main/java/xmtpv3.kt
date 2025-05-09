@@ -10523,8 +10523,7 @@ public object FfiConverterTypeFfiPermissionUpdateType: FfiConverterRustBuffer<Ff
 sealed class FfiPreferenceUpdate {
     
     data class Hmac(
-        val `key`: kotlin.ByteArray, 
-        val `cycledAtNs`: kotlin.Long) : FfiPreferenceUpdate() {
+        val `key`: kotlin.ByteArray) : FfiPreferenceUpdate() {
         companion object
     }
     
@@ -10541,7 +10540,6 @@ public object FfiConverterTypeFfiPreferenceUpdate : FfiConverterRustBuffer<FfiPr
         return when(buf.getInt()) {
             1 -> FfiPreferenceUpdate.Hmac(
                 FfiConverterByteArray.read(buf),
-                FfiConverterLong.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -10553,7 +10551,6 @@ public object FfiConverterTypeFfiPreferenceUpdate : FfiConverterRustBuffer<FfiPr
             (
                 4UL
                 + FfiConverterByteArray.allocationSize(value.`key`)
-                + FfiConverterLong.allocationSize(value.`cycledAtNs`)
             )
         }
     }
@@ -10563,7 +10560,6 @@ public object FfiConverterTypeFfiPreferenceUpdate : FfiConverterRustBuffer<FfiPr
             is FfiPreferenceUpdate.Hmac -> {
                 buf.putInt(1)
                 FfiConverterByteArray.write(value.`key`, buf)
-                FfiConverterLong.write(value.`cycledAtNs`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

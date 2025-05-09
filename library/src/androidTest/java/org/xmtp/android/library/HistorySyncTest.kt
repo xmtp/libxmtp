@@ -134,7 +134,7 @@ class HistorySyncTest {
         }
 
         Thread.sleep(2000)
-        assertEquals(3, consent.size)
+        assertEquals(5, consent.size)
         assertEquals(alixGroup.consentState(), ConsentState.DENIED)
         job.cancel()
         job1.cancel()
