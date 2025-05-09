@@ -1396,9 +1396,7 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request(
 ): Short
-fun uniffi_xmtpv3_checksum_method_ffixmtpclient_backup_metadata(
-): Short
-fun uniffi_xmtpv3_checksum_method_ffixmtpclient_backup_to_file(
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message(
 ): Short
@@ -1407,6 +1405,8 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier(
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect(
 ): Short
@@ -1420,7 +1420,7 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_ins
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state(
 ): Short
-fun uniffi_xmtpv3_checksum_method_ffixmtpclient_import_from_file(
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id(
 ): Short
@@ -1772,9 +1772,7 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_addresses_from_inbox_id(`ptr`: Pointer
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_apply_signature_request(`ptr`: Pointer,`signatureRequest`: Pointer,
 ): Long
-fun uniffi_xmtpv3_fn_method_ffixmtpclient_backup_metadata(`ptr`: Pointer,`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
-): Long
-fun uniffi_xmtpv3_fn_method_ffixmtpclient_backup_to_file(`ptr`: Pointer,`path`: RustBuffer.ByValue,`opts`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_archive_metadata(`ptr`: Pointer,`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_can_message(`ptr`: Pointer,`accountIdentifiers`: RustBuffer.ByValue,
 ): Long
@@ -1784,6 +1782,8 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_conversation(`ptr`: Pointer,`conversat
 ): Pointer
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_conversations(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_create_archive(`ptr`: Pointer,`path`: RustBuffer.ByValue,`opts`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
+): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_db_reconnect(`ptr`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_dm_conversation(`ptr`: Pointer,`targetInboxId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1796,7 +1796,7 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_key_package_statuses_for_installat
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_get_latest_inbox_state(`ptr`: Pointer,`inboxId`: RustBuffer.ByValue,
 ): Long
-fun uniffi_xmtpv3_fn_method_ffixmtpclient_import_from_file(`ptr`: Pointer,`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_import_archive(`ptr`: Pointer,`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_inbox_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -2317,10 +2317,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 32172.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_backup_metadata() != 5211.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_backup_to_file() != 10877.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 27089.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 32993.toShort()) {
@@ -2333,6 +2330,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 47463.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_create_archive() != 6966.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 6707.toShort()) {
@@ -2353,7 +2353,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 3165.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_import_from_file() != 29366.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 7049.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 25128.toShort()) {
@@ -7956,15 +7956,10 @@ public interface FfiXmtpClientInterface {
     suspend fun `applySignatureRequest`(`signatureRequest`: FfiSignatureRequest)
     
     /**
-     * Load the metadata for a backup to see what it contains.
+     * Load the metadata for an archive to see what it contains.
      * Reads only the metadata without loading the entire file, so this function is quick.
      */
-    suspend fun `backupMetadata`(`path`: kotlin.String, `key`: kotlin.ByteArray): FfiBackupMetadata
-    
-    /**
-     * Backup your application to file for later restoration.
-     */
-    suspend fun `backupToFile`(`path`: kotlin.String, `opts`: FfiBackupOptions, `key`: kotlin.ByteArray)
+    suspend fun `archiveMetadata`(`path`: kotlin.String, `key`: kotlin.ByteArray): FfiBackupMetadata
     
     suspend fun `canMessage`(`accountIdentifiers`: List<FfiIdentifier>): Map<FfiIdentifier, kotlin.Boolean>
     
@@ -7976,6 +7971,11 @@ public interface FfiXmtpClientInterface {
     fun `conversation`(`conversationId`: kotlin.ByteArray): FfiConversation
     
     fun `conversations`(): FfiConversations
+    
+    /**
+     * Archive application elements to file for later restoration.
+     */
+    suspend fun `createArchive`(`path`: kotlin.String, `opts`: FfiArchiveOptions, `key`: kotlin.ByteArray)
     
     suspend fun `dbReconnect`()
     
@@ -7990,9 +7990,9 @@ public interface FfiXmtpClientInterface {
     suspend fun `getLatestInboxState`(`inboxId`: kotlin.String): FfiInboxState
     
     /**
-     * Import a previous backup
+     * Import a previous archive
      */
-    suspend fun `importFromFile`(`path`: kotlin.String, `key`: kotlin.ByteArray)
+    suspend fun `importArchive`(`path`: kotlin.String, `key`: kotlin.ByteArray)
     
     fun `inboxId`(): kotlin.String
     
@@ -8214,15 +8214,15 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
 
     
     /**
-     * Load the metadata for a backup to see what it contains.
+     * Load the metadata for an archive to see what it contains.
      * Reads only the metadata without loading the entire file, so this function is quick.
      */
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `backupMetadata`(`path`: kotlin.String, `key`: kotlin.ByteArray) : FfiBackupMetadata {
+    override suspend fun `archiveMetadata`(`path`: kotlin.String, `key`: kotlin.ByteArray) : FfiBackupMetadata {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_backup_metadata(
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_archive_metadata(
                 thisPtr,
                 FfiConverterString.lower(`path`),FfiConverterByteArray.lower(`key`),
             )
@@ -8232,31 +8232,6 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
         { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeFfiBackupMetadata.lift(it) },
-        // Error FFI converter
-        GenericException.ErrorHandler,
-    )
-    }
-
-    
-    /**
-     * Backup your application to file for later restoration.
-     */
-    @Throws(GenericException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `backupToFile`(`path`: kotlin.String, `opts`: FfiBackupOptions, `key`: kotlin.ByteArray) {
-        return uniffiRustCallAsync(
-        callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_backup_to_file(
-                thisPtr,
-                FfiConverterString.lower(`path`),FfiConverterTypeFfiBackupOptions.lower(`opts`),FfiConverterByteArray.lower(`key`),
-            )
-        },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
-        // lift function
-        { Unit },
-        
         // Error FFI converter
         GenericException.ErrorHandler,
     )
@@ -8331,6 +8306,31 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
     )
     }
     
+
+    
+    /**
+     * Archive application elements to file for later restoration.
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `createArchive`(`path`: kotlin.String, `opts`: FfiArchiveOptions, `key`: kotlin.ByteArray) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_create_archive(
+                thisPtr,
+                FfiConverterString.lower(`path`),FfiConverterTypeFfiArchiveOptions.lower(`opts`),FfiConverterByteArray.lower(`key`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
 
     
     @Throws(GenericException::class)
@@ -8453,14 +8453,14 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
 
     
     /**
-     * Import a previous backup
+     * Import a previous archive
      */
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `importFromFile`(`path`: kotlin.String, `key`: kotlin.ByteArray) {
+    override suspend fun `importArchive`(`path`: kotlin.String, `key`: kotlin.ByteArray) {
         return uniffiRustCallAsync(
         callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_import_from_file(
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_import_archive(
                 thisPtr,
                 FfiConverterString.lower(`path`),FfiConverterByteArray.lower(`key`),
             )
@@ -9033,6 +9033,42 @@ public object FfiConverterTypeXmtpApiClient: FfiConverter<XmtpApiClient, Pointer
 
 
 
+data class FfiArchiveOptions (
+    var `startNs`: kotlin.Long?, 
+    var `endNs`: kotlin.Long?, 
+    var `elements`: List<FfiBackupElementSelection>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiArchiveOptions: FfiConverterRustBuffer<FfiArchiveOptions> {
+    override fun read(buf: ByteBuffer): FfiArchiveOptions {
+        return FfiArchiveOptions(
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterSequenceTypeFfiBackupElementSelection.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiArchiveOptions) = (
+            FfiConverterOptionalLong.allocationSize(value.`startNs`) +
+            FfiConverterOptionalLong.allocationSize(value.`endNs`) +
+            FfiConverterSequenceTypeFfiBackupElementSelection.allocationSize(value.`elements`)
+    )
+
+    override fun write(value: FfiArchiveOptions, buf: ByteBuffer) {
+            FfiConverterOptionalLong.write(value.`startNs`, buf)
+            FfiConverterOptionalLong.write(value.`endNs`, buf)
+            FfiConverterSequenceTypeFfiBackupElementSelection.write(value.`elements`, buf)
+    }
+}
+
+
+
 data class FfiBackupMetadata (
     var `backupVersion`: kotlin.UShort, 
     var `elements`: List<FfiBackupElementSelection>, 
@@ -9072,42 +9108,6 @@ public object FfiConverterTypeFfiBackupMetadata: FfiConverterRustBuffer<FfiBacku
             FfiConverterLong.write(value.`exportedAtNs`, buf)
             FfiConverterOptionalLong.write(value.`startNs`, buf)
             FfiConverterOptionalLong.write(value.`endNs`, buf)
-    }
-}
-
-
-
-data class FfiBackupOptions (
-    var `startNs`: kotlin.Long?, 
-    var `endNs`: kotlin.Long?, 
-    var `elements`: List<FfiBackupElementSelection>
-) {
-    
-    companion object
-}
-
-/**
- * @suppress
- */
-public object FfiConverterTypeFfiBackupOptions: FfiConverterRustBuffer<FfiBackupOptions> {
-    override fun read(buf: ByteBuffer): FfiBackupOptions {
-        return FfiBackupOptions(
-            FfiConverterOptionalLong.read(buf),
-            FfiConverterOptionalLong.read(buf),
-            FfiConverterSequenceTypeFfiBackupElementSelection.read(buf),
-        )
-    }
-
-    override fun allocationSize(value: FfiBackupOptions) = (
-            FfiConverterOptionalLong.allocationSize(value.`startNs`) +
-            FfiConverterOptionalLong.allocationSize(value.`endNs`) +
-            FfiConverterSequenceTypeFfiBackupElementSelection.allocationSize(value.`elements`)
-    )
-
-    override fun write(value: FfiBackupOptions, buf: ByteBuffer) {
-            FfiConverterOptionalLong.write(value.`startNs`, buf)
-            FfiConverterOptionalLong.write(value.`endNs`, buf)
-            FfiConverterSequenceTypeFfiBackupElementSelection.write(value.`elements`, buf)
     }
 }
 
