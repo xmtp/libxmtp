@@ -69,9 +69,7 @@ impl StoredUserPreferences {
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {
         if key.len() != 42 {
-            return Err(StorageError::Generic(
-                "HMAC key needs to be 42 bytes".to_string(),
-            ));
+            return Err(StorageError::InvalidHmacLength);
         }
 
         let mut preferences = Self::load(conn)?;

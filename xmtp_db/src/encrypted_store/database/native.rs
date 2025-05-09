@@ -177,8 +177,8 @@ impl XmtpDb for NativeDb {
         self.conn.clone()
     }
 
-    fn validate(&self, opts: &StorageOption) -> Result<(), Self::Error> {
-        self.customizer.validate(opts)
+    fn validate(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
+        self.customizer.validate(opts).map_err(Into::into)
     }
 
     fn disconnect(&self) -> Result<(), Self::Error> {
