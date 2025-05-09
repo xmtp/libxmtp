@@ -1,10 +1,50 @@
 // copy-paste of https://docs.rs/tracing-forest/latest/src/tracing_forest/printer/pretty.rs.html#62
 // but with slight variations
+use owo_colors::Style;
 use std::fmt::{self, Write};
+use std::sync::LazyLock;
 use tracing_forest::printer::Formatter;
 use tracing_forest::tree::{Event, Span, Tree};
 
 type IndentVec = Vec<Indent>;
+
+static ERROR: LazyLock<Style> = LazyLock::new(|| Style::new().bold().red());
+static WARN: LazyLock<Style> = LazyLock::new(|| Style::new().bold().yellow());
+static INFO: LazyLock<Style> = LazyLock::new(|| Style::new().bold().green());
+static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().blue());
+static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().purple());
+
+fn err() -> &'static Style {
+    &ERROR
+}
+
+fn warn() -> &'static Style {
+    &WARN
+}
+fn info() -> &'static Style {
+    &INFO
+}
+fn debug() -> &'static Style {
+    &DEBUG
+}
+fn trace() -> &'static Style {
+    &TRACE
+}
+
+fn write_with_level(
+    level: tracing::Level,
+    s: &str,
+    mut writer: impl std::fmt::Write,
+) -> std::fmt::Result {
+    match level.as_str() {
+        "TRACE" => writer.write_str(&trace().style(s).to_string()),
+        "DEBUG" => writer.write_str(&debug().style(s).to_string()),
+        "INFO" => writer.write_str(&info().style(s).to_string()),
+        "WARN" => writer.write_str(&warn().style(s).to_string()),
+        "ERROR" => writer.write_str(&err().style(s).to_string()),
+        _ => unreachable!(),
+    }
+}
 
 pub struct Contextual;
 impl Contextual {
@@ -45,13 +85,8 @@ impl Contextual {
             for (id, name) in ids.iter() {
                 message = message.replace(id, name);
             }
-            writer.write_str(&message)?;
+            write_with_level(event.level(), &message, &mut *writer)?;
         }
-        /*
-                    for field in event.fields().iter() {
-                        write!(writer, " | {}: {}", field.key(), field.value())?;
-                    }
-        */
         writeln!(writer)
     }
 
@@ -66,11 +101,15 @@ impl Contextual {
         let root_duration = duration_root.unwrap_or(total_duration);
         let percent_total_of_root_duration = 100.0 * total_duration / root_duration;
 
+        let span_style = Style::new().bold().bright_white();
+        let dimmed = Style::new().dimmed();
+
+        let span_name = format!("{}", span_style.style(span.name()));
         write!(
             writer,
             "{} [ {} | ",
-            span.name(),
-            DurationDisplay(total_duration)
+            span_name,
+            dimmed.style(DurationDisplay(total_duration).to_string())
         )?;
 
         if inner_duration > 0.0 {
@@ -80,17 +119,20 @@ impl Contextual {
         }
 
         write!(writer, "{:.2}% ]", percent_total_of_root_duration)?;
-        /*
-                    for (n, field) in span.shared.fields.iter().enumerate() {
-                        write!(
-                            writer,
-                            "{} {}: {}",
-                            if n == 0 { "" } else { " |" },
-                            field.key(),
-                            field.value()
-                        )?;
-                    }
-        */
+        for (n, field) in span.fields().iter().enumerate() {
+            let ids = super::REPLACE_IDS.lock();
+            let mut message = field.value().to_string();
+            for (id, name) in ids.iter() {
+                message = message.replace(id, name);
+            }
+            write!(
+                writer,
+                "{} {}: {}",
+                if n == 0 { "" } else { " |" },
+                field.key(),
+                message
+            )?;
+        }
         writeln!(writer)?;
 
         if let Some((last, remaining)) = span.nodes().split_last() {
@@ -120,6 +162,7 @@ impl Contextual {
         Ok(())
     }
 }
+
 impl Formatter for Contextual {
     type Error = std::fmt::Error;
 

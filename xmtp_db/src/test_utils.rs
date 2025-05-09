@@ -25,7 +25,7 @@ impl EncryptedMessageStore {
 /// Test harness that loads an Ephemeral store.
 pub async fn with_connection<F, R>(fun: F) -> R
 where
-    F: FnOnce(&DbConnection) -> R,
+    F: FnOnce(&crate::DbConnection) -> R,
 {
     let store = EncryptedMessageStore::new(
         StorageOption::Ephemeral,
@@ -33,14 +33,14 @@ where
     )
     .await
     .unwrap();
-    let conn = &store.conn().expect("acquiring a Connection failed");
-    fun(conn)
+    let conn = store.conn().expect("acquiring a Connection failed");
+    fun(&DbConnection::new(conn))
 }
 
 /// Test harness that loads an Ephemeral store.
 pub async fn with_connection_async<F, T, R>(fun: F) -> R
 where
-    F: FnOnce(DbConnection) -> T,
+    F: FnOnce(crate::DbConnection) -> T,
     T: Future<Output = R>,
 {
     let store = EncryptedMessageStore::new(
@@ -50,7 +50,7 @@ where
     .await
     .unwrap();
     let conn = store.conn().expect("acquiring a Connection failed");
-    fun(conn).await
+    fun(DbConnection::new(conn)).await
 }
 
 impl EncryptedMessageStore {

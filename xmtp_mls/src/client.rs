@@ -95,6 +95,8 @@ pub enum ClientError {
     Group(Box<GroupError>),
     #[error(transparent)]
     LocalEvent(#[from] LocalEventError),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -126,6 +128,7 @@ impl xmtp_common::RetryableError for ClientError {
             ClientError::Group(group_error) => retryable!(group_error),
             ClientError::Api(api_error) => retryable!(api_error),
             ClientError::Storage(storage_error) => retryable!(storage_error),
+            ClientError::Db(db) => retryable!(db),
             ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
         }
@@ -196,6 +199,12 @@ pub struct XmtpMlsLocalContext {
 }
 
 impl XmtpMlsLocalContext {
+    /// get a reference to the monolithic Database object where
+    /// higher-level queries are defined
+    pub fn db(&self) -> DbConnection<xmtp_db::DefaultConnection> {
+        self.store.db()
+    }
+
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> InstallationId {
         (*self.identity.installation_keys.public_bytes()).into()
@@ -207,7 +216,7 @@ impl XmtpMlsLocalContext {
     }
 
     /// Get sequence id, may not be consistent with the backend
-    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
+    pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, xmtp_db::ConnectionError> {
         self.identity.sequence_id(conn)
     }
 
@@ -217,7 +226,7 @@ impl XmtpMlsLocalContext {
 
     /// Pulls a new database connection and creates a new provider
     pub fn mls_provider(&self) -> Result<XmtpOpenMlsProvider, StorageError> {
-        Ok(self.store.conn()?.into())
+        Ok(self.db().into())
     }
 
     /// Integrators should always check the `signature_request` return value of this function before calling [`register_identity`](Self::register_identity).
@@ -405,7 +414,7 @@ where
     /// Get the highest `sequence_id` from the local database for the client's `inbox_id`.
     /// This may not be consistent with the latest state on the backend.
     pub fn inbox_sequence_id(&self, conn: &DbConnection) -> Result<i64, StorageError> {
-        self.context.inbox_sequence_id(conn)
+        self.context.inbox_sequence_id(conn).map_err(Into::into)
     }
 
     /// Get the [`AssociationState`] for the client's `inbox_id`
@@ -413,7 +422,7 @@ where
         &self,
         refresh_from_network: bool,
     ) -> Result<AssociationState, ClientError> {
-        let conn = self.store().conn()?;
+        let conn = self.context.db();
         let inbox_id = self.inbox_id();
         if refresh_from_network {
             load_identity_updates(&self.api_client, &conn, &[inbox_id]).await?;
@@ -428,7 +437,7 @@ where
         refresh_from_network: bool,
         inbox_ids: Vec<InboxIdRef<'_>>,
     ) -> Result<Vec<AssociationState>, ClientError> {
-        let conn = self.store().conn()?;
+        let conn = self.context.db();
         if refresh_from_network {
             load_identity_updates(&self.api_client, &conn, &inbox_ids).await?;
         }
@@ -447,8 +456,7 @@ where
         &self,
         records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
-        let provider = self.mls_provider()?;
-        let conn = self.store().conn()?;
+        let conn = self.context.db();
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
         if !changed_records.is_empty() {
@@ -462,6 +470,7 @@ where
                 .local_events
                 .send(LocalEvents::PreferencesChanged(updates.clone()));
 
+            let provider = self.mls_provider()?;
             self.sync_preferences(&provider, updates).await?;
         }
 
@@ -474,7 +483,7 @@ where
         entity_type: ConsentType,
         entity: String,
     ) -> Result<ConsentState, ClientError> {
-        let conn = self.store().conn()?;
+        let conn = self.context.db();
         let record = conn.get_consent_record(entity, entity_type)?;
 
         match record {
@@ -654,8 +663,7 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &self.store().conn()?;
-        self.group_with_conn(conn, group_id)
+        self.group_with_conn(&self.context.db(), group_id)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -663,7 +671,7 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = &mut self.store().conn()?;
+        let conn = &mut self.context.db();
         self.stitched_group_with_conn(conn, group_id)
     }
 
@@ -688,8 +696,7 @@ where
         &self,
         group_id: &[u8],
     ) -> Result<Vec<MlsGroup<Self>>, ClientError> {
-        let conn = self.context().store().conn()?;
-        let duplicates = conn.other_dms(group_id)?;
+        let duplicates = self.context.db().other_dms(group_id)?;
 
         let mls_groups = duplicates
             .into_iter()
@@ -729,7 +736,7 @@ where
         &self,
         target_inbox_id: String,
     ) -> Result<MlsGroup<Self>, ClientError> {
-        let conn = self.store().conn()?;
+        let conn = self.context.db();
 
         let group = conn
             .find_dm_group(&DmMembers {
@@ -748,7 +755,7 @@ where
     /// Look up a message by its ID
     /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
     pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
-        let conn = &mut self.store().conn()?;
+        let conn = &mut self.context.db();
         let message = conn.get_group_message(&message_id)?;
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
@@ -762,8 +769,8 @@ where
     /// - limit: only return the first `limit` groups
     pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Self>>, ClientError> {
         Ok(self
-            .store()
-            .conn()?
+            .context()
+            .db()
             .find_groups(args)?
             .into_iter()
             .map(|stored_group| {
@@ -782,8 +789,8 @@ where
         args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Self>>, ClientError> {
         Ok(self
-            .store()
-            .conn()?
+            .context()
+            .db()
             .fetch_conversation_list(args)?
             .into_iter()
             .map(|conversation_item: DbConversationListItem| {
@@ -831,7 +838,7 @@ where
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
         // Register the identity before applying the signature request
-        let provider: XmtpOpenMlsProvider = self.store().conn()?.into();
+        let provider: XmtpOpenMlsProvider = self.context.mls_provider()?;
 
         self.identity()
             .register(&provider, &self.api_client)
@@ -1164,7 +1171,7 @@ pub(crate) mod tests {
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
-        schema::identity_updates,
+        schema::identity_updates, ConnectionExt,
     };
     use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -1216,7 +1223,7 @@ pub(crate) mod tests {
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Make sure the installation is actually on the network
         let association_state = client_2
-            .get_latest_association_state(&client_2.store().conn().unwrap(), client.inbox_id())
+            .get_latest_association_state(&client_2.context.db(), client.inbox_id())
             .await
             .unwrap();
 
@@ -1281,7 +1288,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert_eq!(
             client
-                .find_inbox_id_from_identifier(&client.store().conn().unwrap(), wallet.identifier())
+                .find_inbox_id_from_identifier(&client.context.db(), wallet.identifier())
                 .await
                 .unwrap(),
             Some(client.inbox_id().to_string())
@@ -1696,8 +1703,7 @@ pub(crate) mod tests {
 
         // Bo's original key should be deleted
         let bo_original_from_db = bo_store
-            .conn()
-            .unwrap()
+            .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_original_from_db.is_ok());
 
@@ -1748,8 +1754,7 @@ pub(crate) mod tests {
 
         // Bo's original key should be deleted
         let bo_original_after_delete = bo_store
-            .conn()
-            .unwrap()
+            .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
         assert!(bo_original_after_delete.is_err());
     }

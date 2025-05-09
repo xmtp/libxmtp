@@ -53,6 +53,7 @@ impl OptionsToSave for BackupMetadataSave {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused)]
     use super::*;
     use crate::utils::Tester;
     use crate::{

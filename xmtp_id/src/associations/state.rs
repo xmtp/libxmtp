@@ -5,7 +5,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Debug,
+    fmt::{Debug, Write},
 };
 
 use prost::Message;
@@ -55,12 +55,38 @@ impl AssociationStateDiff {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AssociationState {
     pub(crate) inbox_id: String,
     pub(crate) members: HashMap<MemberIdentifier, Member>,
     pub(crate) recovery_identifier: Identifier,
     pub(crate) seen_signatures: HashSet<Vec<u8>>,
+}
+
+impl std::fmt::Debug for AssociationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut members = String::new();
+        for member in self.members.keys() {
+            write!(members, "{:?}", member)?;
+            write!(members, ",")?;
+        }
+
+        let mut signatures = String::new();
+        for signature in self.seen_signatures.iter() {
+            write!(
+                signatures,
+                "{}",
+                xmtp_common::fmt::truncate_hex(hex::encode(signature))
+            )?;
+            write!(signatures, ",")?;
+        }
+
+        write!(
+            f,
+            "AssociationState {{ inbox_id: {}, members: {}, recovery: {}, seen_signatures: {} }}",
+            self.inbox_id, members, self.recovery_identifier, signatures
+        )
+    }
 }
 
 impl TryFrom<MemberIdentifier> for Identifier {
