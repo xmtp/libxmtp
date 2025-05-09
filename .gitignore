@@ -45,6 +45,7 @@ coverage
 # Bower dependency directory (https://bower.io/)
 bower_components
 result/**
+result
 
 # node-waf configuration
 .lock-wscript
@@ -171,6 +172,8 @@ chain_urls.json
 # Mise Configs
 .mise.toml
 .emacs.desktop
+
+# Emscripten SDK
 emsdk/**
 emsdk
 result

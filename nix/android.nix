@@ -11,7 +11,7 @@
 , openssl
 , lib
 , gnused
-, mkToolchain
+, xmtp
 }:
 let
   frameworks = if stdenv.isDarwin then darwin.apple_sdk.frameworks else null;
@@ -31,7 +31,7 @@ let
   ];
 
   # Pinned Rust Version
-  rust-android-toolchain = mkToolchain androidTargets [ "clippy-preview" "rustfmt-preview" ];
+  rust-android-toolchain = xmtp.mkToolchain androidTargets [ "clippy-preview" "rustfmt-preview" ];
   sdkArgs = {
     platformVersions = android.platforms;
     platformToolsVersion = android.platformTools;

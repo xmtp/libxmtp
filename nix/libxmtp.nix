@@ -1,9 +1,7 @@
-{ shells
-, stdenv
+{ stdenv
 , darwin
 , lib
 , fenix
-, mkToolchain
 , pkg-config
 , mktemp
 , jdk21
@@ -12,8 +10,8 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
-, cargo-expand
 , cargo-udeps
+, cargo-hakari
 , inferno
 , openssl
 , sqlcipher
@@ -21,23 +19,22 @@
 , corepack
 , lnav
 , zstd
-, llvmPackages_19
 , wasm-bindgen-cli
 , foundry-bin
 , graphite-cli
+, xmtp
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
   inherit (darwin.apple_sdk) frameworks;
-  inherit (shells) combineShell;
   mkShell =
     top:
     (
-      combineShell
+      xmtp.combineShell
         {
-          otherShells = with shells;
+          otherShells = with xmtp.shells;
             [
               mkLinters
               mkCargo
@@ -46,7 +43,7 @@ let
             ];
           extraInputs = top;
         });
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
+  rust-toolchain = xmtp.mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -86,8 +83,8 @@ mkShell {
       gnuplot
       flamegraph
       cargo-flamegraph
+      cargo-hakari
       cargo-udeps
-      cargo-expand
       inferno
       lnav
 
