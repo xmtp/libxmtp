@@ -197,7 +197,6 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
     }
@@ -207,7 +206,6 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
     }
