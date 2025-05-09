@@ -295,4 +295,31 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			)
 		}
 	}
+
+	public func getHmacKeys() throws -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
+		switch self {
+		case let .group(group):
+			return try group.getHmacKeys()
+		case let .dm(dm):
+			return try dm.getHmacKeys()
+		}
+	}
+
+    public func getPushTopics() async throws -> [String] {
+        switch self {
+        case let .group(group):
+            return try group.getPushTopics()
+        case let .dm(dm):
+            return try await dm.getPushTopics()
+        }
+    }
+
+	public func getDebugInformation() async throws -> ConversationDebugInfo  {
+		switch self {
+		case let .group(group):
+			return try await group.getDebugInformation()
+		case let .dm(dm):
+			return try await dm.getDebugInformation()
+		}
+	}
 }

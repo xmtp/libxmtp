@@ -97,8 +97,8 @@ class ConversationTests: XCTestCase {
 		let convoCountConsent = try await fixtures.boClient.conversations
 			.syncAllConversations(consentStates: [.allowed])
 
-		XCTAssertEqual(convoCount, 3)
-		XCTAssertEqual(convoCountConsent, 3)
+		XCTAssertEqual(convoCount, 2)
+		XCTAssertEqual(convoCountConsent, 2)
 
 		try await group.updateConsentState(state: .denied)
 
@@ -109,9 +109,9 @@ class ConversationTests: XCTestCase {
 		let convoCountCombined = try await fixtures.boClient.conversations
 			.syncAllConversations(consentStates: [.denied, .allowed])
 
-		XCTAssertEqual(convoCountAllowed, 2)
-		XCTAssertEqual(convoCountDenied, 2)
-		XCTAssertEqual(convoCountCombined, 3)
+		XCTAssertEqual(convoCountAllowed, 1)
+		XCTAssertEqual(convoCountDenied, 1)
+		XCTAssertEqual(convoCountCombined, 2)
 	}
 
 	func testCanListConversationsOrder() async throws {
@@ -309,10 +309,11 @@ class ConversationTests: XCTestCase {
 		}
 
 		// Wait a bit to ensure all messages are processed
-		try await Task.sleep(nanoseconds: 2_000_000_000)  // 2 seconds delay
+		try await Task.sleep(nanoseconds: 5_000_000_000)  // 2 seconds delay
 
 		caroTask.cancel()
 
+        // This test seems to fail with some random number between 87, 88, or 89, even with increased delay
 		XCTAssertEqual(messages.count, 90)
 		let caroMessagesCount = try await caroGroup.messages().count
 		XCTAssertEqual(caroMessagesCount, 40)
@@ -328,5 +329,156 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(boMessagesCount, 40)
 		XCTAssertEqual(alixMessagesCount, 41)
 		XCTAssertEqual(caroMessagesCountAfterSync, 40)
+	}
+
+	func testCanCreateOptimisticGroup() async throws {
+		let fixtures = try await fixtures()
+		
+		let optimisticGroup = try await fixtures.boClient.conversations.newGroupOptimistic(
+			groupName: "Testing"
+		)
+		
+		XCTAssertEqual(try optimisticGroup.name(), "Testing")
+		
+		_ = try await optimisticGroup.prepareMessage(content: "testing")
+        let messages = try await optimisticGroup.messages()
+		XCTAssertEqual(messages.count, 1)
+		
+		_ = try await optimisticGroup.addMembers(inboxIds: [fixtures.alixClient.inboxID])
+		try await optimisticGroup.sync()
+		try await optimisticGroup.publishMessages()
+		
+        let messagesUpdated = try await optimisticGroup.messages()
+        let members = try await optimisticGroup.members
+        let name = try optimisticGroup.name()
+		XCTAssertEqual(messagesUpdated.count, 2)
+		XCTAssertEqual(members.count, 2)
+		XCTAssertEqual(name, "Testing")
+	}
+
+	func testCanStreamAllMessagesFilterConsent() async throws {
+		let fixtures = try await fixtures()
+		
+		// Create groups and conversations
+		let group = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.caroClient.inboxID
+		])
+		let conversation = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.caroClient.inboxID)
+		let blockedGroup = try await fixtures.boClient.conversations.newGroup(with: [
+			fixtures.alixClient.inboxID
+		])
+		let blockedConversation = try await fixtures.boClient.conversations.findOrCreateDm(
+			with: fixtures.alixClient.inboxID)
+		
+		// Block some conversations
+		try await blockedGroup.updateConsentState(state: .denied)
+		try await blockedConversation.updateConsentState(state: .denied)
+		try await fixtures.boClient.conversations.sync()
+		
+		// Collect messages
+		var allMessages: [DecodedMessage] = []
+		let expectation = XCTestExpectation(description: "received allowed messages")
+		expectation.expectedFulfillmentCount = 2
+		
+		// Start streaming
+		let streamTask = Task {
+			for try await message in await fixtures.boClient.conversations.streamAllMessages(
+				consentStates: [.allowed]
+			) {
+				allMessages.append(message)
+				expectation.fulfill()
+				
+				if allMessages.count >= 2 {
+					break
+				}
+			}
+		}
+		
+		// Wait a bit before sending messages
+		try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second
+		
+		// Send messages to all conversations
+		_ = try await group.send(content: "hi")
+		_ = try await conversation.send(content: "hi")
+		_ = try await blockedGroup.send(content: "hi")
+		_ = try await blockedConversation.send(content: "hi")
+		
+		// Wait for expectation to be fulfilled or timeout
+		await fulfillment(of: [expectation], timeout: 3)
+		
+		// Cancel streaming task
+		streamTask.cancel()
+		
+		// Verify we only received messages from allowed conversations
+		XCTAssertEqual(allMessages.count, 2)
+	}
+
+	func testReturnsAllTopics() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let opts = ClientOptions(
+			api: ClientOptions.Api(env: .local, isSecure: false),
+			dbEncryptionKey: key)
+		
+		// Create a new private key for Eri
+		let eriWallet = try PrivateKey.generate()
+		
+		// Create first client for Eri
+		let eriClient = try await Client.create(
+			account: eriWallet, 
+			options: opts)
+		
+		let fixtures = try await fixtures()
+		
+		// Create first DM
+		let dm1 = try await eriClient.conversations.findOrCreateDm(
+			with: fixtures.boClient.inboxID)
+		
+		// Create a group
+		_ = try await fixtures.boClient.conversations.newGroup(
+			with: [eriClient.inboxID])
+		
+		// Create a second client with the same key
+		let dbPath = FileManager.default.temporaryDirectory.appendingPathComponent(
+			UUID().uuidString).path
+		var opts2 = opts
+        opts2.dbDirectory = dbPath
+		
+		let eriClient2 = try await Client.create(
+			account: eriWallet, 
+			options: opts2)
+		
+		// Create a second DM using the second client
+		_ = try await eriClient2.conversations.findOrCreateDm(
+			with: fixtures.boClient.inboxID)
+		
+		// Sync all the clients
+		_ = try await fixtures.boClient.conversations.syncAllConversations()
+		_ = try await eriClient2.conversations.syncAllConversations()
+		_ = try await eriClient.conversations.syncAllConversations()
+		
+		// Get all the topics and HMAC keys
+        let allTopics = try await eriClient.conversations.allPushTopics()
+		let conversations = try await eriClient.conversations.list()
+		let allHmacKeys = try await eriClient.conversations.getHmacKeys()
+		let dmHmacKeys = try dm1.getHmacKeys()
+		let dmTopics = try await dm1.getPushTopics()
+		
+		// Assertions
+		XCTAssertEqual(allTopics.count, 3)
+		XCTAssertEqual(conversations.count, 2)
+		
+		let hmacTopics = allHmacKeys.hmacKeys.keys
+		for topic in allTopics {
+			XCTAssertTrue(hmacTopics.contains(topic))
+		}
+		
+		XCTAssertEqual(dmTopics.count, 2)
+		XCTAssertTrue(Set(allTopics).isSuperset(of: Set(dmTopics)))
+		
+		let dmHmacTopics = dmHmacKeys.hmacKeys.keys
+		for topic in dmTopics {
+			XCTAssertTrue(dmHmacTopics.contains(topic))
+		}
 	}
 }

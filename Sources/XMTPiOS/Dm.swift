@@ -7,6 +7,21 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	var client: Client
 	let streamHolder = StreamHolder()
 
+    public enum ConversationError: Error, CustomStringConvertible, LocalizedError {
+        case missingPeerInboxId
+        
+        public var description: String {
+            switch self {
+            case .missingPeerInboxId:
+                return "ConversationError.missingPeerInboxId: The direct message is missing a peer inbox ID"
+            }
+        }
+        
+        public var errorDescription: String? {
+            return description
+        }
+    }
+    
 	public var id: String {
 		ffiConversation.id().toHex
 	}
@@ -65,10 +80,13 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public var peerInboxId: InboxId {
-		get throws {
-			try ffiConversation.dmPeerInboxId()
-		}
-	}
+        get throws {
+            guard let inboxId = ffiConversation.dmPeerInboxId() else {
+                throw ConversationError.missingPeerInboxId
+            }
+            return inboxId
+        }
+    }
 
 	public var createdAt: Date {
 		Date(millisecondsSinceEpoch: ffiConversation.createdAtNs())
@@ -350,4 +368,31 @@ public struct Dm: Identifiable, Equatable, Hashable {
 			return DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
 		}
 	}
+
+    public func getHmacKeys() throws
+    -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
+        var hmacKeysResponse = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+        let keys = try ffiConversation.getHmacKeys()
+        for key in keys {
+            var hmacKeys = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+            var hmacKeyData = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeyData()
+            hmacKeyData.hmacKey = key.key
+            hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
+            hmacKeys.values.append(hmacKeyData)
+            hmacKeysResponse.hmacKeys[
+                Topic.groupMessage(ffiConversation.id().toHex).description] = hmacKeys
+        }
+        return hmacKeysResponse
+    }
+    
+    public func getPushTopics() async throws -> [String] {
+        var duplicates = try await ffiConversation.findDuplicateDms()
+        var topicIds = duplicates.map { $0.id().toHex }
+        topicIds.append(id)
+        return topicIds.map { Topic.groupMessage($0).description }
+    }
+    
+    public func getDebugInformation() async throws -> ConversationDebugInfo {
+        return ConversationDebugInfo(ffiConversationDebugInfo: try await ffiConversation.conversationDebugInfo())
+    }
 }

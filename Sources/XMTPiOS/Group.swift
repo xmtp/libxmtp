@@ -535,4 +535,28 @@ public struct Group: Identifiable, Equatable, Hashable {
 				return DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
 			}
 	}
+    
+    public func getHmacKeys() throws
+    -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
+        var hmacKeysResponse = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+        let keys = try ffiGroup.getHmacKeys()
+        for key in keys {
+            var hmacKeys = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+            var hmacKeyData = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeyData()
+            hmacKeyData.hmacKey = key.key
+            hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
+            hmacKeys.values.append(hmacKeyData)
+            hmacKeysResponse.hmacKeys[
+                Topic.groupMessage(ffiGroup.id().toHex).description] = hmacKeys
+        }
+        return hmacKeysResponse
+    }
+    
+    public func getPushTopics() throws -> [String] {
+        return [topic]
+    }
+    
+    public func getDebugInformation() async throws -> ConversationDebugInfo {
+        return ConversationDebugInfo(ffiConversationDebugInfo: try await ffiGroup.conversationDebugInfo())
+    }
 }
