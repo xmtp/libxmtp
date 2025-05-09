@@ -682,7 +682,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
-        stored_group.store_or_ignore(&provider.conn_ref())?;
+        stored_group.store_or_ignore(provider.db())?;
 
         Ok(stored_group)
     }
@@ -745,7 +745,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ))
             .build()?;
 
-        stored_group.store(&provider.conn_ref())?;
+        stored_group.store(provider.db())?;
         let new_group = Self::new_from_arc(
             client.clone(),
             group_id,
@@ -779,12 +779,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let provider = client.mls_provider();
         // Check if this welcome was already processed. Return the existing group if so.
         if provider
-            .conn_ref()
+            .db()
             .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
             >= welcome.id as i64
         {
             let group = provider
-                .conn_ref()
+                .db()
                 .find_group_by_welcome_id(welcome.id as i64)?
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
@@ -831,7 +831,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     "calling update cursor for welcome {}, allow_cursor_increment is true",
                     welcome.id
                 );
-                provider.conn_ref().update_cursor(
+                provider.db().update_cursor(
                     client.context().installation_public_key(),
                     EntityKind::Welcome,
                     welcome.id as i64,
@@ -842,7 +842,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome.id
                 );
                 let current_cursor = provider
-                    .conn_ref()
+                    .db()
                     .get_last_cursor_for_id(client.context().installation_public_key(), EntityKind::Welcome)?;
                 current_cursor < welcome.id as i64
             };
@@ -923,9 +923,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-            let stored_group = provider.conn_ref().insert_or_replace_group(to_store)?;
+            let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.conn_ref(), &stored_group)?;
+            StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
 
             Ok(Self::new(
                 client.clone(),
@@ -969,7 +969,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
-            provider.conn_ref(),
+            provider.db(),
             group_id,
             now_ns(),
             GroupMembershipState::Allowed,
@@ -1098,7 +1098,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
         };
-        group_message.store(&provider.conn_ref())?;
+        group_message.store(provider.db())?;
 
         Ok(message_id)
     }
@@ -1484,17 +1484,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
         let paused_for_version = self
             .mls_provider()
-            .conn_ref()
+            .db()
             .get_group_paused_version(&self.group_id)?;
         Ok(paused_for_version)
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
         let provider = self.context().mls_provider();
-        if let Some(min_version) = provider
-            .conn_ref()
-            .get_group_paused_version(&self.group_id)?
-        {
+        if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())
@@ -1653,7 +1650,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let epoch =
             self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
 
-        let stored_group = match provider.conn_ref().find_group(&self.group_id)? {
+        let stored_group = match provider.db().find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1682,7 +1679,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
         let provider = self.mls_provider();
-        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
+        let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -1788,7 +1785,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             ))
             .build()?;
 
-        stored_group.store(&provider.conn_ref())?;
+        stored_group.store(provider.db())?;
         Ok(Self::new_from_arc(
             client,
             group_id,
@@ -2065,7 +2062,7 @@ async fn validate_initial_group_membership(
     staged_welcome: &StagedWelcome,
 ) -> Result<(), GroupError> {
     let provider = client.mls_provider();
-    let conn = provider.conn_ref();
+    let conn = provider.db();
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
     let membership = extract_group_membership(extensions)?;

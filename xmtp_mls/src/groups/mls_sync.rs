@@ -318,7 +318,7 @@ where
 
     #[tracing::instrument(skip_all)]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
-        let intents = self.mls_provider().conn_ref().find_group_intents(
+        let intents = self.mls_provider().db().find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish, IntentState::Published]),
             None,
@@ -356,7 +356,7 @@ where
                     summary.extend(s);
                 }
             }
-            match Fetch::<StoredGroupIntent>::fetch(&provider.conn_ref(), &intent_id) {
+            match Fetch::<StoredGroupIntent>::fetch(provider.db(), &intent_id) {
                 Ok(None) => {
                     // This is expected. The intent gets deleted on success
                     return Ok(summary);
@@ -559,7 +559,7 @@ where
         }
 
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let message_epoch = message.epoch();
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -694,7 +694,7 @@ where
                     hex::encode(envelope.group_id.as_slice()),
                     *cursor
                 );
-                provider.conn_ref().update_cursor(
+                provider.db().update_cursor(
                     &envelope.group_id,
                     EntityKind::Group,
                     *cursor as i64,
@@ -706,7 +706,7 @@ where
                     *cursor
                 );
                 let current_cursor = provider
-                    .conn_ref()
+                    .db()
                     .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
                 current_cursor < *cursor as i64
             };
@@ -805,7 +805,7 @@ where
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
                         };
-                        message.store_or_ignore(&provider.conn_ref())?;
+                        message.store_or_ignore(provider.db())?;
 
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
@@ -813,7 +813,7 @@ where
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
-                            }) = provider.conn_ref().find_group(&self.group_id)?
+                            }) = provider.db().find_group(&self.group_id)?
                             {
                                 let _ =
                                     self.client
@@ -855,7 +855,7 @@ where
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
                                 };
-                                message.store_or_ignore(&provider.conn_ref())?;
+                                message.store_or_ignore(provider.db())?;
 
                                 tracing::info!("Received a history request.");
                                 let _ =
@@ -891,7 +891,7 @@ where
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
                                 };
-                                message.store_or_ignore(&provider.conn_ref())?;
+                                message.store_or_ignore(provider.db())?;
 
                                 tracing::info!("Received a history reply.");
                                 let _ =
@@ -1004,7 +1004,7 @@ where
         }
 
         let intent = provider
-            .conn_ref()
+            .db()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         tracing::info!(
             inbox_id = self.client.inbox_id(),
@@ -1051,7 +1051,7 @@ where
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
                             );
-                            provider.conn_ref().update_cursor(
+                            provider.db().update_cursor(
                                 &envelope.group_id,
                                 EntityKind::Group,
                                 cursor as i64,
@@ -1063,7 +1063,7 @@ where
                                 cursor
                             );
                             let current_cursor = provider
-                                .conn_ref()
+                                .db()
                                 .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
                             current_cursor < cursor as i64
                         };
@@ -1084,23 +1084,23 @@ where
 
                         match intent_state {
                             IntentState::ToPublish => {
-                                provider.conn_ref().set_group_intent_to_publish(intent_id)?;
+                                provider.db().set_group_intent_to_publish(intent_id)?;
                             }
                             IntentState::Committed => {
 
                                 self.handle_metadata_update_from_intent(&intent)?;
-                                provider.conn_ref().set_group_intent_committed(intent_id)?;
+                                provider.db().set_group_intent_committed(intent_id)?;
                             }
                             IntentState::Published => {
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
                             }
                             IntentState::Error => {
                                 tracing::warn!("Intent [{}] moved to error status", intent_id);
-                                provider.conn_ref().set_group_intent_error(intent_id)?;
+                                provider.db().set_group_intent_error(intent_id)?;
                             }
                             IntentState::Processed => {
                                 tracing::warn!("Intent [{}] moved to Processed status", intent_id);
-                                provider.conn_ref().set_group_intent_processed(intent_id)?;
+                                provider.db().set_group_intent_processed(intent_id)?;
                             }
                         }
                         Ok(internal_message_id.map(|i| {
@@ -1152,13 +1152,13 @@ where
 
             match data.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
-                    provider.conn_ref().update_message_disappearing_from_ns(
+                    provider.db().update_message_disappearing_from_ns(
                         self.group_id.clone(),
                         data.field_value.parse::<i64>().ok(),
                     )?
                 }
                 field_name if field_name == MetadataField::MessageDisappearInNS.as_str() => {
-                    provider.conn_ref().update_message_disappearing_in_ns(
+                    provider.db().update_message_disappearing_in_ns(
                         self.group_id.clone(),
                         data.field_value.parse::<i64>().ok(),
                     )?
@@ -1175,7 +1175,7 @@ where
         metadata_field_changes: Vec<group_updated::MetadataFieldChange>,
     ) -> Result<(), StorageError> {
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         for change in metadata_field_changes {
             match change.field_name.as_str() {
                 field_name if field_name == MetadataField::MessageDisappearFromNS.as_str() => {
@@ -1220,7 +1220,7 @@ where
         };
 
         let last_cursor = provider
-            .conn_ref()
+            .db()
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
         let should_skip_message = last_cursor > msgv1.id as i64;
         if should_skip_message {
@@ -1255,7 +1255,7 @@ where
             )) => {
                 // Instead of updating cursor, mark group as paused
                 provider
-                    .conn_ref()
+                    .db()
                     .set_group_paused(&self.group_id, &min_version)?;
                 tracing::warn!(
                     "Group [{}] paused due to minimum protocol version requirement",
@@ -1337,7 +1337,7 @@ where
         let provider = self.mls_provider();
         let messages = self
             .client
-            .query_group_messages(&self.group_id, provider.conn_ref())
+            .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
         tracing::info!("{summary}");
@@ -1350,7 +1350,7 @@ where
         timestamp_ns: u64,
     ) -> Result<Option<StoredGroupMessage>, GroupMessageProcessingError> {
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         if validated_commit.is_empty() {
             return Ok(None);
         }
@@ -1481,7 +1481,7 @@ where
     pub(super) async fn publish_intents(&self) -> Result<(), GroupError> {
         let provider = self.mls_provider();
         self.load_mls_group_with_lock_async(|mut mls_group| async move {
-            let intents = provider.conn_ref().find_group_intents(
+            let intents = provider.db().find_group_intents(
                 self.group_id.clone(),
                 Some(vec![IntentState::ToPublish]),
                 None,
@@ -1509,11 +1509,11 @@ where
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
                             provider
-                                .conn_ref()
+                                .db()
                                 .set_group_intent_error_and_fail_msg(&intent, id)?;
                         } else {
                             provider
-                                .conn_ref()
+                                .db()
                                 .increment_intent_publish_attempt_count(intent.id)?;
                         }
 
@@ -1527,7 +1527,7 @@ where
                             })) => {
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
-                        provider.conn_ref().set_group_intent_published(
+                        provider.db().set_group_intent_published(
                             intent.id,
                             sha256(payload_slice),
                             post_commit_action,
@@ -1573,7 +1573,7 @@ where
                             installation_id = %self.client.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
-                        provider.conn_ref().set_group_intent_processed(intent.id)?
+                        provider.db().set_group_intent_processed(intent.id)?
                     }
                 }
             }
@@ -1707,7 +1707,7 @@ where
     #[tracing::instrument(skip_all)]
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let intents = conn.find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::Committed]),
@@ -1741,7 +1741,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let provider = self.mls_provider();
-        let Some(stored_group) = provider.conn_ref().find_group(&self.group_id)? else {
+        let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -1756,13 +1756,13 @@ where
 
         let now_ns = xmtp_common::time::now_ns();
         let last_ns = provider
-            .conn_ref()
+            .db()
             .get_installations_time_checked(self.group_id.clone())?;
         let elapsed_ns = now_ns - last_ns;
         if elapsed_ns > interval_ns && self.is_active()? {
             self.add_missing_installations().await?;
             provider
-                .conn_ref()
+                .db()
                 .update_installations_time_checked(self.group_id.clone())?;
         }
 
@@ -1817,7 +1817,7 @@ where
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
-            let conn = provider.conn_ref();
+            let conn = provider.db();
             // Load any missing updates from the network
             load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
 
@@ -2052,7 +2052,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     let mut installation_diff = client
         .get_installation_diff(
-            provider.conn_ref(),
+            provider.db(),
             old_group_membership,
             new_group_membership,
             &membership_diff,
@@ -2284,7 +2284,7 @@ pub(crate) mod tests {
 
         // create group intent
         amal_group_a.sync().await.unwrap();
-        assert_eq!(provider.conn_ref().intents_processed(), 1);
+        assert_eq!(provider.db().intents_processed(), 1);
 
         for _ in 0..100 {
             let s = xmtp_common::rand_string::<100>();
@@ -2303,9 +2303,9 @@ pub(crate) mod tests {
             tracing::error!("{}", e.as_ref().unwrap_err());
         });
 
-        let published = provider.conn_ref().intents_published();
+        let published = provider.db().intents_published();
         assert_eq!(published, 101);
-        let created = provider.conn_ref().intents_created();
+        let created = provider.db().intents_created();
         assert_eq!(created, 101);
         if !errs.is_empty() {
             panic!("Errors during publish");

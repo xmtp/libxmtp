@@ -32,7 +32,7 @@ impl BackupRecordProvider for GroupSave {
 
         let batch = streamer
             .provider
-            .conn_ref()
+            .db()
             .find_groups_by_id_paged(args, streamer.cursor)?;
 
         let storage = streamer.provider.storage();

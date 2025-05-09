@@ -76,7 +76,7 @@ pub(super) fn store_preference_updates(
 
                 let consent_record: StoredConsentRecord = consent_save.try_into()?;
                 let updated = provider
-                    .conn_ref()
+                    .db()
                     .insert_newer_consent_record(consent_record.clone())?;
 
                 if updated {
@@ -87,11 +87,7 @@ pub(super) fn store_preference_updates(
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
-                StoredUserPreferences::store_hmac_key(
-                    provider.conn_ref(),
-                    &key,
-                    Some(cycled_at_ns),
-                )?;
+                StoredUserPreferences::store_hmac_key(provider.db(), &key, Some(cycled_at_ns))?;
                 changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
@@ -160,8 +156,8 @@ mod tests {
         amal_b.get_sync_group().await?.sync().await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
-        let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
-        let pref_b = StoredUserPreferences::load(amal_b.provider.conn_ref())?;
+        let pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
+        let pref_b = StoredUserPreferences::load(amal_b.provider.db())?;
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -170,7 +166,7 @@ mod tests {
             .await?;
 
         amal_a.sync_device_sync().await?;
-        let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
+        let new_pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

@@ -41,7 +41,7 @@ where
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let mut association_states: Vec<AssociationState> =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
         let mutable_metadata = self.mutable_metadata()?;

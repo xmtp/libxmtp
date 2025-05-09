@@ -216,7 +216,7 @@ where
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<Self>> {
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());

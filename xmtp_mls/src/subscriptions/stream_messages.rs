@@ -206,7 +206,7 @@ where
         let last_cursor = {
             let provider = client.mls_provider();
             provider
-                .conn_ref()
+                .db()
                 .get_last_cursor_for_id(&new_group, EntityKind::Group)
         }?;
 

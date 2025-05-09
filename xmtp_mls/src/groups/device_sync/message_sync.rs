@@ -13,7 +13,7 @@ where
     pub(super) fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let provider = self.mls_provider();
         let groups = provider
-            .conn_ref()
+            .db()
             .find_groups(GroupQueryArgs::default())?
             .into_iter()
             .map(Syncable::Group)
@@ -24,12 +24,12 @@ where
 
     pub(super) fn syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let provider = self.mls_provider();
-        let groups = provider.conn_ref().find_groups(GroupQueryArgs::default())?;
+        let groups = provider.db().find_groups(GroupQueryArgs::default())?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
             let messages = provider
-                .conn_ref()
+                .db()
                 .get_group_messages(&id, &MsgQueryArgs::default())?;
             for msg in messages {
                 all_messages.push(Syncable::GroupMessage(msg));
@@ -86,7 +86,7 @@ pub(crate) mod tests {
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
         let amal_b_provider = amal_b.mls_provider();
-        let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b_conn = amal_b_provider.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
         assert_eq!(groups_b.len(), 0);
@@ -145,7 +145,7 @@ pub(crate) mod tests {
         let amal_a = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
 
         let amal_a_provider = amal_a.mls_provider();
-        let amal_a_conn = amal_a_provider.conn_ref();
+        let amal_a_conn = amal_a_provider.db();
 
         // make sure amal's worker has time to sync
         // 3 Intents:
@@ -163,7 +163,7 @@ pub(crate) mod tests {
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
         let amal_b_provider = amal_b.mls_provider();
-        let amal_b_conn = amal_b_provider.conn_ref();
+        let amal_b_conn = amal_b_provider.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
         assert_eq!(groups_b.len(), 0);
