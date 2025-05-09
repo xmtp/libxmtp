@@ -8010,6 +8010,7 @@ dependencies = [
  "diesel",
  "parking_lot 0.12.3",
  "rand 0.8.5",
+ "tracing",
  "xmtp_common",
  "xmtp_db",
 ]
@@ -8129,6 +8130,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_db_test",
  "xmtp_id",
  "xmtp_proto",
  "zeroize",

@@ -46,20 +46,17 @@ impl<C> SqlKeyStore<C> {
 impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     fn select_query<const VERSION: u16>(
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, crate::ConnectionError> {
-        self.conn
-            .raw_query_read(|conn| {
-                sql_query(SELECT_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .load(conn)
-            })
-            .map_err(Into::into)
+        self.conn.raw_query_read(|conn| {
+            sql_query(SELECT_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .load(conn)
+        })
     }
 
     fn replace_query<const VERSION: u16>(
@@ -67,15 +64,13 @@ where
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
-        self.conn_ref()
-            .raw_query_write(|conn| {
-                sql_query(REPLACE_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .bind::<diesel::sql_types::Binary, _>(&value)
-                    .execute(conn)
-            })
-            .map_err(Into::into)
+        self.conn_ref().raw_query_write(|conn| {
+            sql_query(REPLACE_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .bind::<diesel::sql_types::Binary, _>(&value)
+                .execute(conn)
+        })
     }
 
     fn update_query<const VERSION: u16>(
@@ -83,13 +78,13 @@ where
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, crate::ConnectionError> {
-        Ok(self.conn_ref().raw_query_write(|conn| {
+        self.conn_ref().raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
                 .execute(conn)
-        })?)
+        })
     }
 
     pub fn write<const VERSION: u16>(
@@ -98,12 +93,8 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
-        tracing::trace!("write {}", String::from_utf8_lossy(label));
-
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-
         let _ = self.replace_query::<VERSION>(&storage_key, value)?;
-
         Ok(())
     }
 
@@ -227,15 +218,12 @@ where
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
 
-        let _ = self
-            .conn_ref()
-            .raw_query_write(|conn| {
-                sql_query(DELETE_QUERY)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
-                    .execute(conn)
-            })
-            .map_err(crate::ConnectionError::from)?;
+        self.conn_ref().raw_query_write(|conn| {
+            sql_query(DELETE_QUERY)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
+                .execute(conn)
+        })?;
         Ok(())
     }
 }
@@ -299,7 +287,6 @@ const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type Error = SqlKeyStoreError;
 
@@ -820,15 +807,12 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self
-            .conn_ref()
-            .raw_query_read(|conn| {
-                sql_query(query)
-                    .bind::<diesel::sql_types::Binary, _>(&storage_key)
-                    .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
-                    .load(conn)
-            })
-            .map_err(crate::ConnectionError::from)?;
+        let data: Vec<StorageData> = self.conn_ref().raw_query_read(|conn| {
+            sql_query(query)
+                .bind::<diesel::sql_types::Binary, _>(&storage_key)
+                .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
+                .load(conn)
+        })?;
 
         if let Some(entry) = data.into_iter().next() {
             match bincode::deserialize::<Vec<HpkeKeyPair>>(&entry.value_bytes) {
@@ -1053,23 +1037,14 @@ pub(crate) mod tests {
 
     use super::SqlKeyStore;
     use crate::{
-        EncryptedMessageStore, StorageOption, sql_key_store::SqlKeyStoreError,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        XmtpTestDb, sql_key_store::SqlKeyStoreError, xmtp_openmls_provider::XmtpOpenMlsProvider,
     };
-    use xmtp_common::tmp_path;
     use xmtp_cryptography::configuration::CIPHERSUITE;
 
     #[xmtp_common::test]
     async fn store_read_delete() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let key_store = SqlKeyStore::new(conn);
 
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
@@ -1117,14 +1092,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn list_append_remove() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let provider = XmtpOpenMlsProvider::new(conn);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
@@ -1200,14 +1169,8 @@ pub(crate) mod tests {
 
     #[xmtp_common::test]
     async fn group_state() {
-        let db_path = tmp_path();
-        let store = EncryptedMessageStore::new(
-            StorageOption::Persistent(db_path),
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .await
-        .unwrap();
-        let conn = store.conn().unwrap();
+        let store = crate::TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
         let provider = XmtpOpenMlsProvider::new(conn);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]

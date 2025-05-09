@@ -40,7 +40,6 @@ use xmtp_proto::prelude::XmtpTestClient;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
-#[allow(dead_code)]
 pub struct Tester<Owner, Client>
 where
     Owner: InboxOwner,
@@ -134,15 +133,14 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-
-        let provider = client.mls_provider().unwrap();
+        let provider = client.mls_provider();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
             }
         }
-        client.sync_welcomes(&provider).await;
+        client.sync_welcomes().await;
 
         let mut tester = Tester {
             builder: self.clone(),

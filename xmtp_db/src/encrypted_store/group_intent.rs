@@ -10,10 +10,10 @@ use diesel::{
 use xmtp_common::fmt;
 
 use super::{
-    Sqlite,
+    ConnectionExt, Sqlite,
     db_connection::DbConnection,
     group,
-    schema::{group_intents, group_intents::dsl},
+    schema::group_intents::{self, dsl},
 };
 use crate::{
     Delete, impl_fetch, impl_store, {NotFound, StorageError},
@@ -158,7 +158,7 @@ impl NewGroupIntent {
     }
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn insert_group_intent(
         &self,

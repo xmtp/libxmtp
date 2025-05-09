@@ -1,12 +1,9 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::{
-    groups::{
-        device_sync::{DeviceSyncError, NONCE_SIZE},
-        group_permissions::PolicySet,
-        scoped_client::ScopedGroupClient,
-        GroupMetadataOptions, MlsGroup,
-    },
-    XmtpOpenMlsProvider,
+use crate::groups::{
+    device_sync::{DeviceSyncError, NONCE_SIZE},
+    group_permissions::PolicySet,
+    scoped_client::ScopedGroupClient,
+    GroupMetadataOptions, MlsGroup,
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
@@ -16,7 +13,7 @@ use sha2::digest::{generic_array::GenericArray, typenum};
 use std::pin::Pin;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, StoreOrIgnore,
+    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore,
 };
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
@@ -97,9 +94,8 @@ impl ArchiveImporter {
     where
         Client: ScopedGroupClient,
     {
-        let provider = client.mls_provider()?;
         while let Some(element) = self.next_element().await? {
-            match insert(element, client, &provider) {
+            match insert(element, client, client.mls_provider()) {
                 Err(DeviceSyncError::Deserialization(err)) => {
                     tracing::warn!("Unable to insert record: {err:?}");
                 }
@@ -119,7 +115,7 @@ impl ArchiveImporter {
 fn insert<Client>(
     element: BackupElement,
     client: &Client,
-    provider: &XmtpOpenMlsProvider,
+    provider: impl MlsProviderExt,
 ) -> Result<(), DeviceSyncError>
 where
     Client: ScopedGroupClient,
@@ -146,7 +142,6 @@ where
 
             MlsGroup::insert(
                 client,
-                provider,
                 Some(&save.id),
                 GroupMembershipState::Restored,
                 PolicySet::default(),

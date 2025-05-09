@@ -1,5 +1,5 @@
 use crate::{ConnectionExt, DbConnection};
-use crate::{ProviderTransactions, sql_key_store::SqlKeyStore};
+use crate::{MlsProviderExt, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
@@ -19,44 +19,18 @@ impl<C> XmtpOpenMlsProvider<C> {
     }
 }
 
-// C should be an Arc<>
-impl<C> XmtpOpenMlsProvider<C> {
+impl<C> XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
     pub fn conn_ref(&self) -> &DbConnection<C> {
         self.key_store.conn_ref()
     }
-}
 
-impl XmtpOpenMlsProvider {
-    pub fn new_crypto() -> RustCrypto {
-        RustCrypto::default()
-    }
-}
-
-impl<C> ProviderTransactions<C> for XmtpOpenMlsProvider<C>
-where
-    C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
-{
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
-        E: From<<C as ConnectionExt>::Error> + std::error::Error,
-        E: From<crate::ConnectionError>,
+        E: From<crate::ConnectionError> + std::error::Error,
     {
         tracing::debug!("Transaction beginning");
 
@@ -80,7 +54,6 @@ where
                         &mut *conn,
                     )
                 });
-                let result = result.map_err(crate::ConnectionError::from);
                 match result {
                     Ok(()) => Err(err),
                     Err(crate::ConnectionError::Database(
@@ -93,10 +66,63 @@ where
     }
 }
 
+impl XmtpOpenMlsProvider {
+    pub fn new_crypto() -> RustCrypto {
+        RustCrypto::default()
+    }
+}
+
+impl<C> MlsProviderExt for XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
+    type Connection = C;
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
+        E: From<crate::ConnectionError> + std::error::Error,
+    {
+        XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
+    }
+
+    fn conn_ref(&self) -> &DbConnection<C> {
+        self.key_store.conn_ref()
+    }
+
+    fn key_store(&self) -> &SqlKeyStore<C> {
+        &self.key_store
+    }
+}
+
+impl<C> MlsProviderExt for &XmtpOpenMlsProvider<C>
+where
+    C: ConnectionExt,
+{
+    type Connection = C;
+
+    #[tracing::instrument(level = "debug", skip_all)]
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,
+        E: std::error::Error + From<crate::ConnectionError>,
+    {
+        XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
+    }
+
+    fn conn_ref(&self) -> &DbConnection<C> {
+        self.key_store.conn_ref()
+    }
+
+    fn key_store(&self) -> &SqlKeyStore<C> {
+        &self.key_store
+    }
+}
+
 impl<C> OpenMlsProvider for XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -117,7 +143,6 @@ where
 impl<C> OpenMlsProvider for &XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
-    crate::ConnectionError: From<<C as ConnectionExt>::Error>,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;

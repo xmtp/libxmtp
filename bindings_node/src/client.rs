@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption};
+use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
@@ -162,13 +162,16 @@ pub async fn create_client(
       let key: EncryptionKey = key
         .try_into()
         .map_err(|_| Error::from_reason("Malformed 32 byte encryption key"))?;
-      EncryptedMessageStore::new(storage_option, key)
-        .await
+      let db = NativeDb::new(&storage_option, key)
+        .map_err(|e| Error::from_reason(format!("Error creating native database {}", e)))?;
+      EncryptedMessageStore::new(db)
         .map_err(|e| Error::from_reason(format!("Error Creating Encrypted Message store {}", e)))?
     }
-    None => EncryptedMessageStore::new_unencrypted(storage_option)
-      .await
-      .map_err(|e| Error::from_reason(format!("{e} Error creating unencrypted message store")))?,
+    None => {
+      let db = NativeDb::new_unencrypted(&storage_option)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+      EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?
+    }
   };
 
   let internal_account_identifier = account_identifier.clone().try_into()?;
@@ -287,13 +290,9 @@ impl Client {
 
   #[napi]
   pub async fn send_sync_request(&self) -> Result<()> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(ErrorWrapper::from)?;
     self
       .inner_client
-      .send_sync_request(&provider)
+      .send_sync_request()
       .await
       .map_err(ErrorWrapper::from)?;
 
@@ -337,10 +336,8 @@ impl Client {
   pub async fn sync_preferences(&self) -> Result<u32> {
     let inner = self.inner_client.as_ref();
 
-    let provider = inner.mls_provider().map_err(ErrorWrapper::from)?;
-
     let num_groups_synced: usize = inner
-      .sync_all_welcomes_and_history_sync_groups(&provider)
+      .sync_all_welcomes_and_history_sync_groups()
       .await
       .map_err(ErrorWrapper::from)?;
 

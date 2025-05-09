@@ -1,9 +1,9 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    Client, XmtpOpenMlsProvider,
+    Client,
 };
-use xmtp_db::{group::ConversationType, refresh_state::EntityKind, NotFound};
+use xmtp_db::{group::ConversationType, refresh_state::EntityKind, NotFound, XmtpDb};
 
 use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
@@ -15,7 +15,6 @@ use std::{
 };
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::{retry_async, FutureWrapper, Retry};
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
@@ -154,16 +153,16 @@ pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
     <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::Error,
 >;
 
-impl<'a, A, V> StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>
+impl<'a, A, D> StreamConversations<'a, Client<A, D>, WelcomesApiSubscription<'a, Client<A, D>>>
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    D: XmtpDb + Send + 'static,
 {
     pub async fn new(
-        client: &'a Client<A, V>,
+        client: &'a Client<A, D>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        let provider = client.mls_provider()?;
+        let provider = client.mls_provider();
         let conn = provider.conn_ref();
         let installation_key = client.installation_public_key();
         let id_cursor = provider
@@ -346,8 +345,6 @@ pub struct ProcessWelcomeFuture<Client> {
     client: Client,
     /// the welcome or group being processed in this future
     item: WelcomeOrGroup,
-    /// the xmtp mls provider
-    provider: XmtpOpenMlsProvider,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
 }
@@ -362,13 +359,10 @@ where
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
     ) -> Result<ProcessWelcomeFuture<C>> {
-        let provider = client.context().mls_provider()?;
-
         Ok(Self {
             known_welcome_ids,
             client,
             item,
-            provider,
             conversation_type,
         })
     }
@@ -406,7 +400,7 @@ where
             Group(ref id) => {
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
                 let (group, stored_group) =
-                    MlsGroup::new_validated(self.client.clone(), id.to_vec(), &self.provider)?;
+                    MlsGroup::new_validated(self.client.clone(), id.to_vec())?;
 
                 ProcessWelcomeResult::NewStored {
                     group,
@@ -422,10 +416,10 @@ where
         use ProcessWelcomeResult::*;
         match processed {
             New { group, id } => {
-                let metadata = group.metadata(&self.provider).await?;
+                let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
-                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                    && self.client.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     return Ok(ProcessWelcomeResult::IgnoreId { id });
@@ -441,10 +435,10 @@ where
                 }
             }
             NewStored { group, maybe_id } => {
-                let metadata = group.metadata(&self.provider).await?;
+                let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
-                    && self.provider.conn_ref().has_duplicate_dm(&group.group_id)?
+                    && self.client.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     if let Some(id) = maybe_id {
@@ -479,29 +473,23 @@ where
         } = welcome;
         let id = *id as i64;
 
-        let Self {
-            ref client,
-            ref provider,
-            ..
-        } = self;
+        let Self { ref client, .. } = self;
         tracing::info!(
             installation_id = hex::encode(installation_key),
             welcome_id = &id,
             "Trying to process streamed welcome"
         );
 
-        retry_async!(
-            Retry::default(),
-            (async { client.sync_welcomes(provider).await })
-        )?;
+        retry_async!(Retry::default(), (async { client.sync_welcomes().await }))?;
 
         self.load_from_store(id)
     }
 
     /// Load a group from disk by its welcome_id
     fn load_from_store(&self, id: i64) -> Result<(MlsGroup<C>, i64)> {
-        let conn = self.provider.conn_ref();
-        let group = conn
+        let provider = self.client.mls_provider();
+        let group = provider
+            .conn_ref()
             .find_group_by_welcome_id(id)?
             .ok_or(NotFound::GroupByWelcome(id))?;
         tracing::info!(
@@ -593,11 +581,7 @@ mod test {
             .unwrap();
 
         let group = stream.next().await.unwrap();
-        let metadata = group
-            .unwrap()
-            .metadata(&alix.context().mls_provider().unwrap())
-            .await
-            .unwrap();
+        let metadata = group.unwrap().metadata().await.unwrap();
 
         assert_eq!(
             metadata.conversation_type, conversation_type,
@@ -685,9 +669,7 @@ mod test {
         let _bo_group = stream.next().await.unwrap();
 
         // Verify syncing welcomes while streaming causes no issues
-        alix.sync_welcomes(&alix.mls_provider().unwrap())
-            .await
-            .unwrap();
+        alix.sync_welcomes().await.unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
     }
@@ -698,7 +680,6 @@ mod test {
     async fn test_add_remove_re_add() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo_provider = bo.mls_provider().unwrap();
 
         let alix_group = alix
             .create_group_with_inbox_ids(
@@ -713,7 +694,7 @@ mod test {
             .remove_members_by_inbox_id(&[bo.inbox_id()])
             .await
             .unwrap();
-        bo.sync_welcomes(&bo_provider).await.unwrap();
+        bo.sync_welcomes().await.unwrap();
         let stream = bo
             .stream_conversations(Some(ConversationType::Group))
             .await

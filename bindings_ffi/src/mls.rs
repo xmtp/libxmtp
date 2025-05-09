@@ -20,6 +20,7 @@ use xmtp_db::group::DmIdExt;
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
 use xmtp_db::group_message::{SortDirection, StoredGroupMessageWithReactions};
 use xmtp_db::user_preferences::HmacKey;
+use xmtp_db::NativeDb;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::GroupQueryArgs,
@@ -29,7 +30,7 @@ use xmtp_db::{
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
-use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
         builder::SignatureRequest,
@@ -154,9 +155,13 @@ pub async fn create_client(
             let key: EncryptionKey = key
                 .try_into()
                 .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            EncryptedMessageStore::new(storage_option, key).await?
+            let db = NativeDb::new(&storage_option, key)?;
+            EncryptedMessageStore::new(db)?
         }
-        None => EncryptedMessageStore::new_unencrypted(storage_option).await?,
+        None => {
+            let db = NativeDb::new_unencrypted(&storage_option)?;
+            EncryptedMessageStore::new(db)?
+        }
     };
     log::info!("Creating XMTP client");
     let identity_strategy = IdentityStrategy::new(
@@ -219,7 +224,7 @@ pub async fn get_inbox_id_for_identifier(
 #[derive(uniffi::Object)]
 pub struct FfiSignatureRequest {
     inner: Arc<Mutex<SignatureRequest>>,
-    scw_verifier: RemoteSignatureVerifier<ApiDebugWrapper<TonicApiClient>>,
+    scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
 }
 
 #[derive(uniffi::Record, Clone)]
@@ -547,10 +552,7 @@ impl FfiXmtpClient {
 
     pub async fn sync_preferences(&self) -> Result<u64, GenericError> {
         let inner = self.inner_client.as_ref();
-        let provider = inner.mls_provider()?;
-        let num_groups_synced = inner
-            .sync_all_welcomes_and_history_sync_groups(&provider)
-            .await?;
+        let num_groups_synced = inner.sync_all_welcomes_and_history_sync_groups().await?;
 
         Ok(num_groups_synced as u64)
     }
@@ -563,7 +565,7 @@ impl FfiXmtpClient {
             .map(move |request| {
                 Arc::new(FfiSignatureRequest {
                     inner: Arc::new(Mutex::new(request)),
-                    scw_verifier: Arc::unwrap_or_clone(scw_verifier),
+                    scw_verifier,
                 })
             })
     }
@@ -582,9 +584,7 @@ impl FfiXmtpClient {
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
-        self.inner_client.send_sync_request(&provider).await?;
-
+        self.inner_client.send_sync_request().await?;
         Ok(())
     }
 
@@ -600,7 +600,7 @@ impl FfiXmtpClient {
         let scw_verifier = self.inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
+            scw_verifier: scw_verifier.clone(),
         });
 
         Ok(request)
@@ -633,7 +633,7 @@ impl FfiXmtpClient {
         let scw_verifier = inner_client.scw_verifier();
         let request = Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(scw_verifier.clone()),
+            scw_verifier: scw_verifier.clone(),
         });
 
         Ok(request)
@@ -660,7 +660,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
+            scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
 
@@ -678,7 +678,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
+            scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
 
@@ -696,7 +696,7 @@ impl FfiXmtpClient {
 
         Ok(Arc::new(FfiSignatureRequest {
             inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-            scw_verifier: Arc::unwrap_or_clone(self.inner_client.scw_verifier().clone()),
+            scw_verifier: self.inner_client.scw_verifier().clone(),
         }))
     }
 
@@ -707,10 +707,9 @@ impl FfiXmtpClient {
         opts: FfiArchiveOptions,
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
+        let provider = self.inner_client.mls_provider();
         let options: BackupOptions = opts.into();
         ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
-
         Ok(())
     }
 
@@ -1288,8 +1287,7 @@ impl FfiConversations {
 
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
-        let provider = inner.mls_provider()?;
-        inner.sync_welcomes(&provider).await?;
+        inner.sync_welcomes().await?;
         Ok(())
     }
 
@@ -1299,12 +1297,9 @@ impl FfiConversations {
         consent_states: Option<Vec<FfiConsentState>>,
     ) -> Result<u32, GenericError> {
         let inner = self.inner_client.as_ref();
-        let provider = inner.mls_provider()?;
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
-        let num_groups_synced: usize = inner
-            .sync_all_welcomes_and_groups(&provider, consents)
-            .await?;
+        let num_groups_synced: usize = inner.sync_all_welcomes_and_groups(consents).await?;
         // Convert usize to u32 for compatibility with Uniffi
         let num_groups_synced: u32 = num_groups_synced
             .try_into()
@@ -1314,9 +1309,7 @@ impl FfiConversations {
     }
 
     pub async fn sync_device_sync(&self) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider()?;
-        self.inner_client.sync_device_sync(&provider).await?;
-
+        self.inner_client.sync_device_sync().await?;
         Ok(())
     }
 
@@ -1550,8 +1543,7 @@ impl FfiConversations {
 impl FfiConversations {
     pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let provider = inner.mls_provider()?;
-        let sync_group = inner.get_sync_group(&provider).await?;
+        let sync_group = inner.get_sync_group().await?;
         Ok(sync_group.into())
     }
 }
@@ -2054,8 +2046,7 @@ impl FfiConversation {
     }
 
     pub fn group_name(&self) -> Result<String, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        let group_name = self.inner.group_name(&provider)?;
+        let group_name = self.inner.group_name()?;
         Ok(group_name)
     }
 
@@ -2071,8 +2062,7 @@ impl FfiConversation {
     }
 
     pub fn group_image_url_square(&self) -> Result<String, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_image_url_square(&provider)?)
+        Ok(self.inner.group_image_url_square()?)
     }
 
     pub async fn update_group_description(
@@ -2087,8 +2077,7 @@ impl FfiConversation {
     }
 
     pub fn group_description(&self) -> Result<String, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        Ok(self.inner.group_description(&provider)?)
+        Ok(self.inner.group_description()?)
     }
 
     pub async fn update_conversation_message_disappearing_settings(
@@ -2135,13 +2124,11 @@ impl FfiConversation {
     }
 
     pub fn admin_list(&self) -> Result<Vec<String>, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        self.inner.admin_list(&provider).map_err(Into::into)
+        self.inner.admin_list().map_err(Into::into)
     }
 
     pub fn super_admin_list(&self) -> Result<Vec<String>, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        self.inner.super_admin_list(&provider).map_err(Into::into)
+        self.inner.super_admin_list().map_err(Into::into)
     }
 
     pub fn is_admin(&self, inbox_id: &String) -> Result<bool, GenericError> {
@@ -2222,13 +2209,11 @@ impl FfiConversation {
     }
 
     pub fn is_active(&self) -> Result<bool, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        self.inner.is_active(&provider).map_err(Into::into)
+        self.inner.is_active().map_err(Into::into)
     }
 
     pub fn paused_for_version(&self) -> Result<Option<String>, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        self.inner.paused_for_version(&provider).map_err(Into::into)
+        self.inner.paused_for_version().map_err(Into::into)
     }
 
     pub fn consent_state(&self) -> Result<FfiConsentState, GenericError> {
@@ -2249,8 +2234,7 @@ impl FfiConversation {
     }
 
     pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        let metadata = self.inner.metadata(&provider).await?;
+        let metadata = self.inner.metadata().await?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -2274,8 +2258,7 @@ impl FfiConversation {
     }
 
     pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
-        let provider = self.inner.mls_provider()?;
-        let conversation_type = self.inner.conversation_type(&provider).await?;
+        let conversation_type = self.inner.conversation_type().await?;
         Ok(conversation_type.into())
     }
 
@@ -3070,7 +3053,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -3103,7 +3086,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &inbox_id,
             ident,
             nonce,
@@ -5174,8 +5157,6 @@ mod tests {
         let bo = new_test_client().await;
         let caro = new_test_client().await;
 
-        let caro_provider = caro.inner_client.mls_provider().unwrap();
-
         let alix_group = alix
             .conversations()
             .create_group(
@@ -5204,11 +5185,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let _ = caro
-            .inner_client
-            .sync_welcomes(&caro_provider)
-            .await
-            .unwrap();
+        let _ = caro.inner_client.sync_welcomes().await.unwrap();
 
         bo_group.send("second".as_bytes().to_vec()).await.unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
@@ -5227,8 +5204,6 @@ mod tests {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
-        let bola_provider = bola.inner_client.mls_provider().unwrap();
-
         let amal_group: Arc<FfiConversation> = amal
             .conversations()
             .create_group(
@@ -5238,10 +5213,7 @@ mod tests {
             .await
             .unwrap();
 
-        bola.inner_client
-            .sync_welcomes(&bola_provider)
-            .await
-            .unwrap();
+        bola.inner_client.sync_welcomes().await.unwrap();
         let bola_group = bola.conversation(amal_group.id()).unwrap();
 
         let stream_callback = Arc::new(RustStreamCallback::default());
@@ -5627,9 +5599,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_disappearing_messages_deletion() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let alix_provider = alix.inner_client.mls_provider();
         let bola = new_test_client().await;
-        let bola_provider = bola.inner_client.mls_provider().unwrap();
+        let bola_provider = bola.inner_client.mls_provider();
 
         // Step 1: Create a group
         let alix_group = alix
@@ -5771,7 +5743,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_disappearing_messages_when_creating_group() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let alix_provider = alix.inner_client.mls_provider();
         let bola = new_test_client().await;
         let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
         // Step 1: Create a group
@@ -5829,7 +5801,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_disappearing_messages_when_creating_dm() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider().unwrap();
+        let alix_provider = alix.inner_client.mls_provider();
         let bola = new_test_client().await;
         let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
         // Step 1: Create a group
@@ -6915,7 +6887,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -6955,7 +6927,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &inbox_id,
             ffi_ident,
             nonce,
@@ -7020,7 +6992,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &client_b_inbox_id,
             ffi_ident,
             nonce,
@@ -7056,7 +7028,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
             ffi_ident,
             1,
@@ -7079,7 +7051,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7099,7 +7071,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7130,7 +7102,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
             ffi_ident,
             1,
@@ -7648,9 +7620,9 @@ mod tests {
         let client_bo = new_test_client_with_wallet(wallet_bo).await;
         let client_alix = new_test_client_with_wallet(wallet_alix).await;
 
-        let bo_provider = client_bo.inner_client.mls_provider().unwrap();
+        let bo_provider = client_bo.inner_client.mls_provider();
         let bo_conn = bo_provider.conn_ref();
-        let alix_provider = client_alix.inner_client.mls_provider().unwrap();
+        let alix_provider = client_alix.inner_client.mls_provider();
         let alix_conn = alix_provider.conn_ref();
 
         // Find or create DM conversations
@@ -7937,16 +7909,8 @@ mod tests {
             .await
             .unwrap();
 
-        let sg1 = alix
-            .inner_client
-            .get_sync_group(&alix.inner_client.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let sg2 = alix2
-            .inner_client
-            .get_sync_group(&alix2.inner_client.mls_provider().unwrap())
-            .await
-            .unwrap();
+        let sg1 = alix.inner_client.get_sync_group().await.unwrap();
+        let sg2 = alix2.inner_client.get_sync_group().await.unwrap();
 
         assert_eq!(sg1.group_id, sg2.group_id);
 
@@ -7960,11 +7924,7 @@ mod tests {
             .await
             .unwrap();
 
-        alix2
-            .inner_client
-            .sync_welcomes(&alix2.inner_client.mls_provider().unwrap())
-            .await
-            .unwrap();
+        alix2.inner_client.sync_welcomes().await.unwrap();
 
         // Update consent state
         alix_group

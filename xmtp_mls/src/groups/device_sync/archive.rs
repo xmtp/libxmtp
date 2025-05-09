@@ -104,14 +104,14 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, &alix.provider, &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.provider.clone(), &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
-        let alix2_provider = Arc::new(alix2.mls_provider().unwrap());
+        let alix2_provider = alix2.mls_provider();
 
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -151,7 +151,7 @@ mod tests {
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
 
-        bo.sync_welcomes(&bo.provider).await?;
+        bo.sync_welcomes().await?;
         let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
@@ -193,7 +193,7 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, &alix.provider, &key);
+        let mut exporter = ArchiveExporter::new(opts, alix.provider.clone(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
@@ -251,18 +251,18 @@ mod tests {
         // Loading all the groups works fine
         let _groups = alix2.find_groups(GroupQueryArgs::default())?;
         // Can fetch the group name no problem
-        alix2_group.group_name(&alix2.provider)?;
-        assert!(!alix2_group.is_active(&alix2.provider)?);
+        alix2_group.group_name()?;
+        assert!(!alix2_group.is_active()?);
 
         // Add the new inbox to the groups
         alix_group
             .add_members_by_inbox_id(&[alix2.inbox_id()])
             .await?;
-        alix2.sync_welcomes(&alix2.provider).await?;
+        alix2.sync_welcomes().await?;
 
         // The group restores to being fully functional
         let alix2_group = alix2.group(&old_group.id)?;
-        assert!(alix2_group.is_active(&alix2.provider)?);
+        assert!(alix2_group.is_active()?);
 
         // The old messages should be stitched in
         let msgs = alix2_group.find_messages(&MsgQueryArgs::default())?;

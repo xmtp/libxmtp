@@ -1,6 +1,8 @@
+use crate::ConnectionExt;
+
 use super::*;
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError> {
         use crate::schema::groups::dsl;
 

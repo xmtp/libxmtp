@@ -105,7 +105,7 @@ pub async fn debug_key_packages(
         .await
         .unwrap();
 
-    let mls_provider = client.mls_provider().unwrap();
+    let mls_provider = client.mls_provider();
 
     let envelopes: Result<Vec<VerifiedKeyPackageV2>, _> = key_package_results
         .values()

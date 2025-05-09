@@ -1,5 +1,5 @@
-use super::Sqlite;
 use super::schema::identity_cache;
+use super::{ConnectionExt, Sqlite};
 use crate::{DbConnection, StorageError};
 use crate::{Store, impl_fetch, impl_store};
 use diesel::backend::Backend;
@@ -33,7 +33,7 @@ pub enum StoredIdentityKind {
 impl_store!(IdentityCache, identity_cache);
 impl_fetch!(IdentityCache, identity_cache);
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
     pub fn fetch_cached_inbox_ids<T>(
         &self,

@@ -56,14 +56,13 @@ pub(super) enum Syncable {
     ConsentRecord(StoredConsentRecord),
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    Db: xmtp_db::XmtpDb,
 {
     pub(super) async fn v1_send_sync_request(
         &self,
-        provider: &XmtpOpenMlsProvider,
         kind: BackupElementSelection,
     ) -> Result<DeviceSyncRequestProto, DeviceSyncError> {
         tracing::info!(
@@ -74,16 +73,13 @@ where
         let request = DeviceSyncRequest::new(kind);
 
         // find the sync group
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = self.get_sync_group().await?;
 
         // sync the group
-        sync_group.sync_with_conn(provider).await?;
+        sync_group.sync_with_conn().await?;
 
         // lookup if a request has already been made
-        if let Ok((_msg, request)) = self
-            .v1_get_pending_sync_request(provider, request.kind)
-            .await
-        {
+        if let Ok((_msg, request)) = self.v1_get_pending_sync_request(request.kind).await {
             return Ok(request);
         }
 
@@ -93,7 +89,7 @@ where
         let content = DeviceSyncContent::Request(request.clone());
         let content_bytes = serde_json::to_vec(&content)?;
 
-        let _message_id = sync_group.prepare_message(&content_bytes, provider, {
+        let _message_id = sync_group.prepare_message(&content_bytes, {
             let request = request.clone();
             move |now| PlaintextEnvelope {
                 content: Some(Content::V2(V2 {
@@ -104,26 +100,20 @@ where
         })?;
 
         // publish the intent
-        sync_group.publish_intents(provider).await?;
+        sync_group.publish_intents().await?;
 
         Ok(request)
     }
 
     pub(super) async fn v1_reply_to_sync_request(
         &self,
-        provider: &XmtpOpenMlsProvider,
         request: DeviceSyncRequestProto,
         handle: &WorkerHandle<SyncMetric>,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
-        let conn = provider.conn_ref();
-
         let records = match request.kind() {
-            BackupElementSelection::Consent => vec![self.v1_syncable_consent_records(conn)?],
+            BackupElementSelection::Consent => vec![self.v1_syncable_consent_records()?],
             BackupElementSelection::Messages => {
-                vec![
-                    self.v1_syncable_groups(conn)?,
-                    self.v1_syncable_messages(conn)?,
-                ]
+                vec![self.v1_syncable_groups()?, self.v1_syncable_messages()?]
             }
             BackupElementSelection::Unspecified => {
                 return Err(DeviceSyncError::UnspecifiedDeviceSyncKind)
@@ -133,7 +123,7 @@ where
         let reply = self
             .v1_create_sync_reply(&request.request_id, &records, request.kind())
             .await?;
-        self.v1_send_sync_reply(provider, reply.clone()).await?;
+        self.v1_send_sync_reply(reply.clone()).await?;
 
         handle.increment_metric(SyncMetric::V1PayloadSent);
 
@@ -142,18 +132,15 @@ where
 
     async fn v1_send_sync_reply(
         &self,
-        provider: &XmtpOpenMlsProvider,
         contents: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
         // find the sync group
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = self.get_sync_group().await?;
 
         // sync the group
-        sync_group.sync_with_conn(provider).await?;
+        sync_group.sync_with_conn().await?;
 
-        let (_msg, _request) = self
-            .v1_get_pending_sync_request(provider, contents.kind())
-            .await?;
+        let (_msg, _request) = self.v1_get_pending_sync_request(contents.kind()).await?;
 
         // add original sender to all groups on this device on the node
         self.add_new_installation_to_groups().await?;
@@ -169,27 +156,26 @@ where
             (content_bytes, contents)
         };
 
-        sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
+        sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 message_type: Some(MessageType::DeviceSyncReply(contents)),
                 idempotency_key: now.to_string(),
             })),
         })?;
 
-        sync_group.publish_intents(provider).await?;
+        sync_group.publish_intents().await?;
 
         Ok(())
     }
 
     async fn v1_get_pending_sync_request(
         &self,
-        provider: &XmtpOpenMlsProvider,
         kind: BackupElementSelection,
     ) -> Result<(StoredGroupMessage, DeviceSyncRequestProto), DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
-        sync_group.sync_with_conn(provider).await?;
+        let sync_group = self.get_sync_group().await?;
+        sync_group.sync_with_conn().await?;
 
-        let messages = provider.conn_ref().get_group_messages(
+        let messages = self.context.db().get_group_messages(
             &sync_group.group_id,
             &MsgQueryArgs {
                 kind: Some(GroupMessageKind::Application),
@@ -224,8 +210,8 @@ where
         provider: &XmtpOpenMlsProvider,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
-        let sync_group = self.get_sync_group(provider).await?;
-        sync_group.sync_with_conn(provider).await?;
+        let sync_group = self.get_sync_group().await?;
+        sync_group.sync_with_conn().await?;
 
         let messages = sync_group.find_messages(&MsgQueryArgs {
             kind: Some(GroupMessageKind::Application),
@@ -251,10 +237,9 @@ where
 
     pub(super) async fn v1_process_sync_reply(
         &self,
-        provider: &XmtpOpenMlsProvider,
         reply: DeviceSyncReplyProto,
     ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
+        let provider = self.mls_provider();
 
         #[allow(deprecated)]
         let time_diff = reply.timestamp_ns.abs_diff(now_ns() as u64);
@@ -269,19 +254,19 @@ where
         };
 
         let enc_payload = download_history_payload(&reply.url).await?;
-        self.v1_insert_encrypted_syncables(provider, enc_payload, &enc_key.try_into()?)
+        self.v1_insert_encrypted_syncables(enc_payload, &enc_key.try_into()?)
             .await?;
 
-        self.sync_welcomes(provider).await?;
+        self.sync_welcomes().await?;
 
-        let groups = conn.find_groups(GroupQueryArgs {
+        let groups = self.context.db().find_groups(GroupQueryArgs {
             conversation_type: Some(ConversationType::Group),
             ..Default::default()
         })?;
         for StoredGroup { id, .. } in groups.into_iter() {
-            let group = self.group_with_conn(provider.conn_ref(), &id)?;
-            group.maybe_update_installations(provider, None).await?;
-            Box::pin(group.sync_with_conn(provider)).await?;
+            let group = self.group(&id)?;
+            group.maybe_update_installations(None).await?;
+            Box::pin(group.sync_with_conn()).await?;
         }
 
         if let Some(handle) = self.worker_handle() {
@@ -345,11 +330,9 @@ where
 
     async fn v1_insert_encrypted_syncables(
         &self,
-        provider: &XmtpOpenMlsProvider,
         payload: Vec<u8>,
         enc_key: &DeviceSyncKeyType,
     ) -> Result<(), DeviceSyncError> {
-        let conn = provider.conn_ref();
         let enc_key = enc_key.as_bytes();
 
         // Split the nonce and ciphertext
@@ -366,10 +349,10 @@ where
         for syncable in payload {
             match syncable {
                 Syncable::Group(group) => {
-                    conn.insert_or_replace_group(group)?;
+                    self.context.db().insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {
-                    if let Err(err) = group_message.store(&conn) {
+                    if let Err(err) = group_message.store(&self.context.db()) {
                         match err {
                             // this is fine because we are inserting messages that already exist
                             StorageError::DieselResult(
@@ -392,11 +375,10 @@ where
         Ok(())
     }
 
-    fn v1_syncable_consent_records(
-        &self,
-        conn: &DbConnection,
-    ) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let consent_records = conn
+    fn v1_syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let consent_records = self
+            .context
+            .db()
             .consent_records()?
             .into_iter()
             .map(Syncable::ConsentRecord)
@@ -404,11 +386,10 @@ where
         Ok(consent_records)
     }
 
-    pub(super) fn v1_syncable_groups(
-        &self,
-        conn: &DbConnection,
-    ) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups = conn
+    pub(super) fn v1_syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let groups = self
+            .context
+            .db()
             .find_groups(GroupQueryArgs::default())?
             .into_iter()
             .map(Syncable::Group)
@@ -417,15 +398,15 @@ where
         Ok(groups)
     }
 
-    pub(super) fn v1_syncable_messages(
-        &self,
-        conn: &DbConnection,
-    ) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let groups = conn.find_groups(GroupQueryArgs::default())?;
+    pub(super) fn v1_syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
+        let groups = self.db().find_groups(GroupQueryArgs::default())?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
-            let messages = conn.get_group_messages(&id, &MsgQueryArgs::default())?;
+            let messages = self
+                .context
+                .db()
+                .get_group_messages(&id, &MsgQueryArgs::default())?;
             for msg in messages {
                 all_messages.push(Syncable::GroupMessage(msg));
             }
@@ -630,31 +611,31 @@ mod tests {
 
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-        alix2.get_sync_group(&alix2.provider).await?.sync().await?;
+        alix2.get_sync_group().await?.sync().await?;
         alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
-            .v1_send_sync_request(&alix2.provider, BackupElementSelection::Messages)
+            .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
-        alix1.sync_device_sync(&alix1.provider).await?;
+        alix1.sync_device_sync().await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
 
-        alix2.sync_device_sync(&alix2.provider).await?;
+        alix2.sync_device_sync().await?;
         alix2
             .worker()
             .wait(SyncMetric::V1PayloadProcessed, 1)
             .await?;
 
         alix2
-            .v1_send_sync_request(&alix2.provider, BackupElementSelection::Consent)
+            .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
-        alix1.sync_device_sync(&alix1.provider).await?;
+        alix1.sync_device_sync().await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;
 
-        alix2.sync_device_sync(&alix2.provider).await?;
+        alix2.sync_device_sync().await?;
         alix2
             .worker()
             .wait(SyncMetric::V1PayloadProcessed, 2)

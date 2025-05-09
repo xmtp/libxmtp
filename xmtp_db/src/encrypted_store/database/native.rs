@@ -1,8 +1,8 @@
 mod sqlcipher_connection;
 
-use crate::TransactionGuard;
 /// Native SQLite connection using SqlCipher
-use crate::{ConnectionError, ConnectionExt, NotFound};
+use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
+use crate::{StorageError, TransactionGuard};
 use diesel::connection::TransactionManager;
 use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
@@ -136,11 +136,20 @@ impl RetryableError for PlatformStorageError {
 pub struct NativeDb {
     customizer: Box<dyn XmtpConnection>,
     conn: Arc<super::DefaultConnectionInner>,
+    opts: StorageOption,
 }
 
 impl NativeDb {
+    pub fn new(opts: &StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_inner(opts, Some(enc_key)).map_err(Into::into)
+    }
+
+    pub fn new_unencrypted(opts: &StorageOption) -> Result<Self, StorageError> {
+        Self::new_inner(opts, None).map_err(Into::into)
+    }
+
     /// This function is private so that an unencrypted database cannot be created by accident
-    pub(crate) fn new(
+    fn new_inner(
         opts: &StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, PlatformStorageError> {
@@ -162,6 +171,7 @@ impl NativeDb {
         };
 
         Ok(Self {
+            opts: opts.clone(),
             conn: conn.into(),
             customizer,
         })
@@ -170,18 +180,24 @@ impl NativeDb {
 
 impl XmtpDb for NativeDb {
     type Connection = crate::DefaultConnection;
-    type Error = PlatformStorageError;
 
-    /// Returns the Wrapped [`super::db_connection::DbConnection`] Connection implementation for this Database
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
+    }
+
+    fn db(&self) -> DbConnection<Self::Connection> {
+        DbConnection::new(self.conn.clone())
+    }
+
+    fn opts(&self) -> &StorageOption {
+        &self.opts
     }
 
     fn validate(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.customizer.validate(opts).map_err(Into::into)
     }
 
-    fn disconnect(&self) -> Result<(), Self::Error> {
+    fn disconnect(&self) -> Result<(), ConnectionError> {
         use PersistentOrMem::*;
         match self.conn.as_ref() {
             Persistent(p) => p.disconnect()?,
@@ -190,12 +206,13 @@ impl XmtpDb for NativeDb {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), Self::Error> {
+    fn reconnect(&self) -> Result<(), ConnectionError> {
         use PersistentOrMem::*;
         match self.conn.as_ref() {
-            Persistent(p) => p.reconnect(),
-            Mem(m) => m.reconnect(),
-        }
+            Persistent(p) => p.reconnect()?,
+            Mem(m) => m.reconnect()?,
+        };
+        Ok(())
     }
 }
 
@@ -216,7 +233,7 @@ impl std::fmt::Debug for EphemeralDbConnection {
 }
 
 impl EphemeralDbConnection {
-    fn new() -> Result<Self, PlatformStorageError> {
+    pub fn new() -> Result<Self, PlatformStorageError> {
         Ok(Self {
             conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
             in_transaction: Arc::new(AtomicBool::new(false)),
@@ -238,9 +255,8 @@ impl EphemeralDbConnection {
 
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
-    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
         let mut c = self.conn.lock();
         AnsiTransactionManager::begin_transaction(&mut *c)?;
@@ -252,7 +268,7 @@ impl ConnectionExt for EphemeralDbConnection {
         })
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -261,7 +277,7 @@ impl ConnectionExt for EphemeralDbConnection {
         fun(&mut conn).map_err(ConnectionError::from)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -345,9 +361,8 @@ impl NativeDbConnection {
 
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
-    type Error = ConnectionError;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
         let mut write = self.write.lock();
         AnsiTransactionManager::begin_transaction(&mut *write)?;
@@ -360,7 +375,7 @@ impl ConnectionExt for NativeDbConnection {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -386,7 +401,7 @@ impl ConnectionExt for NativeDbConnection {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -402,7 +417,7 @@ impl ConnectionExt for NativeDbConnection {
 
 #[cfg(test)]
 mod tests {
-    use crate::EncryptedMessageStore;
+    use crate::{EncryptedMessageStore, XmtpTestDb};
 
     use super::*;
     use crate::{Fetch, Store, identity::StoredIdentity};
@@ -412,13 +427,8 @@ mod tests {
     async fn releases_db_lock() {
         let db_path = tmp_path();
         {
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path.clone()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap();
-            let conn = &store.conn().unwrap();
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = &store.conn();
 
             let inbox_id = "inbox_id";
             StoredIdentity::new(inbox_id.to_string(), rand_vec::<24>(), rand_vec::<24>())
@@ -441,7 +451,7 @@ mod tests {
             assert_eq!(fetched_identity2.inbox_id, inbox_id);
         }
 
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
     #[tokio::test]
@@ -450,25 +460,22 @@ mod tests {
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
+        let opts = StorageOption::Persistent(db_path.clone());
+
         {
-            // Setup a persistent store
-            let store =
-                EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-                    .await
-                    .unwrap();
+            let db = NativeDb::new(&opts, enc_key).unwrap();
+            db.init(&opts).unwrap();
 
             StoredIdentity::new(
                 "dummy_address".to_string(),
                 rand_vec::<24>(),
                 rand_vec::<24>(),
             )
-            .store(&store.conn().unwrap())
+            .store(&db.conn())
             .unwrap();
         } // Drop it
         enc_key[3] = 145; // Alter the enc_key
-        let err = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
-            .await
-            .unwrap_err();
+        let err = NativeDb::new(&opts, enc_key).unwrap_err();
         // Ensure it fails
         assert!(
             matches!(
@@ -478,6 +485,6 @@ mod tests {
             "Expected SqlCipherKeyIncorrect error, got {}",
             err
         );
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 }
