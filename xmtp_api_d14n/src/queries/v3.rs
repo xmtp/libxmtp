@@ -10,6 +10,8 @@ use xmtp_proto::prelude::ApiBuilder;
 use xmtp_proto::traits::{ApiClientError, Client, Query};
 use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
+use super::CombinedD14nClient;
+
 #[derive(Clone)]
 pub struct V3Client<C> {
     client: C,
@@ -64,6 +66,63 @@ where
         Ok(V3Client::new(
             <Builder as ApiBuilder>::build(self.client).await?,
         ))
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C, P, V3C, E> XmtpMlsClient for CombinedD14nClient<C, P, V3C>
+where
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    C: Send + Sync + Client<Error = E>,
+    P: Send + Sync + Client<Error = E>,
+    V3C: Send + Sync + Client<Error = E>,
+    ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
+{
+    type Error = ApiClientError<E>;
+
+    async fn upload_key_package(
+        &self,
+        request: mls_v1::UploadKeyPackageRequest,
+    ) -> Result<(), Self::Error> {
+        self.v3_client.upload_key_package(request).await
+    }
+
+    async fn fetch_key_packages(
+        &self,
+        request: mls_v1::FetchKeyPackagesRequest,
+    ) -> Result<mls_v1::FetchKeyPackagesResponse, Self::Error> {
+        self.xmtpd_client.fetch_key_packages(request).await
+    }
+
+    async fn send_group_messages(
+        &self,
+        request: mls_v1::SendGroupMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        self.v3_client.send_group_messages(request).await
+    }
+
+    async fn send_welcome_messages(
+        &self,
+        request: mls_v1::SendWelcomeMessagesRequest,
+    ) -> Result<(), Self::Error> {
+        self.v3_client.send_welcome_messages(request).await
+    }
+    async fn query_group_messages(
+        &self,
+        request: mls_v1::QueryGroupMessagesRequest,
+    ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
+        self.xmtpd_client.query_group_messages(request).await
+    }
+    async fn query_welcome_messages(
+        &self,
+        request: mls_v1::QueryWelcomeMessagesRequest,
+    ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
+        self.xmtpd_client.query_welcome_messages(request).await
+    }
+
+    fn stats(&self) -> ApiStats {
+        Default::default()
     }
 }
 

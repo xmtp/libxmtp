@@ -5,6 +5,14 @@ mod streams;
 
 use xmtp_proto::prelude::ApiBuilder;
 
+use super::V3Client;
+
+#[derive(Clone)]
+pub struct CombinedD14nClient<C, P, V3C> {
+    pub(crate) xmtpd_client: D14nClient<C, P>,
+    pub(crate) v3_client: V3Client<V3C>,
+}
+
 #[derive(Clone)]
 pub struct D14nClient<C, P> {
     message_client: C,
