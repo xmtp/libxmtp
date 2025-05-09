@@ -1,4 +1,5 @@
 use super::{
+    ConnectionExt,
     db_connection::DbConnection,
     group::ConversationType,
     group_message::StoredGroupMessage,
@@ -24,7 +25,7 @@ impl_store!(
     processed_device_sync_messages
 );
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let result = self.raw_query_read(|conn| {
             group_messages_dsl::group_messages

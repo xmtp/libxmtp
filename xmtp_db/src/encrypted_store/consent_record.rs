@@ -1,7 +1,6 @@
 use crate::{StorageError, Store, impl_store};
 
-use super::Sqlite;
-use super::group::StoredGroup;
+use super::{ConnectionExt, Sqlite, group::StoredGroup};
 use super::{
     db_connection::DbConnection,
     schema::{
@@ -61,7 +60,10 @@ impl StoredConsentRecord {
 
     /// This function will perform some logic to see if a new group should be auto-consented
     /// or auto-denied based on past consent.
-    pub fn persist_consent(conn: &DbConnection, group: &StoredGroup) -> Result<(), StorageError> {
+    pub fn persist_consent<C: ConnectionExt>(
+        conn: &DbConnection<C>,
+        group: &StoredGroup,
+    ) -> Result<(), StorageError> {
         if let Some(dm_id) = &group.dm_id {
             let mut past_consent = conn.find_consent_by_dm_id(dm_id)?;
             let Some(last_consent) = past_consent.pop() else {
@@ -82,7 +84,7 @@ impl StoredConsentRecord {
 
 impl_store!(StoredConsentRecord, consent_records);
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Returns the consent_records for the given entity up
     pub fn get_consent_record(
         &self,

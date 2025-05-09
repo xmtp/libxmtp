@@ -22,8 +22,8 @@ use public_suffix::PublicSuffixList;
 use std::{ops::Deref, sync::Arc};
 use url::Url;
 use xmtp_api::XmtpApi;
-use xmtp_common::InboxIdReplace;
 use xmtp_common::StreamHandle;
+use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
 use xmtp_id::{
@@ -40,7 +40,6 @@ use xmtp_proto::prelude::XmtpTestClient;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
-#[allow(dead_code)]
 pub struct Tester<Owner, Client>
 where
     Owner: InboxOwner,
@@ -52,7 +51,7 @@ where
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
-    pub replace: InboxIdReplace,
+    pub replace: TestLogReplace,
 }
 
 #[macro_export]
@@ -112,7 +111,7 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
-        let mut replace = InboxIdReplace::default();
+        let mut replace = TestLogReplace::default();
         if let Some(name) = &self.name {
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
@@ -134,15 +133,14 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-
-        let provider = client.mls_provider().unwrap();
+        let provider = client.mls_provider();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
             }
         }
-        client.sync_welcomes(&provider).await;
+        client.sync_welcomes().await;
 
         let mut tester = Tester {
             builder: self.clone(),

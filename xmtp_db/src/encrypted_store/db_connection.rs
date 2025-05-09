@@ -7,16 +7,12 @@ use super::{ConnectionExt, TransactionGuard};
 /// Uses a [`Mutex]` internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
-// ~~~~ _NOTE_ ~~~~~
-// Do not derive clone here.
-// callers should be able to accomplish everything with one conn/reference.
-#[doc(hidden)]
 pub struct DbConnection<C = crate::DefaultConnection> {
     conn: C,
 }
 
 impl<C> DbConnection<C> {
-    pub(crate) fn new(conn: C) -> DbConnection<C> {
+    pub fn new(conn: C) -> Self {
         Self { conn }
     }
 }
@@ -25,18 +21,18 @@ impl<C> DbConnection<C>
 where
     C: ConnectionExt,
 {
-    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, <C as ConnectionExt>::Error> {
+    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         <Self as ConnectionExt>::start_transaction(self)
     }
 
-    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
+    pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
     {
         <Self as ConnectionExt>::raw_query_read::<_, _>(self, fun)
     }
 
-    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, <C as ConnectionExt>::Error>
+    pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
     {
@@ -49,13 +45,12 @@ where
     C: ConnectionExt,
 {
     type Connection = C::Connection;
-    type Error = <C as ConnectionExt>::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         self.conn.start_transaction()
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -63,7 +58,7 @@ where
         self.conn.raw_query_read(fun)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -77,8 +72,8 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-impl From<DbConnection> for XmtpOpenMlsProvider {
-    fn from(db: DbConnection) -> XmtpOpenMlsProvider {
+impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<C> {
+    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<C> {
         XmtpOpenMlsProvider::new(db.conn)
     }
 }

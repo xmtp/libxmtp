@@ -80,15 +80,18 @@ STRUCTURED=1 cargo test
 - Two ways to replace InboxIds/InstallationIds/EthAddresses with a
   human-readable string name in logs
 
+_NOTE_: Only works when using `CONTEXTUAL=1` flag. So to get the replacement,
+`CONTEXTUAL=1 cargo test`
+
 1.)
 
-Before the test runs, add an `InboxIdReplace` declaration to the top
+Before the test runs, add an `TestLogReplace` declaration to the top
 `replace.add` accepts two arguments: the string to replace in logs and the
-string to replace it with. Note that on dropping the "InboxIdReplace" object,
+string to replace it with. Note that on dropping the "TestLogReplace" object,
 the replacements will no longer be made.
 
 ```rust
-let mut replace = InboxIdReplace::default();
+let mut replace = TestLogReplace::default();
 replace.add(alix.installation_id(), "alix_installation_id");
 ```
 

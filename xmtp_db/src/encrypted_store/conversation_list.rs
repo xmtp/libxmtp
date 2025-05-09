@@ -1,3 +1,4 @@
+use super::ConnectionExt;
 use super::schema::conversation_list::dsl::conversation_list;
 use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs};
@@ -57,7 +58,7 @@ pub struct ConversationListItem {
     pub authority_id: Option<String>,
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,

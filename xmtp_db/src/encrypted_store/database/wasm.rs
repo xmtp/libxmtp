@@ -1,5 +1,6 @@
 //! WebAssembly specific connection for a SQLite Database
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
+use crate::DbConnection;
 use crate::PersistentOrMem;
 use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
 use diesel::{connection::TransactionManager, prelude::SqliteConnection};
@@ -50,7 +51,7 @@ pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
 pub async fn init_sqlite() {
-    if let Err(e) = SQLITE.get_or_init(|| init_opfs()).await {
+    if let Err(e) = SQLITE.get_or_init(init_opfs).await {
         tracing::error!("{e}");
     }
 }
@@ -107,7 +108,6 @@ fn log_exception(e: &wasm_bindgen::JsValue) {
             exception.message(),
             exception.code()
         );
-        return;
     }
 }
 
@@ -179,9 +179,8 @@ impl WasmDbConnection {
 
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
-    type Error = crate::ConnectionError;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.transaction_lock.lock();
         let mut c = self.conn.lock();
         AnsiTransactionManager::begin_transaction(&mut *c)?;
@@ -193,45 +192,52 @@ impl ConnectionExt for WasmDbConnection {
         })
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
-        Ok(fun(&mut *conn).map_err(crate::ConnectionError::from)?)
+        Ok(fun(&mut conn)?)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         tracing::info!("{}", self.path());
         let mut conn = self.conn.lock();
-        Ok(fun(&mut *conn).map_err(crate::ConnectionError::from)?)
+        Ok(fun(&mut conn)?)
     }
 }
 
 impl XmtpDb for WasmDb {
-    type Error = PlatformStorageError;
     type Connection = super::DefaultConnection;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), Self::Error> {
+    fn db(&self) -> DbConnection<Self::Connection> {
+        DbConnection::new(self.conn.clone())
+    }
+
+    fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), Self::Error> {
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
-    fn disconnect(&self) -> Result<(), Self::Error> {
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
         Ok(())
+    }
+
+    fn opts(&self) -> &StorageOption {
+        &self.opts
     }
 }
 

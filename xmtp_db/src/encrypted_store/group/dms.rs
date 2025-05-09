@@ -1,7 +1,9 @@
+use crate::ConnectionExt;
+
 use super::*;
 use crate::ConnectionError;
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
     pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query_read(|conn| {

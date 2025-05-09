@@ -5,7 +5,7 @@ use crate::Client;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
 use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
-use xmtp_db::{StorageError, XmtpOpenMlsProvider};
+use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::device_sync::content::{
     preference_update::Update as PreferenceUpdateProto, HmacKeyUpdate as HmacKeyUpdateProto,
@@ -51,12 +51,11 @@ impl LegacyUserPreferenceUpdate {
 pub(crate) fn process_incoming_preference_update<C>(
     update_proto: UserPreferenceUpdateProto,
     client: &C,
-    provider: &XmtpOpenMlsProvider,
 ) -> Result<Vec<PreferenceUpdate>, StorageError>
 where
     C: ScopedGroupClient,
 {
-    let conn = provider.conn_ref();
+    let db = client.context().db();
     let proto_content = update_proto.contents;
 
     let mut updates = vec![];
@@ -70,7 +69,7 @@ where
                 }
                 PreferenceUpdate::Hmac { key, .. } => {
                     updates.push(update);
-                    StoredUserPreferences::store_hmac_key(conn, &key, None)?;
+                    StoredUserPreferences::store_hmac_key(&db, &key, None)?;
                 }
             }
         } else {
@@ -84,7 +83,7 @@ where
 
     // Insert all of the consent records at once.
     if !consent_updates.is_empty() {
-        let changed = conn.insert_or_replace_consent_records(&consent_updates)?;
+        let changed = db.insert_or_replace_consent_records(&consent_updates)?;
         let changed: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
         updates.extend(changed);
     }
@@ -101,12 +100,11 @@ where
 
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
-    pub(crate) async fn v1_sync_across_devices<C: XmtpApi, V: SmartContractSignatureVerifier>(
+    pub(crate) async fn v1_sync_across_devices<C: XmtpApi, Db: XmtpDb>(
         updates: Vec<Self>,
-        client: &Client<C, V>,
+        client: &Client<C, Db>,
     ) -> Result<(), ClientError> {
-        let provider = client.mls_provider()?;
-        let sync_group = client.get_sync_group(&provider).await?;
+        let sync_group = client.get_sync_group().await?;
 
         tracing::info!(
             "Outgoing preference update {updates:?} sync group: {:?}",
@@ -121,7 +119,7 @@ impl LegacyUserPreferenceUpdate {
         let update_proto = UserPreferenceUpdateProto { contents };
         let content_bytes =
             serde_json::to_vec(&update_proto).map_err(|e| ClientError::Generic(e.to_string()))?;
-        sync_group.prepare_message(&content_bytes, &provider, |now| PlaintextEnvelopeProto {
+        sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelopeProto {
             content: Some(Content::V2(V2 {
                 message_type: Some(MessageType::UserPreferenceUpdate(update_proto)),
                 idempotency_key: now.to_string(),
@@ -129,9 +127,7 @@ impl LegacyUserPreferenceUpdate {
         })?;
 
         // sync_group.publish_intents(&provider).await?;
-        sync_group
-            .sync_until_last_intent_resolved(&provider)
-            .await?;
+        sync_group.sync_until_last_intent_resolved().await?;
 
         if let Some(handle) = client.device_sync.worker_handle() {
             updates.iter().for_each(|u| match u {

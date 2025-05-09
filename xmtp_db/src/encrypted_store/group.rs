@@ -1,6 +1,6 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
 use super::{
-    Sqlite,
+    ConnectionExt, Sqlite,
     consent_record::ConsentState,
     db_connection::DbConnection,
     schema::groups::{self, dsl},
@@ -98,8 +98,8 @@ impl StoredGroup {
         StoredGroupBuilder::default()
     }
 
-    pub fn create_sync_group(
-        conn: &DbConnection,
+    pub fn create_sync_group<C: ConnectionExt>(
+        conn: &DbConnection<C>,
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
@@ -138,7 +138,7 @@ impl AsRef<GroupQueryArgs> for GroupQueryArgs {
     }
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
@@ -464,10 +464,10 @@ impl DbConnection {
                 existing_group.membership_state,
                 GroupMembershipState::Restored
             ) {
-                self.raw_query_write(|conn| {
+                self.raw_query_write(|c| {
                     diesel::update(dsl::groups.find(&group.id))
                         .set(&group)
-                        .execute(conn)
+                        .execute(c)
                 })?;
             }
 

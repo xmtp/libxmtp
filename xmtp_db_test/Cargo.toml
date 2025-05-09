@@ -9,5 +9,6 @@ derive_builder.workspace = true
 diesel.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
+tracing.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }

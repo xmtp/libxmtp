@@ -6,10 +6,7 @@ use std::{
 };
 
 use super::{Result, SubscribeError};
-use crate::{
-    groups::{scoped_client::ScopedGroupClient, summary::SyncSummary, MlsGroup},
-    XmtpOpenMlsProvider,
-};
+use crate::groups::{scoped_client::ScopedGroupClient, summary::SyncSummary, MlsGroup};
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
@@ -207,7 +204,7 @@ where
     ) -> Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)> {
         // get the last synced cursor
         let last_cursor = {
-            let provider = client.mls_provider()?;
+            let provider = client.mls_provider();
             provider
                 .conn_ref()
                 .get_last_cursor_for_id(&new_group, EntityKind::Group)
@@ -426,7 +423,6 @@ where
 
 /// Future that processes a group message from the network
 pub struct ProcessMessageFuture<Client> {
-    provider: XmtpOpenMlsProvider,
     client: Client,
     msg: group_message::V1,
 }
@@ -444,12 +440,7 @@ where
 {
     /// Create a new Future to process a GroupMessage.
     pub fn new(client: C, msg: group_message::V1) -> Result<ProcessMessageFuture<C>> {
-        let provider = client.mls_provider()?;
-        Ok(Self {
-            provider,
-            client,
-            msg,
-        })
+        Ok(Self { client, msg })
     }
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -485,12 +476,11 @@ where
             SyncSummary::default()
         };
 
+        let conn = self.client.context_ref().db();
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
-        let new_message = self
-            .provider
-            .conn_ref()
-            .get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
+        let new_message =
+            conn.get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
 
         if let Some(msg) = new_message {
             tracing::debug!(
@@ -532,12 +522,8 @@ where
         let process_result = retry_async!(
             Retry::default(),
             (async {
-                let (group, _) = MlsGroup::new_validated(
-                    &self.client,
-                    self.msg.group_id.clone(),
-                    &self.provider,
-                )?;
-                let epoch = group.epoch(&self.provider).await?;
+                let (group, _) = MlsGroup::new_validated(&self.client, self.msg.group_id.clone())?;
+                let epoch = group.epoch().await?;
 
                 tracing::debug!(
                     inbox_id = self.inbox_id(),
@@ -549,7 +535,7 @@ where
                     self.inbox_id(),
                 );
                 group
-                    .process_message(&self.provider, &self.msg, false)
+                    .process_message(&self.msg, false)
                     .await
                     // NOTE: We want to make sure we retry an error in process_message
                     .map_err(SubscribeError::ReceiveGroup)
@@ -586,8 +572,9 @@ where
     /// Checks if a message has already been processed through a sync
     fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
         let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
-            self.provider
-                .conn_ref()
+            self.client
+                .context_ref()
+                .db()
                 .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)
         };
 
@@ -603,7 +590,7 @@ where
             None,
             self.msg.created_ns as i64,
         );
-        let epoch = group.epoch(&self.provider).await.unwrap_or(0);
+        let epoch = group.epoch().await.unwrap_or(0);
         tracing::debug!(
             inbox_id = self.client.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
@@ -615,7 +602,7 @@ where
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
-        let sync = group.sync_with_conn(&self.provider).await;
+        let sync = group.sync_with_conn().await;
         if let Err(summary) = sync {
             tracing::warn!(
                 inbox_id = self.client.inbox_id(),
@@ -626,7 +613,7 @@ where
             tracing::warn!("{summary}");
             summary
         } else {
-            let epoch = group.epoch(&self.provider).await.unwrap_or(0);
+            let epoch = group.epoch().await.unwrap_or(0);
             let summary = sync.expect("checked for error");
             tracing::debug!(
                 inbox_id = self.client.inbox_id(),
@@ -668,10 +655,7 @@ mod tests {
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
             .unwrap();
-        let bob_groups = bob
-            .sync_welcomes(&bob.mls_provider().unwrap())
-            .await
-            .unwrap();
+        let bob_groups = bob.sync_welcomes().await.unwrap();
         let bob_group = bob_groups.first().unwrap();
         alice_group.sync().await.unwrap();
 

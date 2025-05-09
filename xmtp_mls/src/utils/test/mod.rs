@@ -13,7 +13,8 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::Expired;
-use xmtp_db::{DbConnection, EncryptedMessageStore, StorageOption};
+use xmtp_db::XmtpDb;
+use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
 use xmtp_id::{
     associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
@@ -23,7 +24,7 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 #[cfg(any(test, feature = "test-utils"))]
 pub use tester_utils::*;
 
-pub type FullXmtpClient = Client<TestClient, MockSmartContractSignatureVerifier>;
+pub type FullXmtpClient = Client<TestClient>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
@@ -45,21 +46,13 @@ pub type TestClient = XmtpHttpApiClient;
 #[cfg(feature = "d14n")]
 pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
-impl<A, V> ClientBuilder<A, V> {
+impl<A> ClientBuilder<A> {
     pub async fn temp_store(self) -> Self {
-        let tmpdb = xmtp_common::tmp_path();
-        self.store(
-            EncryptedMessageStore::new(
-                StorageOption::Persistent(tmpdb),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap(),
-        )
+        self.store(xmtp_db::TestDb::create_persistent_store(None).await)
     }
 }
 
-impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
+impl ClientBuilder<TestClient> {
     pub async fn new_api_client() -> TestClient {
         <TestClient as XmtpTestClient>::create_local()
             .build()
@@ -132,9 +125,7 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     }
 
     /// A client pointed at the dev network with a Mock verifier (never fail to verify)
-    pub async fn new_mock_dev_client(
-        owner: impl InboxOwner,
-    ) -> Client<TestClient, MockSmartContractSignatureVerifier> {
+    pub async fn new_mock_dev_client(owner: impl InboxOwner) -> Client<TestClient> {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
             .await
@@ -151,8 +142,8 @@ impl ClientBuilder<TestClient, MockSmartContractSignatureVerifier> {
     }
 }
 
-impl<ApiClient, V> ClientBuilder<ApiClient, V> {
-    pub async fn local_client(self) -> ClientBuilder<TestClient, V> {
+impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
+    pub async fn local_client(self) -> ClientBuilder<TestClient, Db> {
         self.api_client(
             <TestClient as XmtpTestClient>::create_local()
                 .build()
@@ -161,7 +152,7 @@ impl<ApiClient, V> ClientBuilder<ApiClient, V> {
         )
     }
 
-    pub async fn dev_client(self) -> ClientBuilder<TestClient, V> {
+    pub async fn dev_client(self) -> ClientBuilder<TestClient, Db> {
         self.api_client(
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
@@ -223,7 +214,7 @@ async fn build_with_verifier<A, V>(
     scw_verifier: V,
     sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
-) -> Client<A, V>
+) -> Client<A>
 where
     A: XmtpApi + Send + Sync + 'static,
     V: SmartContractSignatureVerifier + Send + Sync + 'static,
@@ -280,10 +271,9 @@ impl Delivery {
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
 {
     pub async fn is_registered(&self, identifier: &Identifier) -> bool {
         let identifier: ApiIdentifier = identifier.into();
@@ -296,10 +286,7 @@ where
     }
 }
 
-pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
-    client: &Client<T, V>,
-    owner: impl InboxOwner,
-) {
+pub async fn register_client<T: XmtpApi, D: XmtpDb>(client: &Client<T, D>, owner: impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
@@ -314,7 +301,10 @@ pub async fn register_client<T: XmtpApi, V: SmartContractSignatureVerifier>(
 
 /// wait for a minimum amount of intents to be published
 /// TODO: Should wrap with a timeout
-pub async fn wait_for_min_intents(conn: &DbConnection, n: usize) -> Result<(), Expired> {
+pub async fn wait_for_min_intents<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    n: usize,
+) -> Result<(), Expired> {
     let mut published = conn.intents_published() as usize;
     xmtp_common::time::timeout(Duration::from_secs(5), async {
         while published < n {

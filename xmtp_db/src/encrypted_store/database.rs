@@ -53,19 +53,18 @@ pub enum PersistentOrMem<P, M> {
 impl<P, M> ConnectionExt for PersistentOrMem<P, M>
 where
     P: ConnectionExt,
-    M: ConnectionExt<Connection = P::Connection, Error = P::Error>,
+    M: ConnectionExt<Connection = P::Connection>,
 {
     type Connection = P::Connection;
-    type Error = P::Error;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, Self::Error> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         match self {
             Self::Persistent(p) => p.start_transaction(),
             Self::Mem(m) => m.start_transaction(),
         }
     }
 
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
@@ -76,7 +75,7 @@ where
         }
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, Self::Error>
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,

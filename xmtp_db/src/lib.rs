@@ -13,12 +13,18 @@ pub use xmtp_openmls_provider::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+#[cfg(any(test, feature = "test-utils"))]
+pub use test_utils::*;
 
 pub use diesel;
 use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;
-impl DbConnection {
+
+/// The default platform-specific store
+pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
+
+impl<C: ConnectionExt> DbConnection<C> {
     #[allow(unused)]
     pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
@@ -47,7 +53,7 @@ pub mod test_util {
 
     use super::*;
     use diesel::{RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow, sql_query};
-    impl DbConnection {
+    impl<C: ConnectionExt> DbConnection<C> {
         /// Create a new table and register triggers for tracking column updates
         pub fn register_triggers(&self) {
             tracing::info!("Registering triggers");

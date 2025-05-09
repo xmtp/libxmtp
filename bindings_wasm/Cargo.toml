@@ -28,10 +28,11 @@ xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
-xmtp_mls = { workspace = true, features = ["test-utils", "http-api"] }
+xmtp_mls = { workspace = true, features = ["http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
+xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 chrono = { workspace = true }

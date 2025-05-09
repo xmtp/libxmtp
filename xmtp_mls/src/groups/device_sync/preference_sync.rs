@@ -4,6 +4,7 @@ use crate::Client;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
+use xmtp_db::MlsProviderExt;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -18,22 +19,18 @@ pub enum PreferenceUpdate {
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    Db: XmtpDb,
 {
     pub(crate) async fn sync_preferences(
         &self,
-        provider: &XmtpOpenMlsProvider,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), ClientError> {
-        self.send_device_sync_message(
-            provider,
-            ContentProto::PreferenceUpdates(PreferenceUpdates {
-                updates: updates.clone().into_iter().map(From::from).collect(),
-            }),
-        )
+        self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
+            updates: updates.clone().into_iter().map(From::from).collect(),
+        }))
         .await?;
 
         if let Some(handle) = self.worker_handle() {
@@ -50,19 +47,13 @@ where
         Ok(())
     }
 
-    pub(crate) async fn cycle_hmac(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<(), ClientError> {
+    pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
         tracing::info!("Sending new HMAC key to sync group.");
 
-        self.sync_preferences(
-            provider,
-            vec![PreferenceUpdate::Hmac {
-                key: HmacKey::random_key(),
-                cycled_at_ns: now_ns(),
-            }],
-        )
+        self.sync_preferences(vec![PreferenceUpdate::Hmac {
+            key: HmacKey::random_key(),
+            cycled_at_ns: now_ns(),
+        }])
         .await?;
 
         Ok(())
@@ -71,7 +62,7 @@ where
 
 pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
-    provider: &XmtpOpenMlsProvider,
+    provider: impl MlsProviderExt,
     handle: &WorkerHandle<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];
@@ -162,15 +153,11 @@ mod tests {
 
         amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
 
-        amal_a.sync_device_sync(&amal_a.provider).await?;
+        amal_a.sync_device_sync().await?;
         amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         // Wait for a to process the new hmac key
-        amal_b
-            .get_sync_group(&amal_b.provider)
-            .await?
-            .sync()
-            .await?;
+        amal_b.get_sync_group().await?.sync().await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
@@ -182,7 +169,7 @@ mod tests {
             .revoke_installations(vec![amal_b.installation_id().to_vec()])
             .await?;
 
-        amal_a.sync_device_sync(&amal_a.provider).await?;
+        amal_a.sync_device_sync().await?;
         let new_pref_a = StoredUserPreferences::load(amal_a.provider.conn_ref())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }

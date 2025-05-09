@@ -479,13 +479,9 @@ impl Conversations {
 
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .sync_welcomes(&provider)
+      .sync_welcomes()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -497,16 +493,12 @@ impl Conversations {
     &self,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<usize, JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, consents)
+      .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -515,14 +507,9 @@ impl Conversations {
 
   #[wasm_bindgen(js_name = syncDeviceSync)]
   pub async fn sync_device_sync(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
     self
       .inner_client
-      .get_sync_group(&provider)
+      .get_sync_group()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?
       .sync()
