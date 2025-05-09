@@ -40,7 +40,7 @@ use xmtp_common::types::Address;
 use xmtp_db::{
     db_connection::DbConnection,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    ProviderTransactions, StorageError,
+    ProviderTransactions,
 };
 #[derive(Debug, Error)]
 pub enum IntentError {

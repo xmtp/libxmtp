@@ -39,7 +39,6 @@ use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::schema::groups;
-use xmtp_db::StorageError;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs},

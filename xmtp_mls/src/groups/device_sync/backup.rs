@@ -71,7 +71,6 @@ mod tests {
         group::StoredGroup,
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
-        StorageError,
     };
 
     #[xmtp_common::test]
