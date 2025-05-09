@@ -28,6 +28,8 @@ impl TryFrom<GroupSave> for StoredGroup {
             paused_for_version: None, // TODO: Add this to the backup
             maybe_forked: false,
             fork_details: String::new(),
+            sequence_id: None,
+            originator_id: None,
         })
     }
 }
