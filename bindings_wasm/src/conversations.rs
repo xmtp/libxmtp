@@ -177,9 +177,20 @@ pub struct ConversationDebugInfo {
   #[wasm_bindgen(js_name = epoch)]
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
+  #[serde(default = "bool_false")]
   pub maybe_forked: bool,
   #[wasm_bindgen(js_name = forkDetails)]
+  #[serde(default = "string_empty")]
   pub fork_details: String,
+}
+
+// Helper functions for default values during serialization
+fn bool_false() -> bool {
+  false
+}
+
+fn string_empty() -> String {
+  String::new()
 }
 
 impl ConversationDebugInfo {
@@ -630,5 +641,75 @@ impl Conversations {
         }
       });
     Ok(StreamCloser::new(stream_closer))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use wasm_bindgen_test::*;
+  use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
+
+  wasm_bindgen_test_configure!(run_in_browser);
+
+  #[wasm_bindgen_test]
+  fn test_conversation_debug_info_serialization() {
+    // Test with all values present
+    let xmtp_debug_info = XmtpConversationDebugInfo {
+      epoch: 1,
+      maybe_forked: true,
+      fork_details: "test details".to_string(),
+    };
+    
+    let debug_info = ConversationDebugInfo::new(xmtp_debug_info);
+    let js_value = crate::to_value(&debug_info).unwrap();
+    
+    // Convert JS value to a JS object and check properties
+    let obj = js_sys::Object::from(js_value);
+    assert!(js_sys::Reflect::has(&obj, &"epoch".into()).unwrap());
+    assert!(js_sys::Reflect::has(&obj, &"maybeForked".into()).unwrap());
+    assert!(js_sys::Reflect::has(&obj, &"forkDetails".into()).unwrap());
+    
+    assert_eq!(
+      js_sys::Reflect::get(&obj, &"epoch".into()).unwrap(),
+      1.into()
+    );
+    assert_eq!(
+      js_sys::Reflect::get(&obj, &"maybeForked".into()).unwrap(),
+      true.into()
+    );
+    assert_eq!(
+      js_sys::Reflect::get(&obj, &"forkDetails".into()).unwrap().as_string().unwrap(),
+      "test details"
+    );
+    
+    // Test with null values that should use defaults
+    let xmtp_debug_info_defaults = XmtpConversationDebugInfo {
+      epoch: 1,
+      maybe_forked: false,
+      fork_details: String::new(),
+    };
+    
+    let debug_info_defaults = ConversationDebugInfo::new(xmtp_debug_info_defaults);
+    let js_value_defaults = crate::to_value(&debug_info_defaults).unwrap();
+    
+    // Convert JS value to a JS object and check properties
+    let obj_defaults = js_sys::Object::from(js_value_defaults);
+    assert!(js_sys::Reflect::has(&obj_defaults, &"epoch".into()).unwrap());
+    assert!(js_sys::Reflect::has(&obj_defaults, &"maybeForked".into()).unwrap());
+    assert!(js_sys::Reflect::has(&obj_defaults, &"forkDetails".into()).unwrap());
+    
+    assert_eq!(
+      js_sys::Reflect::get(&obj_defaults, &"epoch".into()).unwrap(),
+      1.into()
+    );
+    assert_eq!(
+      js_sys::Reflect::get(&obj_defaults, &"maybeForked".into()).unwrap(),
+      false.into()
+    );
+    assert_eq!(
+      js_sys::Reflect::get(&obj_defaults, &"forkDetails".into()).unwrap().as_string().unwrap(),
+      ""
+    );
   }
 }
