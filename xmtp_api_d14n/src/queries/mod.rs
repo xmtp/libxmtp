@@ -8,10 +8,10 @@ mod v3;
 pub use v3::*;
 
 use std::error::Error as StdError;
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
 use xmtp_proto::{
-    traits::{ApiClientError, BodyError},
     ConversionError,
+    traits::{ApiClientError, BodyError},
 };
 
 #[derive(thiserror::Error, Debug)]
