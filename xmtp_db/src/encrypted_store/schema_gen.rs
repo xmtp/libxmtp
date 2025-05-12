@@ -50,6 +50,8 @@ diesel::table! {
         version_major -> Integer,
         authority_id -> Text,
         reference_id -> Nullable<Binary>,
+        sequence_id -> Nullable<BigInt>,
+        originator_id -> Nullable<BigInt>,
     }
 }
 
@@ -70,6 +72,8 @@ diesel::table! {
         paused_for_version -> Nullable<Text>,
         maybe_forked -> Bool,
         fork_details -> Text,
+        sequence_id -> Nullable<BigInt>,
+        originator_id -> Nullable<BigInt>,
     }
 }
 
