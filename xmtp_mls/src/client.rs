@@ -983,14 +983,6 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
-    /// Sync the device sync group
-    pub async fn sync_device_sync(&self) -> Result<(), ClientError> {
-        // It's possible that this function is called before the sync worker initializes and creates the sync group.
-        let sync_group = self.get_sync_group().await?;
-        sync_group.sync().await?;
-        Ok(())
-    }
-
     /// Sync all unread welcome messages and then sync all groups.
     /// Returns the total number of active groups synced.
     pub async fn sync_all_welcomes_and_groups(
