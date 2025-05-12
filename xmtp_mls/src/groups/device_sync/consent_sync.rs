@@ -49,7 +49,7 @@ pub(crate) mod tests {
 
         // Ensure that consent record now exists.
         let syncable_consent_records = amal_a
-            .syncable_consent_records(amal_a.provider.conn_ref())
+            .syncable_consent_records(amal_a.provider.db())
             .unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
@@ -63,7 +63,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let consent_records_b = amal_b
-            .syncable_consent_records(amal_b.provider.conn_ref())
+            .syncable_consent_records(amal_b.provider.db())
             .unwrap();
         assert_eq!(consent_records_b.len(), 0);
 
@@ -91,7 +91,7 @@ pub(crate) mod tests {
         // Ensure bo is not consented with amal_b
         let bo_consent_with_amal_b = amal_b
             .provider
-            .conn_ref()
+            .db()
             .get_consent_record(bo_wallet.get_inbox_id(0), ConsentType::InboxId)
             .unwrap();
         assert!(bo_consent_with_amal_b.is_none());

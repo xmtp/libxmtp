@@ -77,7 +77,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
         let res = self.mls_provider().transaction(|provider| {
-            let conn = provider.conn_ref();
+            let conn = provider.db();
             self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
         });
 
@@ -112,7 +112,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     fn maybe_insert_key_update_intent(&self) -> Result<(), GroupError> {
         let provider = self.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;

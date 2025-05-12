@@ -96,7 +96,7 @@ where
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let provider = self.client.mls_provider();
-        match provider.conn_ref().delete_expired_messages() {
+        match provider.db().delete_expired_messages() {
             Ok(deleted_count) if deleted_count > 0 => {
                 tracing::info!("Successfully deleted {} expired messages", deleted_count);
             }

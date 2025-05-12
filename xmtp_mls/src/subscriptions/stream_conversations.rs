@@ -163,10 +163,10 @@ where
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
         let provider = client.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let installation_key = client.installation_public_key();
         let id_cursor = provider
-            .conn_ref()
+            .db()
             .get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
         tracing::debug!(
             cursor = id_cursor,
@@ -489,7 +489,7 @@ where
     fn load_from_store(&self, id: i64) -> Result<(MlsGroup<C>, i64)> {
         let provider = self.client.mls_provider();
         let group = provider
-            .conn_ref()
+            .db()
             .find_group_by_welcome_id(id)?
             .ok_or(NotFound::GroupByWelcome(id))?;
         tracing::info!(

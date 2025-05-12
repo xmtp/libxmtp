@@ -13,7 +13,7 @@ impl BackupRecordProvider for ConsentSave {
     {
         let batch = streamer
             .provider
-            .conn_ref()
+            .db()
             .consent_records_paged(Self::BATCH_SIZE, streamer.cursor)?;
 
         let records = batch

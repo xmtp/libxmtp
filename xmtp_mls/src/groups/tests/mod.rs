@@ -282,7 +282,7 @@ async fn test_add_member_conflict() {
     assert_eq!(bola_members_len, 3);
 
     let amal_uncommitted_intents = amal_db
-        .conn_ref()
+        .db()
         .find_group_intents(
             amal_group.group_id.clone(),
             Some(vec![
@@ -296,7 +296,7 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .conn_ref()
+        .db()
         .find_group_intents(
             bola_group.group_id.clone(),
             Some(vec![IntentState::Error]),
@@ -396,7 +396,7 @@ async fn test_dm_stitching() {
     // The dm shows up
     let alix_groups = alix
         .provider
-        .conn_ref()
+        .db()
         .raw_query_read(|conn| {
             groups::table
                 .order(groups::created_at_ns.desc())
@@ -410,7 +410,7 @@ async fn test_dm_stitching() {
     // The dm is filtered out up
     let mut alix_filtered_groups = alix
         .provider
-        .conn_ref()
+        .db()
         .find_groups(GroupQueryArgs::default())
         .unwrap();
     assert_eq!(alix_filtered_groups.len(), 1);
@@ -2483,7 +2483,7 @@ async fn skip_already_processed_intents() {
     bo_group.send_message(&[2]).await.unwrap();
     let bo_provider = bo_client.mls_provider();
     let intent = bo_provider
-        .conn_ref()
+        .db()
         .find_group_intents(
             bo_group.clone().group_id,
             Some(vec![IntentState::Processed]),
@@ -3530,7 +3530,7 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     assert!(!group_debug_info.fork_details.is_empty());
     client_b
         .mls_provider()
-        .conn_ref()
+        .db()
         .clear_fork_flag_for_group(&group_b.group_id)
         .unwrap();
     let group_debug_info = group_b.debug_info().await.unwrap();

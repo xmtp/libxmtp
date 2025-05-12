@@ -56,7 +56,7 @@ where
             let provider = client.mls_provider();
             client.sync_welcomes().await?;
 
-            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+            let groups = provider.db().find_groups(GroupQueryArgs {
                 conversation_type,
                 consent_states,
                 include_duplicate_dms: true,

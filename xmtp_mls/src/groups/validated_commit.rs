@@ -304,7 +304,7 @@ impl ValidatedCommit {
         openmls_group: &OpenMlsGroup,
     ) -> Result<Self, CommitValidationError> {
         let provider = client.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -622,7 +622,7 @@ impl ExpectedDiff {
         mutable_metadata: &GroupMutableMetadata,
     ) -> Result<ExpectedDiff, CommitValidationError> {
         let provider = client.mls_provider();
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);

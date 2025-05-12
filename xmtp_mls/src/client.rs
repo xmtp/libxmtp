@@ -582,7 +582,7 @@ where
         tracing::info!("finding or creating dm with address: {target_identity}");
         let provider = self.mls_provider();
         let inbox_id = match self
-            .find_inbox_id_from_identifier(provider.conn_ref(), target_identity.clone())
+            .find_inbox_id_from_identifier(provider.db(), target_identity.clone())
             .await?
         {
             Some(id) => id,
@@ -603,7 +603,7 @@ where
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let provider = self.mls_provider();
-        let group = provider.conn_ref().find_dm_group(&DmMembers {
+        let group = provider.db().find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
             member_two_inbox_id: inbox_id,
         })?;
@@ -880,7 +880,7 @@ where
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Self>>, GroupError> {
         let provider = self.mls_provider();
-        let envelopes = self.query_welcome_messages(provider.conn_ref()).await?;
+        let envelopes = self.query_welcome_messages(provider.db()).await?;
         let num_envelopes = envelopes.len();
 
         let groups: Vec<MlsGroup<Self>> = stream::iter(envelopes.into_iter())
@@ -1004,7 +1004,7 @@ where
             ..GroupQueryArgs::default()
         };
         let groups = provider
-            .conn_ref()
+            .db()
             .find_groups(query_args)?
             .into_iter()
             .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))
@@ -1018,7 +1018,7 @@ where
         let provider = self.mls_provider();
         self.sync_welcomes().await?;
         let groups = provider
-            .conn_ref()
+            .db()
             .all_sync_groups()?
             .into_iter()
             .map(|g| MlsGroup::new(self.clone(), g.id, g.dm_id, g.created_at_ns))

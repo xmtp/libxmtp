@@ -3930,8 +3930,8 @@ mod tests {
         bo_group.conversation.sync().await.unwrap();
 
         // alix published + processed group creation and name update
-        assert_eq!(alix.provider.conn_ref().intents_published(), 2);
-        assert_eq!(alix.provider.conn_ref().intents_processed(), 2);
+        assert_eq!(alix.provider.db().intents_published(), 2);
+        assert_eq!(alix.provider.db().intents_processed(), 2);
 
         bo_group
             .conversation
@@ -3939,11 +3939,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 1);
+        assert_eq!(bo.provider.db().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix.provider.conn_ref().intents_published(), 3);
+        assert_eq!(alix.provider.db().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -3954,7 +3954,7 @@ mod tests {
             .await
             .unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 3);
+        assert_eq!(bo.provider.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -3964,7 +3964,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.conn_ref().intents_published(), 4);
+        assert_eq!(bo.provider.db().intents_published(), 4);
 
         assert_eq!(message_callbacks.message_count(), 5);
 
@@ -5638,10 +5638,7 @@ mod tests {
         alix_group.sync().await.unwrap();
 
         // Verify the settings were applied
-        let group_from_db = alix_provider
-            .conn_ref()
-            .find_group(&alix_group.id())
-            .unwrap();
+        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -5663,10 +5660,7 @@ mod tests {
             .await
             .unwrap();
 
-        let bola_group_from_db = bola_provider
-            .conn_ref()
-            .find_group(&alix_group.id())
-            .unwrap();
+        let bola_group_from_db = bola_provider.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             bola_group_from_db
                 .clone()
@@ -5707,10 +5701,7 @@ mod tests {
         alix_group.sync().await.unwrap();
 
         // Verify disappearing settings are disabled
-        let group_from_db = alix_provider
-            .conn_ref()
-            .find_group(&alix_group.id())
-            .unwrap();
+        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -5776,10 +5767,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(alix_messages.len(), 2);
-        let group_from_db = alix_provider
-            .conn_ref()
-            .find_group(&alix_group.id())
-            .unwrap();
+        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -5828,10 +5816,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
-        let group_from_db = alix_provider
-            .conn_ref()
-            .find_group(&alix_group.id())
-            .unwrap();
+        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -7621,9 +7606,9 @@ mod tests {
         let client_alix = new_test_client_with_wallet(wallet_alix).await;
 
         let bo_provider = client_bo.inner_client.mls_provider();
-        let bo_conn = bo_provider.conn_ref();
+        let bo_conn = bo_provider.db();
         let alix_provider = client_alix.inner_client.mls_provider();
-        let alix_conn = alix_provider.conn_ref();
+        let alix_conn = alix_provider.db();
 
         // Find or create DM conversations
         let convo_bo = client_bo
