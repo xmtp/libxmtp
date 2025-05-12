@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
 use super::D14nClient;
+use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::SequencedExtractor;
-use crate::protocol::traits::{Envelope, EnvelopeCollection, Extractor};
 use crate::{d14n::PublishClientEnvelopes, d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds};
 use itertools::Itertools;
 use xmtp_common::RetryableError;
-use xmtp_proto::ConversionError;
 use xmtp_proto::api_client::{IdentityStats, XmtpIdentityClient};
 use xmtp_proto::identity_v1;
 use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
@@ -19,6 +18,7 @@ use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::{
     EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4, QueryEnvelopesResponse,
 };
+use xmtp_proto::ConversionError;
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
