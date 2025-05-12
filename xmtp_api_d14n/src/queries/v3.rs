@@ -71,12 +71,11 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<C, P, V3C, E> XmtpMlsClient for CombinedD14nClient<C, P, V3C>
+impl<C, D, E> XmtpMlsClient for CombinedD14nClient<C, D>
 where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     C: Send + Sync + Client<Error = E>,
-    P: Send + Sync + Client<Error = E>,
-    V3C: Send + Sync + Client<Error = E>,
+    D: Send + Sync + Client<Error = E>,
     ApiClientError<E>: From<ApiClientError<<C as Client>::Error>> + Send + Sync + 'static,
 {
     type Error = ApiClientError<E>;
