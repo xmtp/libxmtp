@@ -8,6 +8,8 @@ impl std::fmt::Display for Payload {
             Payload::WelcomeMessage(_) => write!(f, "Payload::WelcomeMessage"),
             Payload::UploadKeyPackage(_) => write!(f, "Payload::UploadKeyPackage"),
             Payload::IdentityUpdate(_) => write!(f, "Payload::IdentityUpdate"),
+            Payload::PayerReport(_) => write!(f, "Payload::PayerReport"),
+            Payload::PayerReportAttestation(_) => write!(f, "Payload::PayerReportAttestation"),
         }
     }
 }
