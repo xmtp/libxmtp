@@ -174,22 +174,13 @@ impl MessageDisappearingSettings {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
-  #[wasm_bindgen(js_name = epoch)]
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
+  #[serde(rename = "maybeForked")]
   pub maybe_forked: bool,
   #[wasm_bindgen(js_name = forkDetails)]
+  #[serde(rename = "forkDetails")]
   pub fork_details: String,
-}
-
-impl ConversationDebugInfo {
-  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
-    Self {
-      epoch: xmtp_debug_info.epoch,
-      maybe_forked: xmtp_debug_info.maybe_forked,
-      fork_details: xmtp_debug_info.fork_details,
-    }
-  }
 }
 
 #[wasm_bindgen(getter_with_clone)]
