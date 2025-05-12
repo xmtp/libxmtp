@@ -2,20 +2,37 @@ use crate::d14n::GetNewestEnvelopes;
 use crate::d14n::QueryEnvelope;
 use crate::protocol::CollectionExtractor;
 use crate::protocol::GroupMessageExtractor;
+use crate::protocol::IdentityUpdateExtractor;
 use crate::protocol::KeyPackagesExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
+use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
+use crate::v3::PublishIdentityUpdate;
+use crate::v3::VerifySmartContractWalletSignatures;
 use crate::v3::{SendGroupMessages, SendWelcomeMessages, UploadKeyPackage};
+use crate::{d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds as GetInboxIdsV4};
+use itertools::Itertools;
+use std::collections::HashMap;
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::identity_v1;
+use xmtp_proto::identity_v1::get_identity_updates_response::IdentityUpdateLog;
 use xmtp_proto::mls_v1;
+use xmtp_proto::prelude::XmtpIdentityClient;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
+use xmtp_proto::xmtp::identity::api::v1::get_identity_updates_response::Response;
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
+use xmtp_proto::xmtp::xmtpv4::message_api::{
+    EnvelopesQuery, GetInboxIdsResponse as GetInboxIdsResponseV4,
+};
 
 #[derive(Clone)]
 pub struct CombinedD14nClient<C, D> {
@@ -133,6 +150,122 @@ where
     }
 
     fn stats(&self) -> ApiStats {
+        Default::default()
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<C, D, E> XmtpIdentityClient for CombinedD14nClient<C, D>
+where
+    C: Send + Sync + Client<Error = E>,
+    D: Send + Sync + Client<Error = E>,
+    E: std::error::Error + RetryableError + Send + Sync + 'static,
+    ApiClientError<E>: From<ApiClientError<<D as xmtp_proto::traits::Client>::Error>>,
+{
+    type Error = ApiClientError<E>;
+
+    async fn publish_identity_update(
+        &self,
+        request: identity_v1::PublishIdentityUpdateRequest,
+    ) -> Result<identity_v1::PublishIdentityUpdateResponse, Self::Error> {
+        PublishIdentityUpdate::builder()
+            //todo: handle error or tryFrom
+            .identity_update(request.identity_update)
+            .build()?
+            .query(&self.v3_client)
+            .await
+    }
+
+    async fn get_identity_updates_v2(
+        &self,
+        request: identity_v1::GetIdentityUpdatesRequest,
+    ) -> Result<identity_v1::GetIdentityUpdatesResponse, Self::Error> {
+        if request.requests.is_empty() {
+            return Ok(identity_v1::GetIdentityUpdatesResponse { responses: vec![] });
+        }
+
+        let topics = request.requests.topics()?;
+        //todo: replace with returned node_id
+        let node_id = 100;
+        let last_seen = Some(Cursor {
+            node_id_to_sequence_id: [(node_id, request.requests.first().unwrap().sequence_id)]
+                .into(),
+        });
+        let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
+            .envelopes(EnvelopesQuery {
+                topics: topics.clone(),
+                originator_node_ids: vec![],
+                last_seen,
+            })
+            .build()?
+            .query(&self.xmtpd_client)
+            .await?;
+
+        let updates: HashMap<String, Vec<IdentityUpdateLog>> = SequencedExtractor::builder()
+            .envelopes(result.envelopes)
+            .build::<IdentityUpdateExtractor>()
+            .get()?
+            .into_iter()
+            .into_group_map();
+
+        let responses = updates
+            .into_iter()
+            .map(|(inbox_id, updates)| Response { updates, inbox_id })
+            .collect();
+        Ok(identity_v1::GetIdentityUpdatesResponse { responses })
+    }
+
+    async fn get_inbox_ids(
+        &self,
+        request: identity_v1::GetInboxIdsRequest,
+    ) -> Result<identity_v1::GetInboxIdsResponse, Self::Error> {
+        let res: GetInboxIdsResponseV4 = GetInboxIdsV4::builder()
+            .addresses(
+                request
+                    .requests
+                    .iter()
+                    .filter(|r| r.identifier_kind == IdentifierKind::Ethereum as i32)
+                    .map(|r| r.identifier.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .passkeys(
+                request
+                    .requests
+                    .iter()
+                    .filter(|r| r.identifier_kind == IdentifierKind::Passkey as i32)
+                    .map(|r| r.identifier.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .build()?
+            .query(&self.xmtpd_client)
+            .await?;
+
+        Ok(identity_v1::GetInboxIdsResponse {
+            responses: res
+                .responses
+                .iter()
+                .map(|r| identity_v1::get_inbox_ids_response::Response {
+                    identifier: r.identifier.clone(),
+                    identifier_kind: IdentifierKind::Ethereum as i32,
+                    inbox_id: r.inbox_id.clone(),
+                })
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    async fn verify_smart_contract_wallet_signatures(
+        &self,
+        request: identity_v1::VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<identity_v1::VerifySmartContractWalletSignaturesResponse, Self::Error> {
+        VerifySmartContractWalletSignatures::builder()
+            .signatures(request.signatures)
+            .build()?
+            .query(&self.xmtpd_client)
+            .await
+    }
+
+    fn identity_stats(&self) -> IdentityStats {
         Default::default()
     }
 }
