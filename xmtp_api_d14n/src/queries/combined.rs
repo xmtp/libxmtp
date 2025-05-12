@@ -1,5 +1,4 @@
 use crate::d14n::GetNewestEnvelopes;
-use crate::d14n::PublishClientEnvelopes;
 use crate::d14n::QueryEnvelope;
 use crate::protocol::CollectionExtractor;
 use crate::protocol::GroupMessageExtractor;
@@ -7,20 +6,14 @@ use crate::protocol::KeyPackagesExtractor;
 use crate::protocol::SequencedExtractor;
 use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
-use crate::protocol::traits::Envelope;
-use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
-use crate::v3::{
-    FetchKeyPackages, QueryGroupMessages, QueryWelcomeMessages, SendGroupMessages,
-    SendWelcomeMessages, UploadKeyPackage,
-};
+use crate::v3::{SendGroupMessages, SendWelcomeMessages, UploadKeyPackage};
 use xmtp_common::RetryableError;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
-use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
