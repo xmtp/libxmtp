@@ -68,6 +68,10 @@ pub struct StoredGroupMessage {
     pub authority_id: String,
     /// The ID of a referenced message
     pub reference_id: Option<Vec<u8>>,
+    /// The Message SequenceId
+    pub sequence_id: Option<i64>,
+    /// The Originator Node ID
+    pub originator_id: Option<i64>,
 }
 
 pub struct StoredGroupMessageWithReactions {
