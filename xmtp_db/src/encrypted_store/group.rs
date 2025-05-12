@@ -73,8 +73,10 @@ pub struct StoredGroup {
     #[builder(default = "String::new()")]
     pub fork_details: String,
     /// The WelcomeMessage SequenceId
+    #[builder(default = None)]
     pub sequence_id: Option<i64>,
     /// The Originator Node ID of the WelcomeMessage
+    #[builder(default = None)]
     pub originator_id: Option<i64>,
 }
 
