@@ -1097,6 +1097,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             version_minor: queryable_content_fields.version_minor,
             authority_id: queryable_content_fields.authority_id,
             reference_id: queryable_content_fields.reference_id,
+            sequence_id: None,
+            originator_id: None,
         };
         group_message.store(provider.db())?;
 
