@@ -105,6 +105,8 @@ impl<'env> ProtocolEnvelope<'env> for Payload {
             Payload::WelcomeMessage(msg) => msg.accept(visitor)?,
             Payload::UploadKeyPackage(msg) => msg.accept(visitor)?,
             Payload::IdentityUpdate(msg) => msg.accept(visitor)?,
+            Payload::PayerReport(_) => return Ok(()),
+            Payload::PayerReportAttestation(_) => return Ok(()),
         };
         Ok(())
     }
