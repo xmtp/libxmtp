@@ -505,20 +505,6 @@ impl Conversations {
     Ok(num_groups_synced)
   }
 
-  #[wasm_bindgen(js_name = syncDeviceSync)]
-  pub async fn sync_device_sync(&self) -> Result<(), JsError> {
-    self
-      .inner_client
-      .get_sync_group()
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
-      .sync()
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(())
-  }
-
   #[wasm_bindgen]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<js_sys::Array, JsError> {
     let convo_list: js_sys::Array = self

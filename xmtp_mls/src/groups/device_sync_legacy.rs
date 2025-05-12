@@ -620,10 +620,10 @@ mod tests {
         alix2
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
-        alix1.sync_device_sync().await?;
+        alix1.sync_all_welcomes_and_history_sync_groups().await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
 
-        alix2.sync_device_sync().await?;
+        alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
             .wait(SyncMetric::V1PayloadProcessed, 1)
@@ -632,10 +632,10 @@ mod tests {
         alix2
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
-        alix1.sync_device_sync().await?;
+        alix1.sync_all_welcomes_and_history_sync_groups().await?;
         alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;
 
-        alix2.sync_device_sync().await?;
+        alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
             .wait(SyncMetric::V1PayloadProcessed, 2)

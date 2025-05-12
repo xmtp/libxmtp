@@ -1308,11 +1308,6 @@ impl FfiConversations {
         Ok(num_groups_synced)
     }
 
-    pub async fn sync_device_sync(&self) -> Result<(), GenericError> {
-        self.inner_client.sync_device_sync().await?;
-        Ok(())
-    }
-
     pub fn list(
         &self,
         opts: FfiListConversationsOptions,
@@ -6441,7 +6436,7 @@ mod tests {
             .unwrap();
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b.sync_preferences().await.unwrap();
         alix_b
             .worker()
             .wait(SyncMetric::PayloadProcessed, 1)
@@ -6471,7 +6466,7 @@ mod tests {
             .await;
         a_stream.wait_for_ready().await;
         b_stream.wait_for_ready().await;
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b.sync_preferences().await.unwrap();
 
         // consent with bo
         alix_a
@@ -6491,7 +6486,7 @@ mod tests {
             .unwrap();
 
         // Have alix_b sync the sync group and wait for the new consent to be processed
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b.sync_preferences().await.unwrap();
         alix_b
             .worker()
             .wait(SyncMetric::ConsentReceived, 1)
@@ -6500,7 +6495,7 @@ mod tests {
 
         stream_a_callback.wait_for_delivery(Some(3)).await.unwrap();
         wait_for_ok(|| async {
-            alix_b.conversations().sync_device_sync().await.unwrap();
+            alix_b.sync_preferences().await.unwrap();
             stream_b_callback.wait_for_delivery(Some(1)).await
         })
         .await
@@ -6541,7 +6536,7 @@ mod tests {
             .await
             .unwrap();
         // Have alix_b sync the sync group
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b.sync_preferences().await.unwrap();
         // Wait for alix_b to process the new consent
         alix_b
             .worker()
@@ -6592,7 +6587,7 @@ mod tests {
 
         alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
 
-        alix_b.conversations().sync_device_sync().await.unwrap();
+        alix_b.sync_preferences().await.unwrap();
         alix_b
             .worker()
             .wait(SyncMetric::HmacReceived, 1)

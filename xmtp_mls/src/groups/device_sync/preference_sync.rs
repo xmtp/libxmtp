@@ -149,7 +149,7 @@ mod tests {
 
         amal_a.worker().wait(SyncMetric::HmacSent, 1).await?;
 
-        amal_a.sync_device_sync().await?;
+        amal_a.sync_all_welcomes_and_history_sync_groups().await?;
         amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         // Wait for a to process the new hmac key
@@ -165,7 +165,7 @@ mod tests {
             .revoke_installations(vec![amal_b.installation_id().to_vec()])
             .await?;
 
-        amal_a.sync_device_sync().await?;
+        amal_a.sync_all_welcomes_and_history_sync_groups().await?;
         let new_pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }

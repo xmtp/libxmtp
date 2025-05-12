@@ -475,20 +475,6 @@ impl Conversations {
   }
 
   #[napi]
-  pub async fn sync_device_sync(&self) -> Result<()> {
-    self
-      .inner_client
-      .get_sync_group()
-      .await
-      .map_err(ErrorWrapper::from)?
-      .sync()
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  #[napi]
   pub fn list(&self, opts: Option<ListConversationsOptions>) -> Result<Vec<ConversationListItem>> {
     let convo_list: Vec<ConversationListItem> = self
       .inner_client
