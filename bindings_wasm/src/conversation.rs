@@ -657,7 +657,11 @@ impl Conversation {
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
-    Ok(crate::to_value(&ConversationDebugInfo::new(debug_info))?)
+    Ok(crate::to_value(&ConversationDebugInfo {
+      epoch: debug_info.epoch,
+      maybe_forked: debug_info.maybe_forked,
+      fork_details: debug_info.fork_details,
+    })?)
   }
 
   #[wasm_bindgen(js_name = findDuplicateDms)]
