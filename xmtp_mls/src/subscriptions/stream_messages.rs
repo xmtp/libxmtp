@@ -5,15 +5,17 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use super::{Result, SubscribeError};
-use crate::groups::{scoped_client::ScopedGroupClient, summary::SyncSummary, MlsGroup};
+use super::{
+    process_message::{ProcessMessageFuture, ProcessedMessage},
+    Result, SubscribeError,
+};
+use crate::groups::{scoped_client::ScopedGroupClient, MlsGroup};
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
 use xmtp_common::types::GroupId;
-use xmtp_common::{retry_async, FutureWrapper, Retry};
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
-use xmtp_id::InboxIdRef;
+use xmtp_common::FutureWrapper;
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind};
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::{group_message, GroupMessage},
@@ -59,10 +61,23 @@ pub struct MessagePosition {
 }
 
 impl MessagePosition {
+    /// Updates the cursor position for this message.
+    ///
+    /// Sets the cursor to a specific position in the message stream, which
+    /// helps track which messages have been processed.
+    ///
+    /// # Arguments
+    /// * `cursor` - The new cursor position to set
     pub(super) fn set(&mut self, cursor: u64) {
         self.cursor = Some(cursor);
     }
 
+    /// Retrieves the current cursor position.
+    ///
+    /// Returns the cursor position or 0 if no cursor has been set yet.
+    ///
+    /// # Returns
+    /// * `u64` - The current cursor position or 0 if unset
     fn pos(&self) -> u64 {
         self.cursor.unwrap_or(0)
     }
@@ -119,6 +134,28 @@ where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
+    /// Creates a new stream for receiving group messages.
+    ///
+    /// Initializes a subscription to messages for the specified groups, tracking
+    /// cursor positions to ensure proper message ordering and prevent duplicates.
+    ///
+    /// This function:
+    /// 1. Queries the latest message for each group to establish initial cursor positions
+    /// 2. Creates filters for each group based on these cursor positions
+    /// 3. Sets up the subscription to the message stream
+    ///
+    /// # Arguments
+    /// * `client` - Reference to the client used for API communication
+    /// * `group_list` - List of group IDs to subscribe to
+    ///
+    /// # Returns
+    /// * `Result<Self>` - A new message stream if successful, or an error if initialization fails
+    ///
+    /// # Errors
+    /// May return errors if:
+    /// - Querying the latest messages fails
+    /// - Message extraction fails
+    /// - Creating the subscription fails
     pub async fn new(client: &'a C, group_list: Vec<GroupId>) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
 
@@ -172,7 +209,22 @@ where
         })
     }
 
-    /// Add a new group to this messages stream
+    /// Adds a new group to the existing message stream.
+    ///
+    /// This method allows dynamically extending the subscription to include
+    /// messages from an additional group without recreating the entire stream.
+    ///
+    /// The process involves:
+    /// 1. Checking if the group is already part of the stream
+    /// 2. Adding the group to the tracking list
+    /// 3. Re-establishing the subscription with the updated group list
+    ///
+    /// # Arguments
+    /// * `group` - The MLS group to add to the stream
+    ///
+    /// # Note
+    /// This is an asynchronous operation that transitions the stream to the `Adding` state.
+    /// The actual subscription update happens when the stream is polled.
     pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         if self.group_list.contains_key(group.group_id.as_slice()) {
             tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
@@ -196,7 +248,32 @@ where
         });
     }
 
-    // re-subscribe to the stream with a new group
+    /// Internal API to re-subscribe to a message stream.
+    /// Re-subscribes to the message stream with an updated group list.
+    ///
+    /// Creates a new subscription that includes the specified new group,
+    /// while maintaining existing subscriptions for other groups.
+    ///
+    /// This function:
+    /// 1. Determines the appropriate cursor position for the new group
+    /// 2. Updates filters for all groups
+    /// 3. Establishes a new subscription with the updated filters
+    ///
+    /// # Arguments
+    /// * `client` - Reference to the client used for API communication
+    /// * `filters` - Current list of group filters
+    /// * `new_group` - ID of the new group to add
+    ///
+    /// # Returns
+    /// * `Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)>` - A tuple containing:
+    ///   - The new message subscription
+    ///   - The ID of the newly added group
+    ///   - The cursor position for the new group (if available)
+    ///
+    /// # Errors
+    /// May return errors if:
+    /// - Querying the database for the last cursor fails
+    /// - Creating the new subscription fails
     async fn subscribe(
         client: &'a C,
         mut filters: Vec<GroupFilter>,
@@ -289,6 +366,22 @@ where
     C: ScopedGroupClient + 'a,
     <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
 {
+    /// Handles the stream when in the `Waiting` state.
+    ///
+    /// This method is called when the stream is ready to process the next message.
+    /// It:
+    /// 1. Waits for the next message from the inner stream
+    /// 2. Checks if the message has already been processed by comparing cursors
+    /// 3. Either processes the message or transitions to replay mode if needed
+    ///
+    /// # Arguments
+    /// * `cx` - The task context for polling
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<StoredGroupMessage>>>` - The polling result:
+    ///   - `Ready(Some(Ok(msg)))` if a message is successfully processed
+    ///   - `Ready(None)` if the stream is terminated
+    ///   - `Pending` if waiting for more data
     fn on_waiting(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -336,6 +429,24 @@ where
         self.resolve_futures(cx)
     }
 
+    /// Retrieves the next message from the inner stream.
+    ///
+    /// Polls the underlying subscription for the next message and extracts
+    /// the V1 payload if available.
+    ///
+    /// # Arguments
+    /// * `cx` - The task context for polling
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<group_message::V1>>>` - The polling result:
+    ///   - `Ready(Some(Ok(msg)))` if a valid message is available
+    ///   - `Ready(None)` if the stream is terminated
+    ///   - `Pending` if waiting for more data
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The inner stream returns an error
+    /// - The message cannot be extracted (unsupported version)
     fn next_message(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -358,6 +469,15 @@ where
         }
     }
 
+    /// Updates the cursor position for a specific group.
+    ///
+    /// This method updates the tracking information for a group after
+    /// successfully processing a message, allowing the stream to maintain
+    /// proper ordering and prevent duplicate processing.
+    ///
+    /// # Arguments
+    /// * `group_id` - The ID of the group to update
+    /// * `new_cursor` - The new cursor position to set
     fn set_cursor(mut self: Pin<&mut Self>, group_id: &[u8], new_cursor: u64) {
         let this = self.as_mut().project();
         if let Some(cursor) = this.group_list.get_mut(group_id) {
@@ -365,6 +485,19 @@ where
         }
     }
 
+    /// Resolves futures when the stream is in the `Processing` or `Replaying` state.
+    ///
+    /// This method handles the completion of asynchronous operations:
+    /// - When a message is processed, updates the cursor and yields the message
+    /// - When no message is available, updates the cursor and continues polling
+    /// - When in replay mode, delegates to `resolve_replaying`
+    ///
+    /// # Arguments
+    /// * `cx` - The task context for polling
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<StoredGroupMessage>>>` - The polling result based on
+    ///   the current state and operation outcome
     fn resolve_futures(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -379,13 +512,16 @@ where
                 return Poll::Ready(Some(Ok(msg)));
             } else {
                 this.state.set(State::Waiting);
-                if let Some(cursor) = this.group_list.get_mut(processed.group_id.as_slice()) {
+                let cursor = this.group_list.get_mut(processed.group_id.as_slice());
+                if let Some(cursor) = cursor {
                     tracing::info!(
                     "no message could be processed, stream setting cursor to [{}] for group: {}",
                     processed.next_message,
                     xmtp_common::fmt::truncate_hex(hex::encode(processed.group_id.as_slice()))
                 );
-                    cursor.set(processed.next_message)
+                    if processed.next_message > cursor.pos() {
+                        cursor.set(processed.next_message)
+                    }
                 }
                 return self.poll_next(cx);
             }
@@ -399,8 +535,24 @@ where
         Poll::Pending
     }
 
-    /// Replay the inner stream up until the point our cursor already exists
-    /// Only replays while the inner stream is ready with a message
+    /// Handles message replay to skip already processed messages.
+    ///
+    /// When the stream detects that a message has a cursor less than what's
+    /// already been processed, it enters replay mode. This function skips
+    /// messages until reaching the target cursor position.
+    ///
+    /// # Arguments
+    /// * `cx` - The task context for polling
+    /// * `replay_until` - The cursor position to replay until
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<StoredGroupMessage>>>` - The polling result:
+    ///   - Returns to normal polling when replay is complete
+    ///   - Continues replaying when more messages need to be skipped
+    ///
+    /// # Note
+    /// This function is crucial for handling out-of-order message delivery
+    /// and ensuring consistent stream behavior.
     fn resolve_replaying(
         self: &mut Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -418,214 +570,6 @@ where
             return self.as_mut().poll_next(cx);
         }
         self.as_mut().resolve_replaying(cx, replay_until)
-    }
-}
-
-/// Future that processes a group message from the network
-pub struct ProcessMessageFuture<Client> {
-    client: Client,
-    msg: group_message::V1,
-}
-
-// The processed message
-pub struct ProcessedMessage {
-    pub message: Option<StoredGroupMessage>,
-    group_id: Vec<u8>,
-    next_message: u64,
-}
-
-impl<C> ProcessMessageFuture<C>
-where
-    C: ScopedGroupClient,
-{
-    /// Create a new Future to process a GroupMessage.
-    pub fn new(client: C, msg: group_message::V1) -> Result<ProcessMessageFuture<C>> {
-        Ok(Self { client, msg })
-    }
-
-    fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.client.inbox_id()
-    }
-
-    /// process a message, returning the message from the database and the cursor of the message.
-    /// There will always be a cursor returned.
-    /// If a cursor is returned but a message is not, it means we tried processing up to `cursor`
-    /// but were not able to get a message from it.
-    #[tracing::instrument(skip_all)]
-    pub(crate) async fn process(self) -> Result<ProcessedMessage> {
-        let group_message::V1 {
-            // the cursor ID is the position in the monolithic backend topic
-            id: ref cursor_id,
-            ref created_ns,
-            ..
-        } = self.msg;
-
-        tracing::debug!(
-            inbox_id = self.inbox_id(),
-            group_id = hex::encode(&self.msg.group_id),
-            cursor_id,
-            "[{}]  is about to process streamed envelope for group {} cursor_id=[{}]",
-            self.inbox_id(),
-            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
-            &cursor_id
-        );
-
-        let summary = if self.needs_to_sync(*cursor_id)? {
-            self.process_stream_entry().await
-        } else {
-            SyncSummary::default()
-        };
-
-        let conn = self.client.context_ref().db();
-        // Load the message from the DB to handle cases where it may have been already processed in
-        // another thread
-        let new_message =
-            conn.get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
-
-        if let Some(msg) = new_message {
-            tracing::debug!(
-                "[{}] processed stream envelope [{}]",
-                self.inbox_id(),
-                &cursor_id
-            );
-            Ok(ProcessedMessage {
-                message: Some(msg),
-                next_message: *cursor_id,
-                group_id: self.msg.group_id,
-            })
-        } else {
-            tracing::warn!(
-                cursor_id,
-                inbox_id = self.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                "no further processing for streamed message [{}] in group [{}]",
-                &cursor_id,
-                hex::encode(&self.msg.group_id),
-            );
-            let mut processed = summary.process;
-            processed.new_messages.sort_by_key(|k| k.cursor);
-            processed.total_messages.sort();
-            let next: Option<u64> = processed.new_messages.first().map(|f| f.cursor);
-            // if we have no new messages, set the cursor to the latest total message we processed
-            // or, if we did not process anything, set it back to 0.
-            let next = next.unwrap_or(processed.total_messages.last().copied().unwrap_or(0));
-            Ok(ProcessedMessage {
-                message: None,
-                next_message: next,
-                group_id: self.msg.group_id,
-            })
-        }
-    }
-
-    /// stream processing function
-    async fn process_stream_entry(&self) -> SyncSummary {
-        let process_result = retry_async!(
-            Retry::default(),
-            (async {
-                let (group, _) = MlsGroup::new_validated(&self.client, self.msg.group_id.clone())?;
-                let epoch = group.epoch().await?;
-
-                tracing::debug!(
-                    inbox_id = self.inbox_id(),
-                    group_id = hex::encode(&self.msg.group_id),
-                    cursor_id = self.msg.id,
-                    epoch = epoch,
-                    "epoch={} for [{}] in process_stream_entry()",
-                    epoch,
-                    self.inbox_id(),
-                );
-                group
-                    .process_message(&self.msg, false)
-                    .await
-                    // NOTE: We want to make sure we retry an error in process_message
-                    .map_err(SubscribeError::ReceiveGroup)
-            })
-        );
-
-        if let Err(SubscribeError::ReceiveGroup(e)) = process_result {
-            tracing::warn!("error processing streamed message {e}");
-            self.attempt_message_recovery().await
-            // This should never occur because we map the error to `ReceiveGroup`
-            // But still exists defensively
-        } else if let Err(e) = process_result {
-            tracing::error!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                err = e.to_string(),
-                "process stream entry {:?}",
-                e
-            );
-            SyncSummary::default()
-        } else {
-            tracing::trace!(
-                cursor_id = self.msg.id,
-                inbox_id = self.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                "message process in stream success"
-            );
-            // we didnt need to sync
-            SyncSummary::default()
-        }
-    }
-
-    /// Checks if a message has already been processed through a sync
-    fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
-        let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
-            self.client
-                .context_ref()
-                .db()
-                .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)
-        };
-
-        let last_synced_id = check_for_last_cursor()?;
-        Ok(last_synced_id < current_msg_cursor as i64)
-    }
-
-    /// Attempt a recovery sync if a group message failed to process
-    async fn attempt_message_recovery(&self) -> SyncSummary {
-        let group = MlsGroup::new(
-            &self.client,
-            self.msg.group_id.clone(),
-            None,
-            self.msg.created_ns as i64,
-        );
-        let epoch = group.epoch().await.unwrap_or(0);
-        tracing::debug!(
-            inbox_id = self.client.inbox_id(),
-            group_id = hex::encode(&self.msg.group_id),
-            cursor_id = self.msg.id,
-            epoch = epoch,
-            "attempting recovery sync for group {} in epoch {}",
-            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
-            epoch
-        );
-        // Swallow errors here, since another process may have successfully saved the message
-        // to the DB
-        let sync = group.sync_with_conn().await;
-        if let Err(summary) = sync {
-            tracing::warn!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message failed",
-            );
-            tracing::warn!("{summary}");
-            summary
-        } else {
-            let epoch = group.epoch().await.unwrap_or(0);
-            let summary = sync.expect("checked for error");
-            tracing::debug!(
-                inbox_id = self.client.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful, epoch = {} for group = {}",
-                epoch,
-                xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id))
-            );
-            tracing::debug!("{summary}");
-            summary
-        }
     }
 }
 
