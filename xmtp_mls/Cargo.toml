@@ -153,6 +153,7 @@ url = { workspace = true }
 public-suffix = { version = "0.1.2" }
 futures-executor = { version = "0.3" }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_db_test.workspace = true
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -205,6 +206,10 @@ harness = false
 name = "identity"
 required-features = ["bench"]
 
+[[test]]
+harness = true
+name = "chaos"
+required-features = ["test-utils"]
 
 #[[bench]]
 #harness = false

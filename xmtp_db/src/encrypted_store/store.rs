@@ -1,59 +1,86 @@
 use super::*;
-use crate::xmtp_openmls_provider::XmtpOpenMlsProviderPrivate;
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use derive_builder::Builder;
 
-use diesel::connection::SimpleConnection;
-use diesel_migrations::MigrationHarness;
-
-#[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
+#[derive(Clone, Debug, Builder)]
+#[builder(setter(into))]
 pub struct EncryptedMessageStore<Db> {
-    pub(super) opts: StorageOption,
     pub(super) db: Db,
 }
 
-impl<Db, E> EncryptedMessageStore<Db>
-where
-    Db: XmtpDb<Error = E>,
-    StorageError: From<E>,
-{
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub(super) fn init_db(&mut self) -> Result<(), StorageError> {
-        self.db.validate(&self.opts)?;
-        self.db.conn()?.raw_query_write(|conn| {
-            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
-            tracing::info!("Running DB migrations");
-            conn.run_pending_migrations(MIGRATIONS)?;
+impl<Db> EncryptedMessageStore<Db> {
+    pub fn builder() -> EncryptedMessageStoreBuilder<Db>
+    where
+        Db: Clone,
+    {
+        Default::default()
+    }
+}
 
-            let sqlite_version =
-                sql_query("SELECT sqlite_version() AS version").load::<SqliteVersion>(conn)?;
-            tracing::info!("sqlite_version={}", sqlite_version[0].version);
-
-            tracing::info!("Migrations successful");
-            Ok::<_, StorageError>(())
-        })?;
-
-        Ok::<_, StorageError>(())
+impl<Db: XmtpDb> EncryptedMessageStore<Db> {
+    pub fn new(db: Db) -> Result<Self, StorageError> {
+        db.init(db.opts())?;
+        Ok(Self { db })
     }
 
-    pub fn mls_provider(
-        &self,
-    ) -> Result<XmtpOpenMlsProviderPrivate<Db, Db::Connection>, StorageError> {
-        let conn = self.conn()?;
-        Ok(XmtpOpenMlsProviderPrivate::new(conn))
+    pub fn opts(&self) -> &StorageOption {
+        self.db.opts()
+    }
+}
+
+impl<Db> EncryptedMessageStore<Db>
+where
+    Db: XmtpDb,
+{
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<Db::Connection> {
+        XmtpOpenMlsProvider::new(self.conn())
+    }
+
+    /// Access to the database queries defined on connections
+    pub fn db(&self) -> DbConnection<Db::Connection> {
+        DbConnection::new(self.db.conn())
     }
 
     /// Pulls a new connection from the store
-    pub fn conn(&self) -> Result<DbConnectionPrivate<<Db as XmtpDb>::Connection>, StorageError> {
-        Ok(self.db.conn()?)
+    pub fn conn(&self) -> Db::Connection {
+        self.db.conn()
     }
 
     /// Release connection to the database, closing it
-    pub fn release_connection(&self) -> Result<(), StorageError> {
-        Ok(self.db.release_connection()?)
+    pub fn release_connection(&self) -> Result<(), ConnectionError> {
+        self.disconnect()
     }
 
     /// Reconnect to the database
-    pub fn reconnect(&self) -> Result<(), StorageError> {
-        Ok(self.db.reconnect()?)
+    pub fn reconnect(&self) -> Result<(), ConnectionError> {
+        self.db.reconnect()
+    }
+}
+
+impl<Db> XmtpDb for EncryptedMessageStore<Db>
+where
+    Db: XmtpDb,
+{
+    type Connection = Db::Connection;
+
+    fn conn(&self) -> Self::Connection {
+        self.db.conn()
+    }
+
+    fn db(&self) -> DbConnection<Self::Connection> {
+        self.db.db()
+    }
+
+    fn opts(&self) -> &StorageOption {
+        self.db.opts()
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.db.reconnect()
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.db.disconnect()
     }
 }

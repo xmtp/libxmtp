@@ -295,6 +295,12 @@ impl serde::Serialize for GroupMessageSave {
         if self.reference_id.is_some() {
             len += 1;
         }
+        if self.sequence_id.is_some() {
+            len += 1;
+        }
+        if self.originator_id.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.message_backup.GroupMessageSave", len)?;
         if !self.id.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -353,6 +359,16 @@ impl serde::Serialize for GroupMessageSave {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("referenceId", pbjson::private::base64::encode(&v).as_str())?;
         }
+        if let Some(v) = self.sequence_id.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sequenceId", ToString::to_string(&v).as_str())?;
+        }
+        if let Some(v) = self.originator_id.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("originatorId", ToString::to_string(&v).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -387,6 +403,10 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             "authorityId",
             "reference_id",
             "referenceId",
+            "sequence_id",
+            "sequenceId",
+            "originator_id",
+            "originatorId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -404,6 +424,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             VersionMinor,
             AuthorityId,
             ReferenceId,
+            SequenceId,
+            OriginatorId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -438,6 +460,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             "versionMinor" | "version_minor" => Ok(GeneratedField::VersionMinor),
                             "authorityId" | "authority_id" => Ok(GeneratedField::AuthorityId),
                             "referenceId" | "reference_id" => Ok(GeneratedField::ReferenceId),
+                            "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
+                            "originatorId" | "originator_id" => Ok(GeneratedField::OriginatorId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -470,6 +494,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                 let mut version_minor__ = None;
                 let mut authority_id__ = None;
                 let mut reference_id__ = None;
+                let mut sequence_id__ = None;
+                let mut originator_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -566,6 +592,22 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                                 map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::SequenceId => {
+                            if sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sequenceId"));
+                            }
+                            sequence_id__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
+                        GeneratedField::OriginatorId => {
+                            if originator_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorId"));
+                            }
+                            originator_id__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(GroupMessageSave {
@@ -582,6 +624,8 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                     version_minor: version_minor__.unwrap_or_default(),
                     authority_id: authority_id__.unwrap_or_default(),
                     reference_id: reference_id__,
+                    sequence_id: sequence_id__,
+                    originator_id: originator_id__,
                 })
             }
         }

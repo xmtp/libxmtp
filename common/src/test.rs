@@ -24,11 +24,11 @@ static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::n
 
 /// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
 #[derive(Default)]
-pub struct InboxIdReplace {
+pub struct TestLogReplace {
     ids: HashMap<String, String>,
 }
 
-impl InboxIdReplace {
+impl TestLogReplace {
     pub fn add(&mut self, id: &str, name: &str) {
         self.ids.insert(id.to_string(), name.to_string());
         let mut ids = REPLACE_IDS.lock();
@@ -37,7 +37,7 @@ impl InboxIdReplace {
 }
 
 // remove ids for replacement from map on drop
-impl Drop for InboxIdReplace {
+impl Drop for TestLogReplace {
     fn drop(&mut self) {
         let mut ids = REPLACE_IDS.lock();
         for id in self.ids.keys() {

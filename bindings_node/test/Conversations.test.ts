@@ -8,6 +8,8 @@ import {
 import {
   ConsentState,
   Conversation,
+  Conversations,
+  ConversationType,
   GroupPermissionsOptions,
   IdentifierKind,
   Message,
@@ -25,8 +27,6 @@ describe('Conversations', () => {
     const client = await createRegisteredClient(user)
 
     expect(client.conversations().list().length).toBe(0)
-    expect(client.conversations().listDms().length).toBe(0)
-    expect(client.conversations().listGroups().length).toBe(0)
   })
 
   it('should create a group chat', async () => {
@@ -76,8 +76,14 @@ describe('Conversations', () => {
     expect(groups1.length).toBe(1)
     expect(groups1[0].conversation.id()).toBe(group.id())
 
-    expect(client1.conversations().listDms().length).toBe(0)
-    expect(client1.conversations().listGroups().length).toBe(1)
+    expect(
+      client1.conversations().list({ conversationType: ConversationType.Dm })
+        .length
+    ).toBe(0)
+    expect(
+      client1.conversations().list({ conversationType: ConversationType.Group })
+        .length
+    ).toBe(1)
 
     expect(client2.conversations().list().length).toBe(0)
 
@@ -87,8 +93,14 @@ describe('Conversations', () => {
     expect(groups2.length).toBe(1)
     expect(groups2[0].conversation.id()).toBe(group.id())
 
-    expect(client2.conversations().listDms().length).toBe(0)
-    expect(client2.conversations().listGroups().length).toBe(1)
+    expect(
+      client2.conversations().list({ conversationType: ConversationType.Dm })
+        .length
+    ).toBe(0)
+    expect(
+      client2.conversations().list({ conversationType: ConversationType.Group })
+        .length
+    ).toBe(1)
   })
 
   it('should create a group with custom permissions', async () => {
@@ -236,8 +248,14 @@ describe('Conversations', () => {
     expect(groups1[0].conversation.id()).toBe(group.id())
     expect(groups1[0].conversation.dmPeerInboxId()).toBe(client2.inboxId())
 
-    expect(client1.conversations().listDms().length).toBe(1)
-    expect(client1.conversations().listGroups().length).toBe(0)
+    expect(
+      client1.conversations().list({ conversationType: ConversationType.Dm })
+        .length
+    ).toBe(1)
+    expect(
+      client1.conversations().list({ conversationType: ConversationType.Group })
+        .length
+    ).toBe(0)
 
     expect(client2.conversations().list().length).toBe(0)
 
@@ -248,8 +266,14 @@ describe('Conversations', () => {
     expect(groups2[0].conversation.id()).toBe(group.id())
     expect(groups2[0].conversation.dmPeerInboxId()).toBe(client1.inboxId())
 
-    expect(client2.conversations().listDms().length).toBe(1)
-    expect(client2.conversations().listGroups().length).toBe(0)
+    expect(
+      client2.conversations().list({ conversationType: ConversationType.Dm })
+        .length
+    ).toBe(1)
+    expect(
+      client2.conversations().list({ conversationType: ConversationType.Group })
+        .length
+    ).toBe(0)
 
     const dm1 = client1.conversations().findDmByTargetInboxId(client2.inboxId())
     expect(dm1).toBeDefined()
@@ -471,9 +495,9 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().streamGroups((err, convo) => {
+    const stream = client3.conversations().stream((err, convo) => {
       groups.push(convo!)
-    })
+    }, ConversationType.Group)
     const group3 = await client4.conversations().createDm({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
@@ -508,9 +532,9 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().streamDms((err, convo) => {
+    const stream = client3.conversations().stream((err, convo) => {
       groups.push(convo!)
-    })
+    }, ConversationType.Dm)
     const group1 = await client1.conversations().createGroup([
       {
         identifier: user3.account.address,
@@ -662,11 +686,9 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1
-      .conversations()
-      .streamAllGroupMessages((err, message) => {
-        messages.push(message!)
-      })
+    const stream = client1.conversations().streamAllMessages((err, message) => {
+      messages.push(message!)
+    }, ConversationType.Group)
 
     const groups2 = client2.conversations()
     await groups2.sync()
@@ -722,11 +744,9 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1
-      .conversations()
-      .streamAllDmMessages((err, message) => {
-        messages.push(message!)
-      })
+    const stream = client1.conversations().streamAllMessages((err, message) => {
+      messages.push(message!)
+    }, ConversationType.Dm)
 
     const groups2 = client2.conversations()
     await groups2.sync()

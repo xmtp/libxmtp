@@ -140,10 +140,7 @@ impl From<MlsGroup<RustXmtpClient>> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    match self.inner_client.stitched_group(&self.group_id) {
-      Ok(group) => hex::encode(group.group_id.clone()),
-      Err(_) => hex::encode(self.group_id.clone()),
-    }
+    hex::encode(self.group_id.clone())
   }
 
   #[wasm_bindgen]
@@ -203,11 +200,8 @@ impl Conversation {
   ) -> Result<Vec<Message>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let provider = group
-      .mls_provider()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
     let conversation_type = group
-      .conversation_type(&provider)
+      .conversation_type()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
@@ -237,11 +231,8 @@ impl Conversation {
   ) -> Result<Vec<MessageWithReactions>, JsError> {
     let opts = opts.unwrap_or_default();
     let group = self.to_mls_group();
-    let provider = group
-      .mls_provider()
-      .map_err(|e| JsError::new(&format!("{e}")))?;
     let conversation_type = group
-      .conversation_type(&provider)
+      .conversation_type()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
     let kind = match conversation_type {
@@ -301,11 +292,7 @@ impl Conversation {
   pub fn admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
     let admin_list = group
-      .admin_list(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .admin_list()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(admin_list)
@@ -315,11 +302,7 @@ impl Conversation {
   pub fn super_admin_list(&self) -> Result<Vec<String>, JsError> {
     let group = self.to_mls_group();
     let super_admin_list = group
-      .super_admin_list(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .super_admin_list()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(super_admin_list)
@@ -461,11 +444,7 @@ impl Conversation {
     let group = self.to_mls_group();
 
     let group_name = group
-      .group_name(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .group_name()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(group_name)
@@ -491,11 +470,7 @@ impl Conversation {
     let group = self.to_mls_group();
 
     let group_image_url_square = group
-      .group_image_url_square(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .group_image_url_square()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(group_image_url_square)
@@ -518,11 +493,7 @@ impl Conversation {
     let group = self.to_mls_group();
 
     let group_description = group
-      .group_description(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .group_description()
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
     Ok(group_description)
@@ -551,13 +522,7 @@ impl Conversation {
   pub fn is_active(&self) -> Result<bool, JsError> {
     let group = self.to_mls_group();
 
-    group
-      .is_active(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
-      .map_err(|e| JsError::new(&format!("{e}")))
+    group.is_active().map_err(|e| JsError::new(&format!("{e}")))
   }
 
   #[wasm_bindgen(js_name = pausedForVersion)]
@@ -565,11 +530,7 @@ impl Conversation {
     let group = self.to_mls_group();
 
     group
-      .paused_for_version(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .paused_for_version()
       .map_err(|e| JsError::new(&format!("{e}")))
   }
 
@@ -586,11 +547,7 @@ impl Conversation {
   pub async fn group_metadata(&self) -> Result<GroupMetadata, JsError> {
     let group = self.to_mls_group();
     let metadata = group
-      .metadata(
-        &group
-          .mls_provider()
-          .map_err(|e| JsError::new(&format!("{e}")))?,
-      )
+      .metadata()
       .await
       .map_err(|e| JsError::new(&format!("{e}")))?;
 
@@ -693,7 +650,7 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = getDebugInfo)]
-  pub async fn get_debug_info(&self) -> Result<JsValue, JsError> {
+  pub async fn debug_info(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
     let debug_info = group
       .debug_info()

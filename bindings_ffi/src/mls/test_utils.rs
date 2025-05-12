@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ethers::signers::LocalWallet;
-use xmtp_common::tmp_path;
+use xmtp_common::{tmp_path, TestLogReplace};
 use xmtp_id::InboxOwner;
 use xmtp_mls::utils::test::tester_utils::*;
 
@@ -24,6 +24,16 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
     // Will not panic on registering identity. Will still panic on just about everything else.
     async fn build_no_panic(&self) -> Result<Tester<LocalWallet, FfiXmtpClient>, GenericError> {
         let client = create_raw_client(self).await;
+        let mut replace = TestLogReplace::default();
+        if let Some(name) = &self.name {
+            let ident = self.owner.get_identifier().unwrap();
+            replace.add(&ident.to_string(), &format!("{name}_ident"));
+            replace.add(
+                &client.inner_client.installation_public_key().to_string(),
+                &format!("{name}_installation"),
+            );
+            replace.add(client.inner_client.inbox_id(), name);
+        }
         let owner = FfiWalletInboxOwner::with_wallet(self.owner.clone());
         let signature_request = client.signature_request().unwrap();
         signature_request
@@ -35,7 +45,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
             .await?;
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider()?;
+        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.worker_handle();
 
         if let Some(worker) = &worker {
@@ -50,6 +60,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
             provider: Arc::new(provider),
             worker,
             stream_handle: None,
+            replace,
         })
     }
 }
@@ -60,6 +71,17 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 
     async fn build_no_panic(&self) -> Result<Tester<PasskeyUser, FfiXmtpClient>, GenericError> {
         let client = create_raw_client(self).await;
+        let mut replace = TestLogReplace::default();
+        if let Some(name) = &self.name {
+            let ident = self.owner.get_identifier().unwrap();
+            replace.add(&ident.to_string(), &format!("{name}_ident"));
+            replace.add(
+                &client.inner_client.installation_public_key().to_string(),
+                &format!("{name}_installation"),
+            );
+            replace.add(client.inner_client.inbox_id(), name);
+        }
+
         let signature_request = client.signature_request().unwrap();
         let text = signature_request.signature_text().await.unwrap();
         let UnverifiedSignature::Passkey(signature) = self.owner.sign(&text).unwrap() else {
@@ -77,7 +99,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             .unwrap();
         client.register_identity(signature_request).await?;
 
-        let provider = client.inner_client.mls_provider().unwrap();
+        let provider = client.inner_client.mls_provider();
         let worker = client.inner_client.worker_handle();
 
         if let Some(worker) = &worker {
@@ -92,6 +114,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             provider: Arc::new(provider),
             worker,
             stream_handle: None,
+            replace,
         })
     }
 }
@@ -129,7 +152,7 @@ where
             .await
             .unwrap(),
         Some(tmp_path()),
-        Some(xmtp_db::EncryptedMessageStore::generate_enc_key().into()),
+        Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,
         ident.into(),
         1,
@@ -139,7 +162,7 @@ where
     )
     .await
     .unwrap();
-    let conn = client.inner_client.context().store().conn().unwrap();
+    let conn = client.inner_client.context().db();
     conn.register_triggers();
 
     client

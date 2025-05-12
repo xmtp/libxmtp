@@ -7,7 +7,7 @@ use diesel::{
     sql_types::Integer,
 };
 
-use super::{Sqlite, db_connection::DbConnection, schema::refresh_state};
+use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
 use crate::{
     StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
 };
@@ -65,7 +65,7 @@ pub struct RefreshState {
 impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,

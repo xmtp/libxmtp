@@ -1,28 +1,28 @@
+use std::{
+    pin::Pin,
+    task::{ready, Context, Poll},
+};
+
+use crate::subscriptions::stream_messages::MessagesApiSubscription;
+use crate::{groups::scoped_client::ScopedGroupClient, Client};
+
+use xmtp_db::{
+    group::{ConversationType, GroupQueryArgs},
+    group_message::StoredGroupMessage,
+    XmtpDb,
+};
+use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+
 use super::{
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
     Result, SubscribeError,
 };
-use crate::subscriptions::{
-    stream_messages::MessagesApiSubscription, LocalEvents, SyncWorkerEvent,
-};
-use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
-    Client,
-};
+use crate::groups::MlsGroup;
+use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use futures::stream::Stream;
-use std::{
-    pin::Pin,
-    task::{ready, Context, Poll},
-};
 use xmtp_common::types::GroupId;
-use xmtp_db::{
-    consent_record::ConsentState,
-    group::{ConversationType, GroupQueryArgs, StoredGroup},
-    group_message::StoredGroupMessage,
-};
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
 
 use pin_project_lite::pin_project;
 
@@ -36,27 +36,27 @@ pin_project! {
     }
 }
 
-impl<'a, A, V>
+impl<'a, A, D>
     StreamAllMessages<
         'a,
-        Client<A, V>,
-        StreamConversations<'a, Client<A, V>, WelcomesApiSubscription<'a, Client<A, V>>>,
-        StreamGroupMessages<'a, Client<A, V>, MessagesApiSubscription<'a, Client<A, V>>>,
+        Client<A, D>,
+        StreamConversations<'a, Client<A, D>, WelcomesApiSubscription<'a, Client<A, D>>>,
+        StreamGroupMessages<'a, Client<A, D>, MessagesApiSubscription<'a, Client<A, D>>>,
     >
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    D: XmtpDb + Send + Sync + 'static,
 {
     pub async fn new(
-        client: &'a Client<A, V>,
+        client: &'a Client<A, D>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         let (active_conversations, sync_groups) = async {
-            let provider = client.mls_provider()?;
-            client.sync_welcomes(&provider).await?;
+            let provider = client.mls_provider();
+            client.sync_welcomes().await?;
 
-            let groups = provider.conn_ref().find_groups(GroupQueryArgs {
+            let groups = provider.db().find_groups(GroupQueryArgs {
                 conversation_type,
                 consent_states,
                 include_duplicate_dms: true,
@@ -335,7 +335,7 @@ mod tests {
     #[timeout(Duration::from_secs(60))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
-        let mut replace = xmtp_common::InboxIdReplace::default();
+        let mut replace = xmtp_common::TestLogReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -356,8 +356,7 @@ mod tests {
             .await
             .unwrap();
 
-        let provider = bo.store().mls_provider().unwrap();
-        let bo_group = bo.sync_welcomes(&provider).await.unwrap()[0].clone();
+        let bo_group = bo.sync_welcomes().await.unwrap()[0].clone();
 
         let mut stream = caro.stream_all_messages(None, None).await.unwrap();
 
@@ -532,8 +531,7 @@ mod tests {
             .update_consent_state(ConsentState::Unknown)
             .unwrap();
 
-        let provider = sender.mls_provider().unwrap();
-        sender.sync_welcomes(&provider).await.unwrap();
+        sender.sync_welcomes().await.unwrap();
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         let stream = sender
@@ -572,14 +570,8 @@ mod tests {
             .add_members_by_inbox_id(&[bob.inbox_id(), eve.inbox_id()])
             .await
             .unwrap();
-        let _bob_groups = bob
-            .sync_welcomes(&bob.mls_provider().unwrap())
-            .await
-            .unwrap();
-        let eve_groups = eve
-            .sync_welcomes(&eve.mls_provider().unwrap())
-            .await
-            .unwrap();
+        let _bob_groups = bob.sync_welcomes().await.unwrap();
+        let eve_groups = eve.sync_welcomes().await.unwrap();
         let eve_group = eve_groups.first().unwrap();
         group.sync().await.unwrap();
         // get the group epoch to 28
