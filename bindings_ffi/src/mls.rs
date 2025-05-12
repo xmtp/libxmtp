@@ -6420,7 +6420,7 @@ mod tests {
         assert!(bo_msgs.iter().any(|msg| msg.content.eq(&data)));
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
         let alix_a = Tester::builder().sync_worker().sync_server().build().await;
 
@@ -6565,7 +6565,7 @@ mod tests {
         b_stream.end_and_wait().await.unwrap();
     }
 
-    #[tokio::test(flavor = "current_thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
