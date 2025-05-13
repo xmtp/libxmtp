@@ -473,7 +473,7 @@ describe.concurrent('Conversation', () => {
     ])
     const hmacKeys = group.getHmacKeys()
     expect(hmacKeys).toBeDefined()
-    let keys = hmacKeys.get(group.id())
+    let keys = hmacKeys[group.id()]
     expect(keys.length).toBe(3)
     for (const value of keys) {
       expect(value.key).toBeDefined()
