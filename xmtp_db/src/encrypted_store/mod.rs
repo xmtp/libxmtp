@@ -122,6 +122,8 @@ pub trait ConnectionExt {
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized;
+
+    fn is_in_transaction(&self) -> bool;
 }
 
 impl<C> ConnectionExt for &C
@@ -149,6 +151,10 @@ where
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
     }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
+    }
 }
 
 impl<C> ConnectionExt for Arc<C>
@@ -175,6 +181,10 @@ where
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
     }
 }
 

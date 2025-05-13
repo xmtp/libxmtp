@@ -121,12 +121,14 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
+    #[tracing::instrument(skip_all, level = "trace", name = "poll_next_stream_all")]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
-        if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
-            if let Some(Ok(msg)) = &msg {
+        let next_message = this.messages.as_mut().poll_next(cx);
+        if let Ready(Some(msg)) = next_message {
+            if let Ok(msg) = &msg {
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
@@ -134,15 +136,21 @@ where
                         .send(LocalEvents::SyncWorkerEvent(
                             SyncWorkerEvent::NewSyncGroupMsg,
                         ));
-                    return self.poll_next(cx);
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
                 }
-            };
-
-            return Ready(msg);
+            }
+            return Ready(Some(msg));
         }
+
+        if let Ready(None) = next_message {
+            return Ready(None);
+        }
+
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             this.messages.as_mut().add(group?);
-            return self.poll_next(cx);
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
         Poll::Pending
     }

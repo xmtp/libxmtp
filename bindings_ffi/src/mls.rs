@@ -2607,6 +2607,7 @@ pub struct FfiMessage {
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
+    pub sequence_id: Option<u64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2619,6 +2620,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+            sequence_id: msg.sequence_id.map(|s| s as u64),
         }
     }
 }
@@ -2836,8 +2838,8 @@ mod tests {
         time::Duration,
     };
     use tokio::{sync::Notify, time::error::Elapsed};
-    use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
+    use xmtp_common::{tmp_path, TestLogReplace};
     use xmtp_common::{wait_for_eq, wait_for_ok};
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
@@ -3069,7 +3071,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            Some([0u8; 32].to_vec()),
             &inbox_id,
             ident,
             nonce,
@@ -8091,14 +8093,36 @@ mod tests {
         // Clean up the stream
         stream.end_and_wait().await.unwrap();
     }
-    
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_streams_and_parallel_messages() {
+        crate::logger::init_logger();
+        let alix = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let bo = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let caro = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let davon = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let mut replace = TestLogReplace::default();
+        replace.add(&alix.get_identifier().unwrap().to_string(), "alix_addr");
+        replace.add(&bo.get_identifier().unwrap().to_string(), "bo_addr");
+        replace.add(&caro.get_identifier().unwrap().to_string(), "caro_addr");
+        replace.add(&davon.get_identifier().unwrap().to_string(), "davon_addr");
         // Create four test clients
-        let alix = new_test_client().await;
-        let bo = new_test_client().await;
-        let caro = new_test_client().await;
-        let davon = new_test_client().await;
+        let alix = new_test_client_with_wallet(alix).await;
+        let bo = new_test_client_with_wallet(bo).await;
+        let caro = new_test_client_with_wallet(caro).await;
+        let davon = new_test_client_with_wallet(davon).await;
+        tracing::info!("alix {}", &alix.inbox_id());
+        tracing::info!("bo {}", bo.inbox_id());
+        tracing::info!("caro {}", caro.inbox_id());
+        tracing::info!("davon {}", davon.inbox_id());
+        replace.add(&alix.inbox_id(), "alix");
+        replace.add(&bo.inbox_id(), "bo");
+        replace.add(&caro.inbox_id(), "caro");
+        replace.add(&davon.inbox_id(), "davon");
+        replace.add(&hex::encode(alix.installation_id()), "alix_installation");
+        replace.add(&hex::encode(bo.installation_id()), "bo_installation");
+        replace.add(&hex::encode(caro.installation_id()), "caro_installation");
+        replace.add(&hex::encode(davon.installation_id()), "davon_installation");
 
         // Create two groups, each with all three clients
         // Group 1 created by Alix, Group 2 by Caro
@@ -8113,6 +8137,7 @@ mod tests {
             )
             .await
             .unwrap();
+        replace.add(&hex::encode(&alix_group.inner.group_id), "alix_group");
 
         let caro_group2 = caro
             .conversations()
@@ -8125,6 +8150,7 @@ mod tests {
             )
             .await
             .unwrap();
+        replace.add(&hex::encode(&caro_group2.inner.group_id), "caro_group2");
 
         // All three clients sync all conversations
         alix.conversations()
@@ -8142,27 +8168,31 @@ mod tests {
 
         // Get conversation references for each client
         let bo_group = bo.conversation(alix_group.id()).unwrap();
+        replace.add(&hex::encode(&bo_group.inner.group_id), "bo_group_alix");
         let caro_group = caro.conversation(alix_group.id()).unwrap();
+        replace.add(&hex::encode(&caro_group.inner.group_id), "caro_group_alix");
         let bo_group2 = bo.conversation(caro_group2.id()).unwrap();
+        replace.add(&hex::encode(&caro_group2.inner.group_id), "bo_group_caro2");
         let alix_group2 = alix.conversation(caro_group2.id()).unwrap();
+        replace.add(
+            &hex::encode(&caro_group2.inner.group_id),
+            "alix_group_caro2",
+        );
 
         // Create a callback to track messages received by Caro
         let messages = Arc::new(Mutex::new(Vec::new()));
         let message_count = Arc::new(AtomicU32::new(0));
 
         struct TestMessageCallback {
-            messages: Arc<Mutex<Vec<String>>>,
+            messages: Arc<Mutex<Vec<Option<u64>>>>,
             count: Arc<AtomicU32>,
             notify: Notify,
         }
 
         impl FfiMessageCallback for TestMessageCallback {
             fn on_message(&self, message: FfiMessage) {
-                let content = String::from_utf8_lossy(&message.content).to_string();
-                log::info!("Caro received: {}", content);
-
                 let mut messages = self.messages.lock();
-                messages.push(content);
+                messages.push(message.sequence_id);
                 self.count.fetch_add(1, Ordering::SeqCst);
                 self.notify.notify_one();
             }
@@ -8189,7 +8219,7 @@ mod tests {
         stream.wait_for_ready().await;
 
         // Wait a bit to ensure streaming is set up
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Create several tasks to send messages in parallel
 
@@ -8236,6 +8266,10 @@ mod tests {
                         )
                         .await
                         .unwrap();
+                    replace.add(
+                        &hex::encode(&group.inner.group_id),
+                        &format!("davon_group_{}", i),
+                    );
                     group.send(spam_message.as_bytes().to_vec()).await.unwrap();
                     log::info!("Davon spam: {}", spam_message);
                 }
@@ -8247,6 +8281,7 @@ mod tests {
         let caro_messages2 = Arc::new(caro_group2.clone());
         let caro_task = tokio::spawn(async move {
             log::info!("Caro is sending messages...");
+
             for i in 0..10 {
                 let message = format!("Caro Message {}", i);
                 let content = message.as_bytes().to_vec();
@@ -8268,8 +8303,46 @@ mod tests {
         // Check results
         let message_count_final = message_count.load(Ordering::SeqCst);
 
-        // Verify 90 messages were streamed by Caro
-        assert_eq!(90, message_count_final);
+        let caro_db = caro.inner_client.db();
+        let num_deleted = caro_db.intents_deleted();
+        let hashes_deleted = caro_db.intent_payloads_deleted();
+        tracing::info!("Caro deleted intents {}", num_deleted);
+        for hash in hashes_deleted {
+            tracing::info!("Deleted {}", hex::encode(hash));
+        }
+        let messages: Vec<u64> = messages
+            .lock()
+            .clone()
+            .into_iter()
+            .inspect(|m| {
+                if m.is_none() {
+                    panic!("message missing sequence_id")
+                }
+            })
+            .flatten()
+            .collect();
+        let missing = caro.inner_client.db().missing_messages(&messages);
+        if !missing.is_empty() {
+            for message in &missing {
+                tracing::error!(
+                    "Missing: message: [{}], sequence_id: [{}], group: [{}]",
+                    String::from_utf8_lossy(&message.decrypted_message_bytes),
+                    message.sequence_id.unwrap(),
+                    hex::encode(&message.group_id)
+                )
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{}",
+            format!(
+                "Missing {} messages from stream got [{}/{}] messages",
+                missing.len(),
+                message_count.load(Ordering::SeqCst),
+                90
+            )
+        );
+        assert_eq!(message_count_final, 90);
 
         // Sync all groups to make sure they have all messages
         bo_group.sync().await.unwrap();

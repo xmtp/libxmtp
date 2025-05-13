@@ -3,19 +3,23 @@
 //! Streams may receive messages out of order. Since we cannot rely on the order of messages
 //! in a stream, we must defer to the 'sync' function whenever we receive a message that
 //! depends on a previous message (like a commit).
-
-use std::sync::Arc;
-
+//! The future for processing a single message from a stream
 use super::{Result, SubscribeError};
 use crate::{
-    context::XmtpMlsLocalContext,
-    groups::{summary::SyncSummary, MlsGroup},
+    groups::{
+        mls_sync::GroupMessageProcessingError,
+        summary::{MessageIdentifierBuilder, SyncSummary},
+        MlsGroup,
+    },
+    intents::ProcessIntentError,
 };
-use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError, XmtpDb};
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, XmtpDb};
+use xmtp_api::XmtpApi;
 use xmtp_id::InboxIdRef;
 use xmtp_proto::xmtp::mls::api::v1::group_message;
+use std::sync::Arc;
+use crate::context::XmtpMlsLocalContext;
 
 /// Future that processes a group message from the network
 pub struct ProcessMessageFuture<ApiClient, Db> {
@@ -27,7 +31,8 @@ pub struct ProcessMessageFuture<ApiClient, Db> {
 pub struct ProcessedMessage {
     pub message: Option<StoredGroupMessage>,
     pub group_id: Vec<u8>,
-    pub next_message: u64,
+    pub next_message: Option<u64>,
+    pub tried_to_process: u64,
 }
 
 impl<ApiClient, Db> ProcessMessageFuture<ApiClient, Db>
@@ -101,12 +106,11 @@ where
     ///
     /// # Tracing
     /// This function includes tracing instrumentation to aid in debugging and monitoring.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(crate) async fn process(self) -> Result<ProcessedMessage> {
         let group_message::V1 {
             // the cursor ID is the position in the monolithic backend topic
             id: ref cursor_id,
-            ref created_ns,
             ..
         } = self.msg;
 
@@ -123,48 +127,76 @@ where
         let summary = if self.needs_to_sync(*cursor_id)? {
             self.apply_or_sync_with_message().await
         } else {
-            SyncSummary::default()
+            SyncSummary::single(MessageIdentifierBuilder::from(&self.msg).build()?)
         };
-
         let conn = self.context.db();
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
-        let new_message =
-            conn.get_group_message_by_timestamp(&self.msg.group_id, *created_ns as i64)?;
-
+        // if we can't get it directly by ID, get by teimstamp and group_id
+        let new_message = summary.new_message_by_id(self.msg.id)
+            .and_then(|m| {
+                if m.group_id != self.msg.group_id {
+                    tracing::warn!("new message with cursor from sync is not equivalent to message from network with same cursor.");
+                    return None;
+                }
+                tracing::trace!("attempting to get message by id {:?}", m.internal_id);
+                m.internal_id.clone()
+            }).map(|id| {
+                conn.get_group_message(id)
+            })
+            .inspect(|m| {
+                if let Ok(Some(_)) = m {
+                    tracing::trace!("successfully retrieved message by id ")
+                } else {
+                    tracing::trace!("trying to get message by timestamp")
+                }
+            })
+            .unwrap_or(conn.get_group_message_by_timestamp(&self.msg.group_id, self.msg.created_ns as i64))
+            .inspect(|m| {
+                if m.is_some() {
+                    tracing::trace!("retrieved message by timestamp")
+                } else {
+                    tracing::trace!("no message found with group_id and timestamp")
+                }
+            })?;
         if let Some(msg) = new_message {
             tracing::debug!(
-                "[{}] processed stream envelope [{}]",
+                "[{}] processed stream envelope @cursor=[{}], future is resolved",
                 self.inbox_id(),
                 &cursor_id
             );
             Ok(ProcessedMessage {
                 message: Some(msg),
-                next_message: *cursor_id,
+                next_message: Some(*cursor_id),
                 group_id: self.msg.group_id,
+                tried_to_process: self.msg.id,
             })
         } else {
+            let processed = summary
+                .process
+                .new_messages
+                .iter()
+                .find(|m| m.cursor == *cursor_id);
             tracing::warn!(
                 cursor_id,
                 inbox_id = self.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
-                "no further processing for streamed message [{}] in group [{}]",
+                "no message present in db for message @cursor=[{}] in group [{}] of maybe_kind [{:?}] and maybe commit taking group to epoch@[{:?}]",
                 &cursor_id,
                 hex::encode(&self.msg.group_id),
+                processed.as_ref().and_then(|m| m.intent_kind),
+                processed.as_ref().and_then(|m| m.group_context.as_ref().map(|g| g.epoch()))
             );
-            let mut processed = summary.process;
-            processed.new_messages.sort_by_key(|k| k.cursor);
-            let next: Option<u64> = processed.new_messages.first().map(|f| f.cursor);
-            // if we have no new messages, set the cursor to the latest total message we processed
-            // or, if we did not process anything, set it back to 0.
-            let next = next.unwrap_or(processed.last().unwrap_or(0));
+            let next: Option<u64> = summary.process.first_new().or(summary.process.first());
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,
                 group_id: self.msg.group_id,
+                tried_to_process: self.msg.id,
             })
         }
     }
+
     /// Applies a message by processing it, or by calling out to sync.
     ///
     /// This function handles the actual processing of a message from the stream:
@@ -184,6 +216,7 @@ where
     /// This function is designed to be resilient to failures, with built-in retry
     /// mechanisms and fallback to recovery synchronization when needed.
     async fn apply_or_sync_with_message(&self) -> SyncSummary {
+        use SubscribeError::*;
         let process_result = retry_async!(
             Retry::default(),
             (async {
@@ -195,12 +228,13 @@ where
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,
                     epoch = epoch,
-                    "epoch={} for [{}] in apply_or_sync_with_message()",
+                    "epoch={} for [{}] in process_stream_entry()",
                     epoch,
                     self.inbox_id(),
                 );
                 group
                     .process_message(&self.msg, false)
+                    .instrument(tracing::debug_span!("process_message"))
                     .await
                     // NOTE: We want to make sure we retry an error in process_message
                     .map_err(SubscribeError::ReceiveGroup)
@@ -208,43 +242,38 @@ where
         );
 
         match process_result {
-            Err(SubscribeError::ReceiveGroup(e)) => {
-                tracing::warn!("error processing streamed message {e}");
-                self.attempt_message_recovery().await
+            Err(ReceiveGroup(GroupMessageProcessingError::MessageAlreadyProcessed(msg)))
+            | Err(ReceiveGroup(GroupMessageProcessingError::ProcessIntent(
+                ProcessIntentError::MessageAlreadyProcessed(msg),
+            ))) => {
+                tracing::debug!("message {msg:?} already processed");
+                SyncSummary::single(msg)
             }
-            // This should never occur because we map the error to `ReceiveGroup`
-            // But still exists defensively
+            Err(ReceiveGroup(e)) => self.attempt_message_recovery(e).await,
             Err(e) => {
+                // This should never occur because we map the error to `ReceiveGroup`
+                // But still exists defensively
                 tracing::error!(
                     inbox_id = self.context.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,
                     err = e.to_string(),
-                    "unexpected error in process stream entry {}",
+                    "process stream entry {:?}",
                     e
                 );
                 SyncSummary::default()
             }
-            Ok(Some(msg)) => {
+
+            Ok(msg) => {
                 tracing::trace!(
                     cursor_id = self.msg.id,
                     inbox_id = self.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
-                    "message process in stream success"
+                    "message process in stream success, synced single msg @cursor={},group_id={}",
+                    msg.cursor,
+                    xmtp_common::fmt::truncate_hex(hex::encode(&msg.group_id))
                 );
-                // we didnt need to sync
                 SyncSummary::single(msg)
-            }
-            Ok(None) => {
-                // nothing processed
-                tracing::trace!(
-                    cursor_id = self.msg.id,
-                    inbox_id = self.inbox_id(),
-                    group_id = hex::encode(&self.msg.group_id),
-                    "message process in stream success"
-                );
-                // we didnt need to sync
-                SyncSummary::default()
             }
         }
     }
@@ -268,13 +297,23 @@ where
     /// # Errors
     /// Returns an error if the database query for the last cursor fails.
     fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
-        let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
-            self.context
-                .db()
-                .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)
-        };
-
-        let last_synced_id = check_for_last_cursor()?;
+        let last_synced_id = self
+            .context
+            .db()
+            .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)?;
+        if last_synced_id < current_msg_cursor as i64 {
+            tracing::debug!(
+                "stream does require sync; last_synced@[{}], this message @[{}]",
+                last_synced_id,
+                current_msg_cursor
+            );
+        } else {
+            tracing::debug!(
+                "stream does not require sync; last_synced@[{}], this message @[{}]",
+                last_synced_id,
+                current_msg_cursor
+            );
+        }
         Ok(last_synced_id < current_msg_cursor as i64)
     }
 
@@ -293,7 +332,7 @@ where
     /// # Note
     /// This function gracefully handles synchronization failures, as another process
     /// may have already successfully processed the message.
-    async fn attempt_message_recovery(&self) -> SyncSummary {
+    async fn attempt_message_recovery(&self, e: impl std::error::Error) -> SyncSummary {
         let group = MlsGroup::new(
             self.context.clone(),
             self.msg.group_id.clone(),
@@ -306,37 +345,40 @@ where
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
             epoch = epoch,
-            "attempting recovery sync for group {} in epoch {}",
-            xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
+            "processing streamed message @cursor=[{}] failed with [{e}], attempting recovery sync for group {} in epoch {}",
+            self.msg.id,
+            xmtp_common::fmt::debug_hex(&self.msg.group_id),
             epoch
         );
         // Swallow errors here, since another process may have successfully saved the message
         // to the DB
         let sync = group.sync_with_conn().await;
-        if let Err(summary) = sync {
-            tracing::warn!(
-                inbox_id = self.context.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message failed",
-            );
-            tracing::warn!("{summary}");
-            summary
-        } else {
-            let epoch = group.epoch().await.unwrap_or(0);
-            let summary = sync.expect("checked for error");
-            tracing::debug!(
-                inbox_id = self.context.inbox_id(),
-                group_id = hex::encode(&self.msg.group_id),
-                cursor_id = self.msg.id,
-                "recovery sync triggered by streamed message successful, epoch = {} for group = {}",
-                epoch,
-                xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id))
-            );
-            tracing::debug!("{summary}");
-            summary
+        match sync {
+            Ok(summary) => {
+                let epoch = group.epoch().await.unwrap_or(0);
+                tracing::debug!(
+                    inbox_id = self.context.inbox_id(),
+                    group_id = hex::encode(&self.msg.group_id),
+                    cursor_id = self.msg.id,
+                    "recovery sync processed=[{}] messages, group@[{}] now in epoch=[{}] with the first decryptable message @cursor=[{:?}]",
+                    summary.process.total(),
+                    xmtp_common::fmt::truncate_hex(hex::encode(&self.msg.group_id)),
+                    epoch,
+                    summary.process.first_new()
+                );
+                tracing::debug!("{summary}");
+                summary
+            }
+            Err(summary) => {
+                tracing::warn!(
+                    inbox_id = self.context.inbox_id(),
+                    group_id = hex::encode(&self.msg.group_id),
+                    cursor_id = self.msg.id,
+                    "recovery sync triggered by streamed message failed",
+                );
+                tracing::warn!("{summary}");
+                summary
+            }
         }
     }
 }
-
-//TODO: Would be GREAT to unit test this module with a mock client

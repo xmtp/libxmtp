@@ -209,6 +209,14 @@ impl ConnectionExt for WasmDbConnection {
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
     }
+
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        self.in_transaction.load(Ordering::SeqCst)
+    }
 }
 
 impl XmtpDb for WasmDb {

@@ -4,16 +4,17 @@ use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::instrument;
 
+use tracing::instrument;
 use xmtp_db::XmtpDb;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
+use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
-use stream_conversations::{ProcessWelcomeResult, StreamConversations, WelcomeOrGroup};
+use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-pub mod process_message;
-pub mod process_welcome;
+pub(super) mod process_message;
+pub(super) mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
@@ -303,7 +304,10 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
-        xmtp_common::spawn(Some(rx), async move {
+        // TODO should change back before merge, testing purposes
+        // will not compile unless test target
+        xmtp_common::spawn_instrumented(Some(rx), async move {
+            // xmtp_common::spawn(Some(rx), async move {
             let stream = client
                 .stream_all_messages(conversation_type, consent_state)
                 .await?;

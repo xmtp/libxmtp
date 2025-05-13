@@ -102,9 +102,21 @@ impl EncryptedConnection {
                         Self::create(db_path, key, &mut salt)?;
                     }
                 }
+                tracing::info!("db_path=[{}]", db_path);
                 Some(salt)
             }
         };
+        // for debugging only
+        let unsafe_db_pass = std::env::var("UNSAFE_DB_PASS");
+        let is_unsafe_db_enabled = matches!(unsafe_db_pass, Ok(s) if s == "true" || s == "1");
+        if cfg!(any(feature = "test-utils", test)) && cfg!(debug_assertions) && is_unsafe_db_enabled
+        {
+            tracing::info!(
+                "raw key: [0x{}{}]\ndb_path=",
+                hex::encode(key),
+                hex::encode(salt.unwrap_or([0u8; 16]))
+            );
+        }
 
         Ok(Self { key, salt })
     }
