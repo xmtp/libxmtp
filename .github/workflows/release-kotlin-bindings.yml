@@ -40,6 +40,9 @@ jobs:
       - name: Build target
         run: |
           cargo ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} -- build --release
+      - name: Check ELF alignment
+        run: |
+          readelf -l target/${{ matrix.target }}/release/libxmtpv3.so | grep -i align
       - name: Prepare JNI libs
         run: |
           mkdir -p bindings_ffi/jniLibs/${{ matrix.output_target }}/ && \
