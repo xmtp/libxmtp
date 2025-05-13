@@ -2202,6 +2202,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
 
 [[package]]
+name = "futures-test"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5961fb6311645f46e2cdc2964a8bfae6743fd72315eaec181a71ae3eb2467113"
+dependencies = [
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-macro",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+ "pin-project",
+]
+
+[[package]]
 name = "futures-timer"
 version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3291,7 +3307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -5184,6 +5200,17 @@ dependencies = [
  "rustc_version",
  "syn 2.0.100",
  "unicode-ident",
+]
+
+[[package]]
+name = "rstest_reuse"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3a8fb4672e840a587a66fc577a5491375df51ddb88f2a2c2a792598c326fe14"
+dependencies = [
+ "quote",
+ "rand 0.8.5",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -7898,6 +7925,7 @@ dependencies = [
  "bytes",
  "console_error_panic_hook",
  "ctor",
+ "fdlimit",
  "futures",
  "getrandom 0.2.15",
  "gloo-timers 0.3.0",
@@ -7914,6 +7942,7 @@ dependencies = [
  "tracing",
  "tracing-flame",
  "tracing-forest",
+ "tracing-futures",
  "tracing-subscriber",
  "tracing-wasm",
  "wasm-bindgen",
@@ -8077,12 +8106,14 @@ dependencies = [
  "coset",
  "criterion",
  "ctor",
+ "derive_builder",
  "diesel",
  "dyn-clone",
  "ethers",
  "fdlimit",
  "futures",
  "futures-executor",
+ "futures-test",
  "futures-util",
  "getrandom 0.2.15",
  "gloo-timers 0.3.0",
@@ -8090,6 +8121,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "indicatif",
+ "mockall",
  "mockito",
  "once_cell",
  "openmls",
@@ -8106,6 +8138,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest 0.12.15",
  "rstest",
+ "rstest_reuse",
  "serde",
  "serde_json",
  "sha2",

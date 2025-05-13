@@ -69,6 +69,15 @@ where
     }
 }
 
+impl<A> HasStats for ApiDebugWrapper<A>
+where
+    A: HasStats,
+{
+    fn aggregate_stats(&self) -> AggregateStats {
+        self.inner.aggregate_stats()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>

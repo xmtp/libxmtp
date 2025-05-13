@@ -2625,6 +2625,7 @@ pub struct FfiMessage {
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
+    pub sequence_id: Option<u64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2637,6 +2638,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+            sequence_id: msg.sequence_id.map(|s| s as u64),
         }
     }
 }
@@ -3135,7 +3137,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            Some([0u8; 32].to_vec()),
             &inbox_id,
             ident,
             nonce,

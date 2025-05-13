@@ -65,6 +65,10 @@ where
     {
         self.conn.raw_query_write(fun)
     }
+
+    fn is_in_transaction(&self) -> bool {
+        self.conn.is_in_transaction()
+    }
 }
 
 // Forces a move for conn

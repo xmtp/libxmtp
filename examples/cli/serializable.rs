@@ -6,8 +6,6 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_mls::{groups::MlsGroup, XmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-// use crate::RustMlsGroup;
-
 #[derive(Serialize, Debug, Valuable)]
 pub struct SerializableGroupMetadata {
     creator_inbox_id: String,

@@ -201,7 +201,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     pub fn set_group_intent_published(
         &self,
         intent_id: ID,
-        payload_hash: Vec<u8>,
+        payload_hash: &[u8],
         post_commit_data: Option<Vec<u8>>,
         staged_commit: Option<Vec<u8>>,
         published_in_epoch: i64,
@@ -322,9 +322,14 @@ impl<C: ConnectionExt> DbConnection<C> {
 
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(payload_hash = hex::encode(payload_hash))
+    )]
     pub fn find_group_intent_by_payload_hash(
         &self,
-        payload_hash: Vec<u8>,
+        payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
         let result = self.raw_query_read(|conn| {
             dsl::group_intents
@@ -606,7 +611,7 @@ pub(crate) mod tests {
             let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
-                payload_hash.clone(),
+                &payload_hash,
                 Some(post_commit_data.clone()),
                 None,
                 1,
@@ -614,7 +619,7 @@ pub(crate) mod tests {
             .unwrap();
 
             let find_result = conn
-                .find_group_intent_by_payload_hash(payload_hash)
+                .find_group_intent_by_payload_hash(&payload_hash)
                 .unwrap()
                 .unwrap();
 
@@ -648,7 +653,7 @@ pub(crate) mod tests {
             let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
-                payload_hash.clone(),
+                &payload_hash,
                 Some(post_commit_data.clone()),
                 None,
                 1,
@@ -694,7 +699,7 @@ pub(crate) mod tests {
             let post_commit_data = rand_vec::<24>();
             conn.set_group_intent_published(
                 intent.id,
-                payload_hash.clone(),
+                &payload_hash,
                 Some(post_commit_data.clone()),
                 None,
                 1,

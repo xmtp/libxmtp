@@ -13,6 +13,7 @@
 pub mod association_state;
 pub mod consent_record;
 pub mod conversation_list;
+pub mod database;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -29,8 +30,6 @@ pub mod schema;
 mod schema_gen;
 pub mod store;
 pub mod user_preferences;
-
-pub mod database;
 
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
@@ -97,6 +96,7 @@ impl RetryableError for ConnectionError {
     }
 }
 
+// #[cfg_attr(any(test, feature = "test-utils"), mockall::automock(type Connection = diesel::SqliteConnection;))]
 pub trait ConnectionExt {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -122,6 +122,8 @@ pub trait ConnectionExt {
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized;
+
+    fn is_in_transaction(&self) -> bool;
 }
 
 impl<C> ConnectionExt for &C
@@ -148,6 +150,10 @@ where
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
     }
 }
 
@@ -176,10 +182,15 @@ where
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
     }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
+    }
 }
 
 pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
 
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;

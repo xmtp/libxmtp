@@ -30,6 +30,7 @@ test-utils = [
   "dep:url",
   "dep:public-suffix",
   "dep:futures-executor",
+  "dep:mockall",
 ]
 bench = [
   "test-utils",
@@ -53,6 +54,7 @@ async-compression.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
+derive_builder.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 hex.workspace = true
@@ -94,6 +96,7 @@ coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 futures-executor = { version = "0.3", optional = true }
+mockall = { workspace = true, optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 url = { workspace = true, optional = true }
@@ -146,6 +149,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
+rstest_reuse = { workspace = true }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 passkey = { version = "0.4" }
 coset = { version = "0.3" }
@@ -154,7 +158,8 @@ public-suffix = { version = "0.1.2" }
 futures-executor = { version = "0.3" }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
-
+mockall.workspace = true
+futures-test = "0.3.31"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

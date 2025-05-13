@@ -7,12 +7,9 @@ use diesel::{
     connection::{AnsiTransactionManager, TransactionManager},
     prelude::SqliteConnection,
 };
-use mockall::mock;
 use parking_lot::Mutex;
 
-use crate::{
-    ConnectionError, ConnectionExt, DbConnection, StorageOption, TransactionGuard, XmtpDb,
-};
+use crate::{ConnectionError, ConnectionExt, TransactionGuard};
 
 pub struct MockConnection {
     inner: Arc<Mutex<SqliteConnection>>,
@@ -53,8 +50,12 @@ impl ConnectionExt for MockConnection {
         let mut conn = self.inner.lock();
         fun(&mut conn).map_err(ConnectionError::from)
     }
-}
 
+    fn is_in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
+    }
+}
+/*
 pub struct MockDb;
 
 mock! {
@@ -85,3 +86,4 @@ mock! {
     fn disconnect(&self) -> Result<(), ConnectionError>;
     }
 }
+*/
