@@ -400,6 +400,14 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(unknown_results.len(), 1);
             assert_eq!(unknown_results[0].id, test_group_4.id);
+
+            let empty_array_results = conn
+            .fetch_conversation_list(GroupQueryArgs {
+                consent_states: Some(vec![]),
+                ..Default::default()
+            })
+            .unwrap();
+            assert_eq!(empty_array_results.len(), 3);
         })
         .await
     }
