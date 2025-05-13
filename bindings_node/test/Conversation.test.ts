@@ -1,19 +1,7 @@
-import {
-  ConsentState,
-  EncodedContent,
-  IdentifierKind,
-  Message,
-  MetadataField,
-  PermissionPolicy,
-  PermissionUpdateType,
-} from '@xmtp/node-bindings'
-import { describe, expect, it } from 'vitest'
-import {
-  createRegisteredClient,
-  createUser,
-  encodeTextMessage,
-  sleep,
-} from '@test/helpers'
+import { ConsentState, EncodedContent, IdentifierKind, Message, MetadataField, PermissionPolicy, PermissionUpdateType } from '@xmtp/node-bindings';
+import { describe, expect, it } from 'vitest';
+import { createRegisteredClient, createUser, encodeTextMessage, sleep } from '@test/helpers';
+
 
 describe.concurrent('Conversation', () => {
   it('should update conversation name', async () => {
@@ -473,9 +461,10 @@ describe.concurrent('Conversation', () => {
     ])
     const hmacKeys = group.getHmacKeys()
     expect(hmacKeys).toBeDefined()
-    const keys = Object.values(hmacKeys)
+    const keys = Object.keys(hmacKeys)
     expect(keys.length).toBe(3)
-    for (const value of keys) {
+    const values = Object.values(hmacKeys)
+    for (const value of values) {
       expect(value.key).toBeDefined()
       expect(value.key.length).toBe(42)
       expect(value.epoch).toBeDefined()
