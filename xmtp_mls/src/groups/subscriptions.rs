@@ -2,7 +2,8 @@ use super::MlsGroup;
 use crate::{
     groups::ScopedGroupClient,
     subscriptions::{
-        stream_messages::{MessageStreamError, ProcessMessageFuture, StreamGroupMessages},
+        process_message::ProcessMessageFuture,
+        stream_messages::{MessageStreamError, StreamGroupMessages},
         Result, SubscribeError,
     },
 };
