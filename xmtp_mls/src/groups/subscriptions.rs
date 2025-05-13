@@ -162,10 +162,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Get bola's version of the same group
-        let bola_groups = bola
-            .sync_welcomes(&bola.mls_provider().unwrap())
-            .await
-            .unwrap();
+        let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
         let stream = bola_group.stream().await.unwrap();

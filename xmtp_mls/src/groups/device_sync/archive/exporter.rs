@@ -9,6 +9,7 @@ use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
+use xmtp_db::ConnectionExt;
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element, BackupElement, BackupMetadataSave, BackupOptions,
 };
@@ -16,7 +17,7 @@ use xmtp_proto::xmtp::device_sync::{
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
-pub struct BackupExporter {
+pub struct ArchiveExporter {
     stage: Stage,
     metadata: BackupMetadataSave,
     stream: BatchExportStream,
@@ -39,7 +40,7 @@ pub(super) enum Stage {
     Elements,
 }
 
-impl BackupExporter {
+impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: BackupOptions,
@@ -48,17 +49,20 @@ impl BackupExporter {
         key: &[u8],
     ) -> Result<(), DeviceSyncError> {
         let provider = Arc::new(provider);
-        let mut exporter = Self::new(options, &provider, key);
+        let mut exporter = Self::new(options, provider, key);
         exporter.write_to_file(path).await?;
 
         Ok(())
     }
 
-    pub(crate) fn new(
+    pub(crate) fn new<C>(
         options: BackupOptions,
-        provider: &Arc<XmtpOpenMlsProvider>,
+        provider: Arc<XmtpOpenMlsProvider<C>>,
         key: &[u8],
-    ) -> Self {
+    ) -> Self
+    where
+        C: ConnectionExt + Send + Sync + 'static,
+    {
         let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
         nonce_buffer.extend_from_slice(&nonce);
@@ -88,7 +92,7 @@ impl BackupExporter {
 //
 // To get around this, we implement AsyncRead using future_util, and use a
 // compat layer from tokio_util to be able to interact with it in tokio.
-impl AsyncRead for BackupExporter {
+impl AsyncRead for ArchiveExporter {
     /// This function encrypts first, and compresses second.
     fn poll_read(
         self: Pin<&mut Self>,

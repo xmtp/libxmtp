@@ -4,7 +4,8 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::instrument;
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+
+use xmtp_db::XmtpDb;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use stream_all::StreamAllMessages;
@@ -179,6 +180,8 @@ pub enum SubscribeError {
     ApiClient(#[from] xmtp_api::ApiError),
     #[error("{0}")]
     BoxError(Box<dyn RetryableError + Send + Sync>),
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
 }
 
 impl RetryableError for SubscribeError {
@@ -195,14 +198,15 @@ impl RetryableError for SubscribeError {
             ConversationStream(e) => retryable!(e),
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
+            Db(c) => retryable!(c),
         }
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
 {
     /// Async proxy for processing a streamed welcome message.
     /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
@@ -211,8 +215,8 @@ where
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<Self>> {
-        let provider = self.mls_provider()?;
-        let conn = provider.conn_ref();
+        let provider = self.mls_provider();
+        let conn = provider.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
@@ -235,7 +239,7 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>>> + use<'_, ApiClient, V>>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>>> + use<'_, ApiClient, Db>>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -243,13 +247,13 @@ where
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
-        client: Arc<Client<ApiClient, V>>,
+        client: Arc<Client<ApiClient, Db>>,
         conversation_type: Option<ConversationType>,
         #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>)
             + Send
@@ -287,7 +291,7 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Client<ApiClient, V>>,
+        client: Arc<Client<ApiClient, Db>>,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
@@ -313,7 +317,7 @@ where
     }
 
     pub fn stream_consent_with_callback(
-        client: Arc<Client<ApiClient, V>>,
+        client: Arc<Client<ApiClient, Db>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
             + Send
             + 'static,
@@ -337,7 +341,7 @@ where
     }
 
     pub fn stream_preferences_with_callback(
-        client: Arc<Client<ApiClient, V>>,
+        client: Arc<Client<ApiClient, Db>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
             + Send
             + 'static,

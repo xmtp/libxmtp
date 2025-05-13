@@ -4,11 +4,12 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::Gro
 
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records(
-        streamer: &BackupRecordStreamer<Self>,
+    fn backup_records<C>(
+        streamer: &BackupRecordStreamer<Self, C>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
+        C: ConnectionExt,
     {
         let args = MsgQueryArgs::builder()
             .sent_after_ns(streamer.start_ns)
@@ -19,7 +20,7 @@ impl BackupRecordProvider for GroupMessageSave {
 
         let batch = streamer
             .provider
-            .conn_ref()
+            .db()
             .group_messages_paged(&args, streamer.cursor)
             .expect("Failed to load group records");
 

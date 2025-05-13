@@ -29,7 +29,7 @@ impl Endpoint for GetNewestEnvelopes {
     type Output = GetNewestEnvelopeResponse;
 
     fn http_endpoint(&self) -> Cow<'static, str> {
-        Cow::from("/mls/v2/fetch-key-packages")
+        Cow::from("/mls/v2/get-newest-envelope")
     }
 
     fn grpc_endpoint(&self) -> Cow<'static, str> {

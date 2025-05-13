@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{StorageError, impl_store};
+use crate::impl_store;
 
 use super::{
+    ConnectionExt,
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
@@ -37,7 +38,7 @@ impl StoredIdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     pub fn get_identity_updates<InboxId: AsRef<str>>(
@@ -45,7 +46,7 @@ impl DbConnection {
         inbox_id: InboxId,
         from_sequence_id: Option<i64>,
         to_sequence_id: Option<i64>,
-    ) -> Result<Vec<StoredIdentityUpdate>, StorageError> {
+    ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
         let mut query = dsl::identity_updates
             .order(dsl::sequence_id.asc())
             .filter(dsl::inbox_id.eq(inbox_id.as_ref()))
@@ -59,7 +60,7 @@ impl DbConnection {
             query = query.filter(dsl::sequence_id.le(sequence_id));
         }
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredIdentityUpdate>(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredIdentityUpdate>(conn))
     }
 
     /// Batch insert identity updates, ignoring duplicates.
@@ -67,17 +68,19 @@ impl DbConnection {
     pub fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::insert_or_ignore_into(dsl::identity_updates)
                 .values(updates)
-                .execute(conn)?;
-
-            Ok::<_, StorageError>(())
-        })
+                .execute(conn)
+        })?;
+        Ok(())
     }
 
-    pub fn get_latest_sequence_id_for_inbox(&self, inbox_id: &str) -> Result<i64, StorageError> {
+    pub fn get_latest_sequence_id_for_inbox(
+        &self,
+        inbox_id: &str,
+    ) -> Result<i64, crate::ConnectionError> {
         let query = dsl::identity_updates
             .select(dsl::sequence_id)
             .order(dsl::sequence_id.desc())
@@ -85,7 +88,7 @@ impl DbConnection {
             .filter(dsl::inbox_id.eq(inbox_id))
             .into_boxed();
 
-        Ok(self.raw_query_read(|conn| query.first::<i64>(conn))?)
+        self.raw_query_read(|conn| query.first::<i64>(conn))
     }
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
@@ -93,7 +96,7 @@ impl DbConnection {
     pub fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
-    ) -> Result<HashMap<String, i64>, StorageError> {
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
         // Query IdentityUpdates grouped by inbox_id, getting the max sequence_id
         let query = dsl::identity_updates
             .group_by(dsl::inbox_id)
@@ -118,7 +121,7 @@ impl DbConnection {
     pub fn filter_inbox_ids_needing_updates<'a>(
         &self,
         filters: &[(&'a str, i64)],
-    ) -> Result<Vec<&'a str>, StorageError> {
+    ) -> Result<Vec<&'a str>, crate::ConnectionError> {
         let existing_sequence_ids =
             self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
 

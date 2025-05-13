@@ -8,7 +8,7 @@ use crate::{
     client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError, hpke::decrypt_welcome,
     identity::parse_credential,
 };
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, ConnectionExt};
 
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
@@ -16,8 +16,8 @@ pub(crate) struct DecryptedWelcome {
 }
 
 impl DecryptedWelcome {
-    pub(crate) fn from_encrypted_bytes(
-        provider: &XmtpOpenMlsProvider,
+    pub(crate) fn from_encrypted_bytes<C: ConnectionExt>(
+        provider: &XmtpOpenMlsProvider<C>,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
     ) -> Result<DecryptedWelcome, GroupError> {

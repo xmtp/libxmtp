@@ -18,37 +18,29 @@ pub enum StorageError {
     #[error("Error migrating database {0}")]
     MigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error(transparent)]
-    Conversion(#[from] xmtp_proto::ConversionError),
-    #[error(transparent)]
     NotFound(#[from] NotFound),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
     Duplicate(DuplicateItem),
     #[error(transparent)]
     OpenMlsStorage(#[from] SqlKeyStoreError),
-    #[error("generic:{0}")]
-    Generic(String),
     #[error("Transaction was intentionally rolled back")]
     IntentionalRollback,
     #[error("failed to deserialize from db")]
     DbDeserialize,
     #[error("failed to serialize for db")]
     DbSerialize,
-    #[error(transparent)]
-    MissingRequired(#[from] MissingRequired),
     #[error("required fields missing from stored db type {0}")]
     Builder(#[from] derive_builder::UninitializedFieldError),
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg_attr(not(target_arch = "wasm32"), error(transparent))]
-    Native(#[from] crate::database::native::NativeStorageError),
-    #[cfg(target_arch = "wasm32")]
-    #[cfg_attr(target_arch = "wasm32", error(transparent))]
-    Wasm(#[from] crate::database::wasm::WasmStorageError),
+    #[error(transparent)]
+    Platform(#[from] crate::database::PlatformStorageError),
     #[error("decoding from database failed {}", _0)]
     Prost(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Conversion(#[from] xmtp_proto::ConversionError),
+    #[error(transparent)]
+    Connection(#[from] crate::ConnectionError),
+    #[error("HMAC key must be 42 bytes")]
+    InvalidHmacLength,
 }
 
 impl From<std::convert::Infallible> for StorageError {
@@ -69,7 +61,7 @@ impl StorageError {
     pub fn db_needs_connection(&self) -> bool {
         matches!(
             self,
-            Self::Native(crate::database::native::NativeStorageError::PoolNeedsConnection)
+            Self::Platform(crate::database::native::PlatformStorageError::PoolNeedsConnection)
         )
     }
 }
@@ -105,12 +97,6 @@ pub enum NotFound {
     SyncGroup(InstallationId),
     #[error("MLS Group Not Found")]
     MlsGroup,
-}
-
-#[derive(Error, Debug)]
-pub enum MissingRequired {
-    #[error("Identifier kind is required when entity type is Identity")]
-    IdentifierKind,
 }
 
 #[derive(Error, Debug)]
@@ -152,13 +138,18 @@ impl RetryableError for StorageError {
             Self::DieselConnect(_) => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Duplicate(d) => retryable!(d),
-            Self::Io(_) => true,
             Self::OpenMlsStorage(storage) => retryable!(storage),
-            #[cfg(not(target_arch = "wasm32"))]
-            Self::Native(_) => true,
-            #[cfg(target_arch = "wasm32")]
-            Self::Wasm(_) => true,
-            _ => false,
+            Self::Platform(p) => retryable!(p),
+            Self::Connection(e) => retryable!(e),
+            Self::MigrationError(_)
+            | Self::Conversion(_)
+            | Self::NotFound(_)
+            | Self::IntentionalRollback
+            | Self::DbDeserialize
+            | Self::DbSerialize
+            | Self::Builder(_)
+            | Self::InvalidHmacLength
+            | Self::Prost(_) => false,
         }
     }
 }

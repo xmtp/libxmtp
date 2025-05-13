@@ -10,10 +10,10 @@ use diesel::{
 use xmtp_common::fmt;
 
 use super::{
-    Sqlite,
+    ConnectionExt, Sqlite,
     db_connection::DbConnection,
     group,
-    schema::{group_intents, group_intents::dsl},
+    schema::group_intents::{self, dsl},
 };
 use crate::{
     Delete, impl_fetch, impl_store, {NotFound, StorageError},
@@ -158,17 +158,17 @@ impl NewGroupIntent {
     }
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
-    ) -> Result<StoredGroupIntent, StorageError> {
-        Ok(self.raw_query_write(|conn| {
+    ) -> Result<StoredGroupIntent, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
                 .get_result(conn)
-        })?)
+        })
     }
 
     // Query for group_intents by group_id, optionally filtering by state and kind
@@ -178,7 +178,7 @@ impl DbConnection {
         group_id: Vec<u8>,
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
-    ) -> Result<Vec<StoredGroupIntent>, StorageError> {
+    ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
         let mut query = dsl::group_intents
             .into_boxed()
             .filter(dsl::group_id.eq(group_id));
@@ -193,7 +193,7 @@ impl DbConnection {
 
         query = query.order(dsl::id.asc());
 
-        Ok(self.raw_query_read(|conn| query.load::<StoredGroupIntent>(conn))?)
+        self.raw_query_read(|conn| query.load::<StoredGroupIntent>(conn))
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add

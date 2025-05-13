@@ -4,7 +4,7 @@ use crate::{
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
-use backup::BackupError;
+use archive::ArchiveError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use prost::Message;
@@ -14,11 +14,9 @@ use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_common::RetryableError;
 use xmtp_content_types::encoded_content_to_bytes;
-use xmtp_db::{
-    group::GroupQueryArgs, group_message::StoredGroupMessage,
-    xmtp_openmls_provider::XmtpOpenMlsProvider, NotFound, StorageError,
-};
-use xmtp_id::{associations::DeserializationError, scw_verifier::SmartContractSignatureVerifier};
+use xmtp_db::XmtpDb;
+use xmtp_db::{group::GroupQueryArgs, group_message::StoredGroupMessage, NotFound, StorageError};
+use xmtp_id::associations::DeserializationError;
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
@@ -36,7 +34,7 @@ use xmtp_proto::{
     },
 };
 
-pub mod backup;
+pub mod archive;
 pub mod handle;
 pub mod preference_sync;
 pub mod worker;
@@ -92,7 +90,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] BackupError),
+    Backup(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -105,6 +103,8 @@ pub enum DeviceSyncError {
     MissingSyncServerUrl,
     #[error("Missing sync group")]
     MissingSyncGroup,
+    #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
 }
@@ -130,10 +130,10 @@ impl From<NotFound> for DeviceSyncError {
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
+    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
     #[instrument(level = "trace", skip_all)]
     pub fn start_sync_worker(&self) {
@@ -141,11 +141,11 @@ where
             tracing::info!("Sync worker is disabled.");
             return;
         }
-
         let client = self.clone();
+
         tracing::debug!(
-            inbox_id = client.inbox_id(),
-            installation_id = hex::encode(client.installation_public_key()),
+            inbox_id = self.context.inbox_id(),
+            installation_id = hex::encode(self.context.installation_public_key()),
             "starting sync worker"
         );
 
@@ -155,10 +155,10 @@ where
     }
 }
 
-impl<ApiClient, V> Client<ApiClient, V>
+impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    Db: XmtpDb,
 {
     /// Blocks until the sync worker notifies that it is initialized and running.
     pub async fn wait_for_sync_worker_init(&self) {
@@ -172,14 +172,13 @@ where
     /// to the primary sync group ID.
     async fn send_device_sync_message(
         &self,
-        provider: &XmtpOpenMlsProvider,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
         let content = DeviceSyncContentProto {
             content: Some(content),
         };
 
-        let sync_group = self.get_sync_group(provider).await?;
+        let sync_group = self.get_sync_group().await?;
 
         tracing::info!(
             "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
@@ -205,15 +204,14 @@ where
         };
         let content_bytes = encoded_content_to_bytes(encoded_content);
 
-        let message_id =
-            sync_group.prepare_message(&content_bytes, provider, |now| PlaintextEnvelope {
-                content: Some(Content::V1(V1 {
-                    content: content_bytes.clone(),
-                    idempotency_key: now.to_string(),
-                })),
-            })?;
+        let message_id = sync_group.prepare_message(&content_bytes, |now| PlaintextEnvelope {
+            content: Some(Content::V1(V1 {
+                content: content_bytes.clone(),
+                idempotency_key: now.to_string(),
+            })),
+        })?;
 
-        sync_group.sync_until_last_intent_resolved(provider).await?;
+        sync_group.sync_until_last_intent_resolved().await?;
 
         // Notify our own worker of our own message so it can process it.
         let _ = self.local_events.send(LocalEvents::SyncWorkerEvent(
@@ -224,20 +222,15 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_sync_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<MlsGroup<Self>, GroupError> {
-        let conn = provider.conn_ref();
-
-        let sync_group = match conn.primary_sync_group()? {
-            Some(sync_group) => self.group_with_conn(conn, &sync_group.id)?,
+    pub async fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
+        let db = self.context.db();
+        let sync_group = match db.primary_sync_group()? {
+            Some(sync_group) => self.group(&sync_group.id)?,
             None => {
-                let sync_group =
-                    MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()), provider)?;
+                let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
                 tracing::info!("Creating sync group: {:?}", sync_group.group_id);
-                sync_group.add_missing_installations(provider).await?;
-                sync_group.sync_with_conn(provider).await?;
+                sync_group.add_missing_installations().await?;
+                sync_group.sync_with_conn().await?;
 
                 if let Some(handle) = self.worker_handle() {
                     handle.increment_metric(SyncMetric::SyncGroupCreated);
@@ -252,14 +245,13 @@ where
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let provider = self.mls_provider()?;
         let groups = self.find_groups(GroupQueryArgs::default())?;
 
         // Add the new installation to groups in batches
         for chunk in groups.chunks(20) {
             let mut add_futs = vec![];
             for group in chunk {
-                add_futs.push(group.add_missing_installations(&provider));
+                add_futs.push(group.add_missing_installations());
             }
             let results = join_all(add_futs).await;
             for result in results {
@@ -268,12 +260,11 @@ where
                 }
             }
         }
-
         Ok(())
     }
 }
 
-fn default_backup_options() -> BackupOptions {
+fn default_archive_options() -> BackupOptions {
     BackupOptions {
         elements: vec![
             BackupElementSelection::Messages as i32,

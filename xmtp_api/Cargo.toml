@@ -16,6 +16,9 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 mockall = { workspace = true, optional = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
 
@@ -40,6 +43,8 @@ test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
+  "xmtp_api_http/test-utils",
+  "dep:xmtp_api_http",
   "dep:mockall",
 ]
 http-api = ["dep:xmtp_api_http"]

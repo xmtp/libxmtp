@@ -1,6 +1,8 @@
 use diesel::prelude::*;
 
-use super::{StorageError, db_connection::DbConnection, schema::key_package_history};
+use super::{
+    ConnectionExt, StorageError, db_connection::DbConnection, schema::key_package_history,
+};
 use crate::{StoreOrIgnore, impl_store_or_ignore};
 use xmtp_common::time::now_ns;
 
@@ -21,7 +23,7 @@ pub struct StoredKeyPackageHistoryEntry {
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,

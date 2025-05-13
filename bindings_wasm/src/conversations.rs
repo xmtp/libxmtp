@@ -16,10 +16,7 @@ use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
 use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
-use xmtp_mls::groups::{
-  ConversationDebugInfo as XmtpConversationDebugInfo, DMMetadataOptions, GroupMetadataOptions,
-  PreconfiguredPolicies,
-};
+use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -174,22 +171,13 @@ impl MessageDisappearingSettings {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, serde::Serialize)]
 pub struct ConversationDebugInfo {
-  #[wasm_bindgen(js_name = epoch)]
   pub epoch: u64,
   #[wasm_bindgen(js_name = maybeForked)]
+  #[serde(rename = "maybeForked")]
   pub maybe_forked: bool,
   #[wasm_bindgen(js_name = forkDetails)]
+  #[serde(rename = "forkDetails")]
   pub fork_details: String,
-}
-
-impl ConversationDebugInfo {
-  pub fn new(xmtp_debug_info: XmtpConversationDebugInfo) -> Self {
-    Self {
-      epoch: xmtp_debug_info.epoch,
-      maybe_forked: xmtp_debug_info.maybe_forked,
-      fork_details: xmtp_debug_info.fork_details,
-    }
-  }
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -479,13 +467,9 @@ impl Conversations {
 
   #[wasm_bindgen]
   pub async fn sync(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     self
       .inner_client
-      .sync_welcomes(&provider)
+      .sync_welcomes()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
@@ -497,39 +481,16 @@ impl Conversations {
     &self,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<usize, JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(&provider, consents)
+      .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(num_groups_synced)
-  }
-
-  #[wasm_bindgen(js_name = syncDeviceSync)]
-  pub async fn sync_device_sync(&self) -> Result<(), JsError> {
-    let provider = self
-      .inner_client
-      .mls_provider()
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    self
-      .inner_client
-      .get_sync_group(&provider)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?
-      .sync()
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(())
   }
 
   #[wasm_bindgen]

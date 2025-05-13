@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::NativeStorageError;
+use super::PlatformStorageError;
 use crate::NotFound;
 
 use crate::{EncryptionKey, StorageOption};
@@ -45,7 +45,7 @@ pub struct EncryptedConnection {
 
 impl EncryptedConnection {
     /// Creates a file for the salt and stores it
-    pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, NativeStorageError> {
+    pub fn new(key: EncryptionKey, opts: &StorageOption) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
 
         let salt = match opts {
@@ -115,7 +115,7 @@ impl EncryptedConnection {
         path: &String,
         key: EncryptionKey,
         salt: &mut [u8],
-    ) -> Result<(), NativeStorageError> {
+    ) -> Result<(), PlatformStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
         conn.batch_execute(&format!(
             r#"
@@ -140,7 +140,7 @@ impl EncryptedConnection {
         path: &String,
         key: EncryptionKey,
         salt: &mut [u8],
-    ) -> Result<(), NativeStorageError> {
+    ) -> Result<(), PlatformStorageError> {
         let conn = &mut SqliteConnection::establish(path)?;
 
         conn.batch_execute(&format!(
@@ -171,7 +171,7 @@ impl EncryptedConnection {
         path: &String,
         conn: &mut SqliteConnection,
         buf: &mut [u8],
-    ) -> Result<(), NativeStorageError> {
+    ) -> Result<(), PlatformStorageError> {
         let mut row_iter = conn.load(sql_query("PRAGMA cipher_salt"))?;
         // cipher salt should always exist. if it doesn't SQLCipher is misconfigured.
         let row = row_iter
@@ -234,7 +234,7 @@ impl EncryptedConnection {
     fn check_for_sqlcipher(
         opts: &StorageOption,
         conn: Option<&mut SqliteConnection>,
-    ) -> Result<CipherVersion, NativeStorageError> {
+    ) -> Result<CipherVersion, PlatformStorageError> {
         let conn = if let Some(c) = conn {
             c
         } else {
@@ -251,14 +251,14 @@ impl EncryptedConnection {
         }
         let mut cipher_version = sql_query("PRAGMA cipher_version").load::<CipherVersion>(conn)?;
         if cipher_version.is_empty() {
-            return Err(NativeStorageError::SqlCipherNotLoaded);
+            return Err(PlatformStorageError::SqlCipherNotLoaded);
         }
         Ok(cipher_version.pop().expect("checked for empty"))
     }
 }
 
 impl super::ValidatedConnection for EncryptedConnection {
-    fn validate(&self, opts: &StorageOption) -> Result<(), NativeStorageError> {
+    fn validate(&self, opts: &StorageOption) -> Result<(), PlatformStorageError> {
         let conn = &mut opts.conn()?;
         let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, Some(conn))?;
 
@@ -269,7 +269,7 @@ impl super::ValidatedConnection for EncryptedConnection {
             SELECT count(*) FROM sqlite_master;",
             self.pragmas()
         ))
-        .map_err(|_| NativeStorageError::SqlCipherKeyIncorrect)?;
+        .map_err(|_| PlatformStorageError::SqlCipherKeyIncorrect)?;
 
         let CipherProviderVersion {
             cipher_provider_version,
@@ -299,11 +299,11 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
         conn.batch_execute(&format!(
             "{}
             PRAGMA query_only = ON;
-            PRAGMA busy_timeout = 5000;",
+            PRAGMA busy_timeout = 5000;
+            PRAGMA journal_mode = WAL;",
             self.pragmas()
         ))
         .map_err(diesel::r2d2::Error::QueryError)?;
-
         Ok(())
     }
 }
@@ -322,7 +322,7 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::EncryptedMessageStore;
+    use crate::{EncryptedMessageStore, NativeDb, XmtpTestDb};
     use diesel_migrations::MigrationHarness;
     use std::fs::File;
     use xmtp_common::tmp_path;
@@ -345,12 +345,7 @@ mod tests {
     async fn test_db_creates_with_plaintext_header() {
         let db_path = tmp_path();
         {
-            let _ = EncryptedMessageStore::new(
-                Persistent(db_path.clone()),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .await
-            .unwrap();
+            let _ = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
@@ -366,14 +361,14 @@ mod tests {
                 String::from_utf8(plaintext_header.into()).unwrap()
             );
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
     #[tokio::test]
     async fn test_db_migrates() {
         let db_path = tmp_path();
         {
-            let key = EncryptedMessageStore::generate_enc_key();
+            let key = EncryptedMessageStore::<()>::generate_enc_key();
             {
                 let conn = &mut SqliteConnection::establish(&db_path).unwrap();
                 conn.batch_execute(&format!(
@@ -394,9 +389,10 @@ mod tests {
             file.read_exact(&mut plaintext_header).unwrap();
             assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
 
-            let _ = EncryptedMessageStore::new(Persistent(db_path.clone()), key)
-                .await
-                .unwrap();
+            tracing::info!("Creating store with file at {}", &db_path);
+            let opts = Persistent(db_path.clone());
+            let db = NativeDb::new(&opts, key).unwrap();
+            let _ = EncryptedMessageStore::new(db);
 
             assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
             let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
@@ -412,6 +408,6 @@ mod tests {
                 String::from_utf8(plaintext_header.into()).unwrap()
             );
         }
-        EncryptedMessageStore::remove_db_files(db_path)
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 }

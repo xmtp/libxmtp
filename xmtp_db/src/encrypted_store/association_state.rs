@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 
 use super::{
-    DbConnection,
+    ConnectionExt, DbConnection,
     schema::association_state::{self, dsl},
 };
 use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
@@ -23,12 +23,15 @@ impl_store_or_ignore!(StoredAssociationState, association_state);
 // TODO: We can make a generic trait/object on DB for anything that decodes into prost::Message
 // and then have a re-usable cache object instead of re-implementing it on every db type.
 impl StoredAssociationState {
-    pub fn write_to_cache(
-        conn: &DbConnection,
+    pub fn write_to_cache<C>(
+        conn: &DbConnection<C>,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), StorageError>
+    where
+        C: ConnectionExt,
+    {
         let result = StoredAssociationState {
             inbox_id: inbox_id.clone(),
             sequence_id,
@@ -47,8 +50,8 @@ impl StoredAssociationState {
         result
     }
 
-    pub fn read_from_cache<T>(
-        conn: &DbConnection,
+    pub fn read_from_cache<T, C: ConnectionExt>(
+        conn: &DbConnection<C>,
         inbox_id: impl AsRef<str>,
         sequence_id: i64,
     ) -> Result<Option<T>, StorageError>
@@ -75,8 +78,8 @@ impl StoredAssociationState {
         Ok(decoded.map(|a| a.try_into()).transpose()?)
     }
 
-    pub fn batch_read_from_cache<T>(
-        conn: &DbConnection,
+    pub fn batch_read_from_cache<T, C: ConnectionExt>(
+        conn: &DbConnection<C>,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<T>, StorageError>
     where
