@@ -6,6 +6,7 @@ use crate::messages::{ListMessagesOptions, Message, MessageWithReactions};
 use crate::permissions::{MetadataField, PermissionPolicy, PermissionUpdateType};
 use crate::streams::{StreamCallback, StreamCloser};
 use crate::{consent_state::ConsentState, permissions::GroupPermissions};
+use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
@@ -639,6 +640,24 @@ impl Conversation {
   pub fn get_hmac_keys(&self) -> Result<JsValue, JsError> {
     let group = self.to_mls_group();
 
+    let dms = self
+      .inner_client
+      .clone()
+      .find_duplicate_dms_for_group(&self.group_id)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+
+    let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
+    for conversation in dms {
+      let id = hex::encode(&conversation.group_id);
+      let keys = conversation
+        .hmac_keys(-1..=1)
+        .map_err(|e| JsError::new(format!("{}", e).as_str()))?
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+      hmac_map.insert(id, keys);
+    }
+
     let keys = group
       .hmac_keys(-1..=1)
       .map_err(|e| JsError::new(&format!("{e}")))?
@@ -646,7 +665,9 @@ impl Conversation {
       .map(Into::into)
       .collect::<Vec<HmacKey>>();
 
-    Ok(crate::to_value(&keys)?)
+    hmac_map.insert(self.id(), keys);
+
+    Ok(crate::to_value(&hmac_map)?)
   }
 
   #[wasm_bindgen(js_name = getDebugInfo)]
