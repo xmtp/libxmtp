@@ -67,38 +67,55 @@ mod tests {
 
     use super::*;
 
-    #[xmtp_common::test(unwrap_try = "true")]
-    async fn icebox_dependency_chain() {
-        with_connection(|conn| {
-            let ice = Icebox {
+    fn give_ice() -> Vec<Icebox> {
+        vec![
+            Icebox {
                 sequence_id: 41,
                 originator_id: 1,
                 depending_sequence_id: Some(40),
                 depending_originator_id: Some(1),
                 envelope_payload: vec![1, 2, 3],
-            };
-            ice.store(conn)?;
-
-            let ice2 = Icebox {
+            },
+            Icebox {
                 sequence_id: 40,
                 originator_id: 1,
                 depending_sequence_id: Some(39),
                 depending_originator_id: Some(2),
                 envelope_payload: vec![1, 2, 3],
-            };
-            ice2.store(conn)?;
-
-            let ice3 = Icebox {
+            },
+            Icebox {
                 sequence_id: 39,
                 depending_sequence_id: None,
                 originator_id: 2,
                 depending_originator_id: None,
                 envelope_payload: vec![1, 2, 3],
-            };
-            ice3.store(conn)?;
+            },
+        ]
+    }
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn icebox_dependency_chain() {
+        with_connection(|conn| {
+            let ice = give_ice();
+            ice.iter().for_each(|i| i.store(conn)?);
 
             let dep_chain = conn.get_dependency_chain(41, 1)?;
-            assert_eq!(dep_chain, vec![ice, ice2, ice3]);
+            assert_eq!(dep_chain, ice);
+        })
+        .await
+    }
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn test_icebox_broken_dep_chain() {
+        with_connection(|conn| {
+            let mut ice = give_ice();
+            ice[2].originator_id = 1;
+            ice.iter().for_each(|i| i.store(conn)?);
+
+            let dep_chain = conn.get_dependency_chain(41, 1)?;
+            // The last iced message should not be there due to the wrong originator_id.
+            ice.pop();
+            assert_eq!(dep_chain, ice);
         })
         .await
     }
