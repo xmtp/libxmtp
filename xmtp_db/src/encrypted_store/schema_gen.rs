@@ -78,6 +78,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    icebox (sequence_id, originator_id) {
+        sequence_id -> BigInt,
+        originator_id -> BigInt,
+        depending_sequence_id -> Nullable<BigInt>,
+        depending_originator_id -> Nullable<BigInt>,
+        envelope_payload -> Binary,
+    }
+}
+
+diesel::table! {
     identity (rowid) {
         inbox_id -> Text,
         installation_keys -> Binary,
@@ -157,6 +167,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_intents,
     group_messages,
     groups,
+    icebox,
     identity,
     identity_cache,
     identity_updates,
