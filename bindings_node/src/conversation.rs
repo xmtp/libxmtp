@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 use napi::{
   bindgen_prelude::{Result, Uint8Array},
@@ -649,13 +649,37 @@ impl Conversation {
   }
 
   #[napi]
-  pub fn get_hmac_keys(&self) -> Result<Vec<HmacKey>> {
+  pub fn get_hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>> {
     let group = self.create_mls_group();
 
-    group
+    let dms = self
+      .inner_client
+      .clone()
+      .find_duplicate_dms_for_group(&self.group_id)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    let mut hmac_map = HashMap::new();
+    for conversation in dms {
+      let id = hex::encode(&conversation.group_id);
+      let keys = conversation
+        .hmac_keys(-1..=1)
+        .map_err(ErrorWrapper::from)?
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+      hmac_map.insert(id, keys);
+    }
+
+    let keys = group
       .hmac_keys(-1..=1)
-      .map(|keys| keys.into_iter().map(Into::into).collect())
-      .map_err(|e| napi::Error::from_reason(e.to_string()))
+      .map_err(ErrorWrapper::from)?
+      .into_iter()
+      .map(Into::into)
+      .collect::<Vec<_>>();
+
+    hmac_map.insert(self.id(), keys);
+
+    Ok(hmac_map)
   }
 
   #[napi]
