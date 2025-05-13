@@ -166,9 +166,8 @@ impl Conversation {
   pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let conversation_type = group
-      .conversation_type(&provider)
+      .conversation_type()
       .await
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
@@ -197,9 +196,8 @@ impl Conversation {
   ) -> Result<Vec<MessageWithReactions>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
-    let provider = group.mls_provider().map_err(ErrorWrapper::from)?;
     let conversation_type = group
-      .conversation_type(&provider)
+      .conversation_type()
       .await
       .map_err(ErrorWrapper::from)?;
     let kind = match conversation_type {
@@ -274,9 +272,7 @@ impl Conversation {
   pub fn admin_list(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
-    let admin_list = group
-      .admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let admin_list = group.admin_list().map_err(ErrorWrapper::from)?;
 
     Ok(admin_list)
   }
@@ -285,9 +281,7 @@ impl Conversation {
   pub fn super_admin_list(&self) -> Result<Vec<String>> {
     let group = self.create_mls_group();
 
-    let super_admin_list = group
-      .super_admin_list(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let super_admin_list = group.super_admin_list().map_err(ErrorWrapper::from)?;
 
     Ok(super_admin_list)
   }
@@ -427,9 +421,7 @@ impl Conversation {
   pub fn group_name(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    let group_name = group
-      .group_name(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let group_name = group.group_name().map_err(ErrorWrapper::from)?;
 
     Ok(group_name)
   }
@@ -450,9 +442,7 @@ impl Conversation {
   pub fn group_image_url_square(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    let group_image_url_square = group
-      .group_image_url_square(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let group_image_url_square = group.group_image_url_square().map_err(ErrorWrapper::from)?;
 
     Ok(group_image_url_square)
   }
@@ -473,9 +463,7 @@ impl Conversation {
   pub fn group_description(&self) -> Result<String> {
     let group = self.create_mls_group();
 
-    let group_description = group
-      .group_description(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .map_err(ErrorWrapper::from)?;
+    let group_description = group.group_description().map_err(ErrorWrapper::from)?;
 
     Ok(group_description)
   }
@@ -510,22 +498,14 @@ impl Conversation {
   pub fn is_active(&self) -> Result<bool> {
     let group = self.create_mls_group();
 
-    Ok(
-      group
-        .is_active(&group.mls_provider().map_err(ErrorWrapper::from)?)
-        .map_err(ErrorWrapper::from)?,
-    )
+    Ok(group.is_active().map_err(ErrorWrapper::from)?)
   }
 
   #[napi]
   pub fn paused_for_version(&self) -> napi::Result<Option<String>> {
     let group = self.create_mls_group();
 
-    Ok(
-      group
-        .paused_for_version(&group.mls_provider().map_err(ErrorWrapper::from)?)
-        .map_err(ErrorWrapper::from)?,
-    )
+    Ok(group.paused_for_version().map_err(ErrorWrapper::from)?)
   }
 
   #[napi]
@@ -539,10 +519,7 @@ impl Conversation {
   pub async fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = self.create_mls_group();
 
-    let metadata = group
-      .metadata(&group.mls_provider().map_err(ErrorWrapper::from)?)
-      .await
-      .map_err(ErrorWrapper::from)?;
+    let metadata = group.metadata().await.map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })
   }

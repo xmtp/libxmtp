@@ -1,3 +1,6 @@
+mod combined;
+pub use combined::*;
+
 mod d14n;
 pub use d14n::*;
 

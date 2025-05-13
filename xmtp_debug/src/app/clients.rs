@@ -3,6 +3,7 @@
 use super::*;
 use crate::app::types::*;
 use color_eyre::eyre;
+use xmtp_db::NativeDb;
 
 pub async fn new_registered_client(
     network: args::BackendOpts,
@@ -71,7 +72,11 @@ async fn new_client_inner(
         let db_name = format!("{inbox_id}:{}.db3", u64::from(network));
         dir.join(db_name)
     };
-
+    let path = dir
+        .into_os_string()
+        .into_string()
+        .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?;
+    let db = NativeDb::new(&StorageOption::Persistent(path), [0u8; 32])?;
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.get_identifier()?,
@@ -80,17 +85,7 @@ async fn new_client_inner(
     ))
     .api_client(api)
     .with_remote_verifier()?
-    .store(
-        EncryptedMessageStore::new(
-            StorageOption::Persistent(
-                dir.into_os_string()
-                    .into_string()
-                    .map_err(|_| eyre::eyre!("Conversion failed from OsString"))?,
-            ),
-            [0u8; 32],
-        )
-        .await?,
-    )
+    .store(EncryptedMessageStore::new(db)?)
     .build()
     .await?;
 
@@ -130,11 +125,12 @@ async fn existing_client_inner(
 ) -> Result<crate::DbgClient> {
     let api = network.connect().await?;
 
-    let store = EncryptedMessageStore::new(
-        StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
+    let db = xmtp_db::NativeDb::new(
+        &StorageOption::Persistent(db_path.clone().into_os_string().into_string().unwrap()),
         [0u8; 32],
-    )
-    .await;
+    )?;
+    let store = EncryptedMessageStore::new(db);
+
     if let Err(e) = &store {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     }

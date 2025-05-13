@@ -20,7 +20,7 @@ async fn auto_consent_dms_for_new_installations() {
         .await?;
 
     // Alix pulls down the new DM from bo
-    alix.sync_welcomes(&alix.provider).await?;
+    alix.sync_welcomes().await?;
 
     // That DM should be already consented, since alix consented with bo in another DM
     let consent = alix

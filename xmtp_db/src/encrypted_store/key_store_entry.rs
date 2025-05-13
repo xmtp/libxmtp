@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{StorageError, db_connection::DbConnection, schema::openmls_key_store};
+use super::{ConnectionExt, StorageError, db_connection::DbConnection, schema::openmls_key_store};
 use crate::{Delete, impl_fetch, impl_store};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -24,7 +24,7 @@ impl Delete<StoredKeyStoreEntry> for DbConnection {
     }
 }
 
-impl DbConnection {
+impl<C: ConnectionExt> DbConnection<C> {
     pub fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,

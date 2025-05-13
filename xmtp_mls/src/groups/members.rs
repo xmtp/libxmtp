@@ -2,7 +2,6 @@ use super::{validated_commit::extract_group_membership, GroupError, MlsGroup, Sc
 use xmtp_db::{
     association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use xmtp_id::{
     associations::{AssociationState, Identifier},
@@ -29,17 +28,10 @@ impl<ScopedClient> MlsGroup<ScopedClient>
 where
     ScopedClient: ScopedGroupClient,
 {
-    // Load the member list for the group from the DB, merging together multiple installations into a single entry
+    /// Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let provider = self.mls_provider()?;
-        self.members_with_provider(&provider).await
-    }
-
-    pub async fn members_with_provider(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<Vec<GroupMember>, GroupError> {
-        let group_membership = self.load_mls_group_with_lock(provider, |mls_group| {
+        let provider = self.mls_provider();
+        let group_membership = self.load_mls_group_with_lock(&provider, |mls_group| {
             Ok(extract_group_membership(mls_group.extensions())?)
         })?;
         let requests = group_membership
@@ -49,10 +41,10 @@ where
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
-        let conn = provider.conn_ref();
+        let conn = provider.db();
         let mut association_states: Vec<AssociationState> =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
-        let mutable_metadata = self.mutable_metadata(provider)?;
+        let mutable_metadata = self.mutable_metadata()?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
             let missing_requests: Vec<_> = requests

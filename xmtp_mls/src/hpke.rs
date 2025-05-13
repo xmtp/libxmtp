@@ -15,6 +15,7 @@ use xmtp_common::{retryable, RetryableError};
 use xmtp_db::{
     sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
+    ConnectionExt,
 };
 
 #[derive(Debug, Error)]
@@ -57,8 +58,8 @@ pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8
 }
 
 /// Decrypt a welcome message using the private key associated with the provided public key
-pub fn decrypt_welcome(
-    provider: &XmtpOpenMlsProvider,
+pub fn decrypt_welcome<C: ConnectionExt>(
+    provider: &XmtpOpenMlsProvider<C>,
     hpke_public_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, HpkeError> {

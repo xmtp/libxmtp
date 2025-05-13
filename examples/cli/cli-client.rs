@@ -41,6 +41,7 @@ use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{signature::SignatureError, utils::rng};
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
+use xmtp_db::NativeDb;
 use xmtp_db::{
     group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
     StorageOption,
@@ -318,9 +319,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::ListGroups {} => {
             info!("List Groups");
-            let provider = client.mls_provider()?;
             client
-                .sync_welcomes(&provider)
+                .sync_welcomes()
                 .await
                 .expect("failed to sync welcomes");
 
@@ -468,16 +468,14 @@ async fn main() -> color_eyre::eyre::Result<()> {
             );
         }
         Commands::RequestHistorySync {} => {
-            let provider = client.mls_provider().unwrap();
-            client.sync_welcomes(&provider).await.unwrap();
+            client.sync_welcomes().await.unwrap();
             client.start_sync_worker();
-            client.send_sync_request(&provider).await.unwrap();
+            client.send_sync_request().await.unwrap();
             info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
-            let provider = client.mls_provider()?;
-            client.sync_welcomes(&provider).await?;
-            let group = client.get_sync_group(&provider).await?;
+            client.sync_welcomes().await?;
+            let group = client.get_sync_group().await?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group.find_messages(&MsgQueryArgs {
@@ -598,8 +596,7 @@ where
 }
 
 async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
-    let provider = client.mls_provider().unwrap();
-    client.sync_welcomes(&provider).await?;
+    client.sync_welcomes().await?;
     let group = client.group(&group_id)?;
     group
         .sync()
@@ -654,21 +651,23 @@ fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
 
-async fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
+async fn get_encrypted_store(
+    db: &Option<PathBuf>,
+) -> Result<EncryptedMessageStore<NativeDb>, CliError> {
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
             info!("Using persistent storage: {} ", s);
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s)).await
+            EncryptedMessageStore::new(NativeDb::new_unencrypted(&StorageOption::Persistent(s))?)?
         }
 
         None => {
             info!("Using ephemeral store");
-            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key()).await
+            EncryptedMessageStore::new(NativeDb::new(&StorageOption::Ephemeral, static_enc_key())?)?
         }
     };
 
-    store.map_err(|e| e.into())
+    Ok(store)
 }
 
 fn pretty_delta(now: u64, then: u64) -> String {

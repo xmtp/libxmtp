@@ -10,6 +10,7 @@ use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
+use xmtp_db::{ConnectionExt, XmtpDb};
 use xmtp_id::{
     associations::{
         apply_update,
@@ -46,6 +47,8 @@ pub enum InstallationDiffError {
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
+    Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
 }
 
@@ -54,21 +57,22 @@ impl RetryableError for InstallationDiffError {
         match self {
             InstallationDiffError::Client(client_error) => retryable!(client_error),
             InstallationDiffError::Storage(e) => retryable!(e),
+            InstallationDiffError::Db(e) => retryable!(e),
         }
     }
 }
 
-impl<'a, ApiClient, V> Client<ApiClient, V>
+impl<'a, ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    V: SmartContractSignatureVerifier,
+    Db: XmtpDb,
 {
     /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
     /// If the association state is not available in the cache, this falls back to reconstructing the association state
     /// from Identity Updates in the network.
     pub async fn batch_get_association_state(
         &self,
-        conn: &DbConnection,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         let association_states = try_join_all(
@@ -88,7 +92,7 @@ where
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn get_latest_association_state(
         &self,
-        conn: &DbConnection,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
         load_identity_updates(&self.api_client, conn, &[inbox_id]).await?;
@@ -100,7 +104,7 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        conn: &DbConnection,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
@@ -144,7 +148,7 @@ where
     /// provided `inbox_id`
     pub(crate) async fn get_association_state_diff(
         &self,
-        conn: &DbConnection,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
@@ -289,7 +293,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -310,13 +314,12 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
-        let provider = self.mls_provider()?;
         let inbox_id = self.inbox_id();
 
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -331,8 +334,7 @@ where
         }
 
         // Cycle the HMAC key
-        self.cycle_hmac(&provider).await?;
-
+        self.cycle_hmac().await?;
         Ok(builder.build())
     }
 
@@ -345,7 +347,7 @@ where
         let current_state = retry_async!(
             Retry::default(),
             (async {
-                self.get_association_state(&self.store().conn()?, inbox_id, None)
+                self.get_association_state(&self.context.db(), inbox_id, None)
                     .await
             })
         )?;
@@ -383,12 +385,8 @@ where
         retry_async!(
             Retry::default(),
             (async {
-                load_identity_updates(
-                    &self.api_client,
-                    &self.store().conn()?,
-                    &[inbox_id.as_str()],
-                )
-                .await
+                load_identity_updates(&self.api_client, &self.context.db(), &[inbox_id.as_str()])
+                    .await
             })
         )?;
 
@@ -400,7 +398,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
-        conn: &DbConnection,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
@@ -478,10 +476,10 @@ where
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
-#[tracing::instrument(level = "debug", skip_all)]
-pub async fn load_identity_updates<ApiClient: XmtpApi>(
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn load_identity_updates<ApiClient: XmtpApi, C: ConnectionExt>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &DbConnection,
+    conn: &DbConnection<C>,
     inbox_ids: &[&str],
 ) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
     if inbox_ids.is_empty() {
@@ -583,6 +581,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #![allow(unused)] // b/c wasm & native
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
@@ -591,30 +590,29 @@ pub(crate) mod tests {
     };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
-    use xmtp_id::{
-        associations::{
-            builder::{SignatureRequest, SignatureRequestError},
-            test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
-            unverified::UnverifiedSignature,
-            AssociationState, MemberIdentifier,
-        },
-        scw_verifier::SmartContractSignatureVerifier,
+    use xmtp_id::associations::{
+        builder::{SignatureRequest, SignatureRequestError},
+        test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
+        unverified::UnverifiedSignature,
+        AssociationState, MemberIdentifier,
+    };
+
+    use xmtp_db::{
+        db_connection::DbConnection, identity_update::StoredIdentityUpdate, ConnectionExt,
     };
 
     use xmtp_common::rand_vec;
 
     use super::{is_member_of_association_state, load_identity_updates};
 
-    async fn get_association_state<ApiClient, Verifier>(
-        client: &Client<ApiClient, Verifier>,
+    async fn get_association_state<ApiClient>(
+        client: &Client<ApiClient>,
         inbox_id: &str,
     ) -> AssociationState
     where
         ApiClient: XmtpApi,
-        Verifier: SmartContractSignatureVerifier,
     {
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
         load_identity_updates(&client.api_client, &conn, &[inbox_id])
             .await
             .unwrap();
@@ -625,7 +623,10 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn insert_identity_update(conn: &DbConnection, inbox_id: &str, sequence_id: i64) {
+    fn insert_identity_update<C>(conn: &DbConnection<C>, inbox_id: &str, sequence_id: i64)
+    where
+        C: ConnectionExt,
+    {
         let identity_update =
             StoredIdentityUpdate::new(inbox_id.to_string(), sequence_id, 0, rand_vec::<24>());
 
@@ -648,7 +649,7 @@ pub(crate) mod tests {
         add_wallet_signature(&mut request, &wallet2).await;
         client.apply_signature_request(request).await.unwrap();
 
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
         let state = client
             .get_latest_association_state(&conn, client.inbox_id())
             .await
@@ -800,7 +801,7 @@ pub(crate) mod tests {
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let conn = client.store().conn().unwrap();
+        let conn = client.context.db();
 
         insert_identity_update(&conn, "inbox_1", 1);
         insert_identity_update(&conn, "inbox_2", 2);
@@ -862,7 +863,7 @@ pub(crate) mod tests {
 
         // Create a new client to test group operations with
         let other_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let other_conn = other_client.store().conn().unwrap();
+        let other_conn = other_client.context.db();
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         // Load all the identity updates for the new inboxes
         load_identity_updates(&other_client.api_client, &other_conn, ids.as_slice())

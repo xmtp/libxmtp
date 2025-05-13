@@ -23,6 +23,7 @@ use std::{ops::Deref, sync::Arc};
 use url::Url;
 use xmtp_api::XmtpApi;
 use xmtp_common::StreamHandle;
+use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
 use xmtp_id::{
@@ -39,7 +40,6 @@ use xmtp_proto::prelude::XmtpTestClient;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
-#[allow(dead_code)]
 pub struct Tester<Owner, Client>
 where
     Owner: InboxOwner,
@@ -49,6 +49,9 @@ where
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    /// Replacement names for this tester
+    /// Replacements are removed on drop
+    pub replace: TestLogReplace,
 }
 
 #[macro_export]
@@ -108,6 +111,11 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
+        let mut replace = TestLogReplace::default();
+        if let Some(name) = &self.name {
+            let ident = self.owner.get_identifier().unwrap();
+            replace.add(&ident.to_string(), &format!("{name}_ident"));
+        }
         let api_client = ClientBuilder::new_api_client().await;
         let client = build_with_verifier(
             &self.owner,
@@ -118,21 +126,28 @@ where
         )
         .await;
         let client = Arc::new(client);
-
-        let provider = client.mls_provider().unwrap();
+        if let Some(name) = &self.name {
+            replace.add(
+                &client.installation_public_key().to_string(),
+                &format!("{name}_installation"),
+            );
+            replace.add(client.inbox_id(), name);
+        }
+        let provider = client.mls_provider();
         let worker = client.device_sync.worker_handle();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
             }
         }
-        client.sync_welcomes(&provider).await;
+        client.sync_welcomes().await;
 
         let mut tester = Tester {
             builder: self.clone(),
             client,
             provider: Arc::new(provider),
             worker,
+            replace,
             stream_handle: None,
         };
 
@@ -198,6 +213,7 @@ where
     pub sync_url: Option<String>,
     pub wait_for_init: bool,
     pub stream: bool,
+    pub name: Option<String>,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -214,6 +230,7 @@ impl Default for TesterBuilder<LocalWallet> {
             sync_url: None,
             wait_for_init: true,
             stream: false,
+            name: None,
         }
     }
 }
@@ -232,6 +249,17 @@ where
             sync_url: self.sync_url,
             wait_for_init: self.wait_for_init,
             stream: self.stream,
+            name: self.name,
+        }
+    }
+
+    /// Assign a name to this tester
+    /// Replaces log output of InstallationIds, Identifiers, and InboxIds
+    /// when using CONTEXTUAL = 1
+    pub fn with_name(self, s: &str) -> TesterBuilder<Owner> {
+        Self {
+            name: Some(s.to_string()),
+            ..self
         }
     }
 
