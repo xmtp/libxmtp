@@ -117,7 +117,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         }
 
         let effective_consent_states = match &consent_states {
-            Some(states) if !states.empty() => states.clone(),
+            Some(states) if !states.is_empty() => states.clone(),
             _ => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
@@ -403,11 +403,11 @@ pub(crate) mod tests {
             assert_eq!(unknown_results[0].id, test_group_4.id);
 
             let empty_array_results = conn
-            .fetch_conversation_list(GroupQueryArgs {
-                consent_states: Some(vec![]),
-                ..Default::default()
-            })
-            .unwrap();
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![]),
+                    ..Default::default()
+                })
+                .unwrap();
             assert_eq!(empty_array_results.len(), 3);
         })
         .await
