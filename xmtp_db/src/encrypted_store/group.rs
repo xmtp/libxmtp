@@ -205,7 +205,13 @@ impl DbConnection {
         }
 
         let effective_consent_states = match &consent_states {
-            Some(states) => states.clone(),
+            Some(states) => {
+                if states.is_empty() {
+                    vec![ConsentState::Allowed, ConsentState::Unknown]
+                } else {
+                    states.clone()
+                }
+            },
             None => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
