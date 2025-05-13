@@ -1,6 +1,6 @@
 use super::db_connection::DbConnection;
 use super::ConnectionExt;
-use crate::schema::icebox;
+use crate::{impl_store, schema::icebox};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,8 @@ pub struct Icebox {
     pub envelope_payload: Vec<u8>,
 }
 
+impl_store!(Icebox, icebox);
+
 impl<C: ConnectionExt> DbConnection<C> {
     pub fn get_dependency_chain(
         &self,
@@ -36,7 +38,7 @@ impl<C: ConnectionExt> DbConnection<C> {
             r#"
             WITH RECURSIVE dependency_chain AS (
                 -- Base case: Start with the specified primary key
-                SELECT sequence_id, originator_id, depending_sequence_id, depending_originator_id
+                SELECT *
                 FROM icebox
                 WHERE sequence_id = $1 AND originator_id = $2
                 
@@ -56,5 +58,48 @@ impl<C: ConnectionExt> DbConnection<C> {
         .bind::<diesel::sql_types::BigInt, _>(originator_id);
 
         self.raw_query_read(|conn| query.load(conn))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{with_connection, Store};
+
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn icebox_dependency_chain() {
+        with_connection(|conn| {
+            let ice = Icebox {
+                sequence_id: 41,
+                originator_id: 1,
+                depending_sequence_id: Some(40),
+                depending_originator_id: Some(1),
+                envelope_payload: vec![1, 2, 3],
+            };
+            ice.store(conn)?;
+
+            let ice2 = Icebox {
+                sequence_id: 40,
+                originator_id: 1,
+                depending_sequence_id: Some(39),
+                depending_originator_id: Some(2),
+                envelope_payload: vec![1, 2, 3],
+            };
+            ice2.store(conn)?;
+
+            let ice3 = Icebox {
+                sequence_id: 39,
+                depending_sequence_id: None,
+                originator_id: 2,
+                depending_originator_id: None,
+                envelope_payload: vec![1, 2, 3],
+            };
+            ice3.store(conn)?;
+
+            let dep_chain = conn.get_dependency_chain(41, 1)?;
+            assert_eq!(dep_chain, vec![ice, ice2, ice3]);
+        })
+        .await
     }
 }
