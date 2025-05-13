@@ -1,5 +1,5 @@
-use super::db_connection::DbConnection;
 use super::ConnectionExt;
+use super::db_connection::DbConnection;
 use crate::{impl_store, schema::icebox};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{with_connection, Store};
+    use crate::{Store, with_connection};
 
     use super::*;
 
