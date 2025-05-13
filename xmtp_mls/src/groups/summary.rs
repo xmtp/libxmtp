@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::IntentState;
@@ -26,6 +26,16 @@ impl RetryableError for SyncSummary {
     }
 }
 impl SyncSummary {
+    /// synced a single message succesfully
+    pub fn single(msg: MessageIdentifier) -> Self {
+        let mut process = ProcessSummary::default();
+        process.add(msg);
+        SyncSummary {
+            process,
+            ..Default::default()
+        }
+    }
+
     pub fn is_errored(&self) -> bool {
         self.other.is_some()
             || (!self.publish_errors.is_empty() && !self.post_commit_errors.is_empty())
@@ -150,7 +160,7 @@ impl MessageIdentifier {
 /// And which messages could not be synced.
 #[derive(Default)]
 pub struct ProcessSummary {
-    pub total_messages: Vec<u64>,
+    pub total_messages: HashSet<u64>,
     pub new_messages: Vec<MessageIdentifier>,
     pub errored: Vec<(u64, GroupMessageProcessingError)>,
 }
@@ -163,10 +173,11 @@ impl std::fmt::Debug for ProcessSummary {
 
 impl ProcessSummary {
     pub fn add_id(&mut self, id: u64) {
-        self.total_messages.push(id);
+        self.total_messages.insert(id);
     }
 
     pub fn add(&mut self, message: MessageIdentifier) {
+        self.total_messages.insert(message.cursor);
         self.new_messages.push(message);
     }
 
@@ -182,6 +193,20 @@ impl ProcessSummary {
 
     pub fn is_errored(&self) -> bool {
         !self.errored.is_empty()
+    }
+
+    /// the last message procesed
+    pub fn last(&self) -> Option<u64> {
+        let mut v = self.total_messages.iter().copied().collect::<Vec<_>>();
+        v.sort();
+        v.last().copied()
+    }
+
+    /// the first messages processed
+    pub fn first(&self) -> Option<u64> {
+        let mut v = self.total_messages.iter().copied().collect::<Vec<_>>();
+        v.sort();
+        v.first().copied()
     }
 
     /// detailed printout of the messages processed

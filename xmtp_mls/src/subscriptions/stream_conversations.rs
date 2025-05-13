@@ -1,9 +1,10 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    subscriptions::process_welcome::ProcessWelcomeFuture,
     Client,
 };
-use xmtp_db::{group::ConversationType, refresh_state::EntityKind, NotFound, XmtpDb};
+use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 
 use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
@@ -14,10 +15,10 @@ use std::{
     task::{ready, Context, Poll},
 };
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{retry_async, FutureWrapper, Retry};
+use xmtp_common::FutureWrapper;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::{welcome_message, WelcomeMessage},
+    xmtp::mls::api::v1::WelcomeMessage,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -122,6 +123,25 @@ where
 }
 
 pin_project! {
+    /// The stream for conversations.
+    /// Handles the state machine that processes welcome messages and groups. It handles
+    /// two main states:
+    ///
+    /// - `Waiting`: Ready to receive the next message from the inner stream
+    /// - `Processing`: Currently processing a welcome/group through a future
+    ///
+    /// The implementation ensures efficient processing by immediately attempting
+    /// to advance futures when possible, rather than waiting for the next poll cycle.
+    ///
+    /// # Arguments
+    /// * `cx` - The task context for polling
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<MlsGroup<C>>>>` - The polling result:
+    ///   - `Ready(Some(Ok(group)))` when a group is successfully processed
+    ///   - `Ready(Some(Err(e)))` when an error occurs
+    ///   - `Pending` when waiting for more data or for future completion
+    ///   - `Ready(None)` when the stream has ended
     pub struct StreamConversations<'a, C, Subscription> {
         #[pin] inner: Subscription,
         #[pin] state: ProcessState<'a, C>,
@@ -158,6 +178,35 @@ where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
     D: XmtpDb + Send + 'static,
 {
+    /// Creates a new welcome message and conversation stream.
+    ///
+    /// This function initializes a stream that combines local and remote events
+    /// for receiving conversation updates. It handles both welcome messages from
+    /// the network and locally generated group events.
+    ///
+    /// Key initialization steps:
+    /// 1. Retrieves the last cursor position for welcome messages
+    /// 2. Sets up a broadcast stream for internal events
+    /// 3. Creates a network subscription starting from the cursor
+    /// 4. Loads existing welcome IDs to prevent reprocessing
+    /// 5. Combines these sources into a multiplexed stream
+    ///
+    /// # Arguments
+    /// * `client` - Reference to the client used for API communication
+    /// * `conversation_type` - Optional filter to only receive specific conversation types
+    ///
+    /// # Returns
+    /// * `Result<Self>` - A new conversation stream if successful
+    ///
+    /// # Errors
+    /// May return errors if:
+    /// - Database operations fail
+    /// - API subscription creation fails
+    ///
+    /// # Example
+    /// ```
+    /// let stream = StreamConversations::new(&client, Some(ConversationType::Dm)).await?;
+    /// ```
     pub async fn new(
         client: &'a Client<A, D>,
         conversation_type: Option<ConversationType>,
@@ -270,8 +319,28 @@ where
     C: ScopedGroupClient + Clone + 'a,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
-    /// Try to process the welcome future
-    #[allow(clippy::type_complexity)]
+    /// Processes the result of a welcome future.
+    ///
+    /// This method handles the state transitions and output generation based on
+    /// the result of processing a welcome message or group. It implements the core
+    /// logic for determining what to do with each processed welcome:
+    ///
+    /// - For new groups: Updates tracking and yields the group
+    /// - For groups to ignore: Updates tracking and continues polling
+    /// - For previously stored groups: Yields the group
+    /// - For errors: Propagates the error and returns to waiting state
+    ///
+    /// # Arguments
+    /// * `poll` - The polling result from the welcome processing future
+    /// * `cx` - The task context for polling
+    ///
+    /// # Returns
+    /// * `Poll<Option<Result<MlsGroup<C>>>>` - The polling result based on
+    ///   the welcome processing outcome
+    ///
+    /// # Note
+    /// This method is critical for maintaining the stream's state machine and
+    /// ensuring proper handling of all possible processing outcomes.
     fn try_process(
         mut self: Pin<&mut Self>,
         poll: Poll<Result<ProcessWelcomeResult<C>>>,
@@ -327,188 +396,6 @@ where
             }
             Pending => Pending,
         }
-    }
-}
-
-fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
-    match welcome.version {
-        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
-        _ => Err(ConversationStreamError::InvalidPayload.into()),
-    }
-}
-
-/// Future for processing `WelcomeorGroup`
-pub struct ProcessWelcomeFuture<Client> {
-    /// welcome ids in DB and which are already processed
-    known_welcome_ids: HashSet<i64>,
-    /// The libxmtp client
-    client: Client,
-    /// the welcome or group being processed in this future
-    item: WelcomeOrGroup,
-    /// Conversation type to filter for, if any.
-    conversation_type: Option<ConversationType>,
-}
-
-impl<C> ProcessWelcomeFuture<C>
-where
-    C: ScopedGroupClient + Clone,
-{
-    pub fn new(
-        known_welcome_ids: HashSet<i64>,
-        client: C,
-        item: WelcomeOrGroup,
-        conversation_type: Option<ConversationType>,
-    ) -> Result<ProcessWelcomeFuture<C>> {
-        Ok(Self {
-            known_welcome_ids,
-            client,
-            item,
-            conversation_type,
-        })
-    }
-}
-
-/// bulk of the processing for a new welcome/group
-impl<C> ProcessWelcomeFuture<C>
-where
-    C: ScopedGroupClient + Clone,
-{
-    /// Process the welcome. if its a group, create the group and return it.
-    #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<ProcessWelcomeResult<C>> {
-        use WelcomeOrGroup::*;
-        let process_result = match self.item {
-            Welcome(ref w) => {
-                let welcome = extract_welcome_message(w)?;
-                let id = welcome.id as i64;
-                tracing::debug!("got welcome with id {}", id);
-                // try to load it from store first and avoid overhead
-                // of processing a welcome & erroring
-                // for immediate return, this must stay in the top-level future,
-                // to avoid a possible yield on the await in on_welcome.
-                if self.known_welcome_ids.contains(&id) {
-                    tracing::debug!(
-                        "Found existing welcome. Returning from db & skipping processing"
-                    );
-                    let (group, id) = self.load_from_store(id)?;
-                    return self.filter(ProcessWelcomeResult::New { group, id }).await;
-                }
-                // sync welcome from the network
-                let (group, id) = self.on_welcome(welcome).await?;
-                ProcessWelcomeResult::New { group, id }
-            }
-            Group(ref id) => {
-                tracing::debug!("Stream conversations got existing group, pulling from db.");
-                let (group, stored_group) =
-                    MlsGroup::new_validated(self.client.clone(), id.to_vec())?;
-
-                ProcessWelcomeResult::NewStored {
-                    group,
-                    maybe_id: stored_group.welcome_id,
-                }
-            }
-        };
-        self.filter(process_result).await
-    }
-
-    /// Filter for streamed conversations
-    async fn filter(&self, processed: ProcessWelcomeResult<C>) -> Result<ProcessWelcomeResult<C>> {
-        use ProcessWelcomeResult::*;
-        match processed {
-            New { group, id } => {
-                let metadata = group.metadata().await?;
-                // If it's a duplicate DM, don’t stream
-                if metadata.conversation_type == ConversationType::Dm
-                    && self.client.db().has_duplicate_dm(&group.group_id)?
-                {
-                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
-                    return Ok(ProcessWelcomeResult::IgnoreId { id });
-                }
-
-                if self
-                    .conversation_type
-                    .is_none_or(|ct| ct == metadata.conversation_type)
-                {
-                    Ok(ProcessWelcomeResult::New { group, id })
-                } else {
-                    Ok(ProcessWelcomeResult::IgnoreId { id })
-                }
-            }
-            NewStored { group, maybe_id } => {
-                let metadata = group.metadata().await?;
-                // If it's a duplicate DM, don’t stream
-                if metadata.conversation_type == ConversationType::Dm
-                    && self.client.db().has_duplicate_dm(&group.group_id)?
-                {
-                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
-                    if let Some(id) = maybe_id {
-                        return Ok(ProcessWelcomeResult::IgnoreId { id });
-                    } else {
-                        return Ok(ProcessWelcomeResult::Ignore);
-                    }
-                }
-
-                if self
-                    .conversation_type
-                    .is_none_or(|ct| ct == metadata.conversation_type)
-                {
-                    Ok(ProcessWelcomeResult::NewStored { group, maybe_id })
-                } else if let Some(id) = maybe_id {
-                    Ok(ProcessWelcomeResult::IgnoreId { id })
-                } else {
-                    Ok(ProcessWelcomeResult::Ignore)
-                }
-            }
-            other => Ok(other),
-        }
-    }
-
-    /// process a new welcome, returning the Group & Welcome ID
-    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<C>, i64)> {
-        let welcome_message::V1 {
-            id,
-            created_ns: _,
-            ref installation_key,
-            ..
-        } = welcome;
-        let id = *id as i64;
-
-        let Self { ref client, .. } = self;
-        tracing::info!(
-            installation_id = hex::encode(installation_key),
-            welcome_id = &id,
-            "Trying to process streamed welcome"
-        );
-
-        retry_async!(Retry::default(), (async { client.sync_welcomes().await }))?;
-
-        self.load_from_store(id)
-    }
-
-    /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<C>, i64)> {
-        let provider = self.client.mls_provider();
-        let group = provider
-            .db()
-            .find_group_by_welcome_id(id)?
-            .ok_or(NotFound::GroupByWelcome(id))?;
-        tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            group_id = hex::encode(&group.id),
-            dm_id = group.dm_id,
-            welcome_id = ?group.welcome_id,
-            "loading existing group for welcome_id: {:?}",
-            group.welcome_id
-        );
-        Ok((
-            MlsGroup::new(
-                self.client.clone(),
-                group.id,
-                group.dm_id,
-                group.created_at_ns,
-            ),
-            id,
-        ))
     }
 }
 
