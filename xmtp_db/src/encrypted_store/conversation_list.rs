@@ -117,14 +117,8 @@ impl<C: ConnectionExt> DbConnection<C> {
         }
 
         let effective_consent_states = match &consent_states {
-            Some(states) => {
-                if states.is_empty() {
-                    vec![ConsentState::Allowed, ConsentState::Unknown]
-                } else {
-                    states.clone()
-                }
-            },
-            None => vec![ConsentState::Allowed, ConsentState::Unknown],
+            Some(states) if !states.empty() => states.clone(),
+            _ => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
