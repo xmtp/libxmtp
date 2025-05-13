@@ -1,4 +1,5 @@
 use futures::{Stream, StreamExt};
+use process_welcome::ProcessWelcomeFuture;
 use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
@@ -9,10 +10,10 @@ use xmtp_db::XmtpDb;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use stream_all::StreamAllMessages;
-use stream_conversations::{
-    ProcessWelcomeFuture, ProcessWelcomeResult, StreamConversations, WelcomeOrGroup,
-};
+use stream_conversations::{ProcessWelcomeResult, StreamConversations, WelcomeOrGroup};
 
+pub mod process_message;
+pub mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
