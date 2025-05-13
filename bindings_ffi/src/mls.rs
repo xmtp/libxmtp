@@ -2262,14 +2262,34 @@ impl FfiConversation {
             .map(|dm_id| dm_id.other_inbox_id(self.inner.client.inbox_id()))
     }
 
-    pub fn get_hmac_keys(&self) -> Result<Vec<FfiHmacKey>, GenericError> {
+    pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
+        let duplicate_dms = self
+            .inner
+            .client
+            .find_duplicate_dms_for_group(&self.inner.group_id)?;
+
+        let mut hmac_map = HashMap::new();
+        for conversation in duplicate_dms {
+            let id = conversation.group_id.clone();
+            let keys = conversation
+                .hmac_keys(-1..=1)?
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>();
+
+            hmac_map.insert(id, keys);
+        }
+
         let keys = self
             .inner
             .hmac_keys(-1..=1)?
             .into_iter()
             .map(Into::into)
             .collect::<Vec<_>>();
-        Ok(keys)
+
+        hmac_map.insert(self.id(), keys);
+
+        Ok(hmac_map)
     }
 
     pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
@@ -6670,10 +6690,12 @@ mod tests {
 
         let hmac_keys = alix_group.get_hmac_keys().unwrap();
 
-        assert!(!hmac_keys.is_empty());
-        assert_eq!(hmac_keys.len(), 3);
+        let keys = hmac_keys.get(&alix_group.id()).unwrap();
 
-        for value in &hmac_keys {
+        assert!(!keys.is_empty());
+        assert_eq!(keys.len(), 3);
+
+        for value in keys {
             assert!(!value.key.is_empty());
             assert_eq!(value.key.len(), 42);
             assert!(value.epoch >= 1);
