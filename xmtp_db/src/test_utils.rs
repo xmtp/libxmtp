@@ -21,7 +21,9 @@ pub trait XmtpTestDb {
 
 impl<Db> EncryptedMessageStore<Db> {
     pub fn generate_enc_key() -> [u8; 32] {
-        xmtp_common::rand_array::<32>()
+        let key = xmtp_common::rand_array::<32>();
+        tracing::debug!("generated key is [{}]", hex::encode(key));
+        key
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -112,9 +114,7 @@ mod wasm {
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
                 .unwrap();
-            EncryptedMessageStore::new(&StorageOption::Persistent(path.to_string()), [0u8; 32])
-                .await
-                .expect("constructing message store failed.")
+            EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
     }
 }

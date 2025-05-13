@@ -7,7 +7,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     seq::IteratorRandom,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use std::{future::Future, sync::OnceLock};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -100,6 +100,7 @@ where
                                 let ids = REPLACE_IDS.lock();
                                 for (id, name) in ids.iter() {
                                     message = message.replace(id, name);
+                                    message = message.replace(&crate::fmt::truncate_hex(id), name);
                                 }
 
                                 write!(writer, "{}", message)?;
@@ -123,6 +124,32 @@ pub fn logger() {
             .with(logger_layer())
             .try_init();
     });
+}
+
+// Execute once before any tests are run
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "test-utils"))]
+fn ctor_logging_setup() {
+    crate::logger();
+    let _ = fdlimit::raise_fd_limit();
+}
+
+// must be in an arc so we only ever have one subscriber
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::sync::LazyLock;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+static SCOPED_SUBSCRIBER: LazyLock<Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
+    LazyLock::new(|| {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        Arc::new(Box::new(
+            tracing_subscriber::registry().with(logger_layer()),
+        ))
+    });
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub fn subscriber() -> impl tracing::Subscriber {
+    (*SCOPED_SUBSCRIBER).clone()
 }
 
 /// A simple test logger that defaults to the INFO level

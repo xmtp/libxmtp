@@ -70,6 +70,7 @@ pub enum IntentError {
 }
 
 impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+    #[tracing::instrument(skip_all, level = "debug")]
     pub fn queue_intent(
         &self,
         intent_kind: IntentKind,
@@ -92,7 +93,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
         if intent_kind == IntentKind::SendMessage {
-            self.maybe_insert_key_update_intent()?;
+            self.maybe_insert_key_update_intent(conn)?;
         }
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -110,14 +111,22 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         Ok(intent)
     }
 
-    fn maybe_insert_key_update_intent(&self) -> Result<(), GroupError> {
-        let provider = self.mls_provider();
-        let conn = provider.db();
+    #[tracing::instrument(level = "debug", skip_all)]
+    fn maybe_insert_key_update_intent(
+        &self,
+        conn: &DbConnection<<<ScopedClient as ScopedGroupClient>::Db as XmtpDb>::Connection>,
+    ) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
+            // If changed to NOT USE a connection, WILL deadlock b/c nested transactions
+            self.queue_intent_with_conn(
+                conn,
+                IntentKind::KeyUpdate,
+                b"key_update".to_vec(),
+                false,
+            )?;
         }
         Ok(())
     }

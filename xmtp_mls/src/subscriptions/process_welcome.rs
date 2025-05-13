@@ -1,22 +1,15 @@
-//! The future for processing a welcome from a stream
-
-use super::{
-    stream_conversations::{ConversationStreamError, ProcessWelcomeResult},
-    Result, WelcomeOrGroup,
-};
-use crate::groups::{scoped_client::ScopedGroupClient, MlsGroup};
-use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group::ConversationType, NotFound};
 
 use std::collections::HashSet;
-use xmtp_proto::{mls_v1::WelcomeMessage, xmtp::mls::api::v1::welcome_message};
 
-fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
-    match welcome.version {
-        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
-        _ => Err(ConversationStreamError::InvalidPayload.into()),
-    }
-}
+use super::{stream_conversations::ConversationStreamError, Result};
+use crate::{
+    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    subscriptions::WelcomeOrGroup,
+};
+use xmtp_db::{group::ConversationType, NotFound};
+
+use xmtp_common::{retry_async, Retry};
+use xmtp_proto::mls_v1::{welcome_message, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Client> {
@@ -28,6 +21,20 @@ pub struct ProcessWelcomeFuture<Client> {
     item: WelcomeOrGroup,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
+}
+
+pub enum ProcessWelcomeResult<C> {
+    /// New Group and welcome id
+    New { group: MlsGroup<C>, id: i64 },
+    /// A group we already have/we created that might not have a welcome id
+    NewStored {
+        group: MlsGroup<C>,
+        maybe_id: Option<i64>,
+    },
+    /// Skip this welcome but add and id to known welcome ids
+    IgnoreId { id: i64 },
+    /// Skip this payload
+    Ignore,
 }
 
 impl<C> ProcessWelcomeFuture<C>
@@ -62,7 +69,7 @@ where
     /// )?;
     /// let result = future.process().await?;
     /// ```
-    pub(super) fn new(
+    pub fn new(
         known_welcome_ids: HashSet<i64>,
         client: C,
         item: WelcomeOrGroup,
@@ -74,6 +81,13 @@ where
             item,
             conversation_type,
         })
+    }
+}
+
+fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
+    match welcome.version {
+        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
+        _ => Err(ConversationStreamError::InvalidPayload.into()),
     }
 }
 
