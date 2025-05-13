@@ -58,13 +58,3 @@ pub fn rand_array<const N: usize>() -> [u8; N] {
 pub fn rand_vec<const N: usize>() -> Vec<u8> {
     rand_array::<N>().to_vec()
 }
-
-#[cfg(test)]
-pub(crate) mod tests {
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn _setup() {
-        crate::test::logger();
-    }
-}

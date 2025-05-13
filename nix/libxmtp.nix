@@ -46,7 +46,7 @@ let
             ];
           extraInputs = top;
         });
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -101,6 +101,6 @@ mkShell {
       frameworks.AppKit
       darwin.cctools
     ] ++ lib.optionals stdenv.isLinux [
-      
+
     ];
 }

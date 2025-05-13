@@ -253,7 +253,6 @@ where
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all)]
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -271,7 +270,6 @@ where
         Ok(result)
     }
 
-    #[tracing::instrument(skip_all)]
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -284,5 +282,9 @@ where
         self.run_hook(POST_WRITE_HOOK)?;
         self.run_static_hooks(STATIC_POST_WRITE_HOOK)?;
         Ok(result)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        self.db.is_in_transaction()
     }
 }

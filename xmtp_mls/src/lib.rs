@@ -89,14 +89,3 @@ pub struct MlsGroupGuard {
 }
 
 use crate::groups::GroupError;
-
-#[cfg(test)]
-pub(crate) mod tests {
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn _setup() {
-        xmtp_common::logger();
-        let _ = fdlimit::raise_fd_limit();
-    }
-}

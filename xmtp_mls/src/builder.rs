@@ -35,9 +35,21 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     WrappedApiError(#[from] xmtp_api::ApiError),
     #[error(transparent)]
-    GroupError(#[from] crate::groups::GroupError),
+    GroupError(#[from] Box<crate::groups::GroupError>),
     #[error(transparent)]
-    DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
+    DeviceSync(#[from] Box<crate::groups::device_sync::DeviceSyncError>),
+}
+
+impl From<crate::groups::device_sync::DeviceSyncError> for ClientBuilderError {
+    fn from(value: crate::groups::device_sync::DeviceSyncError) -> Self {
+        ClientBuilderError::DeviceSync(Box::new(value))
+    }
+}
+
+impl From<crate::groups::GroupError> for ClientBuilderError {
+    fn from(value: crate::groups::GroupError) -> Self {
+        ClientBuilderError::GroupError(Box::new(value))
+    }
 }
 
 pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
@@ -88,12 +100,8 @@ where
     ApiClient: Clone,
     Db: Clone,
 {
-    // This is not normal and should not be used outside of tests
-    // All Arc<> reference will almost definitely have more than 1 reference, so
-    // 'make_mut' is just used as a way to get a clone to the inner T,
-    // it is useful in tests to rebuild client with some other state.
     pub fn from_client(client: Client<ApiClient, Db>) -> ClientBuilder<ApiClient, Db> {
-        let cloned_api = Arc::make_mut(&mut client.context.api_client.clone()).clone();
+        let cloned_api = client.context.api_client.clone();
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
@@ -174,7 +182,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
-            api_client: api_client.into(),
+            api_client,
             version_info,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,

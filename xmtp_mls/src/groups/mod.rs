@@ -258,7 +258,7 @@ where
     pub fn new_cached(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: &[u8],
-    ) -> Result<(Self, StoredGroup), GroupError> {
+    ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
         if let Some(group) = conn.find_group(group_id)? {
             Ok((
@@ -311,7 +311,7 @@ where
         operation: F,
     ) -> Result<R, GroupError>
     where
-        F: FnOnce(OpenMlsGroup) -> Result<R, GroupError>,
+        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
     {
         // Get the group ID for locking
         let group_id = self.group_id.clone();
@@ -593,7 +593,7 @@ where
             } = decrypted_welcome;
 
             let requires_processing = if allow_cursor_increment {
-                tracing::info!(
+                tracing::debug!(
                     "calling update cursor for welcome {}, allow_cursor_increment is true",
                     welcome.id
                 );
@@ -603,7 +603,7 @@ where
                     welcome.id as i64,
                 )?
             } else {
-                tracing::info!(
+                tracing::debug!(
                     "will not call update cursor for welcome {}, allow_cursor_increment is false",
                     welcome.id
                 );
@@ -613,7 +613,7 @@ where
                 current_cursor < welcome.id as i64
             };
             if !requires_processing {
-                return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
@@ -689,6 +689,7 @@ where
                 },
             };
 
+            tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
