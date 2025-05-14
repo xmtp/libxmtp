@@ -93,7 +93,7 @@ impl Icebox {
 
 #[cfg(test)]
 mod tests {
-    use crate::{with_connection, Store};
+    use crate::{Store, with_connection};
 
     use super::*;
 
@@ -129,10 +129,10 @@ mod tests {
             let ice = iced();
             ice.iter().for_each(|i| i.store(conn)?);
 
-            let dep_chain = Icebox::backward_dep_chain(&conn, 41, 1)?;
+            let dep_chain = Icebox::backward_dep_chain(conn, 41, 1)?;
             assert_eq!(dep_chain, ice);
 
-            let dep_chain = Icebox::forward_dep_chain(&conn, 39, 2)?;
+            let dep_chain = Icebox::forward_dep_chain(conn, 39, 2)?;
             assert_eq!(dep_chain, ice.into_iter().rev().collect::<Vec<_>>());
         })
         .await
@@ -146,12 +146,12 @@ mod tests {
             ice[2].originator_id = 1;
             ice.iter().for_each(|i| i.store(conn)?);
 
-            let dep_chain = Icebox::backward_dep_chain(&conn, 41, 1)?;
+            let dep_chain = Icebox::backward_dep_chain(conn, 41, 1)?;
             // The last iced message should not be there due to the wrong originator_id.
             let leftover = ice.pop()?;
             assert_eq!(dep_chain, ice);
 
-            let dep_chain = Icebox::forward_dep_chain(&conn, 39, 1)?;
+            let dep_chain = Icebox::forward_dep_chain(conn, 39, 1)?;
             assert_eq!(dep_chain, vec![leftover]);
         })
         .await
@@ -165,12 +165,12 @@ mod tests {
             ice[2].sequence_id = 38;
             ice.iter().for_each(|i| i.store(conn)?);
 
-            let dep_chain = Icebox::backward_dep_chain(&conn, 41, 1)?;
+            let dep_chain = Icebox::backward_dep_chain(conn, 41, 1)?;
             // The last iced message should not be there due to the wrong originator_id.
             let leftover = ice.pop()?;
             assert_eq!(dep_chain, ice);
 
-            let dep_chain = Icebox::forward_dep_chain(&conn, 38, 2)?;
+            let dep_chain = Icebox::forward_dep_chain(conn, 38, 2)?;
             assert_eq!(dep_chain, vec![leftover]);
         })
         .await
@@ -187,16 +187,16 @@ mod tests {
                 depending_originator_id: None,
                 envelope_payload: vec![1; 10],
             };
-            let result = ice.store(&conn);
+            let result = ice.store(conn);
             assert!(result.is_err());
 
             ice.depending_originator_id = Some(1);
             ice.depending_sequence_id = None;
-            let result = ice.store(&conn);
+            let result = ice.store(conn);
             assert!(result.is_err());
 
             ice.depending_sequence_id = Some(1);
-            let result = ice.store(&conn);
+            let result = ice.store(conn);
             assert!(result.is_ok());
         })
         .await

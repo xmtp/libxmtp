@@ -1,13 +1,13 @@
+use super::ConnectionExt;
 use super::group::ConversationType;
 use super::schema::groups;
-use super::ConnectionExt;
 use super::{
+    Sqlite,
     db_connection::DbConnection,
     schema::{
         group_messages::{self, dsl},
         groups::dsl as groups_dsl,
     },
-    Sqlite,
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;

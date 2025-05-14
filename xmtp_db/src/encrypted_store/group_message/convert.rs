@@ -1,8 +1,8 @@
 use super::*;
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::message_backup::{
     ContentTypeSave, DeliveryStatusSave, GroupMessageKindSave, GroupMessageSave,
 };
-use xmtp_proto::ConversionError;
 
 impl TryFrom<GroupMessageSave> for StoredGroupMessage {
     type Error = ConversionError;
