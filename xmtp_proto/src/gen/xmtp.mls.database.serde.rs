@@ -839,6 +839,9 @@ impl serde::Serialize for post_commit_action::Installation {
         if !self.hpke_public_key.is_empty() {
             len += 1;
         }
+        if self.welcome_wrapper_algorithm != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.PostCommitAction.Installation", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -849,6 +852,11 @@ impl serde::Serialize for post_commit_action::Installation {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
+        }
+        if self.welcome_wrapper_algorithm != 0 {
+            let v = super::message_contents::WelcomeWrapperAlgorithm::try_from(self.welcome_wrapper_algorithm)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.welcome_wrapper_algorithm)))?;
+            struct_ser.serialize_field("welcomeWrapperAlgorithm", &v)?;
         }
         struct_ser.end()
     }
@@ -864,12 +872,15 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
             "installationKey",
             "hpke_public_key",
             "hpkePublicKey",
+            "welcome_wrapper_algorithm",
+            "welcomeWrapperAlgorithm",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationKey,
             HpkePublicKey,
+            WelcomeWrapperAlgorithm,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -893,6 +904,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                         match value {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
+                            "welcomeWrapperAlgorithm" | "welcome_wrapper_algorithm" => Ok(GeneratedField::WelcomeWrapperAlgorithm),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -914,6 +926,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
             {
                 let mut installation_key__ = None;
                 let mut hpke_public_key__ = None;
+                let mut welcome_wrapper_algorithm__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
@@ -932,11 +945,18 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::WelcomeWrapperAlgorithm => {
+                            if welcome_wrapper_algorithm__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeWrapperAlgorithm"));
+                            }
+                            welcome_wrapper_algorithm__ = Some(map_.next_value::<super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
+                        }
                     }
                 }
                 Ok(post_commit_action::Installation {
                     installation_key: installation_key__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
+                    welcome_wrapper_algorithm: welcome_wrapper_algorithm__.unwrap_or_default(),
                 })
             }
         }
