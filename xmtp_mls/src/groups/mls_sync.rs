@@ -6,11 +6,14 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, ProcessSummary, SyncSummary},
-    validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
+    validated_commit::{CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup, ScopedGroupClient,
 };
 use crate::configuration::sync_update_installations_interval_ns;
 use crate::groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update;
+use crate::groups::mls_ext::MlsExtensionsExt;
+use crate::groups::mls_ext::MlsGroupExt;
+use crate::groups::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{
     client::ClientError, groups::group_mutable_metadata::MetadataField,
@@ -25,7 +28,7 @@ use crate::{
         validated_commit::ValidatedCommit,
     },
     hpke::{encrypt_welcome, HpkeError},
-    identity::{parse_credential, IdentityError},
+    identity::IdentityError,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
@@ -45,25 +48,22 @@ use xmtp_db::{
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     refresh_state::EntityKind,
     sql_key_store,
-    sql_key_store::SqlKeyStore,
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
 };
 
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use openmls::group::{ProcessMessageError, ValidationError};
 use openmls::{
-    credentials::BasicCredential,
     extensions::Extensions,
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     prelude::{
         tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
-        ProcessedMessage, ProcessedMessageContent, Sender,
+        ProcessedMessage, ProcessedMessageContent,
     },
     treesync::LeafNodeParameters,
 };
@@ -82,7 +82,7 @@ use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
-use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_id::InboxIdRef;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -646,7 +646,7 @@ where
         )?;
 
         let (sender_inbox_id, sender_installation_id) =
-            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
+            mls_group.extract_sender(&processed_message, envelope_timestamp_ns)?;
 
         tracing::info!(
             inbox_id = self.client.inbox_id(),
@@ -759,7 +759,7 @@ where
         let msg_epoch = processed_message.epoch().as_u64();
         let msg_group_id = hex::encode(processed_message.group_id().as_slice());
         let (sender_inbox_id, sender_installation_id) =
-            extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
+            mls_group.extract_sender(&processed_message, envelope_timestamp_ns)?;
 
         let processed_message = match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
@@ -1639,7 +1639,7 @@ where
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit.tls_serialize_detached()?,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit: openmls_group.get_and_clear_pending_commit(provider)?,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1662,7 +1662,7 @@ where
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit: openmls_group.get_and_clear_pending_commit(provider)?,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1684,7 +1684,7 @@ where
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit: openmls_group.get_and_clear_pending_commit(provider)?,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1704,7 +1704,7 @@ where
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit: openmls_group.get_and_clear_pending_commit(provider)?,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1821,7 +1821,8 @@ where
     ) -> Result<UpdateGroupMembershipIntentData, GroupError> {
         let provider = self.mls_provider();
         self.load_mls_group_with_lock_async(|mls_group| async move {
-            let existing_group_membership = extract_group_membership(mls_group.extensions())?;
+            let existing_group_membership = mls_group.extensions().group_membership()?;
+
             // TODO:nm prevent querying for updates on members who are being removed
             let mut inbox_ids = existing_group_membership.inbox_ids();
             inbox_ids.extend_from_slice(inbox_ids_to_add);
@@ -1864,7 +1865,7 @@ where
                         Ok(updates)
                     })?;
             let extensions: Extensions = mls_group.extensions().clone();
-            let old_group_membership = extract_group_membership(&extensions)?;
+            let old_group_membership = extensions.group_membership()?;
             let mut new_membership = old_group_membership.clone();
             for (inbox_id, sequence_id) in changed_inbox_ids.iter() {
                 new_membership.add(inbox_id.clone(), *sequence_id);
@@ -2026,30 +2027,6 @@ where
     }
 }
 
-// Extracts the message sender, but does not do any validation to ensure that the
-// installation_id is actually part of the inbox.
-fn extract_message_sender(
-    openmls_group: &mut OpenMlsGroup,
-    decrypted_message: &ProcessedMessage,
-    message_created_ns: u64,
-) -> Result<(InboxId, Vec<u8>), GroupMessageProcessingError> {
-    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-            if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = BasicCredential::try_from(member.credential)?;
-                let sender_inbox_id = parse_credential(basic_credential.identity())?;
-                return Ok((sender_inbox_id, member.signature_key));
-            }
-        }
-    }
-
-    let basic_credential = BasicCredential::try_from(decrypted_message.credential().clone())?;
-    Err(GroupMessageProcessingError::InvalidSender {
-        message_time_ns: message_created_ns,
-        credential: basic_credential.identity().to_vec(),
-    })
-}
-
 async fn calculate_membership_changes_with_keypackages<'a>(
     client: impl ScopedGroupClient,
     new_group_membership: &'a GroupMembership,
@@ -2182,8 +2159,7 @@ async fn apply_update_group_membership_intent(
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let provider = client.mls_provider();
-    let extensions: Extensions = openmls_group.extensions().clone();
-    let old_group_membership = extract_group_membership(&extensions)?;
+    let old_group_membership = openmls_group.membership()?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
@@ -2194,7 +2170,7 @@ async fn apply_update_group_membership_intent(
     )
     .await?;
     let leaf_nodes_to_remove: Vec<LeafNodeIndex> =
-        get_removed_leaf_nodes(openmls_group, &changes_with_kps.removed_installations);
+        openmls_group.removed_leaf_nodes(&changes_with_kps.removed_installations);
 
     if leaf_nodes_to_remove.is_empty()
         && changes_with_kps.new_key_packages.is_empty()
@@ -2204,7 +2180,7 @@ async fn apply_update_group_membership_intent(
     }
 
     // Update the extensions to have the new GroupMembership
-    let mut new_extensions = extensions.clone();
+    let mut new_extensions = openmls_group.extensions().clone();
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
@@ -2225,7 +2201,8 @@ async fn apply_update_group_membership_intent(
         None => None,
     };
 
-    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
+    let staged_commit = openmls_group
+        .get_and_clear_pending_commit(provider)?
         .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
     Ok(Some(PublishIntentData {
@@ -2234,30 +2211,6 @@ async fn apply_update_group_membership_intent(
         staged_commit: Some(staged_commit),
         should_send_push_notification: false,
     }))
-}
-
-fn get_removed_leaf_nodes(
-    openmls_group: &mut OpenMlsGroup,
-    removed_installations: &HashSet<Vec<u8>>,
-) -> Vec<LeafNodeIndex> {
-    openmls_group
-        .members()
-        .filter(|member| removed_installations.contains(&member.signature_key))
-        .map(|member| member.index)
-        .collect()
-}
-
-fn get_and_clear_pending_commit<C: ConnectionExt>(
-    openmls_group: &mut OpenMlsGroup,
-    provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<C>>,
-) -> Result<Option<Vec<u8>>, GroupError> {
-    let commit = openmls_group
-        .pending_commit()
-        .as_ref()
-        .map(xmtp_db::db_serialize)
-        .transpose()?;
-    openmls_group.clear_pending_commit(provider.storage())?;
-    Ok(commit)
 }
 
 fn decode_staged_commit(data: &[u8]) -> Result<StagedCommit, GroupMessageProcessingError> {

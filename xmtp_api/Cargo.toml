@@ -38,7 +38,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 ctor.workspace = true
 
 [features]
-default = ["grpc-api"]
 test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
@@ -47,5 +46,6 @@ test-utils = [
   "dep:xmtp_api_http",
   "dep:mockall",
 ]
+default = ["grpc-api"]
 http-api = ["dep:xmtp_api_http"]
 grpc-api = ["dep:xmtp_api_grpc"]

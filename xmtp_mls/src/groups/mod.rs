@@ -24,14 +24,11 @@ use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
-    group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
-    },
+    group_permissions::{GroupMutablePermissions, GroupMutablePermissionsError},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::extract_group_membership,
 };
 use self::{
     group_metadata::{GroupMetadata, GroupMetadataError},
@@ -43,6 +40,7 @@ use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
 };
 use crate::groups::intents::UpdateGroupMembershipResult;
+use crate::groups::mls_ext::MlsExtensionsExt;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
@@ -61,7 +59,7 @@ use crate::{
 };
 use device_sync::preference_sync::PreferenceUpdate;
 use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
+use mls_ext::{DecryptedWelcome, GroupExtError, MlsGroupExt};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -280,6 +278,8 @@ pub enum GroupError {
     Sync(#[from] SyncSummary),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    GroupExt(#[from] GroupExtError),
 }
 
 impl RetryableError for GroupError {
@@ -288,6 +288,7 @@ impl RetryableError for GroupError {
             Self::ReceiveErrors(errors) => errors.is_retryable(),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
+            Self::GroupExt(g) => g.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
             Self::Hpke(hpke) => hpke.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
@@ -1715,9 +1716,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let provider = self.mls_provider();
 
-        self.load_mls_group_with_lock(&provider, |mls_group| {
-            Ok(extract_group_permissions(&mls_group)?)
-        })
+        self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.permissions()?))
     }
 
     /// Used for testing that dm group validation works as expected.
@@ -2067,7 +2066,7 @@ async fn validate_initial_group_membership(
     let conn = provider.db();
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
-    let membership = extract_group_membership(extensions)?;
+    let membership = extensions.group_membership()?;
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
@@ -2170,7 +2169,7 @@ fn validate_dm_group(
 
     // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
     // Note: we don't validate mutable metadata permissions, because they don't affect group membership
-    let permissions = extract_group_permissions(mls_group)?;
+    let permissions = mls_group.permissions()?;
     let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
 
     if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
