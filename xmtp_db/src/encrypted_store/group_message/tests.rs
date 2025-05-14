@@ -3,7 +3,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::*;
 use crate::{
-    EncryptedMessageStore, Store, group::tests::generate_group, test_utils::with_connection,
+    group::tests::generate_group, test_utils::with_connection, EncryptedMessageStore, Store,
 };
 use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 use xmtp_content_types::should_push;
@@ -195,16 +195,12 @@ async fn it_deletes_middle_message_by_expiration_time() {
 
         // Verify the count and content of the remaining messages
         assert_eq!(remaining_messages.len(), 2);
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 1_000_000_000)
-        ); // Message 1
-        assert!(
-            remaining_messages
-                .iter()
-                .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)
-        ); // Message 3
+        assert!(remaining_messages
+            .iter()
+            .any(|msg| msg.sent_at_ns == 1_000_000_000)); // Message 1
+        assert!(remaining_messages
+            .iter()
+            .any(|msg| msg.sent_at_ns == 2_000_000_000_000_000_000)); // Message 3
     })
     .await
 }
