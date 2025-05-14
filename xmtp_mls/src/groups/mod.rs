@@ -52,7 +52,6 @@ use crate::{
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    hpke::HpkeError,
     identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
     intents::ProcessIntentError,
@@ -61,7 +60,7 @@ use crate::{
 };
 use device_sync::preference_sync::PreferenceUpdate;
 use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
+use mls_ext::{DecryptedWelcome, UnwrapWelcomeError, WrapWelcomeError};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -227,8 +226,10 @@ pub enum GroupError {
     GroupMutableMetadata(#[from] GroupMutableMetadataError),
     #[error("Mutable Permissions error {0}")]
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
-    #[error("Hpke error: {0}")]
-    Hpke(#[from] HpkeError),
+    #[error("Errors occurred during sync {0:?}")]
+    Sync(Vec<GroupError>),
+    #[error(transparent)]
+    WrapWelcome(#[from] WrapWelcomeError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
@@ -280,6 +281,8 @@ pub enum GroupError {
     Sync(#[from] SyncSummary),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    UnwrapWelcome(#[from] UnwrapWelcomeError),
 }
 
 impl RetryableError for GroupError {
@@ -289,7 +292,6 @@ impl RetryableError for GroupError {
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
-            Self::Hpke(hpke) => hpke.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
             Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
@@ -315,6 +317,7 @@ impl RetryableError for GroupError {
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
+            | Self::WrapWelcome(_)
             | Self::CreateMessage(_)
             | Self::TlsError(_)
             | Self::IntentNotCommitted
@@ -323,6 +326,7 @@ impl RetryableError for GroupError {
             | Self::MissingSequenceId
             | Self::AddressNotFound(_)
             | Self::InvalidExtension(_)
+            | Self::UnwrapWelcome(_)
             | Self::MissingMetadataField { .. }
             | Self::DmGroupMetadataForbidden
             | Self::Signature(_)
@@ -800,6 +804,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             );
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
@@ -819,6 +824,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             )?;
             let DecryptedWelcome {
                 staged_welcome,

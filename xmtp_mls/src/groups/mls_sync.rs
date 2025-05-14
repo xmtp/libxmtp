@@ -24,7 +24,6 @@ use crate::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
-    hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
@@ -83,7 +82,7 @@ use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
+use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -1915,22 +1914,27 @@ where
         let welcomes = action
             .installations
             .into_iter()
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                        wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+            .map(
+                |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+                    let installation_key = installation.installation_key;
+                    let algorithm = installation.welcome_wrapper_algorithm;
+                    let wrapped_welcome = wrap_welcome(
+                        &action.welcome_message,
+                        &installation.hpke_public_key,
+                        // TODO:(nm) replace with dynamic value
+                        &algorithm,
+                    )?;
+                    Ok(WelcomeMessageInput {
+                        version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                            installation_key,
+                            data: wrapped_welcome,
+                            hpke_public_key: installation.hpke_public_key,
+                            wrapper_algorithm: algorithm.into(),
+                        })),
+                    })
+                },
+            )
+            .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
 
         let welcome = welcomes
             .first()
@@ -2086,7 +2090,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
                 Ok(verified_key_package) => {
                     new_installations.push(Installation::from_verified_key_package(
                         &verified_key_package,
-                    ));
+                    )?);
                     new_key_packages.push(verified_key_package.inner.clone());
                 }
                 Err(_) => new_failed_installations.push(installation_id.clone()),
