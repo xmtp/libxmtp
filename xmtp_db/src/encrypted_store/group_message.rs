@@ -1,3 +1,15 @@
+use super::ConnectionExt;
+use super::group::ConversationType;
+use super::schema::groups;
+use super::{
+    Sqlite,
+    db_connection::DbConnection,
+    schema::{
+        group_messages::{self, dsl},
+        groups::dsl as groups_dsl,
+    },
+};
+use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::dsl::sql;
 use diesel::sql_types::BigInt;
@@ -18,22 +30,9 @@ use xmtp_content_types::{
     text, transaction_reference,
 };
 
+mod convert;
 #[cfg(test)]
 pub mod tests;
-
-use super::ConnectionExt;
-use super::group::ConversationType;
-use super::schema::groups;
-use super::{
-    Sqlite,
-    db_connection::DbConnection,
-    schema::{
-        group_messages::{self, dsl},
-        groups::dsl as groups_dsl,
-    },
-};
-use crate::{impl_fetch, impl_store, impl_store_or_ignore};
-mod convert;
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, Insertable, Identifiable, Queryable, Eq, PartialEq,

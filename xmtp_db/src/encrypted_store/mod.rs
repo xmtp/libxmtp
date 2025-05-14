@@ -17,6 +17,7 @@ pub mod db_connection;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
+pub mod icebox;
 pub mod identity;
 pub mod identity_cache;
 pub mod identity_update;

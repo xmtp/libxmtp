@@ -601,7 +601,9 @@ impl From<PermissionPolicyOption> for PermissionsPolicies {
     fn from(value: PermissionPolicyOption) -> Self {
         match value {
             PermissionPolicyOption::Allow => {
-                tracing::error!("PermissionPolicyOption::Allow is not allowed for PermissionsPolicies, set to super_admin only instead");
+                tracing::error!(
+                    "PermissionPolicyOption::Allow is not allowed for PermissionsPolicies, set to super_admin only instead"
+                );
                 PermissionsPolicies::allow_if_actor_super_admin()
             }
             PermissionPolicyOption::Deny => PermissionsPolicies::deny(),
