@@ -3,6 +3,7 @@
 
 [print_schema]
 file = "src/encrypted_store/schema_gen.rs"
+patch_file = "schema.patch"
 
 [migrations_directory]
 dir = "../xmtp_db/migrations"
