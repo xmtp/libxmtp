@@ -437,6 +437,21 @@ mod test {
     }
 
     #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = "true")]
+    #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_sync_groups_are_not_streamed() {
+        tester!(alix, sync_worker);
+        let stream = alix.stream_conversations(None).await?;
+        futures::pin_mut!(stream);
+
+        tester!(_alix2, from: alix);
+
+        let result =
+            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        assert!(result.is_err(), "Sync group should not stream");
+    }
+
+    #[rstest::rstest]
     #[case(ConversationType::Dm, "Unexpectedly received a Group")]
     #[case(ConversationType::Group, "Unexpectedly received a DM")]
     #[xmtp_common::test]

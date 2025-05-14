@@ -170,6 +170,13 @@ where
         match processed {
             New { group, id } => {
                 let metadata = group.metadata().await?;
+
+                // Do not stream sync groups.
+                if metadata.conversation_type == ConversationType::Sync {
+                    tracing::debug!("Sync group welcome processed. Skipping stream.");
+                    return Ok(ProcessWelcomeResult::IgnoreId { id });
+                }
+
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
                     && self.client.db().has_duplicate_dm(&group.group_id)?
