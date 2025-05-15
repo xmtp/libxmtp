@@ -2666,6 +2666,7 @@ impl FfiGroupPermissions {
 
 #[cfg(test)]
 mod tests {
+    use futures::future::join_all;
     use passkey::{
         authenticator::{Authenticator, UserCheck, UserValidationMethod},
         client::{Client, DefaultClientData},
@@ -7672,5 +7673,212 @@ mod tests {
         let group_bo = client_bo.conversation(convo_bo.id()).unwrap();
         let group_alix = client_alix.conversation(convo_alix.id()).unwrap();
         assert_eq!(group_bo.id(), group_alix.id(), "Conversations should match");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_streams_and_parallel_messages() {
+        // Create four test clients
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
+        let davon = new_test_client().await;
+
+        // Create two groups, each with all three clients
+        // Group 1 created by Alix, Group 2 by Caro
+        let alix_group = alix
+            .conversations()
+            .create_group(
+                vec![
+                    caro.account_identifier.clone(),
+                    bo.account_identifier.clone(),
+                ],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let caro_group2 = caro
+            .conversations()
+            .create_group(
+                vec![
+                    alix.account_identifier.clone(),
+                    bo.account_identifier.clone(),
+                ],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        // All three clients sync all conversations
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        caro.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        // Get conversation references for each client
+        let bo_group = bo.conversation(alix_group.id()).unwrap();
+        let caro_group = caro.conversation(alix_group.id()).unwrap();
+        let bo_group2 = bo.conversation(caro_group2.id()).unwrap();
+        let alix_group2 = alix.conversation(caro_group2.id()).unwrap();
+
+        // Create a callback to track messages received by Caro
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let message_count = Arc::new(AtomicU32::new(0));
+
+        struct TestMessageCallback {
+            messages: Arc<Mutex<Vec<String>>>,
+            count: Arc<AtomicU32>,
+            notify: Notify,
+        }
+
+        impl FfiMessageCallback for TestMessageCallback {
+            fn on_message(&self, message: FfiMessage) {
+                let content = String::from_utf8_lossy(&message.content).to_string();
+                log::info!("Caro received: {}", content);
+
+                let mut messages = self.messages.lock().unwrap();
+                messages.push(content);
+                self.count.fetch_add(1, Ordering::SeqCst);
+                self.notify.notify_one();
+            }
+
+            fn on_error(&self, error: FfiSubscribeError) {
+                log::error!("Stream error: {:?}", error);
+            }
+        }
+
+        let notify = Notify::new();
+        let caro_callback = Arc::new(TestMessageCallback {
+            messages: messages.clone(),
+            count: message_count.clone(),
+            notify,
+        });
+
+        // Start streaming all messages for Caro
+        log::info!("Caro is listening...");
+        let stream = caro
+            .conversations()
+            .stream_all_messages(caro_callback.clone())
+            .await;
+
+        stream.wait_for_ready().await;
+
+        // Wait a bit to ensure streaming is set up
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Create several tasks to send messages in parallel
+
+        // Task 1: Alix sends 20 messages to group 1 and group 2
+        let alix_messages = Arc::new(alix_group.clone());
+        let alix_messages2 = Arc::new(alix_group2.clone());
+        let alix_task = tokio::spawn(async move {
+            log::info!("Alix is sending messages...");
+            for i in 0..20 {
+                let message = format!("Alix Message {}", i);
+                let content = message.as_bytes().to_vec();
+                alix_messages.send(content.clone()).await.unwrap();
+                alix_messages2.send(content).await.unwrap();
+                log::info!("Alix sent: {}", message);
+            }
+        });
+
+        // Task 2: Bo sends 10 messages to group 1 and group 2
+        let bo_messages = Arc::new(bo_group.clone());
+        let bo_messages2 = Arc::new(bo_group2.clone());
+        let bo_task = tokio::spawn(async move {
+            log::info!("Bo is sending messages...");
+            for i in 0..10 {
+                let message = format!("Bo Message {}", i);
+                let content = message.as_bytes().to_vec();
+                bo_messages.send(content.clone()).await.unwrap();
+                bo_messages2.send(content).await.unwrap();
+                log::info!("Bo sent: {}", message);
+            }
+        });
+
+        // Task 3: Davon creates 10 groups with Caro and sends a message to each
+        let davon_task = tokio::spawn({
+            let caro_identity = caro.account_identifier.clone();
+            async move {
+                log::info!("Davon is sending spam groups...");
+                for i in 0..10 {
+                    let spam_message = format!("Davon Spam Message {}", i);
+                    let group = davon
+                        .conversations()
+                        .create_group(
+                            vec![caro_identity.clone()],
+                            FfiCreateGroupOptions::default(),
+                        )
+                        .await
+                        .unwrap();
+                    group.send(spam_message.as_bytes().to_vec()).await.unwrap();
+                    log::info!("Davon spam: {}", spam_message);
+                }
+            }
+        });
+
+        // Task 4: Caro sends 10 messages to group 1 and group 2
+        let caro_messages = Arc::new(caro_group.clone());
+        let caro_messages2 = Arc::new(caro_group2.clone());
+        let caro_task = tokio::spawn(async move {
+            log::info!("Caro is sending messages...");
+            for i in 0..10 {
+                let message = format!("Caro Message {}", i);
+                let content = message.as_bytes().to_vec();
+                caro_messages.send(content.clone()).await.unwrap();
+                caro_messages2.send(content).await.unwrap();
+                log::info!("Caro sent: {}", message);
+            }
+        });
+
+        // Wait for all tasks to complete
+        join_all(vec![alix_task, bo_task, davon_task, caro_task]).await;
+
+        // Wait a bit to ensure all messages are processed
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Stop the stream
+        stream.end_and_wait().await.unwrap();
+
+        // Check results
+        let message_count_final = message_count.load(Ordering::SeqCst);
+
+        // Verify 90 messages were streamed by Caro
+        assert_eq!(90, message_count_final);
+
+        // Sync all groups to make sure they have all messages
+        bo_group.sync().await.unwrap();
+        alix_group.sync().await.unwrap();
+        caro_group.sync().await.unwrap();
+
+        // Group 1 for caro should have 40 messages
+        let caro_messages = caro_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(40, caro_messages.len());
+
+        // Group 1 for bo should have 40 messages
+        let bo_messages = bo_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(40, bo_messages.len());
+
+        // Group 1 for alix should have 41 messages
+        // (Kotlin test shows 41 expected here - might be due to a welcome message or similar)
+        let alix_messages = alix_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(41, alix_messages.len());
     }
 }
