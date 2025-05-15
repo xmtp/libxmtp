@@ -3308,7 +3308,16 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder().sync_worker().sync_server().build().await;
+        let alex = Tester::builder()
+            .sync_worker()
+            .sync_server()
+            .stream()
+            .build()
+            .await;
+
+        let convo_callback = Arc::new(RustStreamCallback::default());
+        let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
+
         let worker = alex.client.inner_client.worker_handle().unwrap();
 
         let stats = alex.inner_client.api_stats();
@@ -3338,7 +3347,7 @@ mod tests {
         let group_message_count = stats.send_group_messages.get_count();
 
         // Sleep for 2 seconds and make sure nothing else has sent
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
