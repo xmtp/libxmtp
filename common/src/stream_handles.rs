@@ -294,4 +294,19 @@ mod native {
             ready,
         }
     }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn spawn_instrumented<F>(
+        ready: Option<tokio::sync::oneshot::Receiver<()>>,
+        future: F,
+    ) -> impl StreamHandle<StreamOutput = F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        TokioStreamHandle {
+            inner: tokio::task::spawn(future),
+            ready,
+        }
+    }
 }

@@ -549,7 +549,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         operation: F,
     ) -> Result<R, GroupError>
     where
-        F: FnOnce(OpenMlsGroup) -> Result<R, GroupError>,
+        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
     {
         // Get the group ID for locking
         let group_id = self.group_id.clone();
@@ -847,7 +847,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 current_cursor < welcome.id as i64
             };
             if !requires_processing {
-                return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
@@ -1670,7 +1670,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![], false)?;
+        let intent = self.queue_intent(IntentKind::KeyUpdate, b"key_update".to_vec(), false)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }

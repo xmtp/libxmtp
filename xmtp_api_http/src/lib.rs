@@ -543,14 +543,6 @@ pub mod tests {
 
     use super::*;
 
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg(test)]
-    fn _setup() {
-        xmtp_common::logger();
-    }
-
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_upload_key_package() {

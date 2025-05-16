@@ -10,9 +10,9 @@ type IndentVec = Vec<Indent>;
 
 static ERROR: LazyLock<Style> = LazyLock::new(|| Style::new().bold().red());
 static WARN: LazyLock<Style> = LazyLock::new(|| Style::new().bold().yellow());
-static INFO: LazyLock<Style> = LazyLock::new(|| Style::new().bold().green());
-static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().blue());
-static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().purple());
+static INFO: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
+static DEBUG: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
+static TRACE: LazyLock<Style> = LazyLock::new(|| Style::new().bold().white());
 
 fn err() -> &'static Style {
     &ERROR
@@ -84,6 +84,7 @@ impl Contextual {
             let ids = super::REPLACE_IDS.lock();
             for (id, name) in ids.iter() {
                 message = message.replace(id, name);
+                message = message.replace(&crate::fmt::truncate_hex(id), name);
             }
             write_with_level(event.level(), &message, &mut *writer)?;
         }
@@ -124,6 +125,7 @@ impl Contextual {
             let mut message = field.value().to_string();
             for (id, name) in ids.iter() {
                 message = message.replace(id, name);
+                message = message.replace(&crate::fmt::truncate_hex(id), name);
             }
             write!(
                 writer,

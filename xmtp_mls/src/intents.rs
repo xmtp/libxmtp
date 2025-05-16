@@ -11,10 +11,14 @@
 use thiserror::Error;
 use xmtp_common::RetryableError;
 
+use crate::groups::summary::MessageIdentifier;
+
 #[derive(Debug, Error)]
 pub enum ProcessIntentError {
-    #[error("[{0}] already processed")]
-    AlreadyProcessed(u64),
+    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
+    MessageAlreadyProcessed(MessageIdentifier),
+    #[error("welcome with cursor [{0}] already processed")]
+    WelcomeAlreadyProcessed(u64),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
 }
@@ -22,7 +26,8 @@ pub enum ProcessIntentError {
 impl RetryableError for ProcessIntentError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::AlreadyProcessed(_) => false,
+            Self::MessageAlreadyProcessed(_) => false,
+            Self::WelcomeAlreadyProcessed(_) => false,
             Self::Storage(err) => err.is_retryable(),
         }
     }

@@ -99,11 +99,4 @@ pub(crate) mod tests {
 
     #[cfg(any(feature = "http-api", target_arch = "wasm32",))]
     pub type TestClient = xmtp_api_http::XmtpHttpApiClient;
-
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn _setup() {
-        xmtp_common::logger();
-    }
 }

@@ -1,4 +1,4 @@
-use super::{LocalEvents, Result, SubscribeError};
+use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
 use crate::{
     groups::{scoped_client::ScopedGroupClient, MlsGroup},
     subscriptions::process_welcome::ProcessWelcomeFuture,
@@ -39,7 +39,7 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 }
 
 #[derive(Debug)]
-pub(super) enum WelcomeOrGroup {
+pub enum WelcomeOrGroup {
     Group(Vec<u8>),
     Welcome(WelcomeMessage),
 }
@@ -253,6 +253,7 @@ where
 {
     type Item = Result<MlsGroup<C>>;
 
+    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -298,20 +299,6 @@ where
             }
         }
     }
-}
-
-pub enum ProcessWelcomeResult<C> {
-    /// New Group and welcome id
-    New { group: MlsGroup<C>, id: i64 },
-    /// A group we already have/we created that might not have a welcome id
-    NewStored {
-        group: MlsGroup<C>,
-        maybe_id: Option<i64>,
-    },
-    /// Skip this welcome but add and id to known welcome ids
-    IgnoreId { id: i64 },
-    /// Skip this payload
-    Ignore,
 }
 
 impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
@@ -369,14 +356,16 @@ where
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::Ignore)) => {
                 tracing::debug!("ignoring streamed conversation payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
                 tracing::debug!(

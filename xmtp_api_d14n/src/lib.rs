@@ -40,14 +40,6 @@ pub mod tests {
     pub type TestV3Client = V3Client<TestClient>;
     pub type TestD14nClient = D14nClient<TestClient, TestClient>;
 
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    #[cfg(test)]
-    fn _setup() {
-        xmtp_common::logger();
-    }
-
     impl<C, Payer> XmtpTestClient for D14nClient<C, Payer>
     where
         C: XmtpTestClient + Client,
