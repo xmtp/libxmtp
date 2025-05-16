@@ -143,6 +143,7 @@ pub async fn create_client(
   host: String,
   inbox_id: String,
   account_identifier: Identifier,
+  nonce: Option<u64>,
   db_path: Option<String>,
   encryption_key: Option<Uint8Array>,
   device_sync_server_url: Option<String>,
@@ -177,8 +178,7 @@ pub async fn create_client(
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     account_identifier.clone().try_into()?,
-    // this is a temporary solution
-    1,
+    nonce.unwrap_or(1),
     None,
   );
 

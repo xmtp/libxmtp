@@ -3,7 +3,7 @@ use crate::identity::{Identifier, IdentityExt};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -139,6 +139,7 @@ pub async fn create_client(
   db_path: Option<String>,
   inbox_id: String,
   account_identifier: Identifier,
+  nonce: Option<BigInt>,
   encryption_key: Option<Uint8Array>,
   device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<SyncWorkerMode>,
@@ -178,8 +179,7 @@ pub async fn create_client(
   let identity_strategy = IdentityStrategy::new(
     inbox_id.clone(),
     internal_account_identifier,
-    // this is a temporary solution
-    1,
+    nonce.map(|n| n.get_u64().1).unwrap_or(1),
     None,
   );
 
