@@ -1285,7 +1285,7 @@ where
             // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
-            return Ok(MessageIdentifierBuilder::from(msgv1).build()?);
+            return MessageIdentifierBuilder::from(msgv1).build();
         }
 
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.

@@ -8229,10 +8229,12 @@ mod tests {
         let alix_task = tokio::spawn(async move {
             log::info!("Alix is sending messages...");
             for i in 0..20 {
-                let message = format!("Alix Message {}", i);
+                let message = format!("Alix Message Alix Group {}", i);
+                let message2 = format!("Alix Message Caro Group {}", i);
                 let content = message.as_bytes().to_vec();
-                alix_messages.send(content.clone()).await.unwrap();
-                alix_messages2.send(content).await.unwrap();
+                let content2 = message2.as_bytes().to_vec();
+                alix_messages.send(content).await.unwrap();
+                alix_messages2.send(content2).await.unwrap();
                 log::info!("Alix sent: {}", message);
             }
         });
@@ -8321,6 +8323,7 @@ mod tests {
             })
             .flatten()
             .collect();
+
         let missing = caro.inner_client.db().missing_messages(&messages);
         if !missing.is_empty() {
             for message in &missing {

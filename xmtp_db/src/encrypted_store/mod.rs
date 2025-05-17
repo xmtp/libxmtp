@@ -13,6 +13,7 @@
 pub mod association_state;
 pub mod consent_record;
 pub mod conversation_list;
+pub mod database;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -29,8 +30,6 @@ pub mod schema;
 mod schema_gen;
 pub mod store;
 pub mod user_preferences;
-
-pub mod database;
 
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
@@ -97,6 +96,7 @@ impl RetryableError for ConnectionError {
     }
 }
 
+// #[cfg_attr(any(test, feature = "test-utils"), mockall::automock(type Connection = diesel::SqliteConnection;))]
 pub trait ConnectionExt {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -190,6 +190,7 @@ where
 
 pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
 
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::encrypted_store::MockConnection;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;

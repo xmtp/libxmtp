@@ -47,7 +47,7 @@ pub async fn init_sqlite() {}
 pub mod test_util {
     #![allow(clippy::unwrap_used)]
 
-    use crate::group_message::StoredGroupMessage;
+    use crate::group_message::{GroupMessageKind, StoredGroupMessage};
 
     use super::*;
     use diesel::{
@@ -216,6 +216,7 @@ pub mod test_util {
             let query = dsl::group_messages
                 .filter(dsl::sequence_id.is_not_null())
                 .filter(group_messages::sequence_id.ne_all(sequence_ids))
+                .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .order(group_messages::sequence_id.asc());
 
             self.raw_query_read(|conn| query.load(conn)).unwrap()

@@ -32,7 +32,6 @@ xmtp_common.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
-
 anyhow = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",

@@ -280,6 +280,11 @@ impl ProcessSummary {
         self.new_messages.iter().map(|m| m.cursor).min()
     }
 
+    /// the latest message that failed
+    pub fn last_errored(&self) -> Option<u64> {
+        self.errored.iter().map(|(i, _)| *i).max()
+    }
+
     pub fn errored(&mut self, message_id: u64, error: GroupMessageProcessingError) {
         self.errored.push((message_id, error));
     }

@@ -187,7 +187,12 @@ where
                 processed.as_ref().and_then(|m| m.intent_kind),
                 processed.as_ref().and_then(|m| m.group_context.as_ref().map(|g| g.epoch()))
             );
-            let next: Option<u64> = summary.process.first_new().or(summary.process.first());
+            // if there were no errors, just set it to this msg id. if the message wasn't present,
+            // but didn't error, this message was likely a commit message.
+            // We set it to the last errored message rather than the first decryptable message,
+            // so that when if the stream re-subscribes we process the message. setting the
+            // cursor on the message would unintentially skip it if we re-subscribe.
+            let next: Option<u64> = summary.process.first_new().or(Some(self.msg.id));
             Ok(ProcessedMessage {
                 message: None,
                 next_message: next,

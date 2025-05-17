@@ -6,7 +6,6 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-
 use super::{process_message::ProcessMessageFuture, Result, SubscribeError};
 use crate::{
     groups::MlsGroup,
@@ -279,7 +278,7 @@ where
     /// May return errors if:
     /// - Querying the database for the last cursor fails
     /// - Creating the new subscription fails
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(level = "trace", skip(client, new_group), fields(new_group = hex::encode(&new_group)))]
     async fn subscribe(
 
         client: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
@@ -421,7 +420,7 @@ where
             .copied();
         if let Some(m) = cursor {
             if m > envelope.id.into() {
-                tracing::debug!(
+                tracing::warn!(
                     "current msg with group_id@[{}], has cursor@[{}]. skipping messages until cursor={m}",
                     xmtp_common::fmt::truncate_hex(hex::encode(
                         envelope.group_id.as_slice()
@@ -477,21 +476,24 @@ where
         mut envelope: group_message::V1,
     ) -> Poll<Result<group_message::V1>> {
         // skip the messages
-        while let Some(e) = ready!(self.as_mut().next_message(cx)) {
-            let e = e?;
-            if let Some(stream_cursor) =
-                self.as_ref().group_list.get(e.group_id.as_slice()).copied()
+        while let Some(new_envelope) = ready!(self.as_mut().next_message(cx)) {
+            let new_envelope = new_envelope?;
+            if let Some(stream_cursor) = self
+                .as_ref()
+                .group_list
+                .get(new_envelope.group_id.as_slice())
+                .copied()
             {
-                if stream_cursor > e.id.into() {
+                if stream_cursor > new_envelope.id.into() {
                     tracing::debug!(
                         "skipping msg with group_id@[{}] and cursor@[{}]",
-                        xmtp_common::fmt::truncate_hex(hex::encode(e.group_id.as_slice())),
-                        e.id
+                        xmtp_common::fmt::debug_hex(new_envelope.group_id.as_slice()),
+                        new_envelope.id
                     );
                     continue;
                 }
             } else {
-                envelope = e;
+                envelope = new_envelope;
                 tracing::trace!("finished skipping");
                 break;
             }
