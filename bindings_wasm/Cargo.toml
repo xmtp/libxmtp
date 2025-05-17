@@ -1,12 +1,12 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "bindings_wasm"
 version.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 console_error_panic_hook.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -31,7 +31,7 @@ xmtp_id.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
-[dev-dependencies]
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 wasm-bindgen-test.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
