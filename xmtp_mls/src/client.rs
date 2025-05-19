@@ -147,6 +147,36 @@ pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
 }
 
+impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient, XDb> {
+    type Db = XDb;
+
+    type ApiClient = XApiClient;
+
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
+        &self.context
+    }
+
+    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
+        self.context.db()
+    }
+
+    fn api(&self) -> &xmtp_api::ApiClientWrapper<Self::ApiClient> {
+        self.context.api()
+    }
+
+    fn identity(&self) -> &Identity {
+        &self.context.identity
+    }
+
+    fn version_info(&self) -> &VersionInfo {
+        &self.context.version_info
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
+        &self.context.local_events
+    }
+}
+
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
@@ -178,8 +208,18 @@ where
 {
     // Test only function to update the version of the client
     #[cfg(test)]
-    pub fn test_update_version(&mut self, version: &str) {
-        Arc::make_mut(&mut self.context.version_info).test_update_version(version);
+    pub fn test_update_version(&mut self, version: &str) -> Option<()> {
+        let mut_context = Arc::get_mut(&mut self.context)?;
+        mut_context.version_info.test_update_version(version);
+        Some(())
+    }
+
+    pub fn identity_updates(&self) -> IdentityUpdates<ApiClient, Db> {
+        IdentityUpdates::new(self.context.clone())
+    }
+
+    pub fn mls_store(&self) -> MlsStore<ApiClient, Db> {
+        MlsStore::new(self.context.clone())
     }
 
     pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
@@ -203,7 +243,7 @@ where
         &self.context.scw_verifier
     }
 
-    pub fn version_info(&self) -> &Arc<VersionInfo> {
+    pub fn version_info(&self) -> &VersionInfo {
         &self.context.version_info
     }
 }
@@ -849,6 +889,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
+    use crate::context::XmtpContextProvider;
     use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;
@@ -902,10 +943,7 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_mls_error() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let result = client
-            .api_client
-            .upload_key_package(vec![1, 2, 3], false)
-            .await;
+        let result = client.api().upload_key_package(vec![1, 2, 3], false).await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();
@@ -919,6 +957,7 @@ pub(crate) mod tests {
         let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Make sure the installation is actually on the network
         let association_state = client_2
+            .identity_updates()
             .get_latest_association_state(&client_2.context.db(), client.inbox_id())
             .await
             .unwrap();

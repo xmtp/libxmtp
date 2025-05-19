@@ -32,6 +32,14 @@ pub trait XmtpContextProvider: Sized {
 
     fn identity(&self) -> &Identity;
 
+    fn installation_id(&self) -> InstallationId {
+        (*self.identity().installation_keys.public_bytes()).into()
+    }
+
+    fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.identity().inbox_id()
+    }
+
     fn version_info(&self) -> &VersionInfo;
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
@@ -46,15 +54,15 @@ where
     type ApiClient = XApiClient;
 
     fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
-        todo!()
+        XmtpMlsLocalContext::<XApiClient, XDb>::db(self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        todo!()
+        &self.api_client
     }
 
     fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
-        &self
+        self
     }
 
     fn version_info(&self) -> &VersionInfo {
@@ -62,11 +70,11 @@ where
     }
 
     fn identity(&self) -> &Identity {
-        todo!()
+        &self.identity
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        todo!()
+        &self.local_events
     }
 }
 
@@ -78,26 +86,27 @@ where
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
 
     fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
-        todo!()
+        <T as XmtpContextProvider>::db(&**self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        todo!()
+        <T as XmtpContextProvider>::api(&**self)
     }
 
     fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
-        todo!()
+        <T as XmtpContextProvider>::context_ref(&**self)
     }
 
     fn version_info(&self) -> &VersionInfo {
-        todo!()
+        <T as XmtpContextProvider>::version_info(&**self)
     }
+
     fn identity(&self) -> &Identity {
-        todo!()
+        <T as XmtpContextProvider>::identity(&**self)
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        todo!()
+        <T as XmtpContextProvider>::local_events(&**self)
     }
 }
 
@@ -109,26 +118,27 @@ where
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
 
     fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
-        todo!()
+        <T as XmtpContextProvider>::db(*self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        todo!()
+        <T as XmtpContextProvider>::api(*self)
     }
 
     fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
-        todo!()
+        <T as XmtpContextProvider>::context_ref(*self)
     }
 
     fn version_info(&self) -> &VersionInfo {
-        todo!()
+        <T as XmtpContextProvider>::version_info(*self)
     }
+
     fn identity(&self) -> &Identity {
-        todo!()
+        <T as XmtpContextProvider>::identity(*self)
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        todo!()
+        <T as XmtpContextProvider>::local_events(*self)
     }
 }
 
@@ -144,7 +154,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) store: Db,
     pub(crate) mutexes: MutexRegistry,
     pub(crate) mls_commit_lock: std::sync::Arc<GroupCommitLock>,
-    pub(crate) version_info: Arc<VersionInfo>,
+    pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,

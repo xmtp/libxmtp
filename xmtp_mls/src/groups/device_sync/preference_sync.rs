@@ -148,6 +148,7 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 #[cfg(test)]
 mod tests {
     use crate::{
+        context::XmtpContextProvider,
         groups::device_sync::handle::SyncMetric,
         utils::{LocalTesterBuilder, Tester},
     };
@@ -166,7 +167,7 @@ mod tests {
         amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         // Wait for a to process the new hmac key
-        amal_b.get_sync_group().await?.sync().await?;
+        amal_b.device_sync().get_sync_group().await?.sync().await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
@@ -175,6 +176,7 @@ mod tests {
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
         amal_a
+            .identity_updates()
             .revoke_installations(vec![amal_b.installation_id().to_vec()])
             .await?;
 

@@ -123,6 +123,7 @@ where
             MockSmartContractSignatureVerifier::new(true),
             self.sync_url.as_deref(),
             Some(self.sync_mode),
+            None,
         )
         .await;
         let client = Arc::new(client);
@@ -134,7 +135,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.context.worker_handle();
+        let worker = client.context.device_sync.worker_handle();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
@@ -143,7 +144,7 @@ where
         client.sync_welcomes().await;
 
         let mut tester = Tester {
-            builder: self.context.clone(),
+            builder: self.clone(),
             client,
             provider: Arc::new(provider),
             worker,

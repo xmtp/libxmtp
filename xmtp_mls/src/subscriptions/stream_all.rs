@@ -603,7 +603,9 @@ mod tests {
         group.sync().await.unwrap();
         // create a new installation for alice
         let alice_2 = ClientBuilder::new_test_client_no_sync(&wallet).await;
-        let mut s = StreamAllMessages::new(&alice_2, None, None).await.unwrap();
+        let mut s = StreamAllMessages::new(&alice_2.context, None, None)
+            .await
+            .unwrap();
         // elapse enough time to update installations
         xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
         group.update_installations().await.unwrap();

@@ -431,7 +431,7 @@ mod test {
             .create_group(None, GroupMetadataOptions::default())
             .unwrap();
 
-        let mut stream = StreamConversations::new(&bob, None).await.unwrap();
+        let mut stream = StreamConversations::new(&bob.context, None).await.unwrap();
         let group_id = alice_bob_group.group_id.clone();
         alice_bob_group
             .add_members_by_inbox_id(&[bob.inbox_id()])

@@ -615,10 +615,15 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
-        builder::ClientBuilder, groups::group_membership::GroupMembership, utils::FullXmtpClient,
-        utils::Tester, Client, XmtpApi,
+        builder::ClientBuilder,
+        context::XmtpContextProvider,
+        groups::group_membership::GroupMembership,
+        identity_updates::IdentityUpdates,
+        utils::{FullXmtpClient, Tester},
+        Client, XmtpApi,
     };
     use ethers::signers::{LocalWallet, Signer};
+    use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -643,11 +648,11 @@ pub(crate) mod tests {
         ApiClient: XmtpApi,
     {
         let conn = client.context.db();
-        load_identity_updates(&client.api_client, &conn, &[inbox_id])
+        load_identity_updates(client.context.api(), &conn, &[inbox_id])
             .await
             .unwrap();
 
-        client
+        IdentityUpdates::new(client.context.clone())
             .get_association_state(&conn, inbox_id, None)
             .await
             .unwrap()
@@ -671,16 +676,20 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let wallet2 = generate_local_wallet();
+        let client_identity_updates = IdentityUpdates::new(client.context.clone());
 
-        let mut request = client
+        let mut request = client_identity_updates
             .associate_identity(wallet2.identifier())
             .await
             .unwrap();
         add_wallet_signature(&mut request, &wallet2).await;
-        client.apply_signature_request(request).await.unwrap();
+        client_identity_updates
+            .apply_signature_request(request)
+            .await
+            .unwrap();
 
         let conn = client.context.db();
-        let state = client
+        let state = client_identity_updates
             .get_latest_association_state(&conn, client.inbox_id())
             .await
             .unwrap();
@@ -688,7 +697,7 @@ pub(crate) mod tests {
         // The installation, wallet1 address, and the newly associated wallet2 address
         assert_eq!(state.members().len(), 3);
 
-        let api_client = &client.api_client;
+        let api_client = client.api();
 
         // Check that the second wallet is associated with our new static helper
         let is_member = is_member_of_association_state(
@@ -710,6 +719,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
 
         let mut signature_request: SignatureRequest = client
+            .identity_updates()
             .create_inbox(wallet_ident.clone(), None)
             .await
             .unwrap();
@@ -718,6 +728,7 @@ pub(crate) mod tests {
         add_wallet_signature(&mut signature_request, &wallet).await;
 
         client
+            .identity_updates()
             .apply_signature_request(signature_request)
             .await
             .unwrap();
@@ -739,6 +750,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
 
         let mut add_association_request = client
+            .identity_updates()
             .associate_identity(wallet2_ident.clone())
             .await
             .unwrap();
@@ -746,6 +758,7 @@ pub(crate) mod tests {
         add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
         client
+            .identity_updates()
             .apply_signature_request(add_association_request)
             .await
             .unwrap();
@@ -767,10 +780,13 @@ pub(crate) mod tests {
     fn cache_association_state() {
         use xmtp_common::assert_logged;
 
+        use crate::groups::device_sync::DeviceSyncClient;
+
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            client.wait_for_sync_worker_init().await;
+            let device_sync = DeviceSyncClient::new(client.context.clone());
+            device_sync.wait_for_sync_worker_init().await;
 
             let wallet_2 = generate_local_wallet();
 
@@ -795,6 +811,7 @@ pub(crate) mod tests {
             assert_logged!("Wrote association", 1);
 
             let mut add_association_request = client
+                .identity_updates()
                 .associate_identity(wallet_2.identifier())
                 .await
                 .unwrap();
@@ -802,6 +819,7 @@ pub(crate) mod tests {
             add_wallet_signature(&mut add_association_request, &wallet_2).await;
 
             client
+                .identity_updates()
                 .apply_signature_request(add_association_request)
                 .await
                 .unwrap();
@@ -866,6 +884,7 @@ pub(crate) mod tests {
             (client_3, wallet_3),
         ] {
             let mut signature_request: SignatureRequest = client
+                .identity_updates()
                 .create_inbox(wallet.identifier(), None)
                 .await
                 .unwrap();
@@ -874,11 +893,13 @@ pub(crate) mod tests {
 
             add_wallet_signature(&mut signature_request, &wallet).await;
             client
+                .identity_updates()
                 .apply_signature_request(signature_request)
                 .await
                 .unwrap();
             let new_wallet = generate_local_wallet();
             let mut add_association_request = client
+                .identity_updates()
                 .associate_identity(new_wallet.identifier())
                 .await
                 .unwrap();
@@ -886,6 +907,7 @@ pub(crate) mod tests {
             add_wallet_signature(&mut add_association_request, &new_wallet).await;
 
             client
+                .identity_updates()
                 .apply_signature_request(add_association_request)
                 .await
                 .unwrap();
@@ -896,7 +918,7 @@ pub(crate) mod tests {
         let other_conn = other_client.context.db();
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         // Load all the identity updates for the new inboxes
-        load_identity_updates(&other_client.api_client, &other_conn, ids.as_slice())
+        load_identity_updates(other_client.api(), &other_conn, ids.as_slice())
             .await
             .expect("load should succeed");
 
@@ -932,6 +954,7 @@ pub(crate) mod tests {
         let membership_diff = original_group_membership.diff(&new_group_membership);
 
         let installation_diff = other_client
+            .identity_updates()
             .get_installation_diff(
                 &other_conn,
                 &original_group_membership,
@@ -958,6 +981,7 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&recovery_wallet).await;
 
         let mut add_wallet_signature_request = client
+            .identity_updates()
             .associate_identity(second_wallet.identifier())
             .await
             .unwrap();
@@ -965,6 +989,7 @@ pub(crate) mod tests {
         add_wallet_signature(&mut add_wallet_signature_request, &second_wallet).await;
 
         client
+            .identity_updates()
             .apply_signature_request(add_wallet_signature_request)
             .await
             .unwrap();
@@ -974,7 +999,7 @@ pub(crate) mod tests {
 
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
-            .api_client
+            .api()
             .get_inbox_ids(vec![second_wallet.identifier().into()])
             .await
             .unwrap();
@@ -983,12 +1008,14 @@ pub(crate) mod tests {
         // Now revoke the second wallet
 
         let mut revoke_signature_request = client
+            .identity_updates()
             .revoke_identities(vec![second_wallet.identifier()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_signature_request, &recovery_wallet).await;
 
         client
+            .identity_updates()
             .apply_signature_request(revoke_signature_request)
             .await
             .unwrap();
@@ -1000,7 +1027,7 @@ pub(crate) mod tests {
 
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
-            .api_client
+            .api()
             .get_inbox_ids(vec![second_wallet.identifier().into()])
             .await
             .unwrap();
@@ -1019,11 +1046,13 @@ pub(crate) mod tests {
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
+            .identity_updates()
             .revoke_installations(vec![client2.installation_public_key().to_vec()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_installation_request, &wallet).await;
         client1
+            .identity_updates()
             .apply_signature_request(revoke_installation_request)
             .await
             .unwrap();
@@ -1053,11 +1082,13 @@ pub(crate) mod tests {
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
+            .identity_updates()
             .revoke_installations(vec![client2.installation_public_key().to_vec()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_installation_request, &wallet).await;
         client1
+            .identity_updates()
             .apply_signature_request(revoke_installation_request)
             .await
             .unwrap();
@@ -1088,11 +1119,13 @@ pub(crate) mod tests {
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
+            .identity_updates()
             .revoke_installations(vec![client3.installation_public_key().to_vec()])
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_installation_request, &wallet).await;
         client1
+            .identity_updates()
             .apply_signature_request(revoke_installation_request)
             .await
             .unwrap();
@@ -1145,6 +1178,7 @@ pub(crate) mod tests {
 
         // Create a signature request to change the recovery address
         let mut change_recovery_request = client
+            .identity_updates()
             .change_recovery_identifier(new_recovery_wallet.identifier())
             .await
             .unwrap();
@@ -1154,6 +1188,7 @@ pub(crate) mod tests {
 
         // Apply the signature request
         client
+            .identity_updates()
             .apply_signature_request(change_recovery_request)
             .await
             .unwrap();
@@ -1196,6 +1231,7 @@ pub(crate) mod tests {
         // by attempting to revoke an installation with the original wallet
         let installation_id = client.installation_public_key().to_vec();
         let mut revoke_installation_request = client
+            .identity_updates()
             .revoke_installations(vec![installation_id])
             .await
             .unwrap();
@@ -1223,6 +1259,7 @@ pub(crate) mod tests {
         // Now try with the new recovery wallet (which should succeed)
         let installation_id = client.installation_public_key().to_vec();
         let mut revoke_installation_request = client
+            .identity_updates()
             .revoke_installations(vec![installation_id])
             .await
             .unwrap();
@@ -1232,6 +1269,7 @@ pub(crate) mod tests {
 
         // This should succeed because the new wallet is now the recovery address
         client
+            .identity_updates()
             .apply_signature_request(revoke_installation_request)
             .await
             .unwrap();

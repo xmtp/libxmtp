@@ -798,7 +798,8 @@ pub(crate) mod tests {
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
     use crate::{
-        builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::FullXmtpClient,
+        builder::ClientBuilder, context::XmtpContextProvider, groups::GroupMetadataOptions,
+        utils::ConcreteMlsGroup,
     };
 
     use super::*;
@@ -909,11 +910,11 @@ pub(crate) mod tests {
     }
 
     async fn verify_num_payloads_in_group(
-        group: &MlsGroup<FullXmtpClient>,
+        group: &ConcreteMlsGroup,
         num_messages: usize,
     ) -> Vec<GroupMessage> {
         let messages = group
-            .client
+            .context
             .api()
             .query_group_messages(group.group_id.clone(), None)
             .await
@@ -922,7 +923,7 @@ pub(crate) mod tests {
         messages
     }
 
-    fn verify_commit_updates_leaf_node(group: &MlsGroup<FullXmtpClient>, payload: &GroupMessage) {
+    fn verify_commit_updates_leaf_node(group: &ConcreteMlsGroup, payload: &GroupMessage) {
         let msgv1 = match &payload.version {
             Some(group_message::Version::V1(value)) => value,
             _ => panic!("error msgv1"),
@@ -934,7 +935,7 @@ pub(crate) mod tests {
             _ => panic!("error mls_message"),
         };
 
-        let provider = group.client.mls_provider();
+        let provider = group.context.mls_provider();
         let decrypted_message = group
             .load_mls_group_with_lock(&provider, |mut mls_group| {
                 Ok(mls_group.process_message(&provider, mls_message).unwrap())

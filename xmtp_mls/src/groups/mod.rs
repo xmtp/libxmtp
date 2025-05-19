@@ -1718,7 +1718,7 @@ where
     /// See the `test_validate_dm_group` test function for more details.
     #[cfg(test)]
     pub fn create_test_dm_group(
-        client: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         dm_target_inbox_id: InboxId,
         custom_protected_metadata: Option<Extension>,
         custom_mutable_metadata: Option<Extension>,
@@ -1772,7 +1772,7 @@ where
             .added_by_inbox_id(context.inbox_id().to_string())
             .dm_id(Some(
                 DmMembers {
-                    member_one_inbox_id: client.inbox_id().to_string(),
+                    member_one_inbox_id: context.inbox_id().to_string(),
                     member_two_inbox_id: dm_target_inbox_id,
                 }
                 .to_string(),

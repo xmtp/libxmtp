@@ -95,14 +95,14 @@ impl ArchiveImporter {
 
     pub async fn run<ApiClient, Db>(
         &mut self,
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     ) -> Result<(), DeviceSyncError>
     where
         ApiClient: XmtpApi,
         Db: XmtpDb,
     {
         while let Some(element) = self.next_element().await? {
-            match insert(element, &context, context.mls_provider()) {
+            match insert(element, context, context.mls_provider()) {
                 Err(DeviceSyncError::Deserialization(err)) => {
                     tracing::warn!("Unable to insert record: {err:?}");
                 }

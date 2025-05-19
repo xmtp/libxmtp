@@ -2294,7 +2294,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, utils::ConcreteMlsGroup};
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -2308,7 +2308,7 @@ pub(crate) mod tests {
         use crate::utils::Tester;
 
         let amal_a = Tester::new().await;
-        let amal_group_a: Arc<MlsGroup<_>> =
+        let amal_group_a: Arc<MlsGroup<_, _>> =
             Arc::new(amal_a.create_group(None, Default::default()).unwrap());
 
         let conn = amal_a.context().mls_provider();
@@ -2348,7 +2348,7 @@ pub(crate) mod tests {
     async fn hmac_keys_work_as_expected() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-        let amal_group: Arc<MlsGroup<_>> =
+        let amal_group: Arc<ConcreteMlsGroup> =
             Arc::new(amal.create_group(None, Default::default()).unwrap());
 
         let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();
