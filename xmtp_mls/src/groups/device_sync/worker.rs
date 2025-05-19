@@ -1,22 +1,21 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
     preference_sync::{store_preference_updates, PreferenceUpdate},
-    DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
+    DeviceSyncClient, DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
 };
 use crate::{
     client::ClientError,
     configuration::WORKER_RESTART_DELAY,
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{
             archive::{exporter::ArchiveExporter, ArchiveImporter},
             default_archive_options,
         },
         device_sync_legacy::DeviceSyncContent,
-        scoped_client::ScopedGroupClient,
         GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
-    Client,
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
@@ -43,8 +42,8 @@ use xmtp_proto::{
     ConversionError,
 };
 
-pub struct SyncWorker<ApiClient, V> {
-    client: Client<ApiClient, V>,
+pub struct SyncWorker<ApiClient, Db> {
+    client: DeviceSyncClient<ApiClient, Db>,
     /// The sync events stream
     #[allow(clippy::type_complexity)]
     stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
@@ -58,10 +57,10 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     Db: XmtpDb + Send + Sync + 'static,
 {
-    pub(super) fn new(client: Client<ApiClient, Db>) -> Self {
-        let receiver = client.local_events.subscribe();
+    pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        let receiver = context.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
-
+        let client = DeviceSyncClient::new(context.clone());
         Self {
             client,
             stream,
@@ -76,8 +75,8 @@ where
         xmtp_common::spawn(
             None,
             async move {
-                let inbox_id = self.client.inbox_id().to_string();
-                let installation_id = hex::encode(self.client.installation_public_key());
+                let inbox_id = self.client.context.identity.inbox_id().to_string();
+                let installation_id = hex::encode(self.client.context.installation_id());
 
                 while let Err(err) = self.run().await {
                     tracing::info!("Running worker..");
@@ -112,7 +111,7 @@ where
 
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready & verified before doing anything
-        while !self.client.identity().is_ready() {
+        while !self.client.context.identity().is_ready() {
             xmtp_common::yield_().await
         }
         self.sync_init().await?;
@@ -159,12 +158,12 @@ where
         } = self;
 
         init.get_or_try_init(|| async {
-            let provider = self.client.mls_provider();
+            let provider = self.client.context.mls_provider();
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_public_key()),
                 "Initializing device sync... url: {:?}",
-                client.device_sync.server_url
+                client.context.device_sync.server_url
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -172,14 +171,14 @@ where
                 client.get_sync_group().await?;
 
                 // Ask the sync group for a sync payload if the url is present.
-                if self.client.device_sync_server_url().is_some() {
+                if self.client.context.device_sync_server_url().is_some() {
                     self.client.send_sync_request().await?;
                 }
             }
 
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_public_key()),
                 "Device sync initialized."
             );
 
@@ -200,7 +199,7 @@ where
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
         // Cycle the HMAC
-        self.client.cycle_hmac().await?;
+        self.client.preference_sync.cycle_hmac().await?;
 
         Ok(())
     }
@@ -216,13 +215,16 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        self.client.sync_preferences(updates).await?;
+        self.client
+            .preference_sync
+            .sync_preferences(updates)
+            .await?;
         Ok(())
     }
 
     /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.mls_provider();
+        let provider = self.client.context.mls_provider();
         if let Some(msg) = provider.db().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Reply(reply) = content {
@@ -234,7 +236,7 @@ where
 
     /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.mls_provider();
+        let provider = self.client.context.mls_provider();
         if let Some(msg) = provider.db().get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
@@ -247,7 +249,7 @@ where
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
@@ -293,7 +295,7 @@ where
     where
         <Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
-        let provider = self.mls_provider();
+        let provider = self.context.mls_provider();
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
@@ -328,6 +330,7 @@ where
                 let updated = store_preference_updates(updates.clone(), provider, handle)?;
                 if !updated.is_empty() {
                     let _ = self
+                        .context
                         .local_events
                         .send(LocalEvents::PreferencesChanged(updated));
                 }
@@ -348,7 +351,7 @@ where
         message: &StoredGroupMessage,
         request: &DeviceSyncRequestProto,
     ) -> Result<(), DeviceSyncError> {
-        let sync_group = self.group(&message.group_id)?;
+        let sync_group = self.mls_store.group(&message.group_id)?;
         // Pull down any new messages
         sync_group.sync_with_conn().await?;
 
@@ -399,7 +402,7 @@ where
             }
         }
 
-        let provider = Arc::new(self.mls_provider());
+        let provider = Arc::new(self.context.mls_provider());
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
@@ -409,7 +412,7 @@ where
             result => result?,
         }
 
-        let Some(device_sync_server_url) = &self.device_sync.server_url else {
+        let Some(device_sync_server_url) = &self.context.device_sync.server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
@@ -465,7 +468,7 @@ where
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.installation_public_key()),
+                installation_id = hex::encode(self.context.installation_public_key()),
                 "Failed to upload file. Status code: {:?}",
                 err.status()
             );
@@ -581,7 +584,7 @@ where
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
         tracing::info!("Sync response is for this installation. Syncing welcomes.");
-        self.sync_welcomes().await?;
+        self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
         tracing::info!("Downloading sync payload.");
@@ -627,7 +630,7 @@ where
 
         tracing::info!("Importing the sync payload.");
         // Run the import.
-        importer.run(self).await?;
+        importer.run(self.context.clone()).await?;
 
         Ok(())
     }

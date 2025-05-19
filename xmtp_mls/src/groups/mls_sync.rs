@@ -7,19 +7,21 @@ use super::{
     },
     summary::{MessageIdentifier, ProcessSummary, SyncSummary},
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
-    GroupError, HmacKey, MlsGroup, ScopedGroupClient,
+    GroupError, HmacKey, MlsGroup,
 };
-use crate::configuration::sync_update_installations_interval_ns;
-use crate::groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{
-    client::ClientError, groups::group_mutable_metadata::MetadataField,
+    client::ClientError, groups::group_mutable_metadata::MetadataField, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
+};
+use crate::{
+    configuration::sync_update_installations_interval_ns, identity_updates::IdentityUpdates,
 };
 use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
+    context::XmtpMlsLocalContext,
     groups::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
@@ -32,6 +34,10 @@ use crate::{
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
 use crate::{
+    context::XmtpContextProvider,
+    groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
+};
+use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
 };
@@ -39,15 +45,15 @@ use crate::{
     groups::summary::MessageSource,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
+use xmtp_api::XmtpApi;
 use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     refresh_state::EntityKind,
-    sql_key_store,
-    sql_key_store::SqlKeyStore,
+    sql_key_store::{self, SqlKeyStore},
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
 };
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
@@ -72,6 +78,7 @@ use openmls_traits::{signatures::Signer, OpenMlsProvider};
 use prost::bytes::Bytes;
 use prost::Message;
 use sha2::Sha256;
+use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
@@ -199,29 +206,30 @@ struct PublishIntentData {
     should_send_push_notification: bool,
 }
 
-impl<ScopedClient> MlsGroup<ScopedClient>
+impl<ApiClient, Db> MlsGroup<ApiClient, Db>
 where
-    ScopedClient: ScopedGroupClient,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     #[tracing::instrument]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
-        let conn = self.client.db();
+        let conn = self.context.db();
 
         let epoch = self.epoch().await?;
         tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
             epoch = epoch,
             "[{}] syncing group, epoch = {}",
-            self.client.inbox_id(),
+            self.context.inbox_id(),
             epoch
         );
 
         // Also sync the "stitched DMs", if any...
         for other_dm in conn.other_dms(&self.group_id)? {
             let other_dm = Self::new_from_arc(
-                self.client.clone(),
+                self.context.clone(),
                 other_dm.id,
                 other_dm.dm_id.clone(),
                 other_dm.created_at_ns,
@@ -237,13 +245,13 @@ where
     fn handle_group_paused(&self) -> Result<(), GroupError> {
         // Check if group is paused and try to unpause if version requirements are met
         if let Some(required_min_version_str) =
-            self.client.db().get_group_paused_version(&self.group_id)?
+            self.context.db().get_group_paused_version(&self.group_id)?
         {
             tracing::info!(
                 "Group is paused until version: {}",
                 required_min_version_str
             );
-            let current_version_str = self.client.version_info().pkg_version();
+            let current_version_str = self.context.version_info().pkg_version();
             let current_version = LibXMTPVersion::parse(current_version_str)?;
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
@@ -253,7 +261,7 @@ where
                      Group ID: {}",
                     hex::encode(&self.group_id),
                 );
-                self.client.db().unpause_group(&self.group_id)?;
+                self.context.db().unpause_group(&self.group_id)?;
             } else {
                 tracing::warn!(
                     "Skipping sync for paused group since version requirements are not met. \
@@ -476,8 +484,8 @@ where
 
                     if published_in_epoch != group_epoch {
                         tracing::warn!(
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
+                            inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
                             group_id = hex::encode(&self.group_id),
                             cursor,
                             intent.id,
@@ -506,7 +514,7 @@ where
                     );
 
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
-                        &self.client,
+                        &self.context,
                         &staged_commit,
                         mls_group,
                     )
@@ -568,8 +576,8 @@ where
         } = *envelope;
 
         tracing::debug!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
             cursor,
             intent.id,
@@ -649,8 +657,8 @@ where
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
 
         tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),sender_inbox_id = sender_inbox_id,
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
             group_id = hex::encode(&self.group_id),
             current_epoch = mls_group.epoch().as_u64(),
@@ -658,14 +666,14 @@ where
             msg_group_id = hex::encode(processed_message.group_id().as_slice()),
             cursor,
             "[{}] extracted sender inbox id: {}",
-            self.client.inbox_id(),
+            self.context.inbox_id(),
             sender_inbox_id
         );
 
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
                 let validated_commit =
-                    ValidatedCommit::from_staged_commit(&self.client, staged_commit, mls_group)
+                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
                         .await?;
 
                 Some(validated_commit)
@@ -675,14 +683,14 @@ where
 
         let identifier = self.mls_provider().transaction(|provider| {
             tracing::debug!(
-                inbox_id = self.client.inbox_id(),
-                installation_id = %self.client.installation_id(),
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
                 group_id = hex::encode(&self.group_id),
                 current_epoch = mls_group.epoch().as_u64(),
                 msg_epoch = processed_message.epoch().as_u64(),
                 cursor = ?cursor,
                 "[{}] processing message in transaction epoch = {}, cursor = {:?}",
-                self.client.inbox_id(),
+                self.context.inbox_id(),
                 mls_group.epoch().as_u64(),
                 cursor
             );
@@ -725,7 +733,7 @@ where
             if new_epoch > previous_epoch {
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
-                    self.client.inbox_id(),
+                    self.context.inbox_id(),
                     cursor,
                     previous_epoch,
                     new_epoch
@@ -764,10 +772,10 @@ where
         let processed_message = match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 tracing::info!(
-                    inbox_id = self.client.inbox_id(),
+                    inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
                     sender_installation_id = hex::encode(&sender_installation_id),
-                    installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
+                    installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
                     msg_group_id,
@@ -811,14 +819,14 @@ where
 
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
-                        if sender_inbox_id == self.client.inbox_id() {
+                        if sender_inbox_id == self.context.inbox_id() {
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
                             }) = provider.db().find_group(&self.group_id)?
                             {
                                 let _ =
-                                    self.client
+                                    self.context
                                         .local_events()
                                         .send(LocalEvents::SyncWorkerEvent(
                                             SyncWorkerEvent::NewSyncGroupMsg,
@@ -863,7 +871,7 @@ where
 
                                 tracing::info!("Received a history request.");
                                 let _ =
-                                    self.client
+                                    self.context
                                         .local_events()
                                         .send(LocalEvents::SyncWorkerEvent(
                                             SyncWorkerEvent::Request { message_id },
@@ -901,7 +909,7 @@ where
 
                                 tracing::info!("Received a history reply.");
                                 let _ =
-                                    self.client
+                                    self.context
                                         .local_events()
                                         .send(LocalEvents::SyncWorkerEvent(
                                             SyncWorkerEvent::Reply { message_id },
@@ -912,11 +920,11 @@ where
                                 // This function inserts the updates appropriately,
                                 // and returns a copy of what was inserted
                                 let updates =
-                                    process_incoming_preference_update(update, &self.client)?;
+                                    process_incoming_preference_update(update, &self.context)?;
 
                                 // Broadcast those updates for integrators to be notified of changes
                                 let _ = self
-                                    .client
+                                    .context
                                     .local_events()
                                     .send(LocalEvents::PreferencesChanged(updates));
                                 Ok(None)
@@ -945,9 +953,9 @@ where
                     validated_commit.expect("Needs to be present when this is a staged commit");
 
                 tracing::info!(
-                    inbox_id = self.client.inbox_id(),
+                    inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
-                    installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
+                    installation_id = %self.context.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
@@ -958,9 +966,9 @@ where
                 );
 
                 tracing::info!(
-                    inbox_id = self.client.inbox_id(),
+                    inbox_id = self.context.inbox_id(),
                     sender_inbox_id = sender_inbox_id,
-                    installation_id = %self.client.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
+                    installation_id = %self.context.installation_id(),sender_installation_id = hex::encode(&sender_installation_id),
                     group_id = hex::encode(&self.group_id),
                     current_epoch = mls_group.epoch().as_u64(),
                     msg_epoch,
@@ -1013,8 +1021,8 @@ where
             .db()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         tracing::info!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
             cursor = envelope.id,
             "Processing envelope with hash {}, id = {}",
@@ -1027,14 +1035,14 @@ where
             Ok(Some(intent)) => {
                 let intent_id = intent.id;
                 tracing::info!(
-                    inbox_id = self.client.inbox_id(),
-                    installation_id = %self.client.installation_id(),
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = envelope.id,
                     intent_id,
                     intent.kind = %intent.kind,
                     "client [{}] is about to process own envelope [{}] for intent [{}]",
-                    self.client.inbox_id(),
+                    self.context.inbox_id(),
                     envelope.id,
                     intent_id
                 );
@@ -1120,12 +1128,12 @@ where
             // No matching intent found. The message did not originate here.
             Ok(None) => {
                 tracing::info!(
-                    inbox_id = self.client.inbox_id(),
-                    installation_id = %self.client.installation_id(),
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
                     group_id = hex::encode(&self.group_id),
                     cursor = envelope.id,
                     "client [{}] is about to process external envelope [{}]",
-                    self.client.inbox_id(),
+                    self.context.inbox_id(),
                     envelope.id
                 );
 
@@ -1231,8 +1239,8 @@ where
         let should_skip_message = last_cursor > msgv1.id as i64;
         if should_skip_message {
             tracing::info!(
-                inbox_id = self.client.inbox_id(),
-                installation_id = %self.client.installation_id(),
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
                 group_id = hex::encode(&self.group_id),
                 "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
                 msgv1.id,
@@ -1341,8 +1349,7 @@ where
 
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
-        let messages = self
-            .client
+        let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
@@ -1511,8 +1518,8 @@ where
                             tracing::error!(
                                 intent.id,
                                 intent.kind = %intent.kind,
-                                inbox_id = self.client.inbox_id(),
-                                installation_id = %self.client.installation_id(),group_id = hex::encode(&self.group_id),
+                                inbox_id = self.context.inbox_id(),
+                                installation_id = %self.context.installation_id(),group_id = hex::encode(&self.group_id),
                                 "intent {} has reached max publish attempts", intent.id);
                             // TODO: Eventually clean up errored attempts
                             let id = utils::id::calculate_message_id_for_intent(&intent)?;
@@ -1543,18 +1550,18 @@ where
                             mls_group.epoch().as_u64() as i64,
                         )?;
                         tracing::debug!(
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
+                            inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
                             intent.id,
                             intent.kind = %intent.kind,
                             group_id = hex::encode(&self.group_id),
                             "[{}] set stored intent [{}] to state `published`",
-                            self.client.inbox_id(),
+                            self.context.inbox_id(),
                             intent.id
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
-                        self.client
+                        self.context
                             .api()
                             .send_group_messages(messages)
                             .await?;
@@ -1562,11 +1569,11 @@ where
                         tracing::info!(
                             intent.id,
                             intent.kind = %intent.kind,
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
+                            inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
                             group_id = hex::encode(&self.group_id),
                             "[{}] published intent [{}] of type [{}]",
-                            self.client.inbox_id(),
+                            self.context.inbox_id(),
                             intent.id,
                             intent.kind
                         );
@@ -1577,8 +1584,8 @@ where
                     }
                     Ok(None) => {
                         tracing::info!(
-                            inbox_id = self.client.inbox_id(),
-                            installation_id = %self.client.installation_id(),
+                            inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
                             "Skipping intent because no publish data returned"
                         );
                         provider.db().set_group_intent_processed(intent.id)?
@@ -1606,7 +1613,7 @@ where
                     UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
                 let signer = &self.context().identity.installation_keys;
                 apply_update_group_membership_intent(
-                    self.client.as_ref(),
+                    &self.context,
                     openmls_group,
                     intent_data,
                     signer,
@@ -1725,8 +1732,8 @@ where
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {
                 tracing::debug!(
-                    inbox_id = self.client.inbox_id(),
-                    installation_id = %self.client.installation_id(),
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
                     intent.id,
                     intent.kind = %intent.kind, "taking post commit action"
                 );
@@ -1794,8 +1801,8 @@ where
         }
 
         debug!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
             "Adding missing installations {:?}",
             intent_data
         );
@@ -1827,7 +1834,7 @@ where
             inbox_ids.extend_from_slice(inbox_ids_to_add);
             let conn = provider.db();
             // Load any missing updates from the network
-            load_identity_updates(self.client.api(), conn, &inbox_ids).await?;
+            load_identity_updates(&self.context.api(), conn, &inbox_ids).await?;
 
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
@@ -1874,7 +1881,7 @@ where
             }
 
             let changes_with_kps = calculate_membership_changes_with_keypackages(
-                &self.client,
+                self.context.clone(),
                 &new_membership,
                 &old_group_membership,
             )
@@ -1947,7 +1954,7 @@ where
                 .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
-        let api = self.client.api();
+        let api = self.context.api();
         let mut futures = vec![];
         for welcomes in welcomes.chunks(chunk_size) {
             futures.push(api.send_welcome_messages(welcomes));
@@ -1964,7 +1971,7 @@ where
         &self,
         epoch_delta_range: RangeInclusive<i64>,
     ) -> Result<Vec<HmacKey>, StorageError> {
-        let conn = self.client.context().db();
+        let conn = self.context.db();
 
         let preferences = StoredUserPreferences::load(&conn)?;
         let mut ikm = match preferences.hmac_key {
@@ -2050,15 +2057,20 @@ fn extract_message_sender(
     })
 }
 
-async fn calculate_membership_changes_with_keypackages<'a>(
-    client: impl ScopedGroupClient,
+async fn calculate_membership_changes_with_keypackages<'a, ApiClient, Db>(
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
-) -> Result<MembershipDiffWithKeyPackages, GroupError> {
-    let provider = client.mls_provider();
+) -> Result<MembershipDiffWithKeyPackages, GroupError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let provider = context.mls_provider();
     let membership_diff = old_group_membership.diff(new_group_membership);
 
-    let mut installation_diff = client
+    let identity = IdentityUpdates::new(context.clone());
+    let mut installation_diff = identity
         .get_installation_diff(
             provider.db(),
             old_group_membership,
@@ -2073,7 +2085,7 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 
     if !installation_diff.added_installations.is_empty() {
         let key_packages = get_keypackages_for_installation_ids(
-            client,
+            context,
             installation_diff.added_installations,
             &mut new_failed_installations,
         )
@@ -2121,18 +2133,22 @@ async fn calculate_membership_changes_with_keypackages<'a>(
 }
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
-async fn get_keypackages_for_installation_ids(
-    client: impl ScopedGroupClient,
+async fn get_keypackages_for_installation_ids<ApiClient, Db>(
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     added_installations: HashSet<Vec<u8>>,
     failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     use crate::utils::{
         get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
     };
 
-    let my_installation_id = client.context().installation_public_key().to_vec();
-    let mut key_packages = client
+    let my_installation_id = context.installation_id().to_vec();
+    let store = MlsStore::new(context.clone());
+    let mut key_packages = store
         .get_key_packages_for_installation_ids(
             added_installations
                 .iter()
@@ -2154,14 +2170,18 @@ async fn get_keypackages_for_installation_ids(
 }
 #[allow(unused_variables, dead_code)]
 #[cfg(not(any(test, feature = "test-utils")))]
-async fn get_keypackages_for_installation_ids(
-    client: impl ScopedGroupClient,
+async fn get_keypackages_for_installation_ids<ApiClient, Db>(
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     added_installations: HashSet<Vec<u8>>,
     failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
-    let my_installation_id = client.context().installation_public_key().to_vec();
-    client
+    let my_installation_id = context.installation_public_key().to_vec();
+    let store = MlsStore::new(context.clone());
+    store
         .get_key_packages_for_installation_ids(
             added_installations
                 .iter()
@@ -2175,20 +2195,24 @@ async fn get_keypackages_for_installation_ids(
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
-async fn apply_update_group_membership_intent(
-    client: impl ScopedGroupClient,
+async fn apply_update_group_membership_intent<ApiClient, Db>(
+    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: impl Signer,
-) -> Result<Option<PublishIntentData>, GroupError> {
-    let provider = client.mls_provider();
+) -> Result<Option<PublishIntentData>, GroupError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let provider = context.mls_provider();
     let extensions: Extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
     let membership_diff = old_group_membership.diff(&new_group_membership);
 
     let changes_with_kps = calculate_membership_changes_with_keypackages(
-        client,
+        context.clone(),
         &new_group_membership,
         &old_group_membership,
     )

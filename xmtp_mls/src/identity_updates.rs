@@ -1,10 +1,17 @@
 use crate::{
     client::ClientError,
-    groups::group_membership::{GroupMembership, MembershipDiff},
-    Client, XmtpApi,
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    groups::{
+        device_sync::preference_sync::PreferenceSyncService,
+        group_membership::{GroupMembership, MembershipDiff},
+    },
+    XmtpApi,
 };
 use futures::future::try_join_all;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
@@ -62,7 +69,17 @@ impl RetryableError for InstallationDiffError {
     }
 }
 
-impl<'a, ApiClient, Db> Client<ApiClient, Db>
+pub struct IdentityUpdates<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> IdentityUpdates<ApiClient, Db> {
+    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        Self { context }
+    }
+}
+
+impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
@@ -95,7 +112,7 @@ where
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(&self.api_client, conn, &[inbox_id]).await?;
+        load_identity_updates(&self.context.api(), conn, &[inbox_id]).await?;
 
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -130,7 +147,7 @@ where
             // deserialize identity update payload
             .map(UnverifiedIdentityUpdate::try_from)
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(unverified_updates, &self.scw_verifier).await?;
+        let updates = verify_updates(unverified_updates, &self.context.scw_verifier).await?;
 
         let association_state = get_state(updates)?;
 
@@ -195,7 +212,7 @@ where
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
         let incremental_updates =
-            verify_updates(unverified_incremental_updates, &self.scw_verifier).await?;
+            verify_updates(unverified_incremental_updates, &self.context.scw_verifier).await?;
         let mut final_state = initial_state.clone();
         // Apply each update sequentially, aborting in the case of error
         for update in incremental_updates {
@@ -225,7 +242,7 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = identifier.inbox_id(nonce)?;
-        let installation_public_key = self.identity().installation_keys.verifying_key();
+        let installation_public_key = self.context.identity.installation_keys.verifying_key();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder
@@ -237,6 +254,7 @@ where
             .build();
 
         let sig_bytes = self
+            .context
             .identity()
             .sign_identity_update(signature_request.signature_text())?
             .to_vec();
@@ -247,7 +265,7 @@ where
                     sig_bytes,
                     installation_public_key,
                 )),
-                &self.scw_verifier,
+                &self.context.scw_verifier,
             )
             .await?;
 
@@ -260,16 +278,20 @@ where
         &self,
         new_identifier: Identifier,
     ) -> Result<SignatureRequest, ClientError> {
-        tracing::info!("Associating new wallet with inbox_id {}", self.inbox_id());
-        let inbox_id = self.inbox_id();
+        tracing::info!(
+            "Associating new wallet with inbox_id {}",
+            self.context.inbox_id()
+        );
+        let inbox_id = self.context.inbox_id();
         let builder = SignatureRequestBuilder::new(inbox_id);
-        let installation_public_key = self.identity().installation_keys.verifying_key();
+        let installation_public_key = self.context.identity().installation_keys.verifying_key();
 
         let mut signature_request = builder
             .add_association(new_identifier.into(), installation_public_key.into())
             .build();
 
         let signature = self
+            .context
             .identity()
             .installation_keys
             .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
@@ -277,7 +299,7 @@ where
         signature_request
             .add_signature(
                 UnverifiedSignature::new_installation_key(signature, installation_public_key),
-                &self.scw_verifier,
+                &self.context.scw_verifier,
             )
             .await?;
 
@@ -289,7 +311,7 @@ where
         &self,
         identities_to_revoke: Vec<Identifier>,
     ) -> Result<SignatureRequest, ClientError> {
-        let inbox_id = self.inbox_id();
+        let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
             Retry::default(),
             (async {
@@ -314,7 +336,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
-        let inbox_id = self.inbox_id();
+        let inbox_id = self.context.inbox_id();
 
         let current_state = retry_async!(
             Retry::default(),
@@ -333,8 +355,9 @@ where
             )
         }
 
-        // Cycle the HMAC key
-        self.cycle_hmac().await?;
+        PreferenceSyncService::new(self.context.clone())
+            .cycle_hmac()
+            .await?;
         Ok(builder.build())
     }
 
@@ -343,7 +366,7 @@ where
         &self,
         new_recovery_identifier: Identifier,
     ) -> Result<SignatureRequest, ClientError> {
-        let inbox_id = self.inbox_id();
+        let inbox_id = self.context.inbox_id();
         let current_state = retry_async!(
             Retry::default(),
             (async {
@@ -374,10 +397,13 @@ where
             .build_identity_update()
             .map_err(IdentityUpdateError::from)?;
 
-        identity_update.to_verified(self.scw_verifier()).await?;
+        identity_update
+            .to_verified(self.context.scw_verifier())
+            .await?;
 
         // We don't need to validate the update, since the server will do this for us
-        self.api_client
+        self.context
+            .api()
             .publish_identity_update(identity_update)
             .await?;
 
@@ -385,8 +411,12 @@ where
         retry_async!(
             Retry::default(),
             (async {
-                load_identity_updates(&self.api_client, &self.context.db(), &[inbox_id.as_str()])
-                    .await
+                load_identity_updates(
+                    &self.context.api(),
+                    &self.context.db(),
+                    &[inbox_id.as_str()],
+                )
+                .await
             })
         )?;
 
@@ -424,7 +454,7 @@ where
             .collect::<Vec<(&str, i64)>>();
 
         load_identity_updates(
-            &self.api_client,
+            &self.context.api(),
             conn,
             &conn.filter_inbox_ids_needing_updates(filters.as_slice())?,
         )

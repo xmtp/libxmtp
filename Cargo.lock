@@ -8076,6 +8076,7 @@ dependencies = [
  "coset",
  "criterion",
  "ctor",
+ "derive_builder",
  "diesel",
  "dyn-clone",
  "ethers",

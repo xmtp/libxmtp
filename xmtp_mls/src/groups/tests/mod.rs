@@ -6,7 +6,6 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use super::{group_permissions::PolicySet, MlsGroup};
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::groups::scoped_client::ScopedGroupClient;
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };

@@ -1,10 +1,14 @@
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
-use crate::subscriptions::stream_messages::MessagesApiSubscription;
-use crate::{groups::scoped_client::ScopedGroupClient, Client};
+use crate::groups::welcome_sync::WelcomeService;
+use crate::{
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    subscriptions::stream_messages::MessagesApiSubscription,
+};
 
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs},
@@ -27,10 +31,10 @@ use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
 use pin_project_lite::pin_project;
 
 pin_project! {
-    pub(super) struct StreamAllMessages<'a, C, Conversations, Messages> {
+    pub(super) struct StreamAllMessages<'a, ApiClient, Db, Conversations, Messages> {
         #[pin] conversations: Conversations,
         #[pin] messages: Messages,
-        client: &'a C,
+        context: &'a XmtpMlsLocalContext<ApiClient, Db>,
         conversation_type: Option<ConversationType>,
         sync_groups: Vec<Vec<u8>>
     }
@@ -39,22 +43,23 @@ pin_project! {
 impl<'a, A, D>
     StreamAllMessages<
         'a,
-        Client<A, D>,
-        StreamConversations<'a, Client<A, D>, WelcomesApiSubscription<'a, Client<A, D>>>,
-        StreamGroupMessages<'a, Client<A, D>, MessagesApiSubscription<'a, Client<A, D>>>,
+        A,
+        D,
+        StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>,
+        StreamGroupMessages<'a, A, D, MessagesApiSubscription<'a, A>>,
     >
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    D: XmtpDb + Send + Sync + 'static,
+    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
+    D: XmtpDb + Send + Sync + 'a,
 {
     pub async fn new(
-        client: &'a Client<A, D>,
+        context: &'a Arc<XmtpMlsLocalContext<A, D>>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         let (active_conversations, sync_groups) = async {
-            let provider = client.mls_provider();
-            client.sync_welcomes().await?;
+            let provider = context.mls_provider();
+            WelcomeService::new(context.clone()).sync_welcomes().await?;
 
             let groups = provider.db().find_groups(GroupQueryArgs {
                 conversation_type,
@@ -87,12 +92,12 @@ where
         .await?;
 
         let conversations =
-            super::stream_conversations::StreamConversations::new(client, conversation_type)
+            super::stream_conversations::StreamConversations::new(context, conversation_type)
                 .await?;
-        let messages = StreamGroupMessages::new(client, active_conversations).await?;
+        let messages = StreamGroupMessages::new(context, active_conversations).await?;
 
         Ok(Self {
-            client,
+            context,
             conversation_type,
             messages,
             conversations,
@@ -101,17 +106,18 @@ where
     }
 }
 
-impl<'a, C, Conversations> Stream
+impl<'a, ApiClient, Db, Conversations> Stream
     for StreamAllMessages<
         'a,
-        C,
+        ApiClient,
+        Db,
         Conversations,
-        StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>,
+        StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>,
     >
 where
-    C: ScopedGroupClient + Clone + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Conversations: Stream<Item = Result<MlsGroup<C>>>,
+    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    Db: XmtpDb + 'a,
+    Conversations: Stream<Item = Result<MlsGroup<ApiClient, Db>>>,
 {
     type Item = Result<StoredGroupMessage>;
 
@@ -123,7 +129,7 @@ where
             if let Some(Ok(msg)) = &msg {
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
-                        .client
+                        .context
                         .local_events()
                         .send(LocalEvents::SyncWorkerEvent(
                             SyncWorkerEvent::NewSyncGroupMsg,

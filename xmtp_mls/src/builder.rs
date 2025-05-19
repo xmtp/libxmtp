@@ -5,7 +5,8 @@ use tokio::sync::broadcast;
 use tracing::debug;
 
 use crate::{
-    client::{Client, DeviceSync, XmtpMlsLocalContext},
+    client::{Client, DeviceSync},
+    context::XmtpMlsLocalContext,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
@@ -133,25 +134,26 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         )
         .await?;
 
+        let (tx, _) = broadcast::channel(32);
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
-            mutexes: MutexRegistry::new(),
-            mls_commit_lock: Arc::new(GroupCommitLock::new()),
-        });
-        let (tx, _) = broadcast::channel(32);
-
-        let client = Client {
             api_client: api_client.into(),
-            context,
-            local_events: tx,
-            scw_verifier,
             version_info: Arc::new(VersionInfo::default()),
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
                 worker_handle: Arc::new(parking_lot::Mutex::default()),
             },
+            scw_verifier,
+            mutexes: MutexRegistry::new(),
+            mls_commit_lock: Arc::new(GroupCommitLock::new()),
+            local_events: tx.clone(),
+        });
+
+        let client = Client {
+            context,
+            local_events: tx,
         };
 
         // start workers

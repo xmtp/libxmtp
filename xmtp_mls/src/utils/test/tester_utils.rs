@@ -134,7 +134,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.device_sync.worker_handle();
+        let worker = client.context.worker_handle();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
@@ -143,7 +143,7 @@ where
         client.sync_welcomes().await;
 
         let mut tester = Tester {
-            builder: self.clone(),
+            builder: self.context.clone(),
             client,
             provider: Arc::new(provider),
             worker,

@@ -1,8 +1,7 @@
 use super::{LocalEvents, Result, SubscribeError};
 use crate::{
-    groups::{scoped_client::ScopedGroupClient, MlsGroup},
+    context::XmtpMlsLocalContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
-    Client,
 };
 use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 
@@ -12,6 +11,7 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 use tokio_stream::wrappers::BroadcastStream;
@@ -137,15 +137,15 @@ pin_project! {
     /// * `cx` - The task context for polling
     ///
     /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<C>>>>` - The polling result:
+    /// * `Poll<Option<Result<MlsGroup<ApiClient, Db>>>>` - The polling result:
     ///   - `Ready(Some(Ok(group)))` when a group is successfully processed
     ///   - `Ready(Some(Err(e)))` when an error occurs
     ///   - `Pending` when waiting for more data or for future completion
     ///   - `Ready(None)` when the stream has ended
-    pub struct StreamConversations<'a, C, Subscription> {
+    pub struct StreamConversations<'a, ApiClient, Db, Subscription> {
         #[pin] inner: Subscription,
-        #[pin] state: ProcessState<'a, C>,
-        client: C,
+        #[pin] state: ProcessState<'a, ApiClient, Db>,
+        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
     }
@@ -154,29 +154,29 @@ pin_project! {
 pin_project! {
     #[project = ProcessProject]
     #[derive(Default)]
-    enum ProcessState<'a, C> {
+    enum ProcessState<'a, ApiClient, Db> {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<C>>>
+            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<ApiClient, Db>>>
         }
     }
 }
 
 type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
 
-pub(super) type WelcomesApiSubscription<'a, C> = MultiplexedSelect<
-    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
-    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::Error,
+pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedSelect<
+    <ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+    <ApiClient as XmtpMlsStreams>::Error,
 >;
 
-impl<'a, A, D> StreamConversations<'a, Client<A, D>, WelcomesApiSubscription<'a, Client<A, D>>>
+impl<'a, A, D> StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    D: XmtpDb + Send + 'static,
+    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
+    D: XmtpDb + Send + 'a,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -208,26 +208,26 @@ where
     /// let stream = StreamConversations::new(&client, Some(ConversationType::Dm)).await?;
     /// ```
     pub async fn new(
-        client: &'a Client<A, D>,
+        context: &'a Arc<XmtpMlsLocalContext<A, D>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        let provider = client.mls_provider();
+        let provider = context.mls_provider();
         let conn = provider.db();
-        let installation_key = client.installation_public_key();
+        let installation_key = context.installation_public_key();
         let id_cursor = provider
             .db()
             .get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
         tracing::debug!(
             cursor = id_cursor,
-            inbox_id = client.inbox_id(),
+            inbox_id = context.inbox_id(),
             "Setting up conversation stream cursor = {}",
             id_cursor
         );
 
         let events =
-            BroadcastGroupStream::new(BroadcastStream::new(client.local_events.subscribe()));
+            BroadcastGroupStream::new(BroadcastStream::new(context.local_events.subscribe()));
 
-        let subscription = client
+        let subscription = context
             .api_client
             .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
@@ -237,7 +237,7 @@ where
         let stream = futures::stream::select(events, subscription);
 
         Ok(Self {
-            client: client.clone(),
+            context,
             inner: stream,
             known_welcome_ids,
             conversation_type,
@@ -246,12 +246,14 @@ where
     }
 }
 
-impl<'a, C, Subscription> Stream for StreamConversations<'a, C, Subscription>
+impl<'a, ApiClient, Db, Subscription> Stream
+    for StreamConversations<'a, ApiClient, Db, Subscription>
 where
-    C: ScopedGroupClient + Clone + 'a,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
-    type Item = Result<MlsGroup<C>>;
+    type Item = Result<MlsGroup<ApiClient, Db>>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
@@ -270,7 +272,7 @@ where
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
-                            this.client.clone(),
+                            this.context.clone(),
                             item?,
                             *this.conversation_type,
                         )?;
@@ -300,12 +302,15 @@ where
     }
 }
 
-pub enum ProcessWelcomeResult<C> {
+pub enum ProcessWelcomeResult<ApiClient, Db> {
     /// New Group and welcome id
-    New { group: MlsGroup<C>, id: i64 },
+    New {
+        group: MlsGroup<ApiClient, Db>,
+        id: i64,
+    },
     /// A group we already have/we created that might not have a welcome id
     NewStored {
-        group: MlsGroup<C>,
+        group: MlsGroup<ApiClient, Db>,
         maybe_id: Option<i64>,
     },
     /// Skip this welcome but add and id to known welcome ids
@@ -314,9 +319,10 @@ pub enum ProcessWelcomeResult<C> {
     Ignore,
 }
 
-impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
+impl<'a, ApiClient, Db, Subscription> StreamConversations<'a, ApiClient, Db, Subscription>
 where
-    C: ScopedGroupClient + Clone + 'a,
+    ApiClient: XmtpApi + 'a,
+    Db: XmtpDb + 'a,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
     /// Processes the result of a welcome future.
@@ -335,7 +341,7 @@ where
     /// * `cx` - The task context for polling
     ///
     /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<C>>>>` - The polling result based on
+    /// * `Poll<Option<Result<MlsGroup<ApiClient, Db>>>>` - The polling result based on
     ///   the welcome processing outcome
     ///
     /// # Note
@@ -343,7 +349,7 @@ where
     /// ensuring proper handling of all possible processing outcomes.
     fn try_process(
         mut self: Pin<&mut Self>,
-        poll: Poll<Result<ProcessWelcomeResult<C>>>,
+        poll: Poll<Result<ProcessWelcomeResult<ApiClient, Db>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use Poll::*;

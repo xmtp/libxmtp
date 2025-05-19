@@ -6,7 +6,7 @@ pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
-pub mod scoped_client;
+pub mod welcome_sync;
 
 mod disappearing_messages;
 pub(super) mod mls_ext;
@@ -19,7 +19,6 @@ pub mod validated_commit;
 
 use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
-use self::scoped_client::ScopedGroupClient;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
@@ -46,12 +45,13 @@ use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
-    client::{ClientError, XmtpMlsLocalContext},
+    client::ClientError,
     configuration::{
         CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
         MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    context::XmtpMlsLocalContext,
     hpke::HpkeError,
     identity::IdentityError,
     identity_updates::{load_identity_updates, InstallationDiffError},
@@ -59,6 +59,7 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::id::calculate_message_id,
 };
+use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use device_sync::preference_sync::PreferenceUpdate;
 use intents::SendMessageIntentData;
 use mls_ext::DecryptedWelcome;
@@ -86,6 +87,7 @@ use summary::SyncSummary;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
+use xmtp_api::XmtpApi;
 use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
@@ -341,23 +343,24 @@ impl RetryableError for GroupError {
     }
 }
 
-pub struct MlsGroup<C> {
+pub struct MlsGroup<ApiClient, Db> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
     pub created_at_ns: i64,
-    pub client: Arc<C>,
+    pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
 
-impl<C> std::fmt::Debug for MlsGroup<C>
+impl<ApiClient, Db> std::fmt::Debug for MlsGroup<ApiClient, Db>
 where
-    C: ScopedGroupClient,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let id = xmtp_common::fmt::truncate_hex(hex::encode(&self.group_id));
-        let inbox_id = self.client.inbox_id();
-        let installation = self.client.installation_id().to_string();
+        let inbox_id = self.context.inbox_id();
+        let installation = self.context.installation_id().to_string();
         let time = chrono::DateTime::from_timestamp_nanos(self.created_at_ns);
         write!(
             f,
@@ -370,8 +373,8 @@ where
     }
 }
 
-pub struct ConversationListItem<C> {
-    pub group: MlsGroup<C>,
+pub struct ConversationListItem<ApiClient, Db> {
+    pub group: MlsGroup<ApiClient, Db>,
     pub last_message: Option<StoredGroupMessage>,
 }
 
@@ -388,13 +391,13 @@ pub struct DMMetadataOptions {
     pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
-impl<C> Clone for MlsGroup<C> {
+impl<ApiClient, Db> Clone for MlsGroup<ApiClient, Db> {
     fn clone(&self) -> Self {
         Self {
             group_id: self.group_id.clone(),
             dm_id: self.dm_id.clone(),
             created_at_ns: self.created_at_ns,
-            client: self.client.clone(),
+            context: self.context.clone(),
             mutex: self.mutex.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
@@ -473,15 +476,19 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
 /// and validations.
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(
-        client: ScopedClient,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: Vec<u8>,
         dm_id: Option<String>,
         created_at_ns: i64,
     ) -> Self {
-        Self::new_from_arc(Arc::new(client), group_id, dm_id, created_at_ns)
+        Self::new_from_arc(context.clone(), group_id, dm_id, created_at_ns)
     }
 
     /// Creates a new group instance. Validate that the group exists in the DB before constructing
@@ -491,18 +498,13 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///
     /// Returns the Group and the stored group information as a tuple.
     pub fn new_validated(
-        client: ScopedClient,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: Vec<u8>,
     ) -> Result<(Self, StoredGroup), GroupError> {
-        let conn = client.context_ref().db();
+        let conn = context.db();
         if let Some(group) = conn.find_group(&group_id)? {
             Ok((
-                Self::new_from_arc(
-                    Arc::new(client),
-                    group_id,
-                    group.dm_id.clone(),
-                    group.created_at_ns,
-                ),
+                Self::new_from_arc(context, group_id, group.dm_id.clone(), group.created_at_ns),
                 group,
             ))
         } else {
@@ -512,33 +514,30 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub(crate) fn new_from_arc(
-        client: Arc<ScopedClient>,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: Vec<u8>,
         dm_id: Option<String>,
         created_at_ns: i64,
     ) -> Self {
-        let mut mutexes = client.context().mutexes.clone();
-        let context = client.context();
+        let mut mutexes = context.mutexes.clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
-            client,
+            context: Arc::clone(&context),
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
-    pub(self) fn context(
-        &self,
-    ) -> Arc<XmtpMlsLocalContext<<ScopedClient as ScopedGroupClient>::Db>> {
-        self.client.context()
+    pub(self) fn context(&self) -> Arc<XmtpMlsLocalContext<ApiClient, Db>> {
+        self.context.clone()
     }
 
     /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
     /// prefer to use an already-instantiated mls provider if possible.
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<ScopedClient::Db as XmtpDb>::Connection> {
-        self.context().mls_provider()
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<Db as XmtpDb>::Connection> {
+        self.context.mls_provider()
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
@@ -598,20 +597,20 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a new group and save it to the DB
     pub(crate) fn create_and_insert(
-        client: Arc<ScopedClient>,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
         let stored_group = Self::insert(
-            &client,
+            &context,
             None,
             membership_state,
             permissions_policy_set,
             opts,
         )?;
         let new_group = Self::new_from_arc(
-            client.clone(),
+            context.clone(),
             stored_group.id,
             stored_group.dm_id,
             stored_group.created_at_ns,
@@ -623,13 +622,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub(crate) fn insert(
-        client: &ScopedClient,
+        context: &XmtpMlsLocalContext<ApiClient, Db>,
         group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<StoredGroup, GroupError> {
-        let context = client.context();
         let creator_inbox_id = context.inbox_id();
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
@@ -644,7 +642,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             mutable_permissions,
         )?;
 
-        let provider = client.mls_provider();
+        let provider = context.mls_provider();
         let mls_group = if let Some(group_id) = group_id {
             OpenMlsGroup::new_with_group_id(
                 &provider,
@@ -689,13 +687,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     // Create a new DM and save it to the DB
     pub(crate) fn create_dm_and_insert(
-        client: Arc<ScopedClient>,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
         opts: DMMetadataOptions,
     ) -> Result<Self, GroupError> {
-        let provider = client.mls_provider();
-        let context = client.context();
+        let provider = context.mls_provider();
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
         let mutable_metadata = build_dm_mutable_metadata_extension_default(
@@ -739,7 +736,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             .dm_id(Some(
                 DmMembers {
                     member_one_inbox_id: dm_target_inbox_id,
-                    member_two_inbox_id: client.inbox_id().to_string(),
+                    member_two_inbox_id: context.identity.inbox_id().to_string(),
                 }
                 .to_string(),
             ))
@@ -747,7 +744,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         stored_group.store(provider.db())?;
         let new_group = Self::new_from_arc(
-            client.clone(),
+            context.clone(),
             group_id,
             stored_group.dm_id.clone(),
             stored_group.created_at_ns,
@@ -769,18 +766,15 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn create_from_welcome(
-        client: &ScopedClient,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
         allow_cursor_increment: bool,
-    ) -> Result<Self, GroupError>
-    where
-        ScopedClient: Clone,
-    {
-        let provider = client.mls_provider();
+    ) -> Result<Self, GroupError> {
+        let provider = context.mls_provider();
         // Check if this welcome was already processed. Return the existing group if so.
         if provider
             .db()
-            .get_last_cursor_for_id(client.installation_id(), EntityKind::Welcome)?
+            .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?
             >= welcome.id as i64
         {
             let group = provider
@@ -789,7 +783,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
                 )))?;
-            let group = Self::new(client.clone(), group.id, group.dm_id, group.created_at_ns);
+            let group = Self::new(context, group.id, group.dm_id, group.created_at_ns);
 
             return Ok(group);
         };
@@ -812,7 +806,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
-        validate_initial_group_membership(client, &staged_welcome).await?;
+        validate_initial_group_membership(&context, &staged_welcome).await?;
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -832,7 +826,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     welcome.id
                 );
                 provider.db().update_cursor(
-                    client.context().installation_public_key(),
+                    context.installation_id(),
                     EntityKind::Welcome,
                     welcome.id as i64,
                 )?
@@ -843,7 +837,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 );
                 let current_cursor = provider
                     .db()
-                    .get_last_cursor_for_id(client.context().installation_public_key(), EntityKind::Welcome)?;
+                    .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?;
                 current_cursor < welcome.id as i64
             };
             if !requires_processing {
@@ -862,7 +856,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
-                    let current_version_str = client.version_info().pkg_version();
+                    let current_version_str = context.version_info().pkg_version();
                     let current_version =
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
@@ -903,7 +897,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                         .build()?
                 },
                 ConversationType::Dm => {
-                    validate_dm_group(client, &mls_group, &added_by_inbox_id)?;
+                    validate_dm_group(&context, &mls_group, &added_by_inbox_id)?;
                     group
                         .membership_state(GroupMembershipState::Pending)
                         .last_message_ns(welcome.created_ns as i64)
@@ -913,7 +907,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = client.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
+                    let _ = context.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -928,7 +922,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
 
             Ok(Self::new(
-                client.clone(),
+                context,
                 stored_group.id,
                 stored_group.dm_id,
                 stored_group.created_at_ns,
@@ -937,10 +931,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        client: Arc<ScopedClient>,
-    ) -> Result<MlsGroup<ScopedClient>, GroupError> {
-        let provider = client.mls_provider();
-        let context = client.context();
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    ) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
+        let provider = context.mls_provider();
 
         let protected_metadata =
             build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
@@ -975,7 +968,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             GroupMembershipState::Allowed,
         )?;
 
-        let group = Self::new_from_arc(client, stored_group.id, None, stored_group.created_at_ns);
+        let group = Self::new_from_arc(context, stored_group.id, None, stored_group.created_at_ns);
 
         Ok(group)
     }
@@ -1155,7 +1148,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         // Fetch the associated inbox_ids
         let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<Identifier, String> = self
-            .client
+            .context
             .api()
             .get_inbox_ids(requests)
             .await?
@@ -1230,7 +1223,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             account_addresses_to_remove.iter().map(Into::into).collect();
 
         let inbox_id_map = self
-            .client
+            .context
             .api()
             .get_inbox_ids(account_addresses_to_remove)
             .await?;
@@ -1287,7 +1280,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// Updates min version of the group to match this client's version.
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let version = self.client.version_info().pkg_version();
+        let version = self.context.version_info().pkg_version();
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1624,14 +1617,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         if !new_records.is_empty() {
             // Dispatch an update event so it can be synced across devices
             let _ = self
-                .client
+                .context
                 .local_events()
                 .send(LocalEvents::SyncWorkerEvent(
                     SyncWorkerEvent::SyncPreferences(new_records.clone()),
                 ));
             // Broadcast the changes
             let _ = self
-                .client
+                .context
                 .local_events()
                 .send(LocalEvents::PreferencesChanged(new_records));
         }
@@ -1648,7 +1641,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
-        let provider = self.client.mls_provider();
+        let provider = self.context.mls_provider();
         let epoch =
             self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
 
@@ -1725,7 +1718,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     /// See the `test_validate_dm_group` test function for more details.
     #[cfg(test)]
     pub fn create_test_dm_group(
-        client: Arc<ScopedClient>,
+        client: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         dm_target_inbox_id: InboxId,
         custom_protected_metadata: Option<Extension>,
         custom_mutable_metadata: Option<Extension>,
@@ -1733,7 +1726,6 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         custom_mutable_permissions: Option<PolicySet>,
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
-        let context = client.context();
         let conn = context.store().conn();
         let provider = XmtpOpenMlsProvider::new(conn);
 
@@ -1789,7 +1781,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         stored_group.store(provider.db())?;
         Ok(Self::new_from_arc(
-            client,
+            context,
             group_id,
             stored_group.dm_id.clone(),
             stored_group.created_at_ns,
@@ -2059,11 +2051,15 @@ fn build_group_config(
 /**
  * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
  */
-async fn validate_initial_group_membership(
-    client: impl ScopedGroupClient,
+async fn validate_initial_group_membership<ApiClient, Db>(
+    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     staged_welcome: &StagedWelcome,
-) -> Result<(), GroupError> {
-    let provider = client.mls_provider();
+) -> Result<(), GroupError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let provider = context.mls_provider();
     let conn = provider.db();
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
@@ -2071,16 +2067,17 @@ async fn validate_initial_group_membership(
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        load_identity_updates(client.api(), conn, ids.as_slice()).await?;
+        load_identity_updates(&context.api(), conn, ids.as_slice()).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
 
+    let identity_updates = IdentityUpdates::new(context.clone());
     let futures: Vec<_> = membership
         .members
         .iter()
         .map(|(inbox_id, sequence_id)| {
-            client.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
+            identity_updates.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
         })
         .collect();
 
@@ -2109,7 +2106,7 @@ async fn validate_initial_group_membership(
 }
 
 fn validate_dm_group(
-    client: impl ScopedGroupClient,
+    context: impl XmtpContextProvider,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), GroupError> {
@@ -2135,9 +2132,10 @@ fn validate_dm_group(
 
     // 3) If the inbox that added this group is our inbox, make sure that
     //    one of the `dm_members` is our inbox id
-    if added_by_inbox == client.inbox_id() {
-        if !(dm_members.member_one_inbox_id == client.inbox_id()
-            || dm_members.member_two_inbox_id == client.inbox_id())
+    let identity = context.identity();
+    if added_by_inbox == identity.inbox_id() {
+        if !(dm_members.member_one_inbox_id == identity.inbox_id()
+            || dm_members.member_two_inbox_id == identity.inbox_id())
         {
             return Err(GroupError::Generic(
                 "DM group must have our inbox as one of the dm members".to_string(),
@@ -2148,8 +2146,8 @@ fn validate_dm_group(
 
     // 4) Otherwise, make sure one of the `dm_members` is ours, and the other is `added_by_inbox`
     let is_expected_pair = (dm_members.member_one_inbox_id == added_by_inbox
-        && dm_members.member_two_inbox_id == client.inbox_id())
-        || (dm_members.member_one_inbox_id == client.inbox_id()
+        && dm_members.member_two_inbox_id == identity.inbox_id())
+        || (dm_members.member_one_inbox_id == identity.inbox_id()
             && dm_members.member_two_inbox_id == added_by_inbox);
 
     if !is_expected_pair {

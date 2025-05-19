@@ -1,6 +1,5 @@
 use super::*;
 use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
-use crate::Client;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
@@ -19,7 +18,18 @@ pub enum PreferenceUpdate {
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+#[derive(Clone)]
+pub struct PreferenceSyncService<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> PreferenceSyncService<ApiClient, Db> {
+    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        Self { context }
+    }
+}
+
+impl<ApiClient, Db> PreferenceSyncService<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
@@ -28,12 +38,14 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), ClientError> {
-        self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
-            updates: updates.clone().into_iter().map(From::from).collect(),
-        }))
-        .await?;
+        let device_sync = DeviceSyncClient::new(self.context.clone());
+        device_sync
+            .send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
+                updates: updates.clone().into_iter().map(From::from).collect(),
+            }))
+            .await?;
 
-        if let Some(handle) = self.worker_handle() {
+        if let Some(handle) = self.context.device_sync.worker_handle() {
             updates.iter().for_each(|update| match update {
                 PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::ConsentSent),
                 PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),
@@ -42,7 +54,8 @@ where
 
         // TODO: v1 support - remove this on next hammer
         let legacy_updates = updates.into_iter().map(Into::into).collect();
-        LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
+        LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self.context.clone())
+            .await?;
 
         Ok(())
     }
@@ -135,7 +148,7 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 #[cfg(test)]
 mod tests {
     use crate::{
-        groups::{device_sync::handle::SyncMetric, scoped_client::ScopedGroupClient},
+        groups::device_sync::handle::SyncMetric,
         utils::{LocalTesterBuilder, Tester},
     };
     use xmtp_db::user_preferences::StoredUserPreferences;

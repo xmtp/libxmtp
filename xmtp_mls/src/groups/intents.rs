@@ -5,6 +5,7 @@ use openmls::prelude::{
 use prost::{bytes::Bytes, DecodeError, Message};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+use xmtp_api::XmtpApi;
 
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
@@ -28,7 +29,6 @@ use super::{
     group_membership::GroupMembership,
     group_mutable_metadata::MetadataField,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    scoped_client::ScopedGroupClient,
     GroupError, MlsGroup,
 };
 use crate::{
@@ -69,7 +69,11 @@ pub enum IntentError {
     UnknownAdminListAction,
 }
 
-impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
+impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
     pub fn queue_intent(
         &self,
         intent_kind: IntentKind,
@@ -86,7 +90,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
     fn queue_intent_with_conn(
         &self,
-        conn: &DbConnection<<<ScopedClient as ScopedGroupClient>::Db as XmtpDb>::Connection>,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
         should_push: bool,
@@ -105,7 +109,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
         }
-        tracing::debug!(inbox_id = self.client.inbox_id(), intent_kind = %intent_kind, "queued intent");
+        tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
         Ok(intent)
     }
