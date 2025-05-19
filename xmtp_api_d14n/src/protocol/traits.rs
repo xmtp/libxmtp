@@ -4,6 +4,7 @@
 use super::ExtractionError;
 use super::PayloadExtractor;
 use super::TopicExtractor;
+use super::ValidationError;
 use xmtp_common::RetryableError;
 use xmtp_common::retryable;
 use xmtp_proto::ConversionError;
@@ -37,6 +38,8 @@ pub enum EnvelopeError {
     // generic implementations like Tuples
     #[error("{0}")]
     DynError(Box<dyn RetryableError + Send + Sync>),
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
 }
 
 impl RetryableError for EnvelopeError {
@@ -46,6 +49,7 @@ impl RetryableError for EnvelopeError {
             Self::Extraction(e) => retryable!(e),
             Self::TopicMismatch => false,
             Self::DynError(d) => retryable!(d),
+            Self::Validation(e) => retryable!(e),
         }
     }
 }

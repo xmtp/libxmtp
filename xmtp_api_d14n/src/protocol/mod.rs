@@ -11,6 +11,9 @@ pub mod envelopes;
 pub mod extractors;
 pub use extractors::*;
 
+pub mod validation;
+pub use validation::*;
+
 mod impls;
 
 use openmls::prelude::ProtocolVersion;

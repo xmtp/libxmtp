@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use ethers::types::Signature as EthersSignature;
+use ethers::types::{RecoveryMessage, Signature as EthersSignature};
 use ethers::utils::hash_message;
 use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -50,13 +50,16 @@ impl VerifiedSignature {
      * Verifies an ECDSA signature against the provided signature text.
      * Returns a VerifiedSignature if the signature is valid, otherwise returns an error.
      */
-    pub fn from_recoverable_ecdsa<Text: AsRef<str>>(
-        signature_text: Text,
+    pub fn from_recoverable_ecdsa<M>(
+        signature_message: M,
         signature_bytes: &[u8],
-    ) -> Result<Self, SignatureError> {
+    ) -> Result<Self, SignatureError>
+    where
+        M: Into<RecoveryMessage>,
+    {
         let normalized_signature_bytes = to_lower_s(signature_bytes)?;
         let signature = EthersSignature::try_from(normalized_signature_bytes.as_slice())?;
-        let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
+        let address = h160addr_to_string(signature.recover(signature_message)?);
 
         Ok(Self::new(
             MemberIdentifier::eth(address)?,
