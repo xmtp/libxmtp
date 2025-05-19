@@ -123,13 +123,7 @@ where
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            // If changed to NOT USE a connection, WILL deadlock b/c nested transactions
-            self.queue_intent_with_conn(
-                conn,
-                IntentKind::KeyUpdate,
-                b"key_update".to_vec(),
-                false,
-            )?;
+            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
         }
         Ok(())
     }

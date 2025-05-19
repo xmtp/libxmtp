@@ -1441,7 +1441,7 @@ where
 
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = self.queue_intent(IntentKind::KeyUpdate, b"key_update".to_vec(), false)?;
+        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![], false)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
