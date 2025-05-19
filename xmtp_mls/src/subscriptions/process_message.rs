@@ -187,8 +187,7 @@ where
         let process_result = retry_async!(
             Retry::default(),
             (async {
-                let (group, _) =
-                    MlsGroup::new_validated(self.context.clone(), self.msg.group_id.clone())?;
+                let (group, _) = MlsGroup::new_cached(self.context.clone(), &self.msg.group_id)?;
                 let epoch = group.epoch().await?;
 
                 tracing::debug!(

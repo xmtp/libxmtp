@@ -139,8 +139,7 @@ where
             }
             Group(ref id) => {
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
-                let (group, stored_group) =
-                    MlsGroup::new_validated(self.context.clone(), id.to_vec())?;
+                let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {
                     group,

@@ -93,7 +93,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::consent_record::ConsentType;
+use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -491,25 +491,25 @@ where
         Self::new_from_arc(context.clone(), group_id, dm_id, created_at_ns)
     }
 
-    /// Creates a new group instance. Validate that the group exists in the DB before constructing
+    /// Creates a new group instance from the database. Validate that the group exists in the DB before constructing
     /// the group.
     ///
     /// # Returns
     ///
     /// Returns the Group and the stored group information as a tuple.
-    pub fn new_validated(
+    pub fn new_cached(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        group_id: Vec<u8>,
+        group_id: &[u8],
     ) -> Result<(Self, StoredGroup), GroupError> {
         let conn = context.db();
-        if let Some(group) = conn.find_group(&group_id)? {
+        if let Some(group) = conn.find_group(group_id)? {
             Ok((
-                Self::new_from_arc(context, group_id, group.dm_id.clone(), group.created_at_ns),
+                Self::new_from_arc(context, group_id.to_vec(), group.dm_id.clone(), group.created_at_ns),
                 group,
             ))
         } else {
-            tracing::error!("Failed to validate existence of group");
-            Err(NotFound::GroupById(group_id).into())
+            tracing::error!("group {} does not exist", hex::encode(group_id));
+            Err(NotFound::GroupById(group_id.to_vec()).into())
         }
     }
 
@@ -1711,6 +1711,36 @@ where
         self.load_mls_group_with_lock(&provider, |mls_group| {
             Ok(extract_group_permissions(&mls_group)?)
         })
+    }
+
+    /// Fetches the message disappearing settings for a given group ID.
+    ///
+    /// Returns `Some(MessageDisappearingSettings)` if the group exists and has valid settings,
+    /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
+    pub fn disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>, GroupError> {
+        let conn = self.context.db();
+        let stored_group: Option<StoredGroup> = conn.fetch(&self.group_id)?;
+
+        let settings = stored_group.and_then(|group| {
+            let from_ns = group.message_disappear_from_ns?;
+            let in_ns = group.message_disappear_in_ns?;
+
+            Some(MessageDisappearingSettings { from_ns, in_ns })
+        });
+
+        Ok(settings)
+    }
+
+    /// Find all the duplicate dms for this group
+    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
+        let duplicates = self.context.db().other_dms(&self.group_id)?;
+
+        let mls_groups = duplicates
+            .into_iter()
+            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .collect();
+
+        Ok(mls_groups)
     }
 
     /// Used for testing that dm group validation works as expected.

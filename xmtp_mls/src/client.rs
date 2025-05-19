@@ -28,16 +28,16 @@ use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::consent_record::ConsentType;
+use xmtp_db::XmtpDb;
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{GroupMembershipState, GroupQueryArgs, StoredGroup},
+    group::{GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     NotFound, StorageError,
 };
-use xmtp_db::{Fetch, XmtpDb};
 use xmtp_id::AsIdRef;
 use xmtp_id::{
     associations::{
@@ -143,7 +143,7 @@ impl From<&str> for ClientError {
 
 /// Clients manage access to the network, identity, and data store
 pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
-    pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
 }
 
@@ -611,14 +611,8 @@ where
         &self,
         group_id: &[u8],
     ) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
-        let duplicates = self.context.db().other_dms(group_id)?;
-
-        let mls_groups = duplicates
-            .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
-            .collect();
-
-        Ok(mls_groups)
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        group.find_duplicate_dms()
     }
 
     /// Fetches the message disappearing settings for a given group ID.
@@ -627,19 +621,10 @@ where
     /// `None` if the group or settings are missing, or `Err(ClientError)` on a database error.
     pub fn group_disappearing_settings(
         &self,
-        group_id: Vec<u8>,
+        group_id: &[u8],
     ) -> Result<Option<MessageDisappearingSettings>, ClientError> {
-        let conn = &mut self.store().conn();
-        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
-
-        let settings = stored_group.and_then(|group| {
-            let from_ns = group.message_disappear_from_ns?;
-            let in_ns = group.message_disappear_in_ns?;
-
-            Some(MessageDisappearingSettings { from_ns, in_ns })
-        });
-
-        Ok(settings)
+        let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
+        Ok(group.disappearing_settings()?)
     }
 
     /**
