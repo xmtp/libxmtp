@@ -3,7 +3,8 @@
 //! from the data in DB/Api
 use std::{collections::HashMap, sync::Arc};
 
-use xmtp_api::XmtpApi;
+use xmtp_api::{ApiError, XmtpApi};
+use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
@@ -12,11 +13,34 @@ use xmtp_db::{
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 
 use crate::{
-    client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::MlsGroup,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum MlsStoreError {
+    #[error(transparent)]
+    Storage(#[from] xmtp_db::StorageError),
+    #[error(transparent)]
+    Api(#[from] ApiError),
+    #[error(transparent)]
+    Connection(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    NotFound(#[from] NotFound),
+}
+
+impl RetryableError for MlsStoreError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Storage(e) => e.is_retryable(),
+            Self::Api(e) => e.is_retryable(),
+            Self::Connection(e) => e.is_retryable(),
+            Self::NotFound(e) => e.is_retryable(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct MlsStore<ApiClient, Db> {
@@ -39,7 +63,7 @@ where
     pub(crate) async fn query_welcome_messages(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
-    ) -> Result<Vec<WelcomeMessage>, ClientError> {
+    ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
         let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
 
@@ -58,7 +82,7 @@ where
         &self,
         group_id: &[u8],
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
-    ) -> Result<Vec<GroupMessage>, ClientError> {
+    ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let messages = self
@@ -77,7 +101,7 @@ where
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<
         HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
-        ClientError,
+        MlsStoreError,
     > {
         let key_package_results = self
             .context
@@ -111,7 +135,7 @@ where
     pub fn find_groups(
         &self,
         args: GroupQueryArgs,
-    ) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
+    ) -> Result<Vec<MlsGroup<ApiClient, Db>>, MlsStoreError> {
         Ok(self
             .context
             .db()
@@ -132,7 +156,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<ApiClient, Db>, MlsStoreError> {
         let conn = self.context.db();
         let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group

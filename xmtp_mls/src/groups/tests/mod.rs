@@ -6,6 +6,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use super::group_permissions::PolicySet;
 use crate::context::XmtpContextProvider;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::{DmValidationError, MetadataPermissionsError};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -2849,7 +2850,7 @@ async fn test_validate_dm_group() {
     .unwrap();
     assert!(valid_dm_group
         .load_mls_group_with_lock(client.mls_provider(), |mls_group| {
-            validate_dm_group(&client, &mls_group, added_by_inbox)
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
         })
         .is_ok());
 
@@ -2866,11 +2867,14 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
+    let err = invalid_type_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+        validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+    });
     assert!(matches!(
-        invalid_type_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("Invalid conversation type")
+        err,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
+        ))
     ));
     // Test case 3: Missing DmMembers
     // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
@@ -2889,11 +2893,15 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
+    let err = mismatched_dm_members_group
+        .load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        });
     assert!(matches!(
-        mismatched_dm_members_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("DM members do not match expected inboxes")
+        err,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
+        ))
     ));
 
     // Test case 5: Non-empty admin list
@@ -2911,10 +2919,14 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        non_empty_admin_list_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("DM group must have empty admin and super admin lists")
+        non_empty_admin_list_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        }),
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(
+                DmValidationError::MustHaveEmptyAdminAndSuperAdmin
+            )
+        ))
     ));
 
     // Test case 6: Non-empty super admin list
@@ -2933,10 +2945,12 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        invalid_permissions_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
+        invalid_permissions_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        }),
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+        ))
     ));
 }
 

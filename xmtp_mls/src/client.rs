@@ -7,7 +7,7 @@ use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::groups::{ConversationListItem, DMMetadataOptions};
 use crate::identity_updates::IdentityUpdates;
-use crate::mls_store::MlsStore;
+use crate::mls_store::{MlsStore, MlsStoreError};
 use crate::utils::VersionInfo;
 use crate::{
     groups::{
@@ -93,6 +93,8 @@ pub enum ClientError {
     Db(#[from] xmtp_db::ConnectionError),
     #[error("generic:{0}")]
     Generic(String),
+    #[error(transparent)]
+    MlsStore(#[from] MlsStoreError),
 }
 
 impl ClientError {
@@ -206,7 +208,8 @@ where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
-    // Test only function to update the version of the client
+    /// Test only function to update the version of the client
+    /// This test returns None if the version was not updated
     #[cfg(test)]
     pub fn test_update_version(&mut self, version: &str) -> Option<()> {
         let mut_context = Arc::get_mut(&mut self.context)?;
@@ -590,7 +593,9 @@ where
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
     pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
-        MlsStore::new(self.context.clone()).group(group_id)
+        MlsStore::new(self.context.clone())
+            .group(group_id)
+            .map_err(Into::into)
     }
 
     /// Look up a group by its ID while stitching DMs
@@ -671,7 +676,9 @@ where
         &self,
         args: GroupQueryArgs,
     ) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
-        MlsStore::new(self.context.clone()).find_groups(args)
+        MlsStore::new(self.context.clone())
+            .find_groups(args)
+            .map_err(Into::into)
     }
 
     pub fn list_conversations(
@@ -763,6 +770,7 @@ where
         MlsStore::new(self.context.clone())
             .get_key_packages_for_installation_ids(installation_ids)
             .await
+            .map_err(Into::into)
     }
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
@@ -790,7 +798,7 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, ClientError> {
+    ) -> Result<usize, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await

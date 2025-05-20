@@ -601,9 +601,9 @@ where
         #[cfg(not(target_arch = "wasm32"))]
         let reader = {
             use futures::StreamExt;
-            let stream = response.bytes_stream().map(|result| {
-                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-            });
+            let stream = response
+                .bytes_stream()
+                .map(|result| result.map_err(std::io::Error::other));
 
             // Convert that stream into a reader
             let tokio_reader = tokio_util::io::StreamReader::new(stream);

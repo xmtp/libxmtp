@@ -2,7 +2,7 @@ use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsG
 use crate::{
     client::ClientError,
     context::XmtpMlsLocalContext,
-    mls_store::MlsStore,
+    mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
@@ -70,20 +70,10 @@ pub enum DeviceSyncError {
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     Group(#[from] GroupError),
-    #[error("unable to find sync request with provided request_id")]
-    ReplyRequestIdMissing,
-    #[error("reply already processed")]
-    ReplyAlreadyProcessed,
     #[error("no pending request to reply to")]
     NoPendingRequest,
-    #[error("no reply to process")]
-    NoReplyToProcess,
-    #[error("generic: {0}")]
-    Generic(String),
     #[error("invalid history message payload")]
     InvalidPayload,
-    #[error("invalid history bundle url")]
-    InvalidBundleUrl,
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
@@ -109,7 +99,15 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
-    Sync(#[from] SyncSummary),
+    Sync(Box<SyncSummary>),
+    #[error(transparent)]
+    MlsStore(#[from] MlsStoreError),
+}
+
+impl From<SyncSummary> for DeviceSyncError {
+    fn from(value: SyncSummary) -> Self {
+        DeviceSyncError::Sync(Box::new(value))
+    }
 }
 
 impl DeviceSyncError {

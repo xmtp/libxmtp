@@ -1,5 +1,6 @@
 pub mod device_sync;
 pub mod device_sync_legacy;
+mod error;
 pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
@@ -17,15 +18,12 @@ pub mod summary;
 mod tests;
 pub mod validated_commit;
 
-use self::device_sync::DeviceSyncError;
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::{
     group_membership::GroupMembership,
     group_metadata::{extract_group_metadata, DmMembers},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
-    group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
-    },
+    group_permissions::{extract_group_permissions, GroupMutablePermissions},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
@@ -35,8 +33,6 @@ use self::{
 use self::{
     group_metadata::{GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
-    intents::IntentError,
-    validated_commit::CommitValidationError,
 };
 use crate::groups::group_mutable_metadata::{
     extract_group_mutable_metadata, MessageDisappearingSettings,
@@ -52,30 +48,28 @@ use crate::{
         SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     context::XmtpMlsLocalContext,
-    hpke::HpkeError,
-    identity::IdentityError,
-    identity_updates::{load_identity_updates, InstallationDiffError},
+    identity_updates::load_identity_updates,
     intents::ProcessIntentError,
-    subscriptions::{LocalEventError, LocalEvents},
+    subscriptions::LocalEvents,
     utils::id::calculate_message_id,
 };
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use device_sync::preference_sync::PreferenceUpdate;
+pub use error::*;
 use intents::SendMessageIntentData;
 use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
-    error::LibraryError,
     extensions::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
     },
-    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig},
+    group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
     prelude::{
-        BasicCredentialError, Capabilities, CredentialWithKey, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy,
+        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
+        WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -83,16 +77,12 @@ use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
-use summary::SyncSummary;
-use thiserror::Error;
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_api::XmtpApi;
-use xmtp_common::retry::RetryableError;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
-use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -102,7 +92,6 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_intent::IntentKind,
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
-    sql_key_store,
 };
 use xmtp_db::{
     group_message::{ContentType, StoredGroupMessageWithReactions},
@@ -124,224 +113,6 @@ use xmtp_proto::xmtp::mls::{
 const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
-
-#[derive(Error, Debug)]
-pub struct ReceiveErrors {
-    /// list of message ids we received
-    ids: Vec<u64>,
-    errors: Vec<GroupMessageProcessingError>,
-}
-
-impl RetryableError for ReceiveErrors {
-    fn is_retryable(&self) -> bool {
-        self.errors.iter().any(|e| e.is_retryable())
-    }
-}
-
-impl ReceiveErrors {
-    pub fn new(errors: Vec<GroupMessageProcessingError>, ids: Vec<u64>) -> Self {
-        Self { ids, errors }
-    }
-}
-
-impl std::fmt::Display for ReceiveErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let errs: HashSet<String> = self.errors.iter().map(|e| e.to_string()).collect();
-        let mut sorted = self.ids.clone();
-        sorted.sort();
-        writeln!(
-            f,
-            "\n=========================== Receive Errors  =====================\n\
-            total of [{}] errors processing [{}] messages in cursor range [{:?} ... {:?}]\n\
-            [{}] unique errors:",
-            self.errors.len(),
-            self.ids.len(),
-            sorted.first(),
-            sorted.last(),
-            errs.len(),
-        )?;
-        for err in errs.iter() {
-            writeln!(f, "{}", err)?;
-        }
-        writeln!(
-            f,
-            "================================================================="
-        )?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum GroupError {
-    #[error(transparent)]
-    NotFound(#[from] NotFound),
-    #[error("Max user limit exceeded.")]
-    UserLimitExceeded,
-    #[error("api error: {0}")]
-    WrappedApi(#[from] xmtp_api::ApiError),
-    #[error("invalid group membership")]
-    InvalidGroupMembership,
-    #[error("storage error: {0}")]
-    Storage(#[from] xmtp_db::StorageError),
-    #[error("intent error: {0}")]
-    Intent(#[from] IntentError),
-    #[error("create message: {0}")]
-    CreateMessage(#[from] openmls::prelude::CreateMessageError),
-    #[error("TLS Codec error: {0}")]
-    TlsError(#[from] TlsCodecError),
-    #[error("SequenceId not found in local db")]
-    MissingSequenceId,
-    #[error("Addresses not found {0:?}")]
-    AddressNotFound(Vec<String>),
-    #[error("add members: {0}")]
-    UpdateGroupMembership(
-        #[from] openmls::prelude::UpdateGroupMembershipError<sql_key_store::SqlKeyStoreError>,
-    ),
-    #[error("group create: {0}")]
-    GroupCreate(#[from] openmls::group::NewGroupError<sql_key_store::SqlKeyStoreError>),
-    #[error("self update: {0}")]
-    SelfUpdate(#[from] openmls::group::SelfUpdateError<sql_key_store::SqlKeyStoreError>),
-    #[error("welcome error: {0}")]
-    WelcomeError(#[from] openmls::prelude::WelcomeError<sql_key_store::SqlKeyStoreError>),
-    #[error("Invalid extension {0}")]
-    InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
-    #[error("Invalid signature: {0}")]
-    Signature(#[from] openmls::prelude::SignatureError),
-    #[error("client: {0}")]
-    Client(#[from] ClientError),
-    #[error("receive error: {0}")]
-    ReceiveError(#[from] GroupMessageProcessingError),
-    #[error("Receive errors: {0}")]
-    ReceiveErrors(ReceiveErrors),
-    #[error("generic: {0}")]
-    Generic(String),
-    #[error(transparent)]
-    AddressValidation(#[from] IdentifierValidationError),
-    #[error(transparent)]
-    LocalEvent(#[from] LocalEventError),
-    #[error("Public Keys {0:?} are not valid ed25519 public keys")]
-    InvalidPublicKeys(Vec<Vec<u8>>),
-    #[error("Commit validation error {0}")]
-    CommitValidation(#[from] CommitValidationError),
-    #[error("Metadata error {0}")]
-    GroupMetadata(#[from] GroupMetadataError),
-    #[error("Mutable Metadata error {0}")]
-    GroupMutableMetadata(#[from] GroupMutableMetadataError),
-    #[error("Mutable Permissions error {0}")]
-    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
-    #[error("Hpke error: {0}")]
-    Hpke(#[from] HpkeError),
-    #[error("identity error: {0}")]
-    Identity(#[from] IdentityError),
-    #[error("serialization error: {0}")]
-    EncodeError(#[from] prost::EncodeError),
-    #[error("create group context proposal error: {0}")]
-    CreateGroupContextExtProposalError(
-        #[from] CreateGroupContextExtProposalError<sql_key_store::SqlKeyStoreError>,
-    ),
-    #[error("Credential error")]
-    CredentialError(#[from] BasicCredentialError),
-    #[error("LeafNode error")]
-    LeafNodeError(#[from] LibraryError),
-
-    #[error("Message History error: {0}")]
-    MessageHistory(#[from] Box<DeviceSyncError>),
-    #[error("Installation diff error: {0}")]
-    InstallationDiff(#[from] InstallationDiffError),
-    #[error("PSKs are not support")]
-    NoPSKSupport,
-    #[error("Metadata update must specify a metadata field")]
-    InvalidPermissionUpdate,
-    #[error("dm requires target inbox_id")]
-    InvalidDmMissingInboxId,
-    #[error("Missing metadata field {name}")]
-    MissingMetadataField { name: String },
-    #[error("sql key store error: {0}")]
-    SqlKeyStore(#[from] sql_key_store::SqlKeyStoreError),
-    #[error("Sync failed to wait for intent")]
-    SyncFailedToWait(SyncSummary),
-    #[error("cannot change metadata of DM")]
-    DmGroupMetadataForbidden,
-    #[error("Missing pending commit")]
-    MissingPendingCommit,
-    #[error("Intent not committed")]
-    IntentNotCommitted,
-    #[error(transparent)]
-    ProcessIntent(#[from] ProcessIntentError),
-    #[error("Failed to load lock")]
-    LockUnavailable,
-    #[error("Failed to acquire semaphore lock")]
-    LockFailedToAcquire,
-    #[error("Exceeded max characters for this field. Must be under: {length}")]
-    TooManyCharacters { length: usize },
-    #[error("Group is paused until version {0} is available")]
-    GroupPausedUntilUpdate(String),
-    #[error("Group is inactive")]
-    GroupInactive,
-    #[error("{}", _0.to_string())]
-    Sync(#[from] SyncSummary),
-    #[error(transparent)]
-    Db(#[from] xmtp_db::ConnectionError),
-}
-
-impl RetryableError for GroupError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::ReceiveErrors(errors) => errors.is_retryable(),
-            Self::Client(client_error) => client_error.is_retryable(),
-            Self::Storage(storage) => storage.is_retryable(),
-            Self::ReceiveError(msg) => msg.is_retryable(),
-            Self::Hpke(hpke) => hpke.is_retryable(),
-            Self::Identity(identity) => identity.is_retryable(),
-            Self::UpdateGroupMembership(update) => update.is_retryable(),
-            Self::GroupCreate(group) => group.is_retryable(),
-            Self::SelfUpdate(update) => update.is_retryable(),
-            Self::WelcomeError(welcome) => welcome.is_retryable(),
-            Self::SqlKeyStore(sql) => sql.is_retryable(),
-            Self::InstallationDiff(diff) => diff.is_retryable(),
-            Self::CreateGroupContextExtProposalError(create) => create.is_retryable(),
-            Self::CommitValidation(err) => err.is_retryable(),
-            Self::WrappedApi(err) => err.is_retryable(),
-            Self::MessageHistory(err) => err.is_retryable(),
-            Self::ProcessIntent(err) => err.is_retryable(),
-            Self::LocalEvent(err) => err.is_retryable(),
-            Self::LockUnavailable => true,
-            Self::LockFailedToAcquire => true,
-            Self::SyncFailedToWait(_) => true,
-            Self::Sync(s) => s.is_retryable(),
-            Self::Db(e) => e.is_retryable(),
-            Self::NotFound(_)
-            | Self::GroupMetadata(_)
-            | Self::GroupMutableMetadata(_)
-            | Self::GroupMutablePermissions(_)
-            | Self::UserLimitExceeded
-            | Self::InvalidGroupMembership
-            | Self::Intent(_)
-            | Self::CreateMessage(_)
-            | Self::TlsError(_)
-            | Self::IntentNotCommitted
-            | Self::Generic(_)
-            | Self::InvalidDmMissingInboxId
-            | Self::MissingSequenceId
-            | Self::AddressNotFound(_)
-            | Self::InvalidExtension(_)
-            | Self::MissingMetadataField { .. }
-            | Self::DmGroupMetadataForbidden
-            | Self::Signature(_)
-            | Self::LeafNodeError(_)
-            | Self::NoPSKSupport
-            | Self::MissingPendingCommit
-            | Self::InvalidPermissionUpdate
-            | Self::AddressValidation(_)
-            | Self::InvalidPublicKeys(_)
-            | Self::CredentialError(_)
-            | Self::EncodeError(_)
-            | Self::TooManyCharacters { .. }
-            | Self::GroupPausedUntilUpdate(_)
-            | Self::GroupInactive => false,
-        }
-    }
-}
 
 pub struct MlsGroup<ApiClient, Db> {
     pub group_id: Vec<u8>,
@@ -851,7 +622,7 @@ where
 
             let mls_group = staged_welcome.into_group(provider)?;
             let group_id = mls_group.group_id().to_vec();
-            let metadata = extract_group_metadata(&mls_group)?;
+            let metadata = extract_group_metadata(&mls_group).map_err(MetadataPermissionsError::from)?;
             let dm_members = metadata.dm_members;
             let conversation_type = metadata.conversation_type;
             let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
@@ -1272,7 +1043,7 @@ where
             });
         }
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
@@ -1316,12 +1087,12 @@ where
         self.ensure_not_paused().await?;
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
             && metadata_field.is_none()
         {
-            return Err(GroupError::InvalidPermissionUpdate);
+            return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
         }
 
         let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
@@ -1345,9 +1116,10 @@ where
             .get(&MetadataField::GroupName.to_string())
         {
             Some(group_name) => Ok(group_name.clone()),
-            None => Err(GroupError::GroupMutableMetadata(
+            None => Err(MetadataPermissionsError::from(
                 GroupMutableMetadataError::MissingExtension,
-            )),
+            )
+            .into()),
         }
     }
 
@@ -1365,7 +1137,7 @@ where
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
@@ -1382,8 +1154,8 @@ where
             .get(&MetadataField::Description.to_string())
         {
             Some(group_description) => Ok(group_description.clone()),
-            None => Err(GroupError::GroupMutableMetadata(
-                GroupMutableMetadataError::MissingExtension,
+            None => Err(GroupError::MetadataPermissionsError(
+                GroupMutableMetadataError::MissingExtension.into(),
             )),
         }
     }
@@ -1402,7 +1174,7 @@ where
         }
 
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
@@ -1421,9 +1193,10 @@ where
             .get(&MetadataField::GroupImageUrlSquare.to_string())
         {
             Some(group_image_url_square) => Ok(group_image_url_square.clone()),
-            None => Err(GroupError::GroupMutableMetadata(
+            None => Err(MetadataPermissionsError::Mutable(
                 GroupMutableMetadataError::MissingExtension,
-            )),
+            )
+            .into()),
         }
     }
 
@@ -1523,8 +1296,8 @@ where
                 message_disappear_in_ns,
             ))
         } else {
-            Err(GroupError::GroupMetadata(
-                GroupMetadataError::MissingExtension,
+            Err(GroupError::MetadataPermissionsError(
+                GroupMetadataError::MissingExtension.into(),
             ))
         }
     }
@@ -1566,7 +1339,7 @@ where
         inbox_id: String,
     ) -> Result<(), GroupError> {
         if self.metadata().await?.conversation_type == ConversationType::Dm {
-            return Err(GroupError::DmGroupMetadataForbidden);
+            return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_action_type = match action_type {
             UpdateAdminListType::Add => AdminListActionType::Add,
@@ -1697,7 +1470,11 @@ where
     /// Get the `GroupMetadata` of the group.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(extract_group_metadata(&mls_group).map_err(Into::into))
+            futures::future::ready(
+                extract_group_metadata(&mls_group)
+                    .map_err(MetadataPermissionsError::from)
+                    .map_err(Into::into),
+            )
         })
         .await
     }
@@ -1706,7 +1483,8 @@ where
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         let provider = self.mls_provider();
         self.load_mls_group_with_lock(provider, |mls_group| {
-            Ok(GroupMutableMetadata::try_from(&mls_group)?)
+            Ok(GroupMutableMetadata::try_from(&mls_group)
+                .map_err(MetadataPermissionsError::from)?)
         })
     }
 
@@ -1714,7 +1492,7 @@ where
         let provider = self.mls_provider();
 
         self.load_mls_group_with_lock(&provider, |mls_group| {
-            Ok(extract_group_permissions(&mls_group)?)
+            Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
         })
     }
 
@@ -1827,7 +1605,7 @@ where
 fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
-) -> Result<Extension, GroupError> {
+) -> Result<Extension, MetadataPermissionsError> {
     let metadata = GroupMetadata::new(conversation_type, creator_inbox_id.to_string(), None);
     let protected_metadata = Metadata::new(metadata.try_into()?);
 
@@ -1848,12 +1626,18 @@ fn build_dm_protected_metadata_extension(
         creator_inbox_id.to_string(),
         dm_members,
     );
-    let protected_metadata = Metadata::new(metadata.try_into()?);
+    let protected_metadata = Metadata::new(
+        metadata
+            .try_into()
+            .map_err(MetadataPermissionsError::from)?,
+    );
 
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-fn build_mutable_permissions_extension(policies: PolicySet) -> Result<Extension, GroupError> {
+fn build_mutable_permissions_extension(
+    policies: PolicySet,
+) -> Result<Extension, MetadataPermissionsError> {
     let permissions: Vec<u8> = GroupMutablePermissions::new(policies).try_into()?;
     let unknown_gc_extension = UnknownExtension(permissions);
 
@@ -1868,7 +1652,9 @@ pub fn build_mutable_metadata_extension_default(
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts).try_into()?;
+        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts)
+            .try_into()
+            .map_err(MetadataPermissionsError::from)?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
@@ -1881,7 +1667,7 @@ pub fn build_dm_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     dm_target_inbox_id: &str,
     opts: DMMetadataOptions,
-) -> Result<Extension, GroupError> {
+) -> Result<Extension, MetadataPermissionsError> {
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
         creator_inbox_id.to_string(),
         dm_target_inbox_id,
@@ -1901,7 +1687,7 @@ pub fn build_extensions_for_metadata_update(
     group: &OpenMlsGroup,
     field_name: String,
     field_value: String,
-) -> Result<Extensions, GroupError> {
+) -> Result<Extensions, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let mut attributes = existing_metadata.attributes.clone();
     attributes.insert(field_name, field_value);
@@ -1922,7 +1708,7 @@ pub fn build_extensions_for_metadata_update(
 pub fn build_extensions_for_permissions_update(
     group: &OpenMlsGroup,
     update_permissions_intent: UpdatePermissionIntentData,
-) -> Result<Extensions, GroupError> {
+) -> Result<Extensions, MetadataPermissionsError> {
     let existing_permissions: GroupMutablePermissions = group.try_into()?;
     let existing_policy_set = existing_permissions.policies.clone();
     let new_policy_set = match update_permissions_intent.update_type {
@@ -1961,11 +1747,9 @@ pub fn build_extensions_for_permissions_update(
         PermissionUpdateType::UpdateMetadata => {
             let mut metadata_policy = existing_policy_set.update_metadata_policy.clone();
             metadata_policy.insert(
-                update_permissions_intent.metadata_field_name.ok_or(
-                    GroupError::MissingMetadataField {
-                        name: "metadata_field_name".into(),
-                    },
-                )?,
+                update_permissions_intent
+                    .metadata_field_name
+                    .ok_or(GroupMutableMetadataError::MissingMetadataField)?,
                 update_permissions_intent.policy_option.into(),
             );
             PolicySet::new(
@@ -1990,7 +1774,7 @@ pub fn build_extensions_for_permissions_update(
 pub fn build_extensions_for_admin_lists_update(
     group: &OpenMlsGroup,
     admin_lists_update: UpdateAdminListIntentData,
-) -> Result<Extensions, GroupError> {
+) -> Result<Extensions, MetadataPermissionsError> {
     let existing_metadata: GroupMutableMetadata = group.try_into()?;
     let attributes = existing_metadata.attributes.clone();
     let mut admin_list = existing_metadata.admin_list;
@@ -2144,24 +1928,20 @@ fn validate_dm_group(
     context: impl XmtpContextProvider,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
-) -> Result<(), GroupError> {
+) -> Result<(), MetadataPermissionsError> {
     // Validate dm specific immutable metadata
     let metadata = extract_group_metadata(mls_group)?;
 
     // 1) Check if the conversation type is DM
     if metadata.conversation_type != ConversationType::Dm {
-        return Err(GroupError::Generic(
-            "Invalid conversation type for DM group".to_string(),
-        ));
+        return Err(DmValidationError::InvalidConversationType.into());
     }
 
     // 2) If `dm_members` is not set, return an error immediately
     let dm_members = match &metadata.dm_members {
         Some(dm) => dm,
         None => {
-            return Err(GroupError::Generic(
-                "DM group must have DmMembers set".to_string(),
-            ));
+            return Err(DmValidationError::MustHaveMembersSet.into());
         }
     };
 
@@ -2172,9 +1952,7 @@ fn validate_dm_group(
         if !(dm_members.member_one_inbox_id == identity.inbox_id()
             || dm_members.member_two_inbox_id == identity.inbox_id())
         {
-            return Err(GroupError::Generic(
-                "DM group must have our inbox as one of the dm members".to_string(),
-            ));
+            return Err(DmValidationError::OurInboxMustBeMember.into());
         }
         return Ok(());
     }
@@ -2186,9 +1964,7 @@ fn validate_dm_group(
             && dm_members.member_two_inbox_id == added_by_inbox);
 
     if !is_expected_pair {
-        return Err(GroupError::Generic(
-            "DM members do not match expected inboxes".to_string(),
-        ));
+        return Err(DmValidationError::ExpectedInboxesDoNotMatch.into());
     }
 
     // Validate mutable metadata
@@ -2196,9 +1972,7 @@ fn validate_dm_group(
 
     // Check if the admin list and super admin list are empty
     if !mutable_metadata.admin_list.is_empty() || !mutable_metadata.super_admin_list.is_empty() {
-        return Err(GroupError::Generic(
-            "DM group must have empty admin and super admin lists".to_string(),
-        ));
+        return Err(DmValidationError::MustHaveEmptyAdminAndSuperAdmin.into());
     }
 
     // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
@@ -2215,9 +1989,7 @@ fn validate_dm_group(
         && permissions.policies.update_permissions_policy
             != expected_permissions.policies.update_permissions_policy
     {
-        return Err(GroupError::Generic(
-            "Invalid permissions for DM group".to_string(),
-        ));
+        return Err(DmValidationError::InvalidPermissions.into());
     }
 
     Ok(())

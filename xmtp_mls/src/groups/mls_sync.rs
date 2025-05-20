@@ -401,7 +401,7 @@ where
             };
             num_attempts += 1;
         }
-        Err(GroupError::SyncFailedToWait(summary))
+        Err(GroupError::SyncFailedToWait(Box::new(summary)))
     }
 
     fn validate_message_epoch(
@@ -1893,9 +1893,7 @@ where
                 && !changes_with_kps.failed_installations.is_empty()
                 && changes_with_kps.new_installations.is_empty()
             {
-                return Err(GroupError::Generic(
-                    "Failed to verify all installations".to_string(),
-                ));
+                return Err(GroupError::FailedToVerifyInstallations);
             }
 
             Ok(UpdateGroupMembershipIntentData::new(
@@ -1936,9 +1934,7 @@ where
             })
             .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
 
-        let welcome = welcomes
-            .first()
-            .ok_or(GroupError::Generic("No welcomes to send".to_string()))?;
+        let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
         let chunk_size = GRPC_DATA_LIMIT
             / welcome
@@ -2190,6 +2186,7 @@ where
                 .collect(),
         )
         .await
+        .map_err(Into::into)
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group

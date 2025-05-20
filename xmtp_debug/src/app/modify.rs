@@ -70,7 +70,7 @@ impl Modify {
                     .load(&network)?
                     .ok_or(eyre!("No identitites"))?
                     .map(|i| i.value())
-                    .filter(|identity| !members.iter().any(|i| *i == identity.inbox_id))
+                    .filter(|identity| members.contains(&identity.inbox_id))
                     .choose(rng)
                     .ok_or(eyre!("Identity not found"))?;
                 local_group.member_size -= 1;

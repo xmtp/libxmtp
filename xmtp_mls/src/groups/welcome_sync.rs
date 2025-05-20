@@ -150,7 +150,7 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, ClientError> {
+    ) -> Result<usize, GroupError> {
         let provider = self.context.mls_provider();
         self.sync_welcomes().await?;
         let query_args = GroupQueryArgs {
