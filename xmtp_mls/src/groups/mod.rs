@@ -93,10 +93,10 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
+use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
@@ -504,7 +504,12 @@ where
         let conn = context.db();
         if let Some(group) = conn.find_group(group_id)? {
             Ok((
-                Self::new_from_arc(context, group_id.to_vec(), group.dm_id.clone(), group.created_at_ns),
+                Self::new_from_arc(
+                    context,
+                    group_id.to_vec(),
+                    group.dm_id.clone(),
+                    group.created_at_ns,
+                ),
                 group,
             ))
         } else {

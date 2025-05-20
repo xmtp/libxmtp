@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{collections::HashMap, ops::Deref};
 
 use napi::{
   bindgen_prelude::{Result, Uint8Array},
@@ -19,7 +19,7 @@ use xmtp_mls::groups::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 use crate::{
-  client::RustXmtpClient,
+  client::RustMlsGroup,
   consent_state::ConsentState,
   conversations::{HmacKey, MessageDisappearingSettings},
   encoded_content::EncodedContent,
@@ -75,19 +75,19 @@ pub struct GroupMember {
 #[napi]
 #[derive(Clone)]
 pub struct Conversation {
-  inner_client: Arc<RustXmtpClient>,
+  inner_group: RustMlsGroup,
   group_id: Vec<u8>,
   dm_id: Option<String>,
   created_at_ns: i64,
 }
 
-impl From<MlsGroup<RustXmtpClient>> for Conversation {
-  fn from(mls_group: MlsGroup<RustXmtpClient>) -> Self {
+impl From<RustMlsGroup> for Conversation {
+  fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id,
-      dm_id: mls_group.dm_id,
+      group_id: mls_group.group_id.clone(),
+      dm_id: mls_group.dm_id.clone(),
       created_at_ns: mls_group.created_at_ns,
-      inner_client: mls_group.client,
+      inner_group: mls_group,
     }
   }
 }
@@ -95,13 +95,13 @@ impl From<MlsGroup<RustXmtpClient>> for Conversation {
 #[napi]
 impl Conversation {
   pub fn new(
-    inner_client: Arc<RustXmtpClient>,
+    inner_group: RustMlsGroup,
     group_id: Vec<u8>,
     dm_id: Option<String>,
     created_at_ns: i64,
   ) -> Self {
     Self {
-      inner_client,
+      inner_group,
       group_id,
       dm_id,
       created_at_ns,
@@ -109,9 +109,9 @@ impl Conversation {
   }
 
   // Private helper method to create a new MlsGroup
-  fn create_mls_group(&self) -> MlsGroup<Arc<RustXmtpClient>> {
+  fn create_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
-      self.inner_client.clone(),
+      self.inner_group.context.clone(),
       self.group_id.clone(),
       self.dm_id.clone(),
       self.created_at_ns,
@@ -473,7 +473,7 @@ impl Conversation {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = MlsGroup::stream_with_callback(
-      self.inner_client.clone(),
+      self.inner_group.context.clone(),
       self.group_id.clone(),
       move |message| {
         tsfn.call(
@@ -546,7 +546,7 @@ impl Conversation {
 
   #[napi]
   pub fn dm_peer_inbox_id(&self) -> Result<String> {
-    let inbox_id = self.inner_client.inbox_id();
+    let inbox_id = self.inner_group.context.inbox_id();
     let binding = self.create_mls_group();
     let dm_id = binding.dm_id.as_ref().ok_or(napi::Error::from_reason(
       "Not a DM conversation or missing DM ID",
@@ -606,8 +606,8 @@ impl Conversation {
   #[napi]
   pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
     let settings = self
-      .inner_client
-      .group_disappearing_settings(self.group_id.clone())
+      .inner_group
+      .disappearing_settings()
       .map_err(ErrorWrapper::from)?;
 
     match settings {
@@ -630,9 +630,8 @@ impl Conversation {
     let group = self.create_mls_group();
 
     let dms = self
-      .inner_client
-      .clone()
-      .find_duplicate_dms_for_group(&self.group_id)
+      .inner_group
+      .find_duplicate_dms()
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     let mut hmac_map = HashMap::new();
@@ -674,9 +673,8 @@ impl Conversation {
   pub async fn find_duplicate_dms(&self) -> Result<Vec<Conversation>> {
     // Await the async call and handle errors
     let dms = self
-      .inner_client
-      .clone()
-      .find_duplicate_dms_for_group(&self.group_id)
+      .inner_group
+      .find_duplicate_dms()
       .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     let conversations: Vec<Conversation> = dms.into_iter().map(Into::into).collect();
