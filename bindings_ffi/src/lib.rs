@@ -5,6 +5,13 @@ pub mod inbox_owner;
 pub mod logger;
 pub mod mls;
 pub mod worker;
+pub mod client;
+pub mod conversation;
+pub mod message;
+pub mod signature;
+pub mod consent;
+pub mod backup;
+pub mod test_utils;
 
 pub use crate::inbox_owner::SigningError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
@@ -132,3 +139,12 @@ mod tests {
         let _ = fdlimit::raise_fd_limit();
     }
 }
+
+// Re-export commonly used types
+pub use client::*;
+pub use conversation::*;
+pub use message::*;
+pub use signature::*;
+pub use consent::*;
+pub use backup::*;
+pub use test_utils::*;
