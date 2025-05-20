@@ -271,7 +271,7 @@ where
     pub fn new_cached(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: &[u8],
-    ) -> Result<(Self, StoredGroup), GroupError> {
+    ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
         if let Some(group) = conn.find_group(group_id)? {
             Ok((

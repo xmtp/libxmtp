@@ -30,6 +30,7 @@ test-utils = [
   "dep:url",
   "dep:public-suffix",
   "dep:futures-executor",
+  "dep:mockall",
 ]
 bench = [
   "test-utils",
@@ -95,6 +96,7 @@ coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 futures-executor = { version = "0.3", optional = true }
+mockall = { workspace = true, optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 url = { workspace = true, optional = true }
@@ -155,7 +157,8 @@ public-suffix = { version = "0.1.2" }
 futures-executor = { version = "0.3" }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
-
+mockall.workspace = true
+faux = "0.1.12"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

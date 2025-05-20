@@ -190,7 +190,7 @@ where
 
 pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::encrypted_store::MockConnection;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;

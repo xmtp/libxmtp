@@ -8,9 +8,9 @@ use std::{
 
 use super::{process_message::ProcessMessageFuture, Result, SubscribeError};
 use crate::{
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::MlsGroup,
     subscriptions::process_message::ProcessedMessage,
-    context::{XmtpMlsLocalContext, XmtpContextProvider}
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -280,7 +280,6 @@ where
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(client, new_group), fields(new_group = hex::encode(&new_group)))]
     async fn subscribe(
-
         client: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         filters: Vec<GroupFilter>,
         new_group: Vec<u8>,
@@ -437,7 +436,7 @@ where
         }
         let this = self.as_mut().project();
         let msg_cursor = envelope.id;
-        let future = ProcessMessageFuture::new(this.context.clone(), envelope)?;
+        let future = ProcessMessageFuture::new(this.context.clone(), envelope);
         let future = future.process();
         let mut this = self.as_mut().project();
         this.state.set(State::Processing {
@@ -594,10 +593,6 @@ where
                     xmtp_common::fmt::debug_hex(msg.group_id.as_slice()),
                     processed.tried_to_process,
                     self.returned.len()
-                );
-                tracing::error!(
-                    "{}",
-                    String::from_utf8_lossy(msg.decrypted_message_bytes.as_slice())
                 );
                 return Poll::Ready(Some(Ok(msg)));
             } else {

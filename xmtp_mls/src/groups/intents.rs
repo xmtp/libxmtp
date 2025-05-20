@@ -940,7 +940,9 @@ pub(crate) mod tests {
         let provider = group.context.mls_provider();
         let decrypted_message = group
             .load_mls_group_with_lock(&provider, |mut mls_group| {
-                Ok(mls_group.process_message(&provider, mls_message).unwrap())
+                Ok(mls_group
+                    .process_message(&provider, mls_message.clone())
+                    .unwrap())
             })
             .unwrap();
 

@@ -643,7 +643,7 @@ fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, Id
     Ok(key_package_hash_ref)
 }
 
-fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
+pub(crate) fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
     let cred = MlsCredential { inbox_id };
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);

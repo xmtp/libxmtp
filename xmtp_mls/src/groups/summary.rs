@@ -10,11 +10,11 @@ use super::{mls_sync::GroupMessageProcessingError, GroupError};
 
 #[derive(Default)]
 pub struct SyncSummary {
-    publish_errors: Vec<GroupError>,
-    pub process: ProcessSummary,
-    post_commit_errors: Vec<GroupError>,
+    pub(crate) publish_errors: Vec<GroupError>,
+    pub(crate) process: ProcessSummary,
+    pub(crate) post_commit_errors: Vec<GroupError>,
     /// an error outside of the sync occurred
-    other: Option<Box<GroupError>>,
+    pub(crate) other: Option<Box<GroupError>>,
 }
 
 impl RetryableError for SyncSummary {
@@ -189,6 +189,19 @@ impl From<&group_message::V1> for MessageIdentifierBuilder {
             cursor: Some(value.id),
             group_id: Some(value.group_id.clone()),
             created_ns: Some(value.created_ns),
+            internal_id: None,
+            group_context: None,
+            intent_kind: None,
+        }
+    }
+}
+
+impl From<&group_message::V1> for MessageIdentifier {
+    fn from(value: &group_message::V1) -> Self {
+        MessageIdentifier {
+            cursor: value.id,
+            group_id: value.group_id.clone(),
+            created_ns: value.created_ns,
             internal_id: None,
             group_context: None,
             intent_kind: None,
