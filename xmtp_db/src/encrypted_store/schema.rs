@@ -1,10 +1,8 @@
 pub use super::schema_gen::*;
 
 diesel::table! {
-    client_events (id) {
-        id -> Integer,
+    client_events (created_at_ns) {
         created_at_ns -> BigInt,
-        event -> Integer,
         details -> Jsonb,
     }
 }

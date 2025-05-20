@@ -1,7 +1,8 @@
 use super::DbConnection;
-use crate::{StorageError, schema::client_events};
-use diesel::{Identifiable, Insertable, Queryable, QueryableByName};
+use crate::{StorageError, Store, impl_store, schema::client_events};
+use diesel::{Identifiable, Insertable, Queryable, QueryableByName, prelude::*};
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 
 #[derive(
     Debug,
@@ -16,17 +17,21 @@ use serde::{Deserialize, Serialize};
     QueryableByName,
 )]
 #[diesel(table_name = client_events)]
-#[diesel(primary_key(id))]
+#[diesel(primary_key(created_at_ns))]
 pub struct ClientEvents {
-    pub id: i32,
     pub created_at_ns: i64,
-    pub event: i32,
     pub details: serde_json::Value,
 }
 
+impl_store!(ClientEvents, client_events);
+
 impl ClientEvents {
     pub fn track(conn: &DbConnection, event: ClientEvent) -> Result<(), StorageError> {
-        Ok(())
+        ClientEvents {
+            created_at_ns: now_ns(),
+            details: serde_json::to_value(&event).unwrap(),
+        }
+        .store(conn)
     }
 }
 
