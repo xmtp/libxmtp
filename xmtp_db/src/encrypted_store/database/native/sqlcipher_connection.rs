@@ -66,10 +66,12 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display(),
                         );
-                        let file = File::open(salt_path)?;
-                        salt = <Salt as hex::FromHex>::from_hex(
-                            file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
-                        )?;
+                        let mut file = File::open(salt_path)?;
+                        salt = <Salt as hex::FromHex>::from_hex({
+                            let mut buf = [0; 32];
+                            file.read_exact(&mut buf)?;
+                            buf.to_vec()
+                        })?;
                     }
                     // the db exists and needs to be migrated
                     (false, true) => {
