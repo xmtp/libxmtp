@@ -1,4 +1,5 @@
 mod test_dm;
+mod test_key_updates;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);

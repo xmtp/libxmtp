@@ -161,7 +161,6 @@ pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
-    #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
     pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
 }
