@@ -3696,7 +3696,7 @@ async fn can_stream_out_of_order_without_forking() {
     // This processing will not longer update the cursor, so we will not be forked
     let increment_epoch = false;
     let result = group_a
-        .process_message(&v1_last_message, increment_epoch)
+        .process_message(v1_last_message, increment_epoch)
         .await;
     assert!(result.is_ok());
 

@@ -42,7 +42,7 @@ where
     ///
     /// # Arguments
     /// * `context` - The `XmtpMlsLocalContext` provides context and access to the network and
-    /// database
+    ///   database
     /// * `msg` - The group message to be processed (V1 version)
     ///
     /// # Returns

@@ -110,8 +110,6 @@ pub enum DeviceSyncError {
     Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
     Sync(#[from] SyncSummary),
-    #[error(transparent)]
-    Builder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl DeviceSyncError {

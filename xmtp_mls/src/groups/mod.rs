@@ -2102,7 +2102,7 @@ where
     let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        load_identity_updates(&context.api(), conn, ids.as_slice()).await?;
+        load_identity_updates(context.api(), conn, ids.as_slice()).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();

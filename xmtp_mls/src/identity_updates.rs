@@ -112,7 +112,7 @@ where
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(&self.context.api(), conn, &[inbox_id]).await?;
+        load_identity_updates(self.context.api(), conn, &[inbox_id]).await?;
 
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -411,12 +411,8 @@ where
         retry_async!(
             Retry::default(),
             (async {
-                load_identity_updates(
-                    &self.context.api(),
-                    &self.context.db(),
-                    &[inbox_id.as_str()],
-                )
-                .await
+                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
+                    .await
             })
         )?;
 
@@ -454,7 +450,7 @@ where
             .collect::<Vec<(&str, i64)>>();
 
         load_identity_updates(
-            &self.context.api(),
+            self.context.api(),
             conn,
             &conn.filter_inbox_ids_needing_updates(filters.as_slice())?,
         )

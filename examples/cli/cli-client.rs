@@ -64,7 +64,7 @@ extern crate tracing;
 
 type Client = xmtp_mls::client::Client<XmtpApiClient>;
 type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
-type MlsGroup = xmtp_mls::groups::MlsGroup<XmtpApiClient, xmtp_db::DefaultStore>;
+type RustMlsGroup = xmtp_mls::groups::MlsGroup<XmtpApiClient, xmtp_db::DefaultStore>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -595,7 +595,7 @@ where
     Ok(())
 }
 
-async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
+async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<RustMlsGroup, CliError> {
     client.sync_welcomes().await?;
     let group = client.group(&group_id)?;
     group
@@ -606,7 +606,7 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliEr
     Ok(group)
 }
 
-async fn send(group: MlsGroup, msg: String) -> Result<(), CliError> {
+async fn send(group: RustMlsGroup, msg: String) -> Result<(), CliError> {
     let mut buf = Vec::new();
     TextCodec::encode(msg.clone())
         .unwrap()

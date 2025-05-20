@@ -376,7 +376,7 @@ where
         let conn = self.context.db();
         let inbox_id = self.inbox_id();
         if refresh_from_network {
-            load_identity_updates(&self.context.api(), &conn, &[inbox_id]).await?;
+            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
         }
         let identity_service = IdentityUpdates::new(self.context.clone());
         let state = identity_service
@@ -393,7 +393,7 @@ where
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.context.db();
         if refresh_from_network {
-            load_identity_updates(&self.context.api(), &conn, &inbox_ids).await?;
+            load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
         }
         let identity_service = IdentityUpdates::new(self.context.clone());
         let state = identity_service
@@ -732,7 +732,7 @@ where
         // Register the identity before applying the signature request
         let provider = self.context.mls_provider();
         self.identity()
-            .register(&provider, &self.context.api())
+            .register(&provider, self.context.api())
             .await?;
         let updates = IdentityUpdates::new(self.context.clone());
         updates.apply_signature_request(signature_request).await?;
@@ -745,7 +745,7 @@ where
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         let provider = self.mls_provider();
         self.identity()
-            .rotate_and_upload_key_package(&provider, &self.context.api())
+            .rotate_and_upload_key_package(&provider, self.context.api())
             .await?;
 
         Ok(())

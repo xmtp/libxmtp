@@ -249,7 +249,7 @@ where
         let this = self.as_mut().project();
         this.group_list
             .insert(group.group_id.clone().into(), 1.into());
-        let future = Self::subscribe(&self.context, self.filters(), group.group_id);
+        let future = Self::subscribe(self.context, self.filters(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),

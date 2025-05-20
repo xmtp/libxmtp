@@ -94,7 +94,7 @@ where
             let provider = self.context.mls_provider();
             self.context
                 .identity
-                .rotate_and_upload_key_package(&provider, &self.context.api())
+                .rotate_and_upload_key_package(&provider, self.context.api())
                 .await?;
         }
 
