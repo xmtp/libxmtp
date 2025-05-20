@@ -111,15 +111,16 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
     }
 
     fn maybe_insert_key_update_intent(&self) -> Result<(), GroupError> {
-        let provider = self.mls_provider();
-        let conn = provider.db();
-        let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
-        let now_ns = xmtp_common::time::now_ns();
-        let elapsed_ns = now_ns - last_rotated_at_ns;
-        if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
-        }
-        Ok(())
+        self.mls_provider().transaction(|provider| {
+            let conn = provider.db();
+            let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
+            let now_ns = xmtp_common::time::now_ns();
+            let elapsed_ns = now_ns - last_rotated_at_ns;
+            if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
+                self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
+            }
+            Ok(())
+        })
     }
 }
 
