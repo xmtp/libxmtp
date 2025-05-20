@@ -7979,6 +7979,7 @@ dependencies = [
  "dyn-clone",
  "hex",
  "libsqlite3-sys",
+ "mockall",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
