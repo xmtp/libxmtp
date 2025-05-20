@@ -18,6 +18,7 @@ use diesel::{
     sql_types::Integer,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_common::time::now_ns;
 mod convert;
 mod dms;
 mod version;
@@ -48,7 +49,7 @@ pub struct StoredGroup {
     #[builder(default = None)]
     pub welcome_id: Option<i64>,
     /// The last time the leaf node encryption key was rotated
-    #[builder(default = "0")]
+    #[builder(default = now_ns())]
     pub rotated_at_ns: i64,
     /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
     #[builder(default = "self.default_conversation_type()")]
