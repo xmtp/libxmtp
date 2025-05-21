@@ -27,6 +27,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
+pub use xmtp_mls_common as common;
 pub use xmtp_proto::api_client::trait_impls::*;
 
 /// A manager for group-specific semaphores
