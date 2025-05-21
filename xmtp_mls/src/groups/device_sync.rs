@@ -45,9 +45,6 @@ pub mod worker;
 #[cfg(test)]
 mod tests;
 
-pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
-pub const NONCE_SIZE: usize = 12; // 96-bit nonce
-
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
     #[error("IO error: {0}")]

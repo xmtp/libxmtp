@@ -8,7 +8,12 @@ use crate::{
     configuration::WORKER_RESTART_DELAY,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::default_archive_options, device_sync_legacy::DeviceSyncContent, GroupError,
+        device_sync::{
+            archive::{exporter::ArchiveExporter, ArchiveImporter},
+            default_archive_options,
+        },
+        device_sync_legacy::DeviceSyncContent,
+        GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
 };

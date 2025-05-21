@@ -1,13 +1,24 @@
-use crate::exporter::NONCE_SIZE;
-
 use super::{ArchiveError, BackupMetadata};
-use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
+use crate::{
+    context::XmtpMlsLocalContext,
+    groups::{
+        device_sync::{DeviceSyncError, NONCE_SIZE},
+        group_permissions::PolicySet,
+        GroupMetadataOptions, MlsGroup,
+    },
+};
+use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
-use std::pin::Pin;
-use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
+use std::{pin::Pin, sync::Arc};
+use xmtp_api::XmtpApi;
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::GroupMembershipState,
+    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
+};
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
@@ -22,10 +33,10 @@ pub struct ArchiveImporter {
 }
 
 impl ArchiveImporter {
-    pub async fn load(
+    pub(crate) async fn load(
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],
-    ) -> Result<Self, ArchiveError> {
+    ) -> Result<Self, DeviceSyncError> {
         let mut version = [0; 2];
         reader.read_exact(&mut version).await?;
         let version = u16::from_le_bytes(version);
@@ -53,7 +64,7 @@ impl ArchiveImporter {
         Ok(importer)
     }
 
-    pub async fn next_element(&mut self) -> Result<Option<BackupElement>, ArchiveError> {
+    async fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
         let mut buffer = [0u8; 1024];
         let mut element_len = 0;
         loop {
@@ -71,7 +82,7 @@ impl ArchiveImporter {
                     .decrypt(&self.nonce, &self.decoded[..element_len])?;
                 let element = BackupElement::decode(&*decrypted);
                 self.decoded.drain(..element_len);
-                return Ok(Some(element.map_err(ArchiveError::from)?));
+                return Ok(Some(element.map_err(DeviceSyncError::from)?));
             }
 
             if amount == 0 && self.decoded.is_empty() {
@@ -82,7 +93,80 @@ impl ArchiveImporter {
         Ok(None)
     }
 
+    pub async fn run<ApiClient, Db>(
+        &mut self,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    ) -> Result<(), DeviceSyncError>
+    where
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
+    {
+        while let Some(element) = self.next_element().await? {
+            match insert(element, context, context.mls_provider()) {
+                Err(DeviceSyncError::Deserialization(err)) => {
+                    tracing::warn!("Unable to insert record: {err:?}");
+                }
+                Err(err) => return Err(err)?,
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn metadata(&self) -> &BackupMetadata {
         &self.metadata
     }
+}
+
+fn insert<ApiClient, Db>(
+    element: BackupElement,
+    context: &XmtpMlsLocalContext<ApiClient, Db>,
+    provider: impl MlsProviderExt,
+) -> Result<(), DeviceSyncError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let Some(element) = element.element else {
+        return Ok(());
+    };
+
+    match element {
+        Element::Consent(consent) => {
+            let consent: StoredConsentRecord = consent.try_into()?;
+            provider.db().insert_newer_consent_record(consent)?;
+        }
+        Element::Group(save) => {
+            if let Ok(Some(_)) = provider.db().find_group(&save.id) {
+                // Do not restore groups that already exist.
+                return Ok(());
+            }
+
+            let attributes = save
+                .mutable_metadata
+                .map(|m| m.attributes)
+                .unwrap_or_default();
+
+            MlsGroup::insert(
+                context,
+                Some(&save.id),
+                GroupMembershipState::Restored,
+                PolicySet::default(),
+                GroupMetadataOptions {
+                    name: attributes.get("group_name").cloned(),
+                    image_url_square: attributes.get("group_image_url_square").cloned(),
+                    description: attributes.get("description").cloned(),
+                    ..Default::default()
+                },
+            )?;
+        }
+        Element::GroupMessage(message) => {
+            let message: StoredGroupMessage = message.try_into()?;
+            message.store_or_ignore(provider.db())?;
+        }
+        _ => {}
+    }
+
+    Ok(())
 }

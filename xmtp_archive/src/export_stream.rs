@@ -6,17 +6,17 @@ use xmtp_proto::xmtp::device_sync::{
     group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
-mod consent_save;
-mod group_save;
-mod message_save;
+pub(crate) mod consent_save;
+pub(crate) mod group_save;
+pub(crate) mod message_save;
 
 type BackupInputStream =
     Pin<Box<dyn Stream<Item = Result<Vec<BackupElement>, StorageError>> + Send>>;
 
 /// A stream that curates a collection of streams for backup.
-pub struct BatchExportStream {
-    pub buffer: Vec<BackupElement>,
-    pub input_streams: Vec<BackupInputStream>,
+pub(super) struct BatchExportStream {
+    pub(super) buffer: Vec<BackupElement>,
+    pub(super) input_streams: Vec<BackupInputStream>,
 }
 
 impl BatchExportStream {

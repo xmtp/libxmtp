@@ -70,6 +70,7 @@ tls_codec = { workspace = true }
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
+tokio-util.workspace = true
 tracing.workspace = true
 trait-variant.workspace = true
 xmtp_archive.workspace = true

@@ -1,4 +1,5 @@
-use super::{ArchiveError, BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+use crate::{ArchiveError, NONCE_SIZE};
 #[cfg(not(target_arch = "wasm32"))]
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
@@ -11,8 +12,6 @@ use xmtp_db::{ConnectionExt, XmtpOpenMlsProvider};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };
-
-pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;

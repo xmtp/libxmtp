@@ -13,12 +13,11 @@ prost.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tokio-util = { version = "0.7", default-features = false, features = [
-  "compat",
-] }
+tokio-util.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_db.workspace = true
+xmtp_api.workspace = true
 xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 openmls.workspace = true

@@ -3,6 +3,9 @@ use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
 
+pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
+pub const NONCE_SIZE: usize = 12; // 96-bit nonce
+
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
