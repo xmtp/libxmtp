@@ -37,6 +37,7 @@ use crate::{
 };
 use xmtp_common::types::Address;
 use xmtp_db::{
+    client_events::{ClientEvent, ClientEvents, QueueIntentDetails},
     db_connection::DbConnection,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
@@ -76,9 +77,12 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         intent_data: Vec<u8>,
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
-        let res = self.mls_provider().transaction(|provider| {
+        let provider = self.mls_provider();
+        let res = provider.transaction(|provider| {
             let conn = provider.db();
-            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
+            let res = self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push);
+            tracing::error!("RES: {res:?}");
+            res
         });
 
         res
@@ -101,6 +105,14 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             intent_data,
             should_push,
         ))?;
+
+        ClientEvents::track(
+            conn,
+            &ClientEvent::QueueIntent(QueueIntentDetails {
+                group_id: self.group_id.clone(),
+                intent_kind,
+            }),
+        )?;
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
