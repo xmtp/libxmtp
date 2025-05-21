@@ -46,8 +46,8 @@ use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::common::group_mutable_metadata::MetadataField;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
+use xmtp_mls::groups::device_sync::archive::insert_importer;
 use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
-use xmtp_mls::groups::device_sync::archive::ArchiveRunner;
 use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
@@ -732,7 +732,8 @@ impl FfiXmtpClient {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
-        importer.run(&self.inner_client.context).await?;
+        insert_importer(&mut importer, &self.inner_client.context).await?;
+
         Ok(())
     }
 

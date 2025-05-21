@@ -14,37 +14,26 @@ use xmtp_db::{
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
-#[async_trait::async_trait]
-pub trait ArchiveRunner<ApiClient, Db> {
-    async fn run(
-        &mut self,
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> Result<(), DeviceSyncError>;
-}
-
-#[async_trait::async_trait]
-impl<ApiClient, Db> ArchiveRunner<ApiClient, Db> for ArchiveImporter
+pub async fn insert_importer<ApiClient, Db>(
+    importer: &mut ArchiveImporter,
+    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+) -> Result<(), DeviceSyncError>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
-    async fn run(
-        &mut self,
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> Result<(), DeviceSyncError> {
-        while let Some(element) = self.next().await {
-            let element = element?;
-            match insert(element, context, context.mls_provider()) {
-                Err(DeviceSyncError::Deserialization(err)) => {
-                    tracing::warn!("Unable to insert record: {err:?}");
-                }
-                Err(err) => return Err(err)?,
-                _ => {}
+    while let Some(element) = importer.next().await {
+        let element = element?;
+        match insert(element, context, context.mls_provider()) {
+            Err(DeviceSyncError::Deserialization(err)) => {
+                tracing::warn!("Unable to insert record: {err:?}");
             }
+            Err(err) => return Err(err)?,
+            _ => {}
         }
-
-        Ok(())
     }
+
+    Ok(())
 }
 
 fn insert<ApiClient, Db>(
@@ -170,7 +159,9 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2.context).await.unwrap();
+        insert_importer(&mut importer, &alix2.context)
+            .await
+            .unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -256,7 +247,9 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
-        importer.run(&alix2.context).await.unwrap();
+        insert_importer(&mut importer, &alix2.context)
+            .await
+            .unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2
