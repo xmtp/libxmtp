@@ -5,6 +5,8 @@ use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
+use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::IdentityStats;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
@@ -326,6 +328,14 @@ pub struct FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
+    pub fn api_statistics(&self) -> FfiApiStats {
+        self.inner_client.api_stats().into()
+    }
+
+    pub fn api_identity_statistics(&self) -> FfiIdentityStats {
+        self.inner_client.identity_api_stats().into()
+    }
+
     pub fn inbox_id(&self) -> InboxId {
         self.inner_client.inbox_id().to_string()
     }
@@ -2619,6 +2629,52 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone)]
+pub struct FfiApiStats {
+    pub upload_key_package: u64,
+    pub fetch_key_package: u64,
+    pub send_group_messages: u64,
+    pub send_welcome_messages: u64,
+    pub query_group_messages: u64,
+    pub query_welcome_messages: u64,
+    pub subscribe_messages: u64,
+    pub subscribe_welcomes: u64,
+}
+
+impl From<ApiStats> for FfiApiStats {
+    fn from(stats: ApiStats) -> Self {
+        Self {
+            upload_key_package: stats.upload_key_package.get_count() as u64,
+            fetch_key_package: stats.fetch_key_package.get_count() as u64,
+            send_group_messages: stats.send_group_messages.get_count() as u64,
+            send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
+            query_group_messages: stats.query_group_messages.get_count() as u64,
+            query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
+            subscribe_messages: stats.subscribe_messages.get_count() as u64,
+            subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone)]
+pub struct FfiIdentityStats {
+    pub publish_identity_update: u64,
+    pub get_identity_updates_v2: u64,
+    pub get_inbox_ids: u64,
+    pub verify_smart_contract_wallet_signature: u64,
+}
+
+impl From<IdentityStats> for FfiIdentityStats {
+    fn from(stats: IdentityStats) -> Self {
+        Self {
+            publish_identity_update: stats.publish_identity_update.get_count() as u64,
+            get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as u64,
+            get_inbox_ids: stats.get_inbox_ids.get_count() as u64,
+            verify_smart_contract_wallet_signature: stats.verify_smart_contract_wallet_signature.get_count() as u64,
         }
     }
 }
