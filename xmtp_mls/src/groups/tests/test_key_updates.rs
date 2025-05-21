@@ -19,7 +19,7 @@ async fn test_key_rotation_with_optimistic_send() {
     let bo_g = bo.group(&g.group_id)?;
 
     let mut futs = vec![];
-    for _ in 0..2 {
+    for _ in 0..4 {
         let fut = async {
             g.send_message_optimistic(b"hello there")?;
         };
@@ -35,8 +35,8 @@ async fn test_key_rotation_with_optimistic_send() {
 
     join_all(futs).await;
 
-    g.sync().await?;
-    bo_g.sync().await?;
+    // Wait for the streams to finish.
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     g.test_can_talk_with(&bo_g).await?;
 

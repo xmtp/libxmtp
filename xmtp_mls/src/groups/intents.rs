@@ -1,3 +1,14 @@
+use super::{
+    group_membership::GroupMembership,
+    group_mutable_metadata::MetadataField,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    scoped_client::ScopedGroupClient,
+    GroupError, MlsGroup,
+};
+use crate::{
+    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
@@ -5,7 +16,13 @@ use openmls::prelude::{
 use prost::{bytes::Bytes, DecodeError, Message};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-
+use xmtp_common::types::Address;
+use xmtp_db::{
+    client_events::{ClientEvent, ClientEvents},
+    db_connection::DbConnection,
+    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+    MlsProviderExt, XmtpDb,
+};
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
@@ -24,24 +41,6 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
-use super::{
-    group_membership::GroupMembership,
-    group_mutable_metadata::MetadataField,
-    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    scoped_client::ScopedGroupClient,
-    GroupError, MlsGroup,
-};
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
-use xmtp_common::types::Address;
-use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, QueueIntentDetails},
-    db_connection::DbConnection,
-    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    MlsProviderExt, XmtpDb,
-};
 #[derive(Debug, Error)]
 pub enum IntentError {
     #[error("decode error: {0}")]
@@ -80,9 +79,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
         let provider = self.mls_provider();
         let res = provider.transaction(|provider| {
             let conn = provider.db();
-            let res = self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push);
-            tracing::error!("RES: {res:?}");
-            res
+            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
         });
 
         res
@@ -108,10 +105,10 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
 
         ClientEvents::track(
             conn,
-            &ClientEvent::QueueIntent(QueueIntentDetails {
+            &ClientEvent::QueueIntent {
                 group_id: self.group_id.clone(),
                 intent_kind,
-            }),
+            },
         )?;
 
         if intent_kind != IntentKind::SendMessage {

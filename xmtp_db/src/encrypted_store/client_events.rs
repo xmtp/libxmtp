@@ -1,5 +1,8 @@
-use super::{ConnectionExt, DbConnection, group_intent::IntentKind, schema::client_events::dsl};
-use crate::{StorageError, impl_store, schema::client_events};
+use super::{
+    ConnectionExt, DbConnection, group::ConversationType, group_intent::IntentKind,
+    schema::client_events::dsl,
+};
+use crate::{StorageError, Store, impl_store, schema::client_events};
 use diesel::{Insertable, Queryable, prelude::*};
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
@@ -17,19 +20,13 @@ impl_store!(ClientEvents, client_events);
 impl ClientEvents {
     pub fn track<C: ConnectionExt>(
         conn: &DbConnection<C>,
-        event: &ClientEvent,
+        event: impl AsRef<ClientEvent>,
     ) -> Result<(), StorageError> {
-        conn.raw_query_write(|conn| {
-            diesel::insert_into(dsl::client_events)
-                .values(&ClientEvents {
-                    created_at_ns: now_ns(),
-                    details: serde_json::to_value(event).unwrap(),
-                })
-                .execute(conn)
-        })?;
-
-        tracing::error!("Stored");
-        Ok(())
+        ClientEvents {
+            created_at_ns: now_ns(),
+            details: serde_json::to_value(event.as_ref()).unwrap(),
+        }
+        .store(conn)
     }
 
     pub fn all_events(conn: &DbConnection) -> Result<Vec<Self>, StorageError> {
@@ -47,14 +44,21 @@ impl ClientEvents {
     }
 }
 
-#[repr(i32)]
 #[derive(Serialize, Deserialize)]
 pub enum ClientEvent {
-    QueueIntent(QueueIntentDetails) = 1,
+    QueueIntent {
+        group_id: Vec<u8>,
+        intent_kind: IntentKind,
+    },
+    WelcomedIntoGroup {
+        group_id: Vec<u8>,
+        conversation_type: ConversationType,
+        added_by_inbox_id: String,
+    },
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct QueueIntentDetails {
-    pub group_id: Vec<u8>,
-    pub intent_kind: IntentKind,
+impl AsRef<ClientEvent> for ClientEvent {
+    fn as_ref(&self) -> &ClientEvent {
+        self
+    }
 }

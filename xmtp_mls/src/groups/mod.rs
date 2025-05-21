@@ -91,6 +91,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::client_events::{ClientEvent, ClientEvents};
 use xmtp_db::consent_record::ConsentType;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
@@ -895,6 +896,8 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
                 .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
 
+
+
             let to_store = match conversation_type {
                 ConversationType::Group => {
                     group
@@ -925,7 +928,9 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
+            let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            ClientEvents::track(db, ClientEvent::WelcomedIntoGroup { group_id: stored_group.id.clone(), conversation_type: stored_group.conversation_type, added_by_inbox_id: stored_group.added_by_inbox_id.clone() })?;
 
             Ok(Self::new(
                 client.clone(),
