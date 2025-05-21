@@ -7,6 +7,7 @@ use crate::{
 };
 use thiserror::Error;
 use xmtp_api::XmtpApi;
+use xmtp_common::RetryableError;
 use xmtp_db::{group_message::MsgQueryArgs, XmtpDb};
 
 #[derive(Error, Debug)]
@@ -17,6 +18,12 @@ pub enum TestError {
     Group(#[from] GroupError),
     #[error(transparent)]
     Client(#[from] ClientError),
+}
+
+impl RetryableError for TestError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
 }
 
 impl<ApiClient, Db> MlsGroup<ApiClient, Db>
