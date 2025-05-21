@@ -5,6 +5,7 @@ use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
+use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
@@ -334,6 +335,13 @@ impl FfiXmtpClient {
 
     pub fn api_identity_statistics(&self) -> FfiIdentityStats {
         self.inner_client.identity_api_stats().into()
+    }
+
+    pub fn api_aggregate_statistics(&self) -> String {
+        let api = self.inner_client.api_stats();
+        let identity = self.inner_client.identity_api_stats();
+        let aggregate = AggregateStats { mls: api, identity };
+        format!("{:?}", aggregate)
     }
 
     pub fn inbox_id(&self) -> InboxId {
