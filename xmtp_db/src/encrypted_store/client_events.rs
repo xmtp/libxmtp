@@ -30,6 +30,7 @@ impl ClientEvents {
             tracing::warn!("ClientEvents: {err:?}");
         }
 
+        // Clear old events on build.
         if matches!(event, ClientEvent::ClientBuild) {
             if let Err(err) = Self::clear_old_events(db) {
                 tracing::warn!("ClientEvents clear old events: {err:?}");
