@@ -109,7 +109,7 @@ impl<ScopedClient: ScopedGroupClient> MlsGroup<ScopedClient> {
                 group_id: self.group_id.clone(),
                 intent_kind,
             },
-        )?;
+        );
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;

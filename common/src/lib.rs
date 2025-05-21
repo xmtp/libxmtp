@@ -27,6 +27,9 @@ pub mod fmt;
 pub mod time;
 pub mod types;
 
+pub mod r#const;
+pub use r#const::*;
+
 #[cfg(feature = "logging")]
 pub mod logging;
 #[cfg(feature = "logging")]
