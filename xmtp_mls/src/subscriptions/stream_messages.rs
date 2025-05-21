@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{ready, Context, Poll},
 };
 
@@ -9,13 +10,16 @@ use super::{
     process_message::{ProcessMessageFuture, ProcessedMessage},
     Result, SubscribeError,
 };
-use crate::groups::{scoped_client::ScopedGroupClient, MlsGroup};
+use crate::{
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    groups::MlsGroup,
+};
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
 use xmtp_common::types::GroupId;
 use xmtp_common::FutureWrapper;
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind};
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, XmtpDb};
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::{group_message, GroupMessage},
@@ -96,10 +100,10 @@ impl From<u64> for MessagePosition {
 }
 
 pin_project! {
-    pub struct StreamGroupMessages<'a, C, Subscription> {
+    pub struct StreamGroupMessages<'a, ApiClient, Db, Subscription> {
         #[pin] inner: Subscription,
         #[pin] state: State<'a, Subscription>,
-        client: &'a C,
+        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         pub(super) group_list: HashMap<GroupId, MessagePosition>,
     }
 }
@@ -126,13 +130,14 @@ pin_project! {
     }
 }
 
-pub(super) type MessagesApiSubscription<'a, C> =
-    <<C as ScopedGroupClient>::ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>;
+pub(super) type MessagesApiSubscription<'a, ApiClient> =
+    <ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>;
 
-impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, ApiClient, Db>
+    StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>
 where
-    C: ScopedGroupClient + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    Db: XmtpDb + 'a,
 {
     /// Creates a new stream for receiving group messages.
     ///
@@ -156,17 +161,20 @@ where
     /// - Querying the latest messages fails
     /// - Message extraction fails
     /// - Creating the subscription fails
-    pub async fn new(client: &'a C, group_list: Vec<GroupId>) -> Result<Self> {
+    pub async fn new(
+        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        group_list: Vec<GroupId>,
+    ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
 
         let mut group_list = group_list
             .into_iter()
             .map(|group_id| (group_id, 0u64))
             .collect::<HashMap<GroupId, u64>>();
-
+        let api = context.api();
         let cursors = group_list
             .keys()
-            .map(|group| client.api().query_latest_group_message(group));
+            .map(|group| api.query_latest_group_message(group));
 
         let cursors = futures::future::join_all(cursors)
             .await
@@ -199,11 +207,11 @@ where
             })
             .map(|(group_id, cursor)| GroupFilter::new(group_id.to_vec(), Some(*cursor)))
             .collect();
-        let subscription = client.api().subscribe_group_messages(filters).await?;
+        let subscription = api.subscribe_group_messages(filters).await?;
 
         Ok(Self {
             inner: subscription,
-            client,
+            context,
             state: Default::default(),
             group_list: group_list.into_iter().map(|(g, c)| (g, c.into())).collect(),
         })
@@ -225,15 +233,15 @@ where
     /// # Note
     /// This is an asynchronous operation that transitions the stream to the `Adding` state.
     /// The actual subscription update happens when the stream is polled.
-    pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
+    pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<ApiClient, Db>) {
         if self.group_list.contains_key(group.group_id.as_slice()) {
             tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
             return;
         }
 
         tracing::debug!(
-            inbox_id = self.client.inbox_id(),
-            installation_id = %self.client.installation_id(),
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
             group_id = hex::encode(&group.group_id),
             "begin establishing new message stream to include group_id={}",
             hex::encode(&group.group_id)
@@ -241,7 +249,7 @@ where
         let this = self.as_mut().project();
         this.group_list
             .insert(group.group_id.clone().into(), 1.into());
-        let future = Self::subscribe(self.client, self.filters(), group.group_id);
+        let future = Self::subscribe(self.context, self.filters(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
@@ -275,13 +283,13 @@ where
     /// - Querying the database for the last cursor fails
     /// - Creating the new subscription fails
     async fn subscribe(
-        client: &'a C,
+        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         mut filters: Vec<GroupFilter>,
         new_group: Vec<u8>,
-    ) -> Result<(MessagesApiSubscription<'a, C>, Vec<u8>, Option<u64>)> {
+    ) -> Result<(MessagesApiSubscription<'a, ApiClient>, Vec<u8>, Option<u64>)> {
         // get the last synced cursor
         let last_cursor = {
-            let provider = client.mls_provider();
+            let provider = context.mls_provider();
             provider
                 .db()
                 .get_last_cursor_for_id(&new_group, EntityKind::Group)
@@ -290,7 +298,7 @@ where
         match last_cursor {
             // we dont have messages for the group yet
             0 => {
-                let stream = client.api().subscribe_group_messages(filters).await?;
+                let stream = context.api().subscribe_group_messages(filters).await?;
                 Ok((stream, new_group, Some(1)))
             }
             c => {
@@ -298,17 +306,18 @@ where
                 if let Some(new) = filters.iter_mut().find(|f| f.group_id == new_group) {
                     new.id_cursor = Some(c as u64);
                 }
-                let stream = client.api().subscribe_group_messages(filters).await?;
+                let stream = context.api().subscribe_group_messages(filters).await?;
                 Ok((stream, new_group, Some(c as u64)))
             }
         }
     }
 }
 
-impl<'a, C> Stream for StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, ApiClient, Db> Stream
+    for StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>
 where
-    C: ScopedGroupClient + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    Db: XmtpDb + 'a,
 {
     type Item = Result<StoredGroupMessage>;
 
@@ -352,7 +361,7 @@ where
     }
 }
 
-impl<C, S> StreamGroupMessages<'_, C, S> {
+impl<Api, Db, S> StreamGroupMessages<'_, Api, Db, S> {
     fn filters(&self) -> Vec<GroupFilter> {
         self.group_list
             .iter()
@@ -361,10 +370,10 @@ impl<C, S> StreamGroupMessages<'_, C, S> {
     }
 }
 
-impl<'a, C> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C>>
+impl<'a, Api, Db> StreamGroupMessages<'a, Api, Db, MessagesApiSubscription<'a, Api>>
 where
-    C: ScopedGroupClient + 'a,
-    <C as ScopedGroupClient>::ApiClient: XmtpApi + XmtpMlsStreams + 'a,
+    Api: XmtpApi + XmtpMlsStreams + 'a,
+    Db: XmtpDb + 'a,
 {
     /// Handles the stream when in the `Waiting` state.
     ///
@@ -418,7 +427,7 @@ where
                     envelope.id
                 );
                 let this = self.as_mut().project();
-                let future = ProcessMessageFuture::new(*this.client, envelope)?;
+                let future = ProcessMessageFuture::new(this.context.clone(), envelope)?;
                 let future = future.process();
                 let mut this = self.as_mut().project();
                 this.state.set(State::Processing {

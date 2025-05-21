@@ -4,16 +4,22 @@
 //! in a stream, we must defer to the 'sync' function whenever we receive a message that
 //! depends on a previous message (like a commit).
 
+use std::sync::Arc;
+
 use super::{Result, SubscribeError};
-use crate::groups::{scoped_client::ScopedGroupClient, summary::SyncSummary, MlsGroup};
+use crate::{
+    context::XmtpMlsLocalContext,
+    groups::{summary::SyncSummary, MlsGroup},
+};
+use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError, XmtpDb};
 use xmtp_id::InboxIdRef;
 use xmtp_proto::xmtp::mls::api::v1::group_message;
 
 /// Future that processes a group message from the network
-pub struct ProcessMessageFuture<Client> {
-    client: Client,
+pub struct ProcessMessageFuture<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     msg: group_message::V1,
 }
 
@@ -24,9 +30,10 @@ pub struct ProcessedMessage {
     pub next_message: u64,
 }
 
-impl<C> ProcessMessageFuture<C>
+impl<ApiClient, Db> ProcessMessageFuture<ApiClient, Db>
 where
-    C: ScopedGroupClient,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     /// Creates a new `ProcessMessageFuture` to handle processing of an MLS group message.
     ///
@@ -34,7 +41,8 @@ where
     /// It's the entry point for handling messages received from a stream.
     ///
     /// # Arguments
-    /// * `client` - A client implementing the `ScopedGroupClient` trait that provides context and access to group operations
+    /// * `context` - The `XmtpMlsLocalContext` provides context and access to the network and
+    ///   database
     /// * `msg` - The group message to be processed (V1 version)
     ///
     /// # Returns
@@ -45,8 +53,11 @@ where
     /// let future = ProcessMessageFuture::new(client, incoming_message)?;
     /// let processed = future.process().await?;
     /// ```
-    pub fn new(client: C, msg: group_message::V1) -> Result<ProcessMessageFuture<C>> {
-        Ok(Self { client, msg })
+    pub fn new(
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        msg: group_message::V1,
+    ) -> Result<ProcessMessageFuture<ApiClient, Db>> {
+        Ok(Self { context, msg })
     }
 
     /// Returns the inbox ID associated with the client processing this message.
@@ -57,7 +68,7 @@ where
     /// # Returns
     /// * `InboxIdRef<'_>` - A reference to the inbox ID
     fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.client.inbox_id()
+        self.context.inbox_id()
     }
 
     /// Processes a group message received from a stream.
@@ -115,7 +126,7 @@ where
             SyncSummary::default()
         };
 
-        let conn = self.client.context_ref().db();
+        let conn = self.context.db();
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
         let new_message =
@@ -176,7 +187,7 @@ where
         let process_result = retry_async!(
             Retry::default(),
             (async {
-                let (group, _) = MlsGroup::new_validated(&self.client, self.msg.group_id.clone())?;
+                let (group, _) = MlsGroup::new_cached(self.context.clone(), &self.msg.group_id)?;
                 let epoch = group.epoch().await?;
 
                 tracing::debug!(
@@ -205,7 +216,7 @@ where
             // But still exists defensively
             Err(e) => {
                 tracing::error!(
-                    inbox_id = self.client.inbox_id(),
+                    inbox_id = self.context.inbox_id(),
                     group_id = hex::encode(&self.msg.group_id),
                     cursor_id = self.msg.id,
                     err = e.to_string(),
@@ -258,8 +269,7 @@ where
     /// Returns an error if the database query for the last cursor fails.
     fn needs_to_sync(&self, current_msg_cursor: u64) -> Result<bool> {
         let check_for_last_cursor = || -> std::result::Result<i64, StorageError> {
-            self.client
-                .context_ref()
+            self.context
                 .db()
                 .get_last_cursor_for_id(&self.msg.group_id, EntityKind::Group)
         };
@@ -285,14 +295,14 @@ where
     /// may have already successfully processed the message.
     async fn attempt_message_recovery(&self) -> SyncSummary {
         let group = MlsGroup::new(
-            &self.client,
+            self.context.clone(),
             self.msg.group_id.clone(),
             None,
             self.msg.created_ns as i64,
         );
         let epoch = group.epoch().await.unwrap_or(0);
         tracing::debug!(
-            inbox_id = self.client.inbox_id(),
+            inbox_id = self.context.inbox_id(),
             group_id = hex::encode(&self.msg.group_id),
             cursor_id = self.msg.id,
             epoch = epoch,
@@ -305,7 +315,7 @@ where
         let sync = group.sync_with_conn().await;
         if let Err(summary) = sync {
             tracing::warn!(
-                inbox_id = self.client.inbox_id(),
+                inbox_id = self.context.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
                 "recovery sync triggered by streamed message failed",
@@ -316,7 +326,7 @@ where
             let epoch = group.epoch().await.unwrap_or(0);
             let summary = sync.expect("checked for error");
             tracing::debug!(
-                inbox_id = self.client.inbox_id(),
+                inbox_id = self.context.inbox_id(),
                 group_id = hex::encode(&self.msg.group_id),
                 cursor_id = self.msg.id,
                 "recovery sync triggered by streamed message successful, epoch = {} for group = {}",

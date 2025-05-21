@@ -123,7 +123,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2).await.unwrap();
+        importer.run(&alix2.context).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -199,7 +199,7 @@ mod tests {
         exporter.write_to_file(path).await?;
 
         let alix2 = Tester::new().await;
-        alix2.wait_for_sync_worker_init().await;
+        alix2.device_sync().wait_for_sync_worker_init().await;
 
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
-        importer.run(&*alix2).await?;
+        importer.run(&alix2.context).await?;
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2

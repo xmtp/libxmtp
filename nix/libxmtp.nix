@@ -100,5 +100,7 @@ mkShell {
       frameworks.ApplicationServices
       frameworks.AppKit
       darwin.cctools
+    ] ++ lib.optionals stdenv.isLinux [
+      
     ];
 }

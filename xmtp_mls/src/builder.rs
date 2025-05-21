@@ -5,7 +5,8 @@ use tokio::sync::broadcast;
 use tracing::debug;
 
 use crate::{
-    client::{Client, DeviceSync, XmtpMlsLocalContext},
+    client::{Client, DeviceSync},
+    context::XmtpMlsLocalContext,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
@@ -44,9 +45,9 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     store: Option<Db>,
     identity_strategy: IdentityStrategy,
     scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
-
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
+    version_info: VersionInfo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +74,32 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             scw_verifier: None,
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
+            version_info: VersionInfo::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<ApiClient, Db> ClientBuilder<ApiClient, Db>
+where
+    ApiClient: Clone,
+    Db: Clone,
+{
+    // This is not normal and should not be used outside of tests
+    // All Arc<> reference will almost definitely have more than 1 reference, so
+    // 'make_mut' is just used as a way to get a clone to the inner T,
+    // it is useful in tests to rebuild client with some other state.
+    pub fn from_client(client: Client<ApiClient, Db>) -> ClientBuilder<ApiClient, Db> {
+        let cloned_api = Arc::make_mut(&mut client.context.api_client.clone()).clone();
+        ClientBuilder {
+            api_client: Some(cloned_api),
+            identity: Some(client.context.identity.clone()),
+            store: Some(client.context.store.clone()),
+            identity_strategy: IdentityStrategy::CachedOnly,
+            scw_verifier: Some(client.context.scw_verifier.clone()),
+            device_sync_server_url: client.context.device_sync.server_url.clone(),
+            device_sync_worker_mode: client.context.device_sync.mode,
+            version_info: client.context.version_info.clone(),
         }
     }
 }
@@ -92,6 +119,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
             device_sync_server_url,
             device_sync_worker_mode,
+            version_info,
         } = self;
 
         let api_client = api_client
@@ -133,25 +161,26 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         )
         .await?;
 
+        let (tx, _) = broadcast::channel(32);
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
-            mutexes: MutexRegistry::new(),
-            mls_commit_lock: Arc::new(GroupCommitLock::new()),
-        });
-        let (tx, _) = broadcast::channel(32);
-
-        let client = Client {
             api_client: api_client.into(),
-            context,
-            local_events: tx,
-            scw_verifier,
-            version_info: Arc::new(VersionInfo::default()),
+            version_info,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
                 worker_handle: Arc::new(parking_lot::Mutex::default()),
             },
+            scw_verifier,
+            mutexes: MutexRegistry::new(),
+            mls_commit_lock: Arc::new(GroupCommitLock::new()),
+            local_events: tx.clone(),
+        });
+
+        let client = Client {
+            context,
+            local_events: tx,
         };
 
         // start workers
@@ -177,6 +206,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             scw_verifier: self.scw_verifier,
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
         }
     }
 
@@ -203,9 +233,16 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
             store: self.store,
-
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
+        }
+    }
+
+    pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, Db> {
+        ClientBuilder {
+            version_info,
+            ..self
         }
     }
 
@@ -233,6 +270,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
         })
     }
 
@@ -249,6 +287,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
         }
     }
 
@@ -276,6 +315,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
         })
     }
 }
@@ -915,7 +955,7 @@ pub(crate) mod tests {
                             account_id,
                             None,
                         ),
-                        &xmtp_client.scw_verifier,
+                        &xmtp_client.scw_verifier(),
                     )
                     .await
                     .unwrap();

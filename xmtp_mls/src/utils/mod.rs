@@ -85,7 +85,7 @@ pub mod id {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VersionInfo {
     pkg_version: Arc<str>,
 }

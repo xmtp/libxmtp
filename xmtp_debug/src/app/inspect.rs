@@ -38,6 +38,7 @@ impl Inspect {
         match kind {
             Associations => {
                 let state = client
+                    .identity_updates()
                     .get_latest_association_state(&conn, &hex::encode(*inbox_id))
                     .await?;
 

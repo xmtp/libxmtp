@@ -1,22 +1,25 @@
-use super::{summary::SyncSummary, GroupError, MlsGroup};
+use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
+    context::XmtpMlsLocalContext,
+    mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
 use archive::ArchiveError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
+use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
-use xmtp_common::RetryableError;
+use xmtp_common::{types::InstallationId, RetryableError};
 use xmtp_content_types::encoded_content_to_bytes;
-use xmtp_db::XmtpDb;
 use xmtp_db::{group::GroupQueryArgs, group_message::StoredGroupMessage, NotFound, StorageError};
-use xmtp_id::associations::DeserializationError;
+use xmtp_db::{DbConnection, XmtpDb};
+use xmtp_id::{associations::DeserializationError, InboxIdRef};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
     xmtp::{
@@ -67,20 +70,10 @@ pub enum DeviceSyncError {
     Client(#[from] ClientError),
     #[error("group error: {0}")]
     Group(#[from] GroupError),
-    #[error("unable to find sync request with provided request_id")]
-    ReplyRequestIdMissing,
-    #[error("reply already processed")]
-    ReplyAlreadyProcessed,
     #[error("no pending request to reply to")]
     NoPendingRequest,
-    #[error("no reply to process")]
-    NoReplyToProcess,
-    #[error("generic: {0}")]
-    Generic(String),
     #[error("invalid history message payload")]
     InvalidPayload,
-    #[error("invalid history bundle url")]
-    InvalidBundleUrl,
     #[error("unspecified device sync kind")]
     UnspecifiedDeviceSyncKind,
     #[error("sync reply is too old")]
@@ -106,7 +99,15 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error("{}", _0.to_string())]
-    Sync(#[from] SyncSummary),
+    Sync(Box<SyncSummary>),
+    #[error(transparent)]
+    MlsStore(#[from] MlsStoreError),
+}
+
+impl From<SyncSummary> for DeviceSyncError {
+    fn from(value: SyncSummary) -> Self {
+        DeviceSyncError::Sync(Box::new(value))
+    }
 }
 
 impl DeviceSyncError {
@@ -149,17 +150,52 @@ where
             "starting sync worker"
         );
 
-        let worker = SyncWorker::new(client);
-        *self.device_sync.worker_handle.lock() = Some(worker.handle().clone());
+        let worker = SyncWorker::new(client.context.clone());
+        *self.context.device_sync.worker_handle.lock() = Some(worker.handle().clone());
         worker.spawn_worker();
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+#[derive(Clone)]
+pub struct DeviceSyncClient<ApiClient, Db> {
+    pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
+    pub(crate) mls_store: MlsStore<ApiClient, Db>,
+    pub(crate) preference_sync: PreferenceSyncService<ApiClient, Db>,
+}
+
+impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
+    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        Self {
+            context: context.clone(),
+            welcome_service: WelcomeService::new(context.clone()),
+            mls_store: MlsStore::new(context.clone()),
+            preference_sync: PreferenceSyncService::new(context),
+        }
+    }
+
+    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+        self.context.device_sync.worker_handle.lock().clone()
+    }
+}
+
+impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
+    pub fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.context.identity.inbox_id()
+    }
+
+    pub fn installation_id(&self) -> InstallationId {
+        self.context.installation_id()
+    }
+
+    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+        self.context.db()
+    }
+
     /// Blocks until the sync worker notifies that it is initialized and running.
     pub async fn wait_for_sync_worker_init(&self) {
         if let Some(handle) = self.worker_handle() {
@@ -214,7 +250,7 @@ where
         sync_group.sync_until_last_intent_resolved().await?;
 
         // Notify our own worker of our own message so it can process it.
-        let _ = self.local_events.send(LocalEvents::SyncWorkerEvent(
+        let _ = self.context.local_events.send(LocalEvents::SyncWorkerEvent(
             SyncWorkerEvent::NewSyncGroupMsg,
         ));
 
@@ -222,12 +258,12 @@ where
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_sync_group(&self) -> Result<MlsGroup<Self>, GroupError> {
+    pub async fn get_sync_group(&self) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
         let db = self.context.db();
         let sync_group = match db.primary_sync_group()? {
-            Some(sync_group) => self.group(&sync_group.id)?,
+            Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
-                let sync_group = MlsGroup::create_and_insert_sync_group(Arc::new(self.clone()))?;
+                let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
                 tracing::info!("Creating sync group: {:?}", sync_group.group_id);
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
@@ -245,7 +281,7 @@ where
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let groups = self.find_groups(GroupQueryArgs::default())?;
+        let groups = self.mls_store.find_groups(GroupQueryArgs::default())?;
 
         // Add the new installation to groups in batches
         for chunk in groups.chunks(20) {

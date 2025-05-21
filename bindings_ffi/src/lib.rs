@@ -61,7 +61,7 @@ pub enum GenericError {
     #[error(transparent)]
     ApiClientBuild(#[from] xmtp_api_grpc::GrpcBuilderError),
     #[error(transparent)]
-    Grpc(#[from] xmtp_api_grpc::GrpcError),
+    Grpc(#[from] Box<xmtp_api_grpc::GrpcError>),
     #[error(transparent)]
     AddressValidation(#[from] IdentifierValidationError),
     #[error("Error initializing rolling log file")]

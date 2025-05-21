@@ -13,6 +13,7 @@ use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
 
@@ -22,6 +23,7 @@ use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<XmtpHttpApiClient>>;
+pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<XmtpHttpApiClient>, xmtp_db::DefaultStore>;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -297,6 +299,7 @@ impl Client {
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self
       .inner_client
+      .device_sync()
       .send_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;

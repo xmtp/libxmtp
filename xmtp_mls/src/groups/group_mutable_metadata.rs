@@ -31,7 +31,7 @@ pub enum GroupMutableMetadataError {
     TooManyUpdates,
     #[error("no changes in this update")]
     NoUpdates,
-    #[error("metadata field is missing")]
+    #[error("missing metadata field")]
     MissingMetadataField,
 }
 

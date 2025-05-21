@@ -1,19 +1,22 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::groups::{
-    device_sync::{DeviceSyncError, NONCE_SIZE},
-    group_permissions::PolicySet,
-    scoped_client::ScopedGroupClient,
-    GroupMetadataOptions, MlsGroup,
+use crate::{
+    context::XmtpMlsLocalContext,
+    groups::{
+        device_sync::{DeviceSyncError, NONCE_SIZE},
+        group_permissions::PolicySet,
+        GroupMetadataOptions, MlsGroup,
+    },
 };
 use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
-use std::pin::Pin;
+use std::{pin::Pin, sync::Arc};
+use xmtp_api::XmtpApi;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore,
+    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
 };
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
@@ -90,12 +93,16 @@ impl ArchiveImporter {
         Ok(None)
     }
 
-    pub async fn run<Client>(&mut self, client: &Client) -> Result<(), DeviceSyncError>
+    pub async fn run<ApiClient, Db>(
+        &mut self,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    ) -> Result<(), DeviceSyncError>
     where
-        Client: ScopedGroupClient,
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
     {
         while let Some(element) = self.next_element().await? {
-            match insert(element, client, client.mls_provider()) {
+            match insert(element, context, context.mls_provider()) {
                 Err(DeviceSyncError::Deserialization(err)) => {
                     tracing::warn!("Unable to insert record: {err:?}");
                 }
@@ -112,13 +119,14 @@ impl ArchiveImporter {
     }
 }
 
-fn insert<Client>(
+fn insert<ApiClient, Db>(
     element: BackupElement,
-    client: &Client,
+    context: &XmtpMlsLocalContext<ApiClient, Db>,
     provider: impl MlsProviderExt,
 ) -> Result<(), DeviceSyncError>
 where
-    Client: ScopedGroupClient,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     let Some(element) = element.element else {
         return Ok(());
@@ -141,7 +149,7 @@ where
                 .unwrap_or_default();
 
             MlsGroup::insert(
-                client,
+                context,
                 Some(&save.id),
                 GroupMembershipState::Restored,
                 PolicySet::default(),

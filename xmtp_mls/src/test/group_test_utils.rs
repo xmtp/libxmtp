@@ -1,10 +1,15 @@
 #![allow(unused)]
 #![allow(clippy::unwrap_used)]
 
-use crate::groups::{scoped_client::ScopedGroupClient, GroupError, MlsGroup};
-use xmtp_db::group_message::MsgQueryArgs;
+use crate::groups::{GroupError, MlsGroup};
+use xmtp_api::XmtpApi;
+use xmtp_db::{group_message::MsgQueryArgs, XmtpDb};
 
-impl<Client: ScopedGroupClient> MlsGroup<Client> {
+impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
     // Sends a mesage to other group and ensures delivery, returning sent message contents.
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<String, GroupError> {
         let msg = xmtp_common::rand_string::<20>();

@@ -215,7 +215,7 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<Self>> {
+    ) -> Result<MlsGroup<ApiClient, Db>> {
         let provider = self.mls_provider();
         let conn = provider.db();
         let envelope =
@@ -223,7 +223,7 @@ where
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
         let future = ProcessWelcomeFuture::new(
             known_welcomes,
-            self.clone(),
+            self.context.clone(),
             WelcomeOrGroup::Welcome(envelope),
             None,
         )?;
@@ -240,11 +240,11 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Self>>> + use<'_, ApiClient, Db>>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + use<'_, ApiClient, Db>>
     where
         ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new(self, conversation_type).await
+        StreamConversations::new(&self.context, conversation_type).await
     }
 }
 
@@ -256,10 +256,11 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient, Db>>,
         conversation_type: Option<ConversationType>,
-        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>)
+        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
             + Send
             + 'static,
-        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Self>>) + 'static,
+        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
+            + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -288,7 +289,7 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new(self, conversation_type, consent_state).await
+        StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
     pub fn stream_all_messages_with_callback(

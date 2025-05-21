@@ -49,8 +49,8 @@ use xmtp_db::{
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::configuration::DeviceSyncUrls;
+use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
-use xmtp_mls::groups::scoped_client::ScopedGroupClient;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::XmtpApi;
@@ -64,7 +64,7 @@ extern crate tracing;
 
 type Client = xmtp_mls::client::Client<XmtpApiClient>;
 type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
-type MlsGroup = xmtp_mls::groups::MlsGroup<Client>;
+type RustMlsGroup = xmtp_mls::groups::MlsGroup<XmtpApiClient, xmtp_db::DefaultStore>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -470,12 +470,12 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::RequestHistorySync {} => {
             client.sync_welcomes().await.unwrap();
             client.start_sync_worker();
-            client.send_sync_request().await.unwrap();
+            client.device_sync().send_sync_request().await.unwrap();
             info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
             client.sync_welcomes().await?;
-            let group = client.get_sync_group().await?;
+            let group = client.device_sync().get_sync_group().await?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group.find_messages(&MsgQueryArgs {
@@ -595,7 +595,7 @@ where
     Ok(())
 }
 
-async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliError> {
+async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<RustMlsGroup, CliError> {
     client.sync_welcomes().await?;
     let group = client.group(&group_id)?;
     group
@@ -606,7 +606,7 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup, CliEr
     Ok(group)
 }
 
-async fn send(group: MlsGroup, msg: String) -> Result<(), CliError> {
+async fn send(group: RustMlsGroup, msg: String) -> Result<(), CliError> {
     let mut buf = Vec::new();
     TextCodec::encode(msg.clone())
         .unwrap()

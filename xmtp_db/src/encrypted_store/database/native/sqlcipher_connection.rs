@@ -8,7 +8,7 @@ use diesel::{
 use std::{
     fmt::Display,
     fs::File,
-    io::{Read, Write},
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -66,7 +66,7 @@ impl EncryptedConnection {
                             db_pathbuf.display(),
                             salt_path.display(),
                         );
-                        let file = File::open(salt_path)?;
+                        let file = BufReader::new(File::open(salt_path)?);
                         salt = <Salt as hex::FromHex>::from_hex(
                             file.bytes().take(32).collect::<Result<Vec<u8>, _>>()?,
                         )?;
