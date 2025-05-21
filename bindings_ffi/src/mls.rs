@@ -723,7 +723,7 @@ impl FfiXmtpClient {
         let options: BackupOptions = opts.into();
         ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?)
             .await
-            .map_err(|e| DeviceSyncError::Archive(e))?;
+            .map_err(DeviceSyncError::Archive)?;
         Ok(())
     }
 
@@ -731,7 +731,7 @@ impl FfiXmtpClient {
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
-            .map_err(|e| DeviceSyncError::Archive(e))?;
+            .map_err(DeviceSyncError::Archive)?;
         importer.run(&self.inner_client.context).await?;
         Ok(())
     }
@@ -745,7 +745,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiBackupMetadata, GenericError> {
         let importer = ArchiveImporter::from_file(path, &check_key(key)?)
             .await
-            .map_err(|e| DeviceSyncError::Archive(e))?;
+            .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
     }
 }
