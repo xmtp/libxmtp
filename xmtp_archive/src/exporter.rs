@@ -1,6 +1,5 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
 use crate::{ArchiveError, NONCE_SIZE};
-#[cfg(not(target_arch = "wasm32"))]
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{StreamExt, pin_mut, task::Context};
