@@ -10,6 +10,12 @@ use std::fmt;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InstallationId([u8; 32]);
 
+impl InstallationId {
+    pub fn to_vec(self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(bytes::Bytes);
 

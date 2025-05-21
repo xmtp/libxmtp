@@ -5,19 +5,21 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
-async-compression.workspace = true
 aes-gcm.workspace = true
-xmtp_db.workspace = true
-xmtp_proto.workspace = true
-sha2.workspace = true
-prost.workspace = true
-xmtp_mls_common.workspace = true
-tracing.workspace = true
+async-compression.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
-tokio.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
+prost.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
-xmtp_common.workspace = true
+tokio.workspace = true
 tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
+tracing.workspace = true
+xmtp_common.workspace = true
+xmtp_db.workspace = true
+xmtp_mls_common.workspace = true
+xmtp_proto.workspace = true
+openmls.workspace = true
+openmls_traits.workspace = true

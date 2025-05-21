@@ -6,6 +6,8 @@ use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_mls::{groups::MlsGroup, XmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
+// use crate::RustMlsGroup;
+
 #[derive(Serialize, Debug, Valuable)]
 pub struct SerializableGroupMetadata {
     creator_inbox_id: String,
@@ -20,7 +22,9 @@ pub struct SerializableGroup {
 }
 
 impl SerializableGroup {
-    pub async fn from<ApiClient: XmtpApi>(group: &MlsGroup<xmtp_mls::Client<ApiClient>>) -> Self {
+    pub async fn from<ApiClient: XmtpApi, Db: xmtp_db::XmtpDb>(
+        group: &MlsGroup<ApiClient, Db>,
+    ) -> Self {
         let group_id = hex::encode(group.group_id.clone());
         let members = group
             .members()

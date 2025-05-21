@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -9,7 +7,9 @@ use openmls::{
     treesync::LeafNode,
 };
 use prost::Message;
+use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
+use xmtp_api::XmtpApi;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{associations::MemberIdentifier, InboxId};
@@ -22,25 +22,26 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
-    identity_updates::{InstallationDiff, InstallationDiffError},
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
-use xmtp_db::StorageError;
+use xmtp_db::{StorageError, XmtpDb};
 
 use xmtp_common::{retry::RetryableError, retryable};
-
-use super::{
-    group_membership::{GroupMembership, MembershipDiff},
+use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
+};
+
+use super::{
+    group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
-    ScopedGroupClient, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
-    MAX_GROUP_NAME_LENGTH,
+    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -298,12 +299,16 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit(
-        client: impl ScopedGroupClient,
+    pub async fn from_staged_commit<ApiClient, Db>(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError> {
-        let provider = client.mls_provider();
+    ) -> Result<Self, CommitValidationError>
+    where
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
+    {
+        let provider = context.mls_provider();
         let conn = provider.db();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
@@ -384,7 +389,7 @@ impl ValidatedCommit {
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff =
-            ExpectedDiff::from_staged_commit(&client, staged_commit, openmls_group).await?;
+            ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
@@ -411,7 +416,7 @@ impl ValidatedCommit {
                 .get(&participant.inbox_id)
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
-            let inbox_state = client
+            let inbox_state = IdentityUpdates::new(context.clone())
                 .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
                 .await
                 .map_err(InstallationDiffError::from)?;
@@ -443,7 +448,7 @@ impl ValidatedCommit {
             .metadata_validation_info
             .minimum_supported_protocol_version
         {
-            let current_version = LibXMTPVersion::parse(client.version_info().pkg_version())?;
+            let current_version = LibXMTPVersion::parse(context.version_info().pkg_version())?;
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
             tracing::info!(
                 "Validating commit with min_supported_version: {:?}, current_version: {:?}",
@@ -583,11 +588,15 @@ struct ExpectedDiff {
 }
 
 impl ExpectedDiff {
-    pub(super) async fn from_staged_commit(
-        client: impl ScopedGroupClient,
+    pub(super) async fn from_staged_commit<ApiClient, Db>(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError> {
+    ) -> Result<Self, CommitValidationError>
+    where
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
+    {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -599,7 +608,7 @@ impl ExpectedDiff {
         }
 
         let expected_diff = Self::extract_expected_diff(
-            &client,
+            context,
             staged_commit,
             extensions,
             &immutable_metadata,
@@ -614,14 +623,18 @@ impl ExpectedDiff {
     /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
     /// This requires loading the Inbox state from the network.
     /// Satisfies Rule 2
-    async fn extract_expected_diff(
-        client: impl ScopedGroupClient,
+    async fn extract_expected_diff<ApiClient, Db>(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
-    ) -> Result<ExpectedDiff, CommitValidationError> {
-        let provider = client.mls_provider();
+    ) -> Result<ExpectedDiff, CommitValidationError>
+    where
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
+    {
+        let provider = context.mls_provider();
         let conn = provider.db();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
@@ -644,8 +657,8 @@ impl ExpectedDiff {
             .iter()
             .map(|inbox_id| build_inbox(inbox_id, immutable_metadata, mutable_metadata))
             .collect::<Vec<Inbox>>();
-
-        let expected_installation_diff = client
+        let identity_updates = IdentityUpdates::new(context.clone());
+        let expected_installation_diff = identity_updates
             .get_installation_diff(
                 conn,
                 &old_group_membership,

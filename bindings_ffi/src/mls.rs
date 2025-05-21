@@ -39,8 +39,8 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
-use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
 use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
@@ -77,6 +77,8 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 mod test_utils;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
+
+pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct XmtpApiClient(TonicApiClient);
@@ -472,6 +474,7 @@ impl FfiXmtpClient {
     ) -> Result<FfiInboxState, GenericError> {
         let state = self
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&self.inner_client.context().db(), &inbox_id)
             .await?;
         Ok(state.into())
@@ -584,7 +587,7 @@ impl FfiXmtpClient {
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
-        self.inner_client.send_sync_request().await?;
+        self.inner_client.device_sync().send_sync_request().await?;
         Ok(())
     }
 
@@ -595,6 +598,7 @@ impl FfiXmtpClient {
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
+            .identity_updates()
             .associate_identity(new_identity.try_into()?)
             .await?;
         let scw_verifier = self.inner_client.scw_verifier();
@@ -612,6 +616,7 @@ impl FfiXmtpClient {
     ) -> Result<(), GenericError> {
         let signature_request = signature_request.inner.lock().await;
         self.inner_client
+            .identity_updates()
             .apply_signature_request(signature_request.clone())
             .await?;
 
@@ -628,6 +633,7 @@ impl FfiXmtpClient {
         } = self;
 
         let signature_request = inner_client
+            .identity_updates()
             .revoke_identities(vec![identifier.try_into()?])
             .await?;
         let scw_verifier = inner_client.scw_verifier();
@@ -655,6 +661,7 @@ impl FfiXmtpClient {
 
         let signature_request = self
             .inner_client
+            .identity_updates()
             .revoke_installations(other_installation_ids)
             .await?;
 
@@ -673,6 +680,7 @@ impl FfiXmtpClient {
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
+            .identity_updates()
             .revoke_installations(installation_ids)
             .await?;
 
@@ -691,6 +699,7 @@ impl FfiXmtpClient {
     ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
         let signature_request = self
             .inner_client
+            .identity_updates()
             .change_recovery_identifier(new_recovery_identifier.try_into()?)
             .await?;
 
@@ -716,7 +725,7 @@ impl FfiXmtpClient {
     /// Import a previous archive
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
         let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
-        importer.run(&self.inner_client).await?;
+        importer.run(&self.inner_client.context).await?;
         Ok(())
     }
 
@@ -1538,7 +1547,7 @@ impl FfiConversations {
 impl FfiConversations {
     pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.get_sync_group().await?;
+        let sync_group = inner.device_sync().get_sync_group().await?;
         Ok(sync_group.into())
     }
 }
@@ -1569,7 +1578,7 @@ impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
 
 #[derive(uniffi::Object, Clone)]
 pub struct FfiConversation {
-    inner: MlsGroup<RustXmtpClient>,
+    inner: RustMlsGroup,
 }
 
 #[derive(uniffi::Object)]
@@ -1666,8 +1675,8 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     }
 }
 
-impl From<MlsGroup<RustXmtpClient>> for FfiConversation {
-    fn from(mls_group: MlsGroup<RustXmtpClient>) -> FfiConversation {
+impl From<RustMlsGroup> for FfiConversation {
+    fn from(mls_group: RustMlsGroup) -> FfiConversation {
         FfiConversation { inner: mls_group }
     }
 }
@@ -2101,7 +2110,7 @@ impl FfiConversation {
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<Option<FfiMessageDisappearingSettings>, GenericError> {
-        let settings = self.inner.client.group_disappearing_settings(self.id())?;
+        let settings = self.inner.disappearing_settings()?;
 
         match settings {
             Some(s) => Ok(Some(FfiMessageDisappearingSettings::from(s))),
@@ -2189,7 +2198,7 @@ impl FfiConversation {
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
         let handle =
-            MlsGroup::stream_with_callback(self.inner.client.clone(), self.id(), move |message| {
+            MlsGroup::stream_with_callback(self.inner.context.clone(), self.id(), move |message| {
                 match message {
                     Ok(m) => message_callback.on_message(m.into()),
                     Err(e) => message_callback.on_error(e.into()),
@@ -2239,14 +2248,11 @@ impl FfiConversation {
         self.inner
             .dm_id
             .as_ref()
-            .map(|dm_id| dm_id.other_inbox_id(self.inner.client.inbox_id()))
+            .map(|dm_id| dm_id.other_inbox_id(self.inner.context.inbox_id()))
     }
 
     pub fn get_hmac_keys(&self) -> Result<HashMap<Vec<u8>, Vec<FfiHmacKey>>, GenericError> {
-        let duplicate_dms = self
-            .inner
-            .client
-            .find_duplicate_dms_for_group(&self.inner.group_id)?;
+        let duplicate_dms = self.inner.find_duplicate_dms()?;
 
         let mut hmac_map = HashMap::new();
         for conversation in duplicate_dms {
@@ -2283,10 +2289,7 @@ impl FfiConversation {
     }
 
     pub async fn find_duplicate_dms(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
-        let dms = self
-            .inner
-            .client
-            .find_duplicate_dms_for_group(&self.inner.group_id)?;
+        let dms = self.inner.find_duplicate_dms()?;
 
         let ffi_conversations: Vec<Arc<FfiConversation>> =
             dms.into_iter().map(|dm| Arc::new(dm.into())).collect();
@@ -2847,9 +2850,7 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{
-            device_sync::handle::SyncMetric, scoped_client::LocalScopedGroupClient, GroupError,
-        },
+        groups::{device_sync::handle::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
     };
@@ -3383,6 +3384,7 @@ mod tests {
         let conn = client.inner_client.store().db();
         let state = client
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&conn, &inbox_id)
             .await
             .expect("could not get state");
@@ -3408,6 +3410,7 @@ mod tests {
 
         let updated_state = client
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&conn, &inbox_id)
             .await
             .expect("could not get state");
@@ -3498,6 +3501,7 @@ mod tests {
         let conn = client.inner_client.store().db();
         let state = client
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&conn, &inbox_id)
             .await
             .expect("could not get state");
@@ -3524,6 +3528,7 @@ mod tests {
 
         let updated_state = client
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&conn, &inbox_id)
             .await
             .expect("could not get state");
@@ -3547,6 +3552,7 @@ mod tests {
 
         let revoked_state = client
             .inner_client
+            .identity_updates()
             .get_latest_association_state(&conn, &inbox_id)
             .await
             .expect("could not get state");
@@ -7911,8 +7917,18 @@ mod tests {
             .await
             .unwrap();
 
-        let sg1 = alix.inner_client.get_sync_group().await.unwrap();
-        let sg2 = alix2.inner_client.get_sync_group().await.unwrap();
+        let sg1 = alix
+            .inner_client
+            .device_sync()
+            .get_sync_group()
+            .await
+            .unwrap();
+        let sg2 = alix2
+            .inner_client
+            .device_sync()
+            .get_sync_group()
+            .await
+            .unwrap();
 
         assert_eq!(sg1.group_id, sg2.group_id);
 

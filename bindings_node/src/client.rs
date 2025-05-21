@@ -15,11 +15,12 @@ pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
-use xmtp_mls::groups::scoped_client::LocalScopedGroupClient;
+use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
+pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
@@ -292,6 +293,7 @@ impl Client {
   pub async fn send_sync_request(&self) -> Result<()> {
     self
       .inner_client
+      .device_sync()
       .send_sync_request()
       .await
       .map_err(ErrorWrapper::from)?;

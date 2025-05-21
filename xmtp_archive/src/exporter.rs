@@ -146,7 +146,7 @@ impl AsyncRead for ArchiveExporter {
                 }
                 Stage::Elements => match this.stream.poll_next_unpin(cx) {
                     Poll::Ready(Some(element)) => element
-                        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?
+                        .map_err(|err| io::Error::other(err.to_string()))?
                         .encode_to_vec(),
                     Poll::Pending => return Poll::Pending,
                     Poll::Ready(None) => {

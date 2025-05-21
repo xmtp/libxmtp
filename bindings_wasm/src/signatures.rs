@@ -75,6 +75,7 @@ impl Client {
     let ident = new_identifier.try_into()?;
     let signature_request = self
       .inner_client()
+      .identity_updates()
       .associate_identity(ident)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -95,6 +96,7 @@ impl Client {
     let ident = identifier.try_into()?;
     let signature_request = self
       .inner_client()
+      .identity_updates()
       .revoke_identities(vec![ident])
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -122,6 +124,7 @@ impl Client {
       .collect();
     let signature_request = self
       .inner_client()
+      .identity_updates()
       .revoke_installations(other_installation_ids)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -144,6 +147,7 @@ impl Client {
 
     let signature_request = self
       .inner_client()
+      .identity_updates()
       .revoke_installations(installation_ids_bytes)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -163,6 +167,7 @@ impl Client {
   ) -> Result<String, JsError> {
     let signature_request = self
       .inner_client()
+      .identity_updates()
       .change_recovery_identifier(new_recovery_identifier.try_into()?)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -274,6 +279,7 @@ impl Client {
       if let Some(signature_request) = self.signature_requests.get(&signature_request_type) {
         self
           .inner_client()
+          .identity_updates()
           .apply_signature_request(signature_request.clone())
           .await
           .map_err(|e| JsError::new(format!("{}", e).as_str()))?;

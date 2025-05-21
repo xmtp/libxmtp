@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
+use std::collections::HashMap;
 use thiserror::Error;
-
 use xmtp_proto::xmtp::mls::message_contents::{
     membership_policy::{
         AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
@@ -25,12 +23,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
 
-use super::{
-    group_mutable_metadata::GroupMutableMetadata,
-    validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit},
+use super::validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit};
+use crate::configuration::SUPER_ADMIN_METADATA_PREFIX;
+use xmtp_mls_common::{
+    config::GROUP_PERMISSIONS_EXTENSION_ID,
+    group_mutable_metadata::{GroupMutableMetadata, MetadataField},
 };
-use crate::configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
-use crate::groups::group_mutable_metadata::MetadataField;
 
 /// Errors that can occur when working with GroupMutablePermissions.
 #[derive(Debug, Error)]
@@ -1355,11 +1353,9 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::groups::{
-        group_metadata::DmMembers, group_mutable_metadata::MetadataField,
-        validated_commit::MutableMetadataValidationInfo,
-    };
+    use crate::groups::validated_commit::MutableMetadataValidationInfo;
     use xmtp_common::{rand_string, rand_vec};
+    use xmtp_mls_common::group_metadata::DmMembers;
 
     use super::*;
 

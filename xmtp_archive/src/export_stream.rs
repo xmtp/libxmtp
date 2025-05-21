@@ -6,6 +6,10 @@ use xmtp_proto::xmtp::device_sync::{
     group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
+mod consent_save;
+mod group_save;
+mod message_save;
+
 type BackupInputStream =
     Pin<Box<dyn Stream<Item = Result<Vec<BackupElement>, StorageError>> + Send>>;
 

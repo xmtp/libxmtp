@@ -4,11 +4,15 @@ use super::{
     stream_conversations::{ConversationStreamError, ProcessWelcomeResult},
     Result, WelcomeOrGroup,
 };
-use crate::groups::{scoped_client::ScopedGroupClient, MlsGroup};
+use crate::{
+    context::XmtpMlsLocalContext,
+    groups::{welcome_sync::WelcomeService, MlsGroup},
+};
+use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group::ConversationType, NotFound};
+use xmtp_db::{group::ConversationType, NotFound, XmtpDb};
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 use xmtp_proto::{mls_v1::WelcomeMessage, xmtp::mls::api::v1::welcome_message};
 
 fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
@@ -19,20 +23,21 @@ fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message:
 }
 
 /// Future for processing `WelcomeorGroup`
-pub struct ProcessWelcomeFuture<Client> {
+pub struct ProcessWelcomeFuture<ApiClient, Db> {
     /// welcome ids in DB and which are already processed
     known_welcome_ids: HashSet<i64>,
     /// The libxmtp client
-    client: Client,
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     /// the welcome or group being processed in this future
     item: WelcomeOrGroup,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
 }
 
-impl<C> ProcessWelcomeFuture<C>
+impl<ApiClient, Db> ProcessWelcomeFuture<ApiClient, Db>
 where
-    C: ScopedGroupClient + Clone,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     /// Creates a new `ProcessWelcomeFuture` to handle processing of welcome messages or groups.
     ///
@@ -64,13 +69,13 @@ where
     /// ```
     pub(super) fn new(
         known_welcome_ids: HashSet<i64>,
-        client: C,
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
-    ) -> Result<ProcessWelcomeFuture<C>> {
+    ) -> Result<ProcessWelcomeFuture<ApiClient, Db>> {
         Ok(Self {
             known_welcome_ids,
-            client,
+            context,
             item,
             conversation_type,
         })
@@ -78,9 +83,10 @@ where
 }
 
 /// bulk of the processing for a new welcome/group
-impl<C> ProcessWelcomeFuture<C>
+impl<ApiClient, Db> ProcessWelcomeFuture<ApiClient, Db>
 where
-    C: ScopedGroupClient + Clone,
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
 {
     /// Processes a welcome message or group.
     ///
@@ -109,7 +115,7 @@ where
     ///
     /// # Tracing
     #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<ProcessWelcomeResult<C>> {
+    pub async fn process(self) -> Result<ProcessWelcomeResult<ApiClient, Db>> {
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
@@ -133,8 +139,7 @@ where
             }
             Group(ref id) => {
                 tracing::debug!("Stream conversations got existing group, pulling from db.");
-                let (group, stored_group) =
-                    MlsGroup::new_validated(self.client.clone(), id.to_vec())?;
+                let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {
                     group,
@@ -165,7 +170,10 @@ where
     ///
     /// # Errors
     /// Returns an error if retrieving group metadata fails
-    async fn filter(&self, processed: ProcessWelcomeResult<C>) -> Result<ProcessWelcomeResult<C>> {
+    async fn filter(
+        &self,
+        processed: ProcessWelcomeResult<ApiClient, Db>,
+    ) -> Result<ProcessWelcomeResult<ApiClient, Db>> {
         use super::ProcessWelcomeResult::*;
         match processed {
             New { group, id } => {
@@ -179,7 +187,7 @@ where
 
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
-                    && self.client.db().has_duplicate_dm(&group.group_id)?
+                    && self.context.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     return Ok(ProcessWelcomeResult::IgnoreId { id });
@@ -198,7 +206,7 @@ where
                 let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
-                    && self.client.db().has_duplicate_dm(&group.group_id)?
+                    && self.context.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     if let Some(id) = maybe_id {
@@ -237,7 +245,7 @@ where
     /// * `welcome` - The welcome message (V1) to process
     ///
     /// # Returns
-    /// * `Result<(MlsGroup<C>, i64)>` - A tuple containing:
+    /// * `Result<(MlsGroup<ApiClient, Db>, i64)>` - A tuple containing:
     ///   - The MLS group associated with the welcome
     ///   - The welcome ID for tracking
     ///
@@ -246,7 +254,10 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<C>, i64)> {
+    async fn on_welcome(
+        &self,
+        welcome: &welcome_message::V1,
+    ) -> Result<(MlsGroup<ApiClient, Db>, i64)> {
         let welcome_message::V1 {
             id,
             created_ns: _,
@@ -255,27 +266,28 @@ where
         } = welcome;
         let id = *id as i64;
 
-        let Self { ref client, .. } = self;
+        let Self { ref context, .. } = self;
+
         tracing::info!(
             installation_id = hex::encode(installation_key),
             welcome_id = &id,
             "Trying to process streamed welcome"
         );
-
-        retry_async!(Retry::default(), (async { client.sync_welcomes().await }))?;
+        let welcomes = WelcomeService::new(context.clone());
+        retry_async!(Retry::default(), (async { welcomes.sync_welcomes().await }))?;
 
         self.load_from_store(id)
     }
 
     /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<C>, i64)> {
-        let provider = self.client.mls_provider();
+    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<ApiClient, Db>, i64)> {
+        let provider = self.context.mls_provider();
         let group = provider
             .db()
             .find_group_by_welcome_id(id)?
             .ok_or(NotFound::GroupByWelcome(id))?;
         tracing::info!(
-            inbox_id = self.client.inbox_id(),
+            inbox_id = self.context.inbox_id(),
             group_id = hex::encode(&group.id),
             dm_id = group.dm_id,
             welcome_id = ?group.welcome_id,
@@ -284,7 +296,7 @@ where
         );
         Ok((
             MlsGroup::new(
-                self.client.clone(),
+                self.context.clone(),
                 group.id,
                 group.dm_id,
                 group.created_at_ns,

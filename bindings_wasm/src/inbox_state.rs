@@ -136,6 +136,7 @@ impl Client {
     let conn = self.inner_client().store().db();
     let state = self
       .inner_client()
+      .identity_updates()
       .get_latest_association_state(&conn, &inbox_id)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;

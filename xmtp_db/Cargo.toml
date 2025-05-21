@@ -52,7 +52,7 @@ diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
-  "serde_json"
+  "serde_json",
 ] }
 dyn-clone.workspace = true
 
@@ -61,7 +61,7 @@ diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
-  "serde_json"
+  "serde_json",
 ] }
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
   "bundled",

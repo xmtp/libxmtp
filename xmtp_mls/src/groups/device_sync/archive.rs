@@ -1,14 +1,3 @@
-use crate::groups::{
-    device_sync::{DeviceSyncError, NONCE_SIZE},
-    group_permissions::PolicySet,
-    scoped_client::ScopedGroupClient,
-    GroupMetadataOptions, MlsGroup,
-};
-pub use importer::ArchiveImporter;
-use thiserror::Error;
-use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
-
 // Increment on breaking changes
 const BACKUP_VERSION: u16 = 0;
 
@@ -25,9 +14,7 @@ mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use diesel::prelude::*;
-    use exporter::ArchiveExporter;
     use futures::io::Cursor;
-    use importer::ArchiveImporter;
     use std::{path::Path, sync::Arc};
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
@@ -88,7 +75,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2).await.unwrap();
+        importer.run(&alix2.context).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -164,7 +151,7 @@ mod tests {
         exporter.write_to_file(path).await?;
 
         let alix2 = Tester::new().await;
-        alix2.wait_for_sync_worker_init().await;
+        alix2.device_sync().wait_for_sync_worker_init().await;
 
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2
@@ -174,7 +161,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
-        importer.run(&*alix2).await?;
+        importer.run(&alix2.context).await?;
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2

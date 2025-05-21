@@ -4,14 +4,15 @@ mod test_key_updates;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-use super::{group_permissions::PolicySet, MlsGroup};
+use super::group_permissions::PolicySet;
+use crate::context::XmtpContextProvider;
 use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
+use crate::groups::{DmValidationError, MetadataPermissionsError};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::groups::scoped_client::ScopedGroupClient;
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
-use crate::utils::Tester;
+use crate::utils::{ConcreteMlsGroup, Tester, VersionInfo};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -52,14 +53,14 @@ use xmtp_id::associations::Identifier;
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-async fn receive_group_invite(client: &FullXmtpClient) -> MlsGroup<FullXmtpClient> {
+async fn receive_group_invite(client: &FullXmtpClient) -> ConcreteMlsGroup {
     client.sync_welcomes().await.unwrap();
     let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
 
     groups.remove(0)
 }
 
-async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMessage {
+async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
     group.sync().await.unwrap();
     let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
     messages.pop().unwrap()
@@ -71,7 +72,7 @@ async fn get_latest_message(group: &MlsGroup<FullXmtpClient>) -> StoredGroupMess
 async fn force_add_member(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
-    sender_group: &MlsGroup<FullXmtpClient>,
+    sender_group: &ConcreteMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &XmtpOpenMlsProvider,
 ) {
@@ -104,7 +105,7 @@ async fn force_add_member(
         .prepare_group_messages(vec![(serialized_commit.as_slice(), false)])
         .unwrap();
     sender_client
-        .api_client
+        .api()
         .send_group_messages(messages)
         .await
         .unwrap();
@@ -124,7 +125,7 @@ async fn test_send_message() {
     group.send_message(b"hello").await.expect("send message");
 
     let messages = client
-        .api_client
+        .api()
         .query_group_messages(group.group_id, None)
         .await
         .expect("read topic");
@@ -460,7 +461,7 @@ async fn test_add_inbox() {
     let group_id = group.group_id;
 
     let messages = client
-        .api_client
+        .api()
         .query_group_messages(group_id, None)
         .await
         .unwrap();
@@ -473,7 +474,7 @@ async fn test_add_inbox() {
 async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
     // 1) Prepare clients
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -537,7 +538,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // Query messages from Bola_1's perspective
     let messages_bola_1 = bola_1
-        .api_client
+        .api()
         .query_group_messages(group.clone().group_id.clone(), None)
         .await
         .unwrap();
@@ -547,7 +548,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // Query messages from Alix's perspective
     let messages_alix = alix
-        .api_client
+        .api()
         .query_group_messages(group.clone().group_id, None)
         .await
         .unwrap();
@@ -660,7 +661,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     assert_eq!(bola_groups.len(), 1, "Bola_1 should see the DM group");
 
-    let bola_1_dm: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_1_dm: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_1_dm.sync().await.unwrap();
 
     // 6) Ensure Bola_2 does NOT have the group
@@ -1040,7 +1041,7 @@ async fn test_remove_inbox() {
     // failed
     let group_id = group.group_id;
     let messages = client_1
-        .api_client
+        .api()
         .query_group_messages(group_id, None)
         .await
         .expect("read topic");
@@ -1064,7 +1065,7 @@ async fn test_key_update() {
     group.key_update().await.unwrap();
 
     let messages = client
-        .api_client
+        .api()
         .query_group_messages(group.group_id.clone(), None)
         .await
         .unwrap();
@@ -1104,7 +1105,7 @@ async fn test_post_commit() {
 
     // Check if the welcome was actually sent
     let welcome_messages = client
-        .api_client
+        .api()
         .query_welcome_messages(client_2.installation_public_key(), None)
         .await
         .unwrap();
@@ -1197,8 +1198,8 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let message_text = b"hello";
 
-    let bola_group = MlsGroup::<FullXmtpClient>::new(
-        bola.clone(),
+    let bola_group = ConcreteMlsGroup::new(
+        bola.context.clone(),
         amal_group.group_id.clone(),
         amal_group.dm_id.clone(),
         amal_group.created_at_ns,
@@ -1767,7 +1768,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members_by_inbox_id(&[caro.inbox_id()])
@@ -1822,7 +1823,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members_by_inbox_id(&[charlie.inbox_id()])
@@ -1868,7 +1869,7 @@ async fn test_group_super_admin_list_update() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
@@ -2116,7 +2117,7 @@ async fn test_can_update_gce_after_failed_commit() {
     // Step 3: Verify that Bola can update the group name, and amal sees the update
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_group_name("Name Update 1".to_string())
@@ -2160,7 +2161,7 @@ async fn test_can_update_gce_after_failed_commit() {
 async fn test_can_update_permissions_after_group_creation() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group: MlsGroup<_> = amal
+    let amal_group: &ConcreteMlsGroup = &amal
         .create_group(policy_set, GroupMetadataOptions::default())
         .unwrap();
 
@@ -2176,7 +2177,7 @@ async fn test_can_update_permissions_after_group_creation() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
-    let bola_group: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
     if let Err(e) = &result {
@@ -2338,7 +2339,7 @@ async fn test_dm_creation() {
     let _ = bola.sync_welcomes().await;
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
-    let bola_dm: &MlsGroup<_> = bola_groups.first().unwrap();
+    let bola_dm: &ConcreteMlsGroup = bola_groups.first().unwrap();
     bola_dm.send_message(b"test one").await.unwrap();
 
     // Amal sync and reads message
@@ -2396,6 +2397,7 @@ async fn process_messages_abort_on_retryable_error() {
     // Get the group messages before we lock the DB, simulating an error that happens
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
+        .mls_store()
         .query_group_messages(&bo_group.group_id, &bo.context().db())
         .await
         .unwrap();
@@ -2438,6 +2440,7 @@ async fn skip_already_processed_messages() {
     let bo_group = bo_groups.first().unwrap();
 
     let mut bo_messages_from_api = bo_client
+        .mls_store()
         .query_group_messages(&bo_group.group_id, &bo_client.store().db())
         .await
         .unwrap();
@@ -2501,7 +2504,7 @@ async fn skip_already_processed_intents() {
 async fn test_parallel_syncs() {
     let wallet = generate_local_wallet();
     let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-    alix1.wait_for_sync_worker_init().await;
+    alix1.device_sync().wait_for_sync_worker_init().await;
 
     let alix1_group = alix1
         .create_group(None, GroupMetadataOptions::default())
@@ -2527,7 +2530,7 @@ async fn test_parallel_syncs() {
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
-        .api_client
+        .api()
         .query_welcome_messages(alix2.installation_public_key(), None)
         .await
         .unwrap();
@@ -2535,7 +2538,7 @@ async fn test_parallel_syncs() {
 
     // Make sure that only one group message was sent
     let group_messages = alix1
-        .api_client
+        .api()
         .query_group_messages(alix1_group.group_id.clone(), None)
         .await
         .unwrap();
@@ -2571,7 +2574,7 @@ async fn test_parallel_syncs() {
 }
 
 // Create a membership update intent, but don't sync it yet
-async fn create_membership_update_no_sync(group: &MlsGroup<FullXmtpClient>) {
+async fn create_membership_update_no_sync(group: &ConcreteMlsGroup) {
     let intent_data = group.get_membership_update_intent(&[], &[]).await.unwrap();
 
     // If there is nothing to do, stop here
@@ -2622,7 +2625,7 @@ async fn add_missing_installs_reentrancy() {
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
-        .api_client
+        .api()
         .query_welcome_messages(alix2.installation_public_key(), None)
         .await
         .unwrap();
@@ -2631,7 +2634,7 @@ async fn add_missing_installs_reentrancy() {
     // We expect two group messages to have been sent,
     // but only the first is valid
     let group_messages = alix1
-        .api_client
+        .api()
         .query_group_messages(alix1_group.group_id.clone(), None)
         .await
         .unwrap();
@@ -2682,7 +2685,7 @@ async fn respect_allow_epoch_increment() {
 
     // Retrieve the envelope for the commit from the network
     let messages = client
-        .api_client
+        .api()
         .query_group_messages(group.group_id.clone(), None)
         .await
         .unwrap();
@@ -2836,8 +2839,8 @@ async fn test_validate_dm_group() {
     let dm_target_inbox_id = added_by_inbox.to_string();
 
     // Test case 1: Valid DM group
-    let valid_dm_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
-        client.clone().into(),
+    let valid_dm_group = ConcreteMlsGroup::create_test_dm_group(
+        client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
         None,
@@ -2848,15 +2851,15 @@ async fn test_validate_dm_group() {
     .unwrap();
     assert!(valid_dm_group
         .load_mls_group_with_lock(client.mls_provider(), |mls_group| {
-            validate_dm_group(&client, &mls_group, added_by_inbox)
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
         })
         .is_ok());
 
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
         build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
-    let invalid_type_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
-        client.clone().into(),
+    let invalid_type_group = ConcreteMlsGroup::create_test_dm_group(
+        client.context.clone(),
         dm_target_inbox_id.clone(),
         Some(invalid_protected_metadata),
         None,
@@ -2865,11 +2868,14 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
+    let err = invalid_type_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+        validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+    });
     assert!(matches!(
-        invalid_type_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("Invalid conversation type")
+        err,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
+        ))
     ));
     // Test case 3: Missing DmMembers
     // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
@@ -2878,8 +2884,8 @@ async fn test_validate_dm_group() {
     let mismatched_dm_members =
         build_dm_protected_metadata_extension(creator_inbox_id, "wrong_inbox_id".to_string())
             .unwrap();
-    let mismatched_dm_members_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
-        client.clone().into(),
+    let mismatched_dm_members_group = ConcreteMlsGroup::create_test_dm_group(
+        client.context.clone(),
         dm_target_inbox_id.clone(),
         Some(mismatched_dm_members),
         None,
@@ -2888,19 +2894,23 @@ async fn test_validate_dm_group() {
         None,
     )
     .unwrap();
+    let err = mismatched_dm_members_group
+        .load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        });
     assert!(matches!(
-        mismatched_dm_members_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("DM members do not match expected inboxes")
+        err,
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
+        ))
     ));
 
     // Test case 5: Non-empty admin list
     let non_empty_admin_list =
         build_mutable_metadata_extension_default(creator_inbox_id, GroupMetadataOptions::default())
             .unwrap();
-    let non_empty_admin_list_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
-        client.clone().into(),
+    let non_empty_admin_list_group = ConcreteMlsGroup::create_test_dm_group(
+        client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
         Some(non_empty_admin_list),
@@ -2910,10 +2920,14 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        non_empty_admin_list_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("DM group must have empty admin and super admin lists")
+        non_empty_admin_list_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        }),
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(
+                DmValidationError::MustHaveEmptyAdminAndSuperAdmin
+            )
+        ))
     ));
 
     // Test case 6: Non-empty super admin list
@@ -2921,8 +2935,8 @@ async fn test_validate_dm_group() {
 
     // Test case 7: Invalid permissions
     let invalid_permissions = PolicySet::default();
-    let invalid_permissions_group = MlsGroup::<FullXmtpClient>::create_test_dm_group(
-        client.clone().into(),
+    let invalid_permissions_group = ConcreteMlsGroup::create_test_dm_group(
+        client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
         None,
@@ -2932,10 +2946,12 @@ async fn test_validate_dm_group() {
     )
     .unwrap();
     assert!(matches!(
-        invalid_permissions_group.load_mls_group_with_lock(client.mls_provider(), |mls_group|
-            validate_dm_group(&client, &mls_group, added_by_inbox)
-        ),
-        Err(GroupError::Generic(msg)) if msg.contains("Invalid permissions for DM group")
+        invalid_permissions_group.load_mls_group_with_lock(client.mls_provider(), |mls_group| {
+            validate_dm_group(&client, &mls_group, added_by_inbox).map_err(Into::into)
+        }),
+        Err(GroupError::MetadataPermissionsError(
+            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+        ))
     ));
 }
 
@@ -3071,13 +3087,19 @@ fn test_increment_patch_version() {
 
 #[xmtp_common::test]
 async fn test_can_set_min_supported_protocol_version_for_commit() {
+    let mut amal_version = VersionInfo::default();
+    amal_version.test_update_version(
+        increment_patch_version(amal_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
     // Step 1: Create two clients, amal is one version ahead of bo
-    let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let amal_version = amal.version_info().pkg_version();
-    amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
-
-    let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
+    let amal =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version.clone())
+            .await;
+    let bo = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+    // ensure the version is as expected
+    assert!(bo.context.version_info() != &amal_version);
     // Step 2: Amal creates a group and adds bo as a member
     let amal_group = amal
         .create_group(None, GroupMetadataOptions::default())
@@ -3125,8 +3147,18 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     assert_eq!(messages.len(), 2);
 
     // Step 7: Bo updates their client, and see if we can then download latest messages
-    let bo_version = bo.version_info().pkg_version();
-    bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+    let mut bo_version = bo.version_info().clone();
+    bo_version.test_update_version(
+        increment_patch_version(bo_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let bo = ClientBuilder::from_client(bo)
+        .version(bo_version.clone())
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(bo.context.version_info(), amal.context.version_info());
 
     // Refresh Bo's group context
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3140,16 +3172,27 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
 
 #[xmtp_common::test]
 async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
+    let mut amal_version = VersionInfo::default();
+    amal_version.test_update_version(
+        increment_patch_version(amal_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+
     // Step 1: Create three clients, amal and bo are one version ahead of caro
-    let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let amal_version = amal.version_info().pkg_version();
-    amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+    let amal =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version).await;
 
-    let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo_version = bo.version_info().pkg_version();
-    bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+    let mut bo_version = VersionInfo::default();
+    bo_version.test_update_version(
+        increment_patch_version(bo_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let bo =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), bo_version).await;
 
-    let mut caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
     assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
@@ -3215,8 +3258,18 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     assert!(matches!(result, Err(GroupError::GroupPausedUntilUpdate(_))));
 
     // Caro updates their client to the same version as amal and syncs to unpause the group
-    let caro_version = caro.version_info().pkg_version();
-    caro.test_update_version(increment_patch_version(caro_version).unwrap().as_str());
+    let mut caro_version = caro.version_info().clone();
+    caro_version.test_update_version(
+        increment_patch_version(caro_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+
+    let caro = ClientBuilder::from_client(caro)
+        .version(caro_version)
+        .build()
+        .await
+        .unwrap();
     let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
@@ -3301,10 +3354,15 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
 
 #[xmtp_common::test]
 async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
+    let mut amal_version = VersionInfo::default();
+    amal_version.test_update_version(
+        increment_patch_version(amal_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
     // Create two clients with different versions
-    let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let amal_version = amal.version_info().pkg_version();
-    amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+    let amal =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version).await;
 
     let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -3350,12 +3408,19 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
 
 #[xmtp_common::test]
 async fn test_send_message_after_min_version_update_gets_expected_error() {
-    // Create two clients with different versions
-    let mut amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let amal_version = amal.version_info().pkg_version();
-    amal.test_update_version(increment_patch_version(amal_version).unwrap().as_str());
+    let mut amal_version = VersionInfo::default();
+    amal_version.test_update_version(
+        increment_patch_version(amal_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
 
-    let mut bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    // Create two clients with different versions
+    let amal =
+        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version.clone())
+            .await;
+    assert!(amal.context.version_info() != &VersionInfo::default());
+    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
     // Amal creates a group and adds bo
     let amal_group = amal
@@ -3406,8 +3471,17 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
     }
 
     // Verify Bo can send again after updating their version
-    let bo_version = bo.version_info().pkg_version();
-    bo.test_update_version(increment_patch_version(bo_version).unwrap().as_str());
+    let mut bo_version = bo.version_info().clone();
+    bo_version.test_update_version(
+        increment_patch_version(bo_version.pkg_version())
+            .unwrap()
+            .as_str(),
+    );
+    let bo = ClientBuilder::from_client(bo)
+        .version(bo_version)
+        .build()
+        .await
+        .unwrap();
 
     // Need to get fresh group reference after version update
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
@@ -3424,7 +3498,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
 
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3618,7 +3692,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Retrieve all messages from group B, verify they contain the two messages from client c even though they were sent from the wrong epoch
     let messages = client_b
-        .api_client
+        .api()
         .query_group_messages(group_b.group_id.clone(), None)
         .await
         .unwrap();
