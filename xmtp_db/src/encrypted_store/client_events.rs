@@ -64,7 +64,7 @@ impl ClientEvents {
     pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, StorageError> {
         Ok(db.raw_query_read(|db| {
             let query = dsl::client_events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
-                "json_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
+                "jsonb_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
             ));
 
             query.load::<ClientEvents>(db)

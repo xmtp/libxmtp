@@ -36,7 +36,7 @@ async fn test_key_rotation_with_optimistic_send() {
     join_all(futs).await;
 
     // Wait for the streams to finish.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     g.test_can_talk_with(&bo_g).await?;
 
