@@ -1,8 +1,6 @@
 pub mod device_sync;
 pub mod device_sync_legacy;
 pub mod group_membership;
-pub mod group_metadata;
-pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
@@ -39,9 +37,7 @@ use self::{
     intents::IntentError,
     validated_commit::CommitValidationError,
 };
-use crate::groups::group_mutable_metadata::{
-    extract_group_mutable_metadata, MessageDisappearingSettings,
-};
+
 use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
@@ -374,19 +370,6 @@ where
 pub struct ConversationListItem<C> {
     pub group: MlsGroup<C>,
     pub last_message: Option<StoredGroupMessage>,
-}
-
-#[derive(Default, Clone)]
-pub struct GroupMetadataOptions {
-    pub name: Option<String>,
-    pub image_url_square: Option<String>,
-    pub description: Option<String>,
-    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[derive(Default, Clone)]
-pub struct DMMetadataOptions {
-    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl<C> Clone for MlsGroup<C> {

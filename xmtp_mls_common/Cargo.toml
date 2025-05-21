@@ -1,0 +1,11 @@
+[package]
+name = "xmtp_mls_common"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+openmls.workspace = true
+prost.workspace = true
+thiserror.workspace = true
+xmtp_proto.workspace = true
