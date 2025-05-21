@@ -6,7 +6,7 @@ use crate::{
 use futures::StreamExt;
 use std::sync::Arc;
 use xmtp_api::XmtpApi;
-use xmtp_archive::ArchiveImporter;
+pub use xmtp_archive::*;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
     group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
@@ -14,26 +14,37 @@ use xmtp_db::{
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
-pub(super) async fn insert_importer<ApiClient, Db>(
-    importer: &mut ArchiveImporter,
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-) -> Result<(), DeviceSyncError>
+#[async_trait::async_trait]
+pub trait ArchiveRunner<ApiClient, Db> {
+    async fn run(
+        &mut self,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    ) -> Result<(), DeviceSyncError>;
+}
+
+#[async_trait::async_trait]
+impl<ApiClient, Db> ArchiveRunner<ApiClient, Db> for ArchiveImporter
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
-    while let Some(element) = importer.next().await {
-        let element = element?;
-        match insert(element, context, context.mls_provider()) {
-            Err(DeviceSyncError::Deserialization(err)) => {
-                tracing::warn!("Unable to insert record: {err:?}");
+    async fn run(
+        &mut self,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    ) -> Result<(), DeviceSyncError> {
+        while let Some(element) = self.next().await {
+            let element = element?;
+            match insert(element, context, context.mls_provider()) {
+                Err(DeviceSyncError::Deserialization(err)) => {
+                    tracing::warn!("Unable to insert record: {err:?}");
+                }
+                Err(err) => return Err(err)?,
+                _ => {}
             }
-            Err(err) => return Err(err)?,
-            _ => {}
         }
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 fn insert<ApiClient, Db>(
@@ -159,9 +170,7 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
-        insert_importer(&mut importer, &alix2.context)
-            .await
-            .unwrap();
+        importer.run(&alix2.context).await.unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -247,7 +256,7 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
-        insert_importer(&mut importer, &alix2.context).await?;
+        importer.run(&alix2.context).await.unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2

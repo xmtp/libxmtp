@@ -39,21 +39,24 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::common::group::DMMetadataOptions;
+use xmtp_mls::common::group::GroupMetadataOptions;
+use xmtp_mls::common::group_metadata::GroupMetadata;
+use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::common::group_mutable_metadata::MetadataField;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
-use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
+use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
+use xmtp_mls::groups::device_sync::archive::ArchiveRunner;
+use xmtp_mls::groups::device_sync::archive::BackupMetadata;
+use xmtp_mls::groups::device_sync::DeviceSyncError;
+use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
+use xmtp_mls::groups::ConversationDebugInfo;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
-        device_sync::{
-            archive::{ArchiveImporter, BackupMetadata},
-            preference_sync::PreferenceUpdate,
-            ENC_KEY_SIZE,
-        },
-        group_metadata::GroupMetadata,
-        group_mutable_metadata::MessageDisappearingSettings,
-        group_mutable_metadata::MetadataField,
+        device_sync::preference_sync::PreferenceUpdate,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
@@ -61,7 +64,7 @@ use xmtp_mls::{
         },
         intents::{PermissionPolicyOption, PermissionUpdateType, UpdateGroupMembershipResult},
         members::PermissionLevel,
-        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
@@ -718,13 +721,17 @@ impl FfiXmtpClient {
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
+        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?)
+            .await
+            .map_err(|e| DeviceSyncError::Archive(e))?;
         Ok(())
     }
 
     /// Import a previous archive
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
+        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(|e| DeviceSyncError::Archive(e))?;
         importer.run(&self.inner_client.context).await?;
         Ok(())
     }
@@ -736,7 +743,9 @@ impl FfiXmtpClient {
         path: String,
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, GenericError> {
-        let importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
+        let importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(|e| DeviceSyncError::Archive(e))?;
         Ok(importer.metadata.into())
     }
 }

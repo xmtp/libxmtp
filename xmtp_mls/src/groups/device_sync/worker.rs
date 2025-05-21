@@ -8,7 +8,7 @@ use crate::{
     configuration::WORKER_RESTART_DELAY,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::{archive::insert_importer, default_archive_options},
+        device_sync::{archive::ArchiveRunner, default_archive_options},
         device_sync_legacy::DeviceSyncContent,
         GroupError,
     },
@@ -630,7 +630,7 @@ where
 
         tracing::info!("Importing the sync payload.");
         // Run the import.
-        insert_importer(&mut importer, &self.context).await?;
+        importer.run(&self.context).await?;
 
         Ok(())
     }

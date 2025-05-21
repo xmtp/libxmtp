@@ -12,6 +12,7 @@ pub use mls::*;
 use std::error::Error;
 use xmtp_common::time::Expired;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_mls::common::group_metadata::GroupMetadataError;
 
 extern crate tracing as log;
 
@@ -31,7 +32,7 @@ pub enum GenericError {
     #[error("Signature: {0}")]
     Signature(#[from] xmtp_cryptography::signature::SignatureError),
     #[error("Group metadata: {0}")]
-    GroupMetadata(#[from] xmtp_mls::groups::group_metadata::GroupMetadataError),
+    GroupMetadata(#[from] GroupMetadataError),
     #[error("Group permissions: {0}")]
     GroupMutablePermissions(
         #[from] xmtp_mls::groups::group_permissions::GroupMutablePermissionsError,

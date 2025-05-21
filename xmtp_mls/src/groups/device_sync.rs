@@ -80,7 +80,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] ArchiveError),
+    Archive(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
