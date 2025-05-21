@@ -3378,7 +3378,6 @@ mod tests {
         let tester = Tester::builder().sync_worker().sync_server().build().await;
         let client: &FfiXmtpClient = &tester.client;
 
-        // Trigger some known stats activity
         let bo = Tester::new().await;
         let _conversation = client
             .conversations()
@@ -3393,7 +3392,6 @@ mod tests {
             .conversations()
             .list(FfiListConversationsOptions::default());
 
-        // --- Check FfiApiStats ---
         let api_stats = client.api_statistics();
         assert!(
             api_stats.send_group_messages >= 1,
@@ -3404,7 +3402,6 @@ mod tests {
             "Expected at least one welcome message"
         );
 
-        // --- Check FfiIdentityStats ---
         let identity_stats = client.api_identity_statistics();
         assert_eq!(
             identity_stats.publish_identity_update, 1,
@@ -3415,7 +3412,6 @@ mod tests {
             "Expected get_inbox_ids to be called"
         );
 
-        // --- Check FfiAggregateStats string ---
         let aggregate_str = client.api_aggregate_statistics();
         println!("Aggregate Stats:\n{}", aggregate_str);
 
