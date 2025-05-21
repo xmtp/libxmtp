@@ -96,7 +96,7 @@ where
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
         if intent_kind == IntentKind::SendMessage {
-            self.maybe_insert_key_update_intent()?;
+            self.maybe_insert_key_update_intent(conn)?;
         }
 
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -114,9 +114,10 @@ where
         Ok(intent)
     }
 
-    fn maybe_insert_key_update_intent(&self) -> Result<(), GroupError> {
-        let provider = self.mls_provider();
-        let conn = provider.db();
+    fn maybe_insert_key_update_intent(
+        &self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+    ) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
