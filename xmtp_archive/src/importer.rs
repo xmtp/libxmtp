@@ -1,24 +1,13 @@
 use super::{ArchiveError, BackupMetadata};
-use crate::{
-    context::XmtpMlsLocalContext,
-    groups::{
-        device_sync::{DeviceSyncError, NONCE_SIZE},
-        group_permissions::PolicySet,
-        GroupMetadataOptions, MlsGroup,
-    },
-};
-use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
+use crate::NONCE_SIZE;
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
+use futures::{FutureExt, Stream, StreamExt};
 use futures_util::{AsyncBufRead, AsyncReadExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
-use std::{pin::Pin, sync::Arc};
-use xmtp_api::XmtpApi;
-use xmtp_db::{
-    consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
-};
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
+use std::{pin::Pin, task::Poll};
+use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_import;
@@ -32,11 +21,53 @@ pub struct ArchiveImporter {
     nonce: GenericArray<u8, typenum::U12>,
 }
 
+impl Stream for ArchiveImporter {
+    type Item = Result<BackupElement, ArchiveError>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        let mut buffer = [0u8; 1024];
+        let mut element_len = 0;
+        loop {
+            let amount = match this.decoder.read(&mut buffer).poll_unpin(cx) {
+                Poll::Ready(Ok(amt)) => amt,
+                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)?),
+                Poll::Pending => return Poll::Pending,
+            };
+            this.decoded.extend_from_slice(&buffer[..amount]);
+
+            if element_len == 0 && this.decoded.len() >= 4 {
+                let bytes = this.decoded.drain(..4).collect::<Vec<_>>();
+                element_len = u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
+            }
+
+            if element_len != 0 && this.decoded.len() >= element_len {
+                let decrypted = this
+                    .cipher
+                    .decrypt(&this.nonce, &this.decoded[..element_len])?;
+                let element = BackupElement::decode(&*decrypted);
+                this.decoded.drain(..element_len);
+                return Poll::Ready(Some(element.map_err(ArchiveError::from)));
+            }
+
+            if amount == 0 && this.decoded.is_empty() {
+                break;
+            }
+        }
+
+        Poll::Ready(None)
+    }
+}
+
 impl ArchiveImporter {
-    pub(crate) async fn load(
+    pub async fn load(
         mut reader: Pin<Box<dyn AsyncBufRead + Send>>,
         key: &[u8],
-    ) -> Result<Self, DeviceSyncError> {
+    ) -> Result<Self, ArchiveError> {
         let mut version = [0; 2];
         reader.read_exact(&mut version).await?;
         let version = u16::from_le_bytes(version);
@@ -53,9 +84,9 @@ impl ArchiveImporter {
             nonce: GenericArray::from(nonce),
         };
 
-        let Some(BackupElement {
+        let Some(Ok(BackupElement {
             element: Some(Element::Metadata(metadata)),
-        }) = importer.next_element().await?
+        })) = importer.next().await
         else {
             return Err(ArchiveError::MissingMetadata)?;
         };
@@ -64,109 +95,7 @@ impl ArchiveImporter {
         Ok(importer)
     }
 
-    async fn next_element(&mut self) -> Result<Option<BackupElement>, DeviceSyncError> {
-        let mut buffer = [0u8; 1024];
-        let mut element_len = 0;
-        loop {
-            let amount = self.decoder.read(&mut buffer).await?;
-            self.decoded.extend_from_slice(&buffer[..amount]);
-
-            if element_len == 0 && self.decoded.len() >= 4 {
-                let bytes = self.decoded.drain(..4).collect::<Vec<_>>();
-                element_len = u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
-            }
-
-            if element_len != 0 && self.decoded.len() >= element_len {
-                let decrypted = self
-                    .cipher
-                    .decrypt(&self.nonce, &self.decoded[..element_len])?;
-                let element = BackupElement::decode(&*decrypted);
-                self.decoded.drain(..element_len);
-                return Ok(Some(element.map_err(DeviceSyncError::from)?));
-            }
-
-            if amount == 0 && self.decoded.is_empty() {
-                break;
-            }
-        }
-
-        Ok(None)
-    }
-
-    pub async fn run<ApiClient, Db>(
-        &mut self,
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> Result<(), DeviceSyncError>
-    where
-        ApiClient: XmtpApi,
-        Db: XmtpDb,
-    {
-        while let Some(element) = self.next_element().await? {
-            match insert(element, context, context.mls_provider()) {
-                Err(DeviceSyncError::Deserialization(err)) => {
-                    tracing::warn!("Unable to insert record: {err:?}");
-                }
-                Err(err) => return Err(err)?,
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn metadata(&self) -> &BackupMetadata {
         &self.metadata
     }
-}
-
-fn insert<ApiClient, Db>(
-    element: BackupElement,
-    context: &XmtpMlsLocalContext<ApiClient, Db>,
-    provider: impl MlsProviderExt,
-) -> Result<(), DeviceSyncError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
-    let Some(element) = element.element else {
-        return Ok(());
-    };
-
-    match element {
-        Element::Consent(consent) => {
-            let consent: StoredConsentRecord = consent.try_into()?;
-            provider.db().insert_newer_consent_record(consent)?;
-        }
-        Element::Group(save) => {
-            if let Ok(Some(_)) = provider.db().find_group(&save.id) {
-                // Do not restore groups that already exist.
-                return Ok(());
-            }
-
-            let attributes = save
-                .mutable_metadata
-                .map(|m| m.attributes)
-                .unwrap_or_default();
-
-            MlsGroup::insert(
-                context,
-                Some(&save.id),
-                GroupMembershipState::Restored,
-                PolicySet::default(),
-                GroupMetadataOptions {
-                    name: attributes.get("group_name").cloned(),
-                    image_url_square: attributes.get("group_image_url_square").cloned(),
-                    description: attributes.get("description").cloned(),
-                    ..Default::default()
-                },
-            )?;
-        }
-        Element::GroupMessage(message) => {
-            let message: StoredGroupMessage = message.try_into()?;
-            message.store_or_ignore(provider.db())?;
-        }
-        _ => {}
-    }
-
-    Ok(())
 }

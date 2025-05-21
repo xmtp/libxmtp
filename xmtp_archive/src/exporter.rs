@@ -54,11 +54,7 @@ impl ArchiveExporter {
         Ok(())
     }
 
-    pub(crate) fn new<C>(
-        options: BackupOptions,
-        provider: Arc<XmtpOpenMlsProvider<C>>,
-        key: &[u8],
-    ) -> Self
+    pub fn new<C>(options: BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>, key: &[u8]) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,
     {
@@ -80,7 +76,7 @@ impl ArchiveExporter {
         }
     }
 
-    pub(crate) fn metadata(&self) -> &BackupMetadataSave {
+    pub fn metadata(&self) -> &BackupMetadataSave {
         &self.metadata
     }
 }

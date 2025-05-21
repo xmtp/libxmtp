@@ -584,13 +584,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use futures::stream::StreamExt;
-
     use crate::assert_msg;
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::builder::ClientBuilder;
+    use futures::stream::StreamExt;
+    use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[rstest::rstest]
     #[xmtp_common::test]

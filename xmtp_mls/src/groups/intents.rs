@@ -126,7 +126,7 @@ where
 
     fn maybe_insert_key_update_intent(
         &self,
-        conn: &DbConnection<<<ScopedClient as ScopedGroupClient>::Db as XmtpDb>::Connection>,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
     ) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();

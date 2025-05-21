@@ -20,9 +20,18 @@ impl_store!(ClientEvents, client_events);
 impl ClientEvents {
     pub fn track<C: ConnectionExt>(db: &DbConnection<C>, event: impl AsRef<ClientEvent>) {
         let event = event.as_ref();
+
+        let details = match serde_json::to_value(event) {
+            Ok(details) => details,
+            Err(err) => {
+                tracing::warn!("ClientEvents: unable to serialize event. {err:?}");
+                return;
+            }
+        };
+
         let result = ClientEvents {
             created_at_ns: now_ns(),
-            details: serde_json::to_value(event).unwrap(),
+            details,
         }
         .store(db);
         if let Err(err) = result {

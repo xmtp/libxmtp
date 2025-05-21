@@ -8,7 +8,7 @@ version.workspace = true
 aes-gcm.workspace = true
 async-compression.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
-futures-util = { version = "0.3", default-features = false, features = ["io"] }
+futures-util.workspace = true
 prost.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

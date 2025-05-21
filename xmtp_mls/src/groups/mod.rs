@@ -43,7 +43,7 @@ use crate::{
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
-use intents::SendMessageIntentData;
+use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -1530,8 +1530,6 @@ where
         custom_mutable_permissions: Option<PolicySet>,
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
-        use xmtp_mls_common::group::DMMetadataOptions;
-
         let conn = context.store().conn();
         let provider = XmtpOpenMlsProvider::new(conn);
 

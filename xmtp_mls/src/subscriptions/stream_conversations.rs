@@ -411,12 +411,12 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::GroupMetadataOptions;
     use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);

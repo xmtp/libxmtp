@@ -5,7 +5,7 @@ use xmtp_db::XmtpDb;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
-    groups::{DMMetadataOptions, GroupError, MlsGroup},
+    groups::{GroupError, MlsGroup},
     Client,
 };
 

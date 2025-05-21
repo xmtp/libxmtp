@@ -1,17 +1,14 @@
 use super::{
     handle::{SyncMetric, WorkerHandle},
     preference_sync::{store_preference_updates, PreferenceUpdate},
-    DeviceSyncClient, DeviceSyncError, IterWithContent, ENC_KEY_SIZE,
+    DeviceSyncClient, DeviceSyncError, IterWithContent,
 };
 use crate::{
     client::ClientError,
     configuration::WORKER_RESTART_DELAY,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::{
-            archive::{exporter::ArchiveExporter, ArchiveImporter},
-            default_archive_options,
-        },
+        device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::DeviceSyncContent,
         GroupError,
     },
@@ -23,6 +20,7 @@ use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
+use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
@@ -41,6 +39,8 @@ use xmtp_proto::{
     },
     ConversionError,
 };
+
+const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 
 pub struct SyncWorker<ApiClient, Db> {
     client: DeviceSyncClient<ApiClient, Db>,
@@ -630,7 +630,7 @@ where
 
         tracing::info!("Importing the sync payload.");
         // Run the import.
-        importer.run(&self.context).await?;
+        insert_importer(&mut importer, &self.context).await?;
 
         Ok(())
     }
