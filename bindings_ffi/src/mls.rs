@@ -3383,6 +3383,75 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn create_client_does_not_hit_network() {
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
+        let nonce = 1;
+        let ident = ffi_inbox_owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+
+        let api_stats = client.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 0);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert_eq!(identity_stats.get_identity_updates_v2, 1);
+        assert_eq!(identity_stats.get_inbox_ids, 1);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+
+        let build = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+
+        let aggregate_str = build.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+        let api_stats = build.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 0);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = build.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert_eq!(identity_stats.get_identity_updates_v2, 0);
+        assert_eq!(identity_stats.get_inbox_ids, 0);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
         let tester = Tester::builder().sync_worker().sync_server().build().await;
         let client: &FfiXmtpClient = &tester.client;
