@@ -115,9 +115,7 @@ where
             BackupElementSelection::Messages => {
                 vec![self.v1_syncable_groups()?, self.v1_syncable_messages()?]
             }
-            BackupElementSelection::Unspecified => {
-                return Err(DeviceSyncError::UnspecifiedDeviceSyncKind)
-            }
+            _ => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
         };
 
         let reply = self

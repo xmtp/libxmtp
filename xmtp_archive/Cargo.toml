@@ -22,3 +22,6 @@ xmtp_common.workspace = true
 xmtp_db.workspace = true
 xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true

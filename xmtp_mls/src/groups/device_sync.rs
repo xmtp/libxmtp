@@ -55,10 +55,10 @@ pub enum DeviceSyncError {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
     #[error("type conversion error")]
     Conversion,
     #[error("utf-8 error: {0}")]

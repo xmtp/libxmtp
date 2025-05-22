@@ -2,8 +2,8 @@ use super::{
     ConnectionExt, DbConnection, group::ConversationType, group_intent::IntentKind,
     schema::client_events::dsl,
 };
-use crate::{StorageError, Store, impl_store, schema::client_events};
-use diesel::{Insertable, Queryable, prelude::*};
+use crate::{Store, impl_store, schema::client_events};
+use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
 use serde::{Deserialize, Serialize};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
@@ -47,21 +47,35 @@ impl ClientEvents {
         }
     }
 
-    fn clear_old_events<C: ConnectionExt>(db: &DbConnection<C>) -> Result<(), StorageError> {
-        Ok(db.raw_query_write(|db| {
+    fn clear_old_events<C: ConnectionExt>(
+        db: &DbConnection<C>,
+    ) -> Result<(), crate::ConnectionError> {
+        db.raw_query_write(|db| {
             diesel::delete(
                 dsl::client_events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_30_DAYS)),
             )
             .execute(db)?;
             Ok(())
-        })?)
+        })
     }
 
-    pub fn all_events(db: &DbConnection) -> Result<Vec<Self>, StorageError> {
+    pub fn all_events(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
         Ok(db.raw_query_read(|db| dsl::client_events.load(db))?)
     }
 
-    pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, StorageError> {
+    pub fn all_events_paged<C: ConnectionExt>(
+        db: &C,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Self>, crate::ConnectionError> {
+        let query = dsl::client_events::table()
+            .order_by(dsl::created_at_ns.asc())
+            .limit(limit)
+            .offset(offset);
+        db.raw_query_read(|db| query.load(db))
+    }
+
+    pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
         Ok(db.raw_query_read(|db| {
             let query = dsl::client_events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "jsonb_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
@@ -75,15 +89,20 @@ impl ClientEvents {
 #[derive(Serialize, Deserialize)]
 pub enum ClientEvent {
     ClientBuild,
-    QueueIntent {
-        group_id: Vec<u8>,
-        intent_kind: IntentKind,
-    },
-    WelcomedIntoGroup {
-        group_id: Vec<u8>,
-        conversation_type: ConversationType,
-        added_by_inbox_id: String,
-    },
+    QueueIntent(EvtQueueIntent),
+    WelcomedIntoGroup(EvtWelcomedIntoGroup),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EvtQueueIntent {
+    pub group_id: Vec<u8>,
+    pub intent_kind: IntentKind,
+}
+#[derive(Serialize, Deserialize)]
+pub struct EvtWelcomedIntoGroup {
+    pub group_id: Vec<u8>,
+    pub conversation_type: ConversationType,
+    pub added_by_inbox_id: String,
 }
 
 impl AsRef<ClientEvent> for ClientEvent {

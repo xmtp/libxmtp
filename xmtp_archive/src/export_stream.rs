@@ -2,10 +2,11 @@ use futures::{Stream, StreamExt};
 use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::{ConnectionExt, StorageError, XmtpOpenMlsProvider};
 use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
-    group_backup::GroupSave, message_backup::GroupMessageSave,
+    BackupElement, BackupElementSelection, BackupOptions, client_event_backup::ClientEventSave,
+    consent_backup::ConsentSave, group_backup::GroupSave, message_backup::GroupMessageSave,
 };
 
+pub(crate) mod client_event_save;
 pub(crate) mod consent_save;
 pub(crate) mod group_save;
 pub(crate) mod message_save;
@@ -38,6 +39,12 @@ impl BatchExportStream {
                     BackupRecordStreamer::<GroupSave, C>::new_stream(provider.clone(), opts),
                     BackupRecordStreamer::<GroupMessageSave, C>::new_stream(provider.clone(), opts),
                 ],
+                BackupElementSelection::ClientEvent => {
+                    vec![BackupRecordStreamer::<ClientEventSave, C>::new_stream(
+                        provider.clone(),
+                        opts,
+                    )]
+                }
                 BackupElementSelection::Unspecified => vec![],
             })
             .rev()

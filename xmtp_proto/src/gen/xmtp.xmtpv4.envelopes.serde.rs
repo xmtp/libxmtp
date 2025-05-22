@@ -550,11 +550,14 @@ impl serde::Serialize for OriginatorEnvelope {
         }
         if let Some(v) = self.proof.as_ref() {
             match v {
-                originator_envelope::Proof::OriginatorSignature(v) => {
-                    struct_ser.serialize_field("originatorSignature", v)?;
+                originator_envelope::Proof::OriginatorEcdsaSignature(v) => {
+                    struct_ser.serialize_field("originatorEcdsaSignature", v)?;
                 }
                 originator_envelope::Proof::BlockchainProof(v) => {
                     struct_ser.serialize_field("blockchainProof", v)?;
+                }
+                originator_envelope::Proof::OriginatorPasskeySignature(v) => {
+                    struct_ser.serialize_field("originatorPasskeySignature", v)?;
                 }
             }
         }
@@ -570,17 +573,20 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
         const FIELDS: &[&str] = &[
             "unsigned_originator_envelope",
             "unsignedOriginatorEnvelope",
-            "originator_signature",
-            "originatorSignature",
+            "originator_ecdsa_signature",
+            "originatorEcdsaSignature",
             "blockchain_proof",
             "blockchainProof",
+            "originator_passkey_signature",
+            "originatorPasskeySignature",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             UnsignedOriginatorEnvelope,
-            OriginatorSignature,
+            OriginatorEcdsaSignature,
             BlockchainProof,
+            OriginatorPasskeySignature,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -603,8 +609,9 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                     {
                         match value {
                             "unsignedOriginatorEnvelope" | "unsigned_originator_envelope" => Ok(GeneratedField::UnsignedOriginatorEnvelope),
-                            "originatorSignature" | "originator_signature" => Ok(GeneratedField::OriginatorSignature),
+                            "originatorEcdsaSignature" | "originator_ecdsa_signature" => Ok(GeneratedField::OriginatorEcdsaSignature),
                             "blockchainProof" | "blockchain_proof" => Ok(GeneratedField::BlockchainProof),
+                            "originatorPasskeySignature" | "originator_passkey_signature" => Ok(GeneratedField::OriginatorPasskeySignature),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -636,11 +643,11 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::OriginatorSignature => {
+                        GeneratedField::OriginatorEcdsaSignature => {
                             if proof__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("originatorSignature"));
+                                return Err(serde::de::Error::duplicate_field("originatorEcdsaSignature"));
                             }
-                            proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::OriginatorSignature)
+                            proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::OriginatorEcdsaSignature)
 ;
                         }
                         GeneratedField::BlockchainProof => {
@@ -648,6 +655,13 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                                 return Err(serde::de::Error::duplicate_field("blockchainProof"));
                             }
                             proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::BlockchainProof)
+;
+                        }
+                        GeneratedField::OriginatorPasskeySignature => {
+                            if proof__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("originatorPasskeySignature"));
+                            }
+                            proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::OriginatorPasskeySignature)
 ;
                         }
                     }

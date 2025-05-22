@@ -5,6 +5,12 @@ pub mod xmtp {
     pub mod device_sync {
         include!("xmtp.device_sync.rs");
         // @@protoc_insertion_point(xmtp.device_sync)
+        #[cfg(feature = "xmtp-device_sync-client_event_backup")]
+        // @@protoc_insertion_point(attribute:xmtp.device_sync.client_event_backup)
+        pub mod client_event_backup {
+            include!("xmtp.device_sync.client_event_backup.rs");
+            // @@protoc_insertion_point(xmtp.device_sync.client_event_backup)
+        }
         #[cfg(feature = "xmtp-device_sync-consent_backup")]
         // @@protoc_insertion_point(attribute:xmtp.device_sync.consent_backup)
         pub mod consent_backup {
