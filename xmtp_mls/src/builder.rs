@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
-use xmtp_db::client_events::{ClientEvent, ClientEvents};
+use xmtp_db::client_events::{ClientEvent, ClientEvents, EVENTS_ENABLED};
 
 use crate::{
     client::{Client, DeviceSync},
@@ -49,6 +49,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
+    disable_events: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +77,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
+            disable_events: false,
         }
     }
 }
@@ -101,6 +103,7 @@ where
             device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
+            disable_events: false,
         }
     }
 }
@@ -121,7 +124,12 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url,
             device_sync_worker_mode,
             version_info,
+            disable_events,
         } = self;
+
+        if disable_events {
+            EVENTS_ENABLED.store(false, Ordering::SeqCst);
+        }
 
         let api_client = api_client
             .take()
@@ -210,6 +218,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            disable_events: self.disable_events,
         }
     }
 
@@ -239,6 +248,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            disable_events: self.disable_events,
         }
     }
 
@@ -274,6 +284,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            disable_events: self.disable_events,
         })
     }
 
@@ -291,6 +302,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            disable_events: self.disable_events,
         }
     }
 
@@ -319,6 +331,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            disable_events: self.disable_events,
         })
     }
 }

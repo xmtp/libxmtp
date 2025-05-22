@@ -43,19 +43,19 @@ mod tests {
         tester!(bo);
         tester!(caro);
 
-        let (dm, _msg) = bo.test_talk_in_dm_with(&alix).await?;
+        let (bo_dm, _msg) = bo.test_talk_in_dm_with(&alix).await?;
 
-        let alix_dm = alix.group(&dm.group_id)?;
+        let alix_dm = alix.group(&bo_dm.group_id)?;
         alix_dm.send_message(b"Hello there").await?;
         tokio::time::sleep(Duration::from_millis(1000)).await;
         alix_dm.send_message(b"Hello there").await?;
 
-        let (dm, _) = caro.test_talk_in_dm_with(&alix).await?;
+        let (caro_dm, _) = caro.test_talk_in_dm_with(&alix).await?;
         alix.sync_welcomes().await?;
 
         let g = alix
             .create_group_with_inbox_ids(
-                &[bo.inbox_id().to_string(), caro.inbox_id().to_string()],
+                &[bo.inbox_id().to_string()],
                 None,
                 GroupMetadataOptions::default(),
             )
@@ -63,6 +63,18 @@ mod tests {
         g.update_group_name("Group with the buds".to_string())
             .await?;
         g.send_message(b"Hello there").await?;
+        g.sync().await?;
+
+        bo.sync_welcomes().await?;
+        let bo_g = bo.group(&g.group_id)?;
+        bo_g.send_message(b"Gonna add Caro").await?;
+        bo_g.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
+
+        caro.sync_welcomes().await?;
+        let caro_g = caro.group(&g.group_id)?;
+        caro_g.send_message(b"hi guise!").await?;
+
+        g.sync().await?;
 
         let key = upload_debug_package(&alix.provider, "http://localhost:5559").await?;
         tracing::info!("{key}");
