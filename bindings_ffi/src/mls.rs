@@ -66,7 +66,10 @@ use xmtp_mls::{
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
 };
+use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::api_client::ApiStats;
+use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{
     MultiRemoteAttachment, ReactionV2, RemoteAttachmentInfo,
@@ -326,6 +329,21 @@ pub struct FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
+    pub fn api_statistics(&self) -> FfiApiStats {
+        self.inner_client.api_stats().into()
+    }
+
+    pub fn api_identity_statistics(&self) -> FfiIdentityStats {
+        self.inner_client.identity_api_stats().into()
+    }
+
+    pub fn api_aggregate_statistics(&self) -> String {
+        let api = self.inner_client.api_stats();
+        let identity = self.inner_client.identity_api_stats();
+        let aggregate = AggregateStats { mls: api, identity };
+        format!("{:?}", aggregate)
+    }
+
     pub fn inbox_id(&self) -> InboxId {
         self.inner_client.inbox_id().to_string()
     }
@@ -2623,6 +2641,54 @@ impl From<StoredGroupMessage> for FfiMessage {
     }
 }
 
+#[derive(uniffi::Record, Clone)]
+pub struct FfiApiStats {
+    pub upload_key_package: u64,
+    pub fetch_key_package: u64,
+    pub send_group_messages: u64,
+    pub send_welcome_messages: u64,
+    pub query_group_messages: u64,
+    pub query_welcome_messages: u64,
+    pub subscribe_messages: u64,
+    pub subscribe_welcomes: u64,
+}
+
+impl From<ApiStats> for FfiApiStats {
+    fn from(stats: ApiStats) -> Self {
+        Self {
+            upload_key_package: stats.upload_key_package.get_count() as u64,
+            fetch_key_package: stats.fetch_key_package.get_count() as u64,
+            send_group_messages: stats.send_group_messages.get_count() as u64,
+            send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
+            query_group_messages: stats.query_group_messages.get_count() as u64,
+            query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
+            subscribe_messages: stats.subscribe_messages.get_count() as u64,
+            subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone)]
+pub struct FfiIdentityStats {
+    pub publish_identity_update: u64,
+    pub get_identity_updates_v2: u64,
+    pub get_inbox_ids: u64,
+    pub verify_smart_contract_wallet_signature: u64,
+}
+
+impl From<IdentityStats> for FfiIdentityStats {
+    fn from(stats: IdentityStats) -> Self {
+        Self {
+            publish_identity_update: stats.publish_identity_update.get_count() as u64,
+            get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as u64,
+            get_inbox_ids: stats.get_inbox_ids.get_count() as u64,
+            verify_smart_contract_wallet_signature: stats
+                .verify_smart_contract_wallet_signature
+                .get_count() as u64,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiConsent {
     pub entity_type: FfiConsentEntityType,
@@ -3306,6 +3372,58 @@ mod tests {
     }
 
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn ffi_api_stats_exposed_correctly() {
+        let tester = Tester::builder().sync_worker().sync_server().build().await;
+        let client: &FfiXmtpClient = &tester.client;
+
+        let bo = Tester::new().await;
+        let _conversation = client
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let _ = client
+            .conversations()
+            .list(FfiListConversationsOptions::default());
+
+        let api_stats = client.api_statistics();
+        assert!(
+            api_stats.send_group_messages >= 1,
+            "Expected at least one group message send"
+        );
+        assert!(
+            api_stats.send_welcome_messages >= 1,
+            "Expected at least one welcome message"
+        );
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(
+            identity_stats.publish_identity_update, 1,
+            "Expected one identity update published"
+        );
+        assert!(
+            identity_stats.get_inbox_ids >= 1,
+            "Expected get_inbox_ids to be called"
+        );
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+
+        assert!(
+            aggregate_str.contains("UploadKeyPackage"),
+            "Aggregate string should contain API stats"
+        );
+        assert!(
+            aggregate_str.contains("PublishIdentityUpdate"),
+            "Aggregate string should contain identity stats"
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
