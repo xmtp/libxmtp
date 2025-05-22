@@ -254,19 +254,11 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
-    /// Requires the api client to be set in the builder.
+    /// Skip network calls when building a client
     pub fn with_allow_offline(self, allow_offline: Option<bool>) -> ClientBuilder<ApiClient, Db> {
         ClientBuilder {
-            api_client: self.api_client,
-            identity: self.identity,
-            identity_strategy: self.identity_strategy,
-            scw_verifier: self.scw_verifier,
-            store: self.store,
-            device_sync_server_url: self.device_sync_server_url,
-            device_sync_worker_mode: self.device_sync_worker_mode,
-            version_info: self.version_info,
             allow_offline: allow_offline.unwrap_or(false),
+            ..self
         }
     }
 
