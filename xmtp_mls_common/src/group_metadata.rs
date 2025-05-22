@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use openmls::{extensions::Extensions, group::MlsGroup as OpenMlsGroup};
 use prost::Message;
+use serde::Serialize;
 use thiserror::Error;
 
 use xmtp_id::InboxId;
@@ -104,7 +105,7 @@ impl TryFrom<&Extensions> for GroupMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DmMembers<Id: AsRef<str>> {
     pub member_one_inbox_id: Id,
     pub member_two_inbox_id: Id,

@@ -50,7 +50,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1000)).await;
         alix_dm.send_message(b"Hello there").await?;
 
-        let (caro_dm, _) = caro.test_talk_in_dm_with(&alix).await?;
+        caro.test_talk_in_dm_with(&alix).await?;
         alix.sync_welcomes().await?;
 
         let g = alix

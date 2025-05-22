@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use super::{
     ConnectionExt, DbConnection, group::ConversationType, group_intent::IntentKind,
     schema::client_events::dsl,
@@ -7,6 +5,7 @@ use super::{
 use crate::{Store, impl_store, schema::client_events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -124,6 +123,7 @@ pub struct EvtEpochChange {
     pub prev_epoch: i64,
     pub new_epoch: i64,
     pub cursor: i64,
+    pub validated_commit: Option<String>,
 }
 
 impl AsRef<ClientEvent> for ClientEvent {
