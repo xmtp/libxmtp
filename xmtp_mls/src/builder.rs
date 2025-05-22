@@ -256,22 +256,9 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
     /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
     /// Requires the api client to be set in the builder.
-    pub fn with_allow_offline(
-        self,
-        allow_offline: Option<bool>,
-    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, Db>, ClientBuilderError> {
-        if self.api_client.is_none() {
-            return Err(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            });
-        }
-
-        Ok(ClientBuilder {
-            api_client: Some(
-                self.api_client
-                    .expect("checked for none")
-                    .attach_debug_wrapper(),
-            ),
+    pub fn with_allow_offline(self, allow_offline: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+        ClientBuilder {
+            api_client: self.api_client,
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
@@ -280,7 +267,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: allow_offline.unwrap_or(false),
-        })
+        }
     }
 
     /// Wrap the Api Client in a Debug Adapter which prints api stats on error.

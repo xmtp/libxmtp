@@ -181,7 +181,7 @@ pub async fn create_client(
         .api_client(Arc::unwrap_or_clone(api).0)
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
-        .with_allow_offline(allow_offline)?
+        .with_allow_offline(allow_offline)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -3144,6 +3144,7 @@ mod tests {
             None,
             history_sync_url,
             sync_worker_mode,
+            None,
         )
         .await
         .unwrap();
@@ -3176,6 +3177,7 @@ mod tests {
             nonce,
             None,
             sync_server_url,
+            None,
             None,
         )
         .await?;
@@ -3243,6 +3245,7 @@ mod tests {
             Some(legacy_keys),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3271,6 +3274,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3288,6 +3292,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3327,6 +3332,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3345,6 +3351,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3490,6 +3497,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3607,6 +3615,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3700,6 +3709,7 @@ mod tests {
             None, // v2_signed_private_key_proto
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3729,6 +3739,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3770,6 +3781,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -7022,6 +7034,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7061,6 +7074,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await
@@ -7127,6 +7141,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await;
 
@@ -7163,6 +7178,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7186,6 +7202,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7205,6 +7222,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await
@@ -7236,6 +7254,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await;
