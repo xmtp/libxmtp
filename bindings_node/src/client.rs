@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
