@@ -371,7 +371,7 @@ impl Client {
     self.inner_client.identity_api_stats().into()
   }
 
-  #[wasm_bindgen(js_name = apiStatistics)]
+  #[wasm_bindgen(js_name = apiStreamStatistics)]
   pub fn api_stream_statistics(&self) -> StreamStats {
     self.inner_client.api_stats().into()
   }
