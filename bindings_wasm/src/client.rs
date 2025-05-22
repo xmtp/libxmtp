@@ -19,7 +19,7 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
-use crate::identity::{ApiStats, Identifier, IdentityStats, StreamStats};
+use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 
@@ -369,11 +369,6 @@ impl Client {
   #[wasm_bindgen(js_name = apiIdentityStatistics)]
   pub fn api_identity_statistics(&self) -> IdentityStats {
     self.inner_client.identity_api_stats().into()
-  }
-
-  #[wasm_bindgen(js_name = apiStreamStatistics)]
-  pub fn api_stream_statistics(&self) -> StreamStats {
-    self.inner_client.api_stats().into()
   }
 
   #[wasm_bindgen(js_name = apiAggregateStatistics)]

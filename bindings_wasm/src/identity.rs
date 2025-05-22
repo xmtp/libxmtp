@@ -64,28 +64,8 @@ pub struct ApiStats {
   pub send_welcome_messages: u64,
   pub query_group_messages: u64,
   pub query_welcome_messages: u64,
-}
-
-#[wasm_bindgen]
-impl ApiStats {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    upload_key_package: u64,
-    fetch_key_package: u64,
-    send_group_messages: u64,
-    send_welcome_messages: u64,
-    query_group_messages: u64,
-    query_welcome_messages: u64,
-  ) -> Self {
-    Self {
-      upload_key_package,
-      fetch_key_package,
-      send_group_messages,
-      send_welcome_messages,
-      query_group_messages,
-      query_welcome_messages,
-    }
-  }
+  pub subscribe_messages: u64,
+  pub subscribe_welcomes: u64,
 }
 
 impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
@@ -97,6 +77,8 @@ impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
       send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
       query_group_messages: stats.query_group_messages.get_count() as u64,
       query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
+      subscribe_messages: stats.subscribe_messages.get_count() as u64,
+      subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
     }
   }
 }
@@ -110,24 +92,6 @@ pub struct IdentityStats {
   pub verify_smart_contract_wallet_signature: u64,
 }
 
-#[wasm_bindgen]
-impl IdentityStats {
-  #[wasm_bindgen(constructor)]
-  pub fn new(
-    publish_identity_update: u64,
-    get_identity_updates_v2: u64,
-    get_inbox_ids: u64,
-    verify_smart_contract_wallet_signature: u64,
-  ) -> Self {
-    Self {
-      publish_identity_update,
-      get_identity_updates_v2,
-      get_inbox_ids,
-      verify_smart_contract_wallet_signature,
-    }
-  }
-}
-
 impl From<xmtp_proto::api_client::IdentityStats> for IdentityStats {
   fn from(stats: xmtp_proto::api_client::IdentityStats) -> Self {
     Self {
@@ -137,33 +101,6 @@ impl From<xmtp_proto::api_client::IdentityStats> for IdentityStats {
       verify_smart_contract_wallet_signature: stats
         .verify_smart_contract_wallet_signature
         .get_count() as u64,
-    }
-  }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
-pub struct StreamStats {
-  pub subscribe_messages: u64,
-  pub subscribe_welcomes: u64,
-}
-
-#[wasm_bindgen]
-impl StreamStats {
-  #[wasm_bindgen(constructor)]
-  pub fn new(subscribe_messages: u64, subscribe_welcomes: u64) -> Self {
-    Self {
-      subscribe_messages,
-      subscribe_welcomes,
-    }
-  }
-}
-
-impl From<xmtp_proto::api_client::ApiStats> for StreamStats {
-  fn from(stats: xmtp_proto::api_client::ApiStats) -> Self {
-    Self {
-      subscribe_messages: stats.subscribe_messages.get_count() as u64,
-      subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
     }
   }
 }
