@@ -14,6 +14,7 @@ use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 #[diesel(primary_key(created_at_ns))]
 pub struct ClientEvents {
     pub created_at_ns: i64,
+    pub group_id: Option<Vec<u8>>,
     pub details: serde_json::Value,
 }
 
@@ -22,7 +23,11 @@ impl_store!(ClientEvents, client_events);
 pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
 
 impl ClientEvents {
-    pub fn track<C: ConnectionExt>(db: &DbConnection<C>, event: impl AsRef<ClientEvent>) {
+    pub fn track<C: ConnectionExt>(
+        db: &DbConnection<C>,
+        group_id: Option<Vec<u8>>,
+        event: impl AsRef<ClientEvent>,
+    ) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
             return;
         }
@@ -39,6 +44,7 @@ impl ClientEvents {
 
         let result = ClientEvents {
             created_at_ns: now_ns(),
+            group_id,
             details,
         }
         .store(db);
@@ -97,6 +103,7 @@ impl ClientEvents {
 #[derive(Serialize, Deserialize)]
 pub enum ClientEvent {
     ClientBuild,
+    Generic(String),
     QueueIntent(EvtQueueIntent),
     EpochChange(EvtEpochChange),
     GroupWelcome(EvtGroupWelcome),
@@ -104,19 +111,16 @@ pub enum ClientEvent {
 
 #[derive(Serialize, Deserialize)]
 pub struct EvtQueueIntent {
-    pub group_id: Vec<u8>,
     pub intent_kind: IntentKind,
 }
 #[derive(Serialize, Deserialize)]
 pub struct EvtGroupWelcome {
-    pub group_id: Vec<u8>,
     pub conversation_type: ConversationType,
     pub added_by_inbox_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct EvtEpochChange {
-    pub group_id: Vec<u8>,
     pub prev_epoch: i64,
     pub new_epoch: i64,
     pub cursor: i64,
@@ -144,13 +148,14 @@ mod tests {
         with_connection(|conn| {
             ClientEvents {
                 created_at_ns: 0,
+                group_id: None,
                 details: serde_json::to_value(ClientEvent::ClientBuild)?,
             }
             .store(conn)?;
             ClientEvents {
                 created_at_ns: 0,
+                group_id: None,
                 details: serde_json::to_value(ClientEvent::QueueIntent(EvtQueueIntent {
-                    group_id: vec![],
                     intent_kind: IntentKind::KeyUpdate,
                 }))?,
             }
@@ -159,7 +164,7 @@ mod tests {
             let all = ClientEvents::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            ClientEvents::track(conn, ClientEvent::ClientBuild);
+            ClientEvents::track(conn, None, ClientEvent::ClientBuild);
             let all = ClientEvents::all_events(conn)?;
             assert_eq!(all.len(), 1);
         })

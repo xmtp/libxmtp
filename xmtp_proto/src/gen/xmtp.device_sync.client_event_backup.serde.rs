@@ -13,6 +13,9 @@ impl serde::Serialize for ClientEventSave {
         if !self.details.is_empty() {
             len += 1;
         }
+        if self.group_id.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.client_event_backup.ClientEventSave", len)?;
         if self.created_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
@@ -23,6 +26,11 @@ impl serde::Serialize for ClientEventSave {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("details", pbjson::private::base64::encode(&self.details).as_str())?;
+        }
+        if let Some(v) = self.group_id.as_ref() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -37,12 +45,15 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
             "created_at_ns",
             "createdAtNs",
             "details",
+            "group_id",
+            "groupId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CreatedAtNs,
             Details,
+            GroupId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -66,6 +77,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                         match value {
                             "createdAtNs" | "created_at_ns" => Ok(GeneratedField::CreatedAtNs),
                             "details" => Ok(GeneratedField::Details),
+                            "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -87,6 +99,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
             {
                 let mut created_at_ns__ = None;
                 let mut details__ = None;
+                let mut group_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CreatedAtNs => {
@@ -105,11 +118,20 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::GroupId => {
+                            if group_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupId"));
+                            }
+                            group_id__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
                     }
                 }
                 Ok(ClientEventSave {
                     created_at_ns: created_at_ns__.unwrap_or_default(),
                     details: details__.unwrap_or_default(),
+                    group_id: group_id__,
                 })
             }
         }

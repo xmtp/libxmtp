@@ -196,7 +196,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
 
-        ClientEvents::track(provider.db(), ClientEvent::ClientBuild);
+        ClientEvents::track(provider.db(), None, ClientEvent::ClientBuild);
 
         Ok(client)
     }

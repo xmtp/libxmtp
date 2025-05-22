@@ -110,10 +110,8 @@ where
 
         ClientEvents::track(
             conn,
-            &ClientEvent::QueueIntent(EvtQueueIntent {
-                group_id: self.group_id.clone(),
-                intent_kind,
-            }),
+            Some(self.group_id.clone()),
+            &ClientEvent::QueueIntent(EvtQueueIntent { intent_kind }),
         );
 
         if intent_kind != IntentKind::SendMessage {

@@ -3,6 +3,7 @@ pub use super::schema_gen::*;
 diesel::table! {
     client_events (created_at_ns) {
         created_at_ns -> BigInt,
+        group_id -> Nullable<Binary>,
         details -> Jsonb,
     }
 }

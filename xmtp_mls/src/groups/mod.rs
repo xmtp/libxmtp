@@ -686,7 +686,16 @@ where
 
             let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
-            ClientEvents::track(db, ClientEvent::GroupWelcome(EvtGroupWelcome  { group_id: stored_group.id.clone(), conversation_type: stored_group.conversation_type, added_by_inbox_id: stored_group.added_by_inbox_id.clone() }));
+            ClientEvents::track(
+                db,
+                Some(stored_group.id.clone()),
+                ClientEvent::GroupWelcome(
+                    EvtGroupWelcome  {
+                        conversation_type: stored_group.conversation_type,
+                        added_by_inbox_id: stored_group.added_by_inbox_id.clone()
+                    }
+                )
+            );
 
             Ok(Self::new(
                 context,

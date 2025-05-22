@@ -25,6 +25,7 @@ impl BackupRecordProvider for ClientEventSave {
             .map(|r| BackupElement {
                 element: Some(Element::ClientEvent(ClientEventSave {
                     created_at_ns: r.created_at_ns,
+                    group_id: r.group_id,
                     details: serde_json::to_vec(&r.details).unwrap(),
                 })),
             })
