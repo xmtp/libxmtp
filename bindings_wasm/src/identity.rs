@@ -64,8 +64,6 @@ pub struct ApiStats {
   pub send_welcome_messages: u64,
   pub query_group_messages: u64,
   pub query_welcome_messages: u64,
-  pub subscribe_messages: u64,
-  pub subscribe_welcomes: u64,
 }
 
 #[wasm_bindgen]
@@ -78,8 +76,6 @@ impl ApiStats {
     send_welcome_messages: u64,
     query_group_messages: u64,
     query_welcome_messages: u64,
-    subscribe_messages: u64,
-    subscribe_welcomes: u64,
   ) -> Self {
     Self {
       upload_key_package,
@@ -88,8 +84,6 @@ impl ApiStats {
       send_welcome_messages,
       query_group_messages,
       query_welcome_messages,
-      subscribe_messages,
-      subscribe_welcomes,
     }
   }
 }
@@ -103,8 +97,6 @@ impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
       send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
       query_group_messages: stats.query_group_messages.get_count() as u64,
       query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
-      subscribe_messages: stats.subscribe_messages.get_count() as u64,
-      subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
     }
   }
 }
@@ -145,6 +137,36 @@ impl From<xmtp_proto::api_client::IdentityStats> for IdentityStats {
       verify_smart_contract_wallet_signature: stats
         .verify_smart_contract_wallet_signature
         .get_count() as u64,
+    }
+  }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub struct StreamStats {
+  pub subscribe_messages: u64,
+  pub subscribe_welcomes: u64,
+}
+
+#[wasm_bindgen]
+impl StreamStats {
+  #[wasm_bindgen(constructor)]
+  pub fn new(
+    subscribe_messages: u64,
+    subscribe_welcomes: u64,
+  ) -> Self {
+    Self {
+      subscribe_messages,
+      subscribe_welcomes,
+    }
+  }
+}
+
+impl From<xmtp_proto::api_client::ApiStats> for StreamStats {
+  fn from(stats: xmtp_proto::api_client::ApiStats) -> Self {
+    Self {
+      subscribe_messages: stats.subscribe_messages.get_count() as u64,
+      subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
     }
   }
 }
