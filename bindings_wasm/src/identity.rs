@@ -151,10 +151,7 @@ pub struct StreamStats {
 #[wasm_bindgen]
 impl StreamStats {
   #[wasm_bindgen(constructor)]
-  pub fn new(
-    subscribe_messages: u64,
-    subscribe_welcomes: u64,
-  ) -> Self {
+  pub fn new(subscribe_messages: u64, subscribe_welcomes: u64) -> Self {
     Self {
       subscribe_messages,
       subscribe_welcomes,
