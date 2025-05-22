@@ -1,6 +1,6 @@
 use super::{
-    ConnectionExt, DbConnection, group::ConversationType, group_intent::IntentKind,
-    schema::client_events::dsl,
+    ConnectionExt, DbConnection, consent_record::ConsentState, group::ConversationType,
+    group_intent::IntentKind, schema::client_events::dsl,
 };
 use crate::{Store, impl_store, schema::client_events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
@@ -106,6 +106,13 @@ pub enum ClientEvent {
     QueueIntent(EvtQueueIntent),
     EpochChange(EvtEpochChange),
     GroupWelcome(EvtGroupWelcome),
+    MsgStreamConnect(EvtMsgStreamConnect),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EvtMsgStreamConnect {
+    pub conversation_type: Option<ConversationType>,
+    pub consent_states: Option<Vec<ConsentState>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
