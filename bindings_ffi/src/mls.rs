@@ -139,6 +139,7 @@ pub async fn create_client(
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
+    allow_offline: Option<bool>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -180,6 +181,7 @@ pub async fn create_client(
         .api_client(Arc::unwrap_or_clone(api).0)
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
+        .with_allow_offline(allow_offline)?
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {

@@ -48,6 +48,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
+    allow_offline: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +76,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
+            allow_offline: false,
         }
     }
 }
@@ -100,6 +102,7 @@ where
             device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
+            allow_offline: false,
         }
     }
 }
@@ -120,6 +123,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url,
             device_sync_worker_mode,
             version_info,
+            allow_offline,
         } = self;
 
         let api_client = api_client
@@ -153,13 +157,15 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             installation_id = hex::encode(identity.installation_keys.public_bytes()),
             "Initialized identity"
         );
-        // get sequence_id from identity updates and loaded into the DB
-        load_identity_updates(
-            &api_client,
-            provider.db(),
-            vec![identity.inbox_id.as_str()].as_slice(),
-        )
-        .await?;
+        if !allow_offline {
+            // get sequence_id from identity updates and loaded into the DB
+            load_identity_updates(
+                &api_client,
+                provider.db(),
+                vec![identity.inbox_id.as_str()].as_slice(),
+            )
+            .await?;
+        }
 
         let (tx, _) = broadcast::channel(32);
         let context = Arc::new(XmtpMlsLocalContext {
@@ -207,6 +213,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
         }
     }
 
@@ -236,6 +243,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
         }
     }
 
@@ -244,6 +252,35 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info,
             ..self
         }
+    }
+
+    /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
+    /// Requires the api client to be set in the builder.
+    pub fn with_allow_offline(
+        self,
+        allow_offline: Option<bool>,
+    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, Db>, ClientBuilderError> {
+        if self.api_client.is_none() {
+            return Err(ClientBuilderError::MissingParameter {
+                parameter: "api_client",
+            });
+        }
+
+        Ok(ClientBuilder {
+            api_client: Some(
+                self.api_client
+                    .expect("checked for none")
+                    .attach_debug_wrapper(),
+            ),
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
+            scw_verifier: self.scw_verifier,
+            store: self.store,
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
+            allow_offline: allow_offline.unwrap_or(false),
+        })
     }
 
     /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
@@ -271,6 +308,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
         })
     }
 
@@ -288,6 +326,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
         }
     }
 
@@ -316,6 +355,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
         })
     }
 }
