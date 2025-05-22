@@ -100,7 +100,7 @@ impl ClientEvents {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum ClientEvent {
     ClientBuild,
     Generic(String),
@@ -109,17 +109,17 @@ pub enum ClientEvent {
     GroupWelcome(EvtGroupWelcome),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EvtQueueIntent {
     pub intent_kind: IntentKind,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EvtGroupWelcome {
     pub conversation_type: ConversationType,
     pub added_by_inbox_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EvtEpochChange {
     pub prev_epoch: i64,
     pub new_epoch: i64,
