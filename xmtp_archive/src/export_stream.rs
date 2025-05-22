@@ -40,10 +40,13 @@ impl BatchExportStream {
                     BackupRecordStreamer::<GroupMessageSave, C>::new_stream(provider.clone(), opts),
                 ],
                 BackupElementSelection::ClientEvent => {
-                    vec![BackupRecordStreamer::<ClientEventSave, C>::new_stream(
-                        provider.clone(),
-                        opts,
-                    )]
+                    vec![
+                        BackupRecordStreamer::<GroupSave, C>::new_stream(provider.clone(), opts),
+                        BackupRecordStreamer::<ClientEventSave, C>::new_stream(
+                            provider.clone(),
+                            opts,
+                        ),
+                    ]
                 }
                 BackupElementSelection::Unspecified => vec![],
             })

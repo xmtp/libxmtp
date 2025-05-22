@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use super::{
     ConnectionExt, DbConnection, group::ConversationType, group_intent::IntentKind,
     schema::client_events::dsl,
@@ -17,8 +19,14 @@ pub struct ClientEvents {
 
 impl_store!(ClientEvents, client_events);
 
+pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
+
 impl ClientEvents {
     pub fn track<C: ConnectionExt>(db: &DbConnection<C>, event: impl AsRef<ClientEvent>) {
+        if !EVENTS_ENABLED.load(Ordering::Relaxed) {
+            return;
+        }
+
         let event = event.as_ref();
 
         let details = match serde_json::to_value(event) {
@@ -90,7 +98,8 @@ impl ClientEvents {
 pub enum ClientEvent {
     ClientBuild,
     QueueIntent(EvtQueueIntent),
-    WelcomedIntoGroup(EvtWelcomedIntoGroup),
+    EpochChange(EvtEpochChange),
+    GroupWelcome(EvtGroupWelcome),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -99,14 +108,61 @@ pub struct EvtQueueIntent {
     pub intent_kind: IntentKind,
 }
 #[derive(Serialize, Deserialize)]
-pub struct EvtWelcomedIntoGroup {
+pub struct EvtGroupWelcome {
     pub group_id: Vec<u8>,
     pub conversation_type: ConversationType,
     pub added_by_inbox_id: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct EvtEpochChange {
+    pub group_id: Vec<u8>,
+    pub prev_epoch: i64,
+    pub new_epoch: i64,
+    pub cursor: i64,
+}
+
 impl AsRef<ClientEvent> for ClientEvent {
     fn as_ref(&self) -> &ClientEvent {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{
+        Store,
+        client_events::{ClientEvent, ClientEvents, EvtQueueIntent},
+        group_intent::IntentKind,
+        with_connection,
+    };
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    // A client build event should clear old events.
+    async fn clear_old_events() {
+        with_connection(|conn| {
+            ClientEvents {
+                created_at_ns: 0,
+                details: serde_json::to_value(ClientEvent::ClientBuild)?,
+            }
+            .store(conn)?;
+            ClientEvents {
+                created_at_ns: 0,
+                details: serde_json::to_value(ClientEvent::QueueIntent(EvtQueueIntent {
+                    group_id: vec![],
+                    intent_kind: IntentKind::KeyUpdate,
+                }))?,
+            }
+            .store(conn)?;
+
+            let all = ClientEvents::all_events(conn)?;
+            assert_eq!(all.len(), 2);
+
+            ClientEvents::track(conn, ClientEvent::ClientBuild);
+            let all = ClientEvents::all_events(conn)?;
+            assert_eq!(all.len(), 1);
+        })
+        .await;
     }
 }

@@ -28,3 +28,43 @@ pub async fn upload_debug_package(
 
     Ok(format!("{response}:{}", hex::encode(key)))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use xmtp_mls_common::group::GroupMetadataOptions;
+
+    use crate::{tester, utils::client_events::upload_debug_package};
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn test_debug_pkg() {
+        tester!(alix, stream);
+        tester!(bo);
+        tester!(caro);
+
+        let (dm, _msg) = bo.test_talk_in_dm_with(&alix).await?;
+
+        let alix_dm = alix.group(&dm.group_id)?;
+        alix_dm.send_message(b"Hello there").await?;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        alix_dm.send_message(b"Hello there").await?;
+
+        let (dm, _) = caro.test_talk_in_dm_with(&alix).await?;
+        alix.sync_welcomes().await?;
+
+        let g = alix
+            .create_group_with_inbox_ids(
+                &[bo.inbox_id().to_string(), caro.inbox_id().to_string()],
+                None,
+                GroupMetadataOptions::default(),
+            )
+            .await?;
+        g.update_group_name("Group with the buds".to_string())
+            .await?;
+        g.send_message(b"Hello there").await?;
+
+        let key = upload_debug_package(&alix.provider, "http://localhost:5559").await?;
+        tracing::info!("{key}");
+    }
+}

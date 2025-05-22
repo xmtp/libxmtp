@@ -829,13 +829,13 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     type Error = DeserializationError;
     fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
         let v = match value {
-            BackupElementSelection::Unspecified => {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+            _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
                 ))
             }
-            BackupElementSelection::Consent => Self::Consent,
-            BackupElementSelection::Messages => Self::Messages,
         };
         Ok(v)
     }

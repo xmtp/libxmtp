@@ -47,6 +47,7 @@ use crate::{
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
+    client_events::{ClientEvent, ClientEvents, EvtEpochChange},
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -732,6 +733,12 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
+                ClientEvents::track(provider.db(), ClientEvent::EpochChange(EvtEpochChange {
+                    group_id: envelope.group_id.clone(),
+                    cursor: *cursor as i64,
+                    prev_epoch: previous_epoch as i64,
+                    new_epoch: new_epoch as i64
+                }));
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
                     self.context.inbox_id(),
