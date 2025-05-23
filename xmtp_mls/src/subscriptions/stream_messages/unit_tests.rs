@@ -109,7 +109,8 @@ async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
     }
 
     // the stream should end
-    while let Some(_) = stream.next().await {
+    #[allow(clippy::never_loop)]
+    while stream.next().await.is_some() {
         panic!("nothing should be left on the stream");
     }
 }

@@ -60,16 +60,15 @@ pub struct StreamSession {
 }
 
 pub fn group_list_from_session(sessions: &[StreamSession]) -> Vec<GroupId> {
-    let first = sessions
+    sessions
         .iter()
         .next()
-        .expect("sessions must have at least one init");
-    return first
+        .expect("sessions must have at least one init")
         .groups
         .iter()
         .copied()
         .map(|g| group_id(g.group_id))
-        .collect();
+        .collect()
 }
 
 impl StreamSession {
@@ -105,8 +104,6 @@ pub fn group_id(id: u8) -> GroupId {
 #[derive(Default)]
 pub struct CaseState {
     pub current_session: usize,
-    pub message_cases: Vec<Vec<MessageCase>>,
-    pub group_cases: Vec<GroupTestCase>,
     pub sessions: HashMap<usize, StreamSession>,
 }
 

@@ -7,7 +7,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     seq::IteratorRandom,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use std::{future::Future, sync::OnceLock};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -138,11 +138,11 @@ fn ctor_logging_setup() {
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use std::sync::LazyLock;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-static SCOPED_SUBSCRIBER: LazyLock<Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
+static SCOPED_SUBSCRIBER: LazyLock<std::sync::Arc<Box<dyn tracing::Subscriber + Send + Sync>>> =
     LazyLock::new(|| {
         use tracing_subscriber::layer::SubscriberExt;
 
-        Arc::new(Box::new(
+        std::sync::Arc::new(Box::new(
             tracing_subscriber::registry().with(logger_layer()),
         ))
     });
@@ -160,9 +160,7 @@ pub fn logger() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("debug").unwrap();
-        // .with_default_directive(tracing::metadata::LevelFilter::INFO.into());
-        // .parse_lossy("xmtp_mls::subscriptions=debug,xmtp_mls::groups=info");
+        let filter = EnvFilter::builder().parse("info").unwrap();
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())
