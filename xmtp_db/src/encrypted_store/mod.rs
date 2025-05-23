@@ -71,8 +71,8 @@ pub enum StorageOption {
 }
 
 pub struct TransactionGuard<'a> {
-    in_transaction: Arc<AtomicBool>,
-    _mutex_guard: parking_lot::MutexGuard<'a, ()>,
+    pub(crate) in_transaction: Arc<AtomicBool>,
+    pub(crate) _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
 
 impl Drop for TransactionGuard<'_> {

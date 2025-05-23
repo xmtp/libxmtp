@@ -10,6 +10,8 @@ mod traits;
 pub use traits::*;
 pub mod xmtp_openmls_provider;
 pub use xmtp_openmls_provider::*;
+#[cfg(any(feature = "test-utils", test))]
+pub mod mock;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

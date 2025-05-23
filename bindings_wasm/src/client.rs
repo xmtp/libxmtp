@@ -16,9 +16,10 @@ use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
+use xmtp_proto::api_client::AggregateStats;
 
 use crate::conversations::Conversations;
-use crate::identity::Identifier;
+use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 
@@ -358,5 +359,23 @@ impl Client {
       .map_err(|_| JsError::new("Failed to convert usize to u32"))?;
 
     Ok(num_groups_synced)
+  }
+
+  #[wasm_bindgen(js_name = apiStatistics)]
+  pub fn api_statistics(&self) -> ApiStats {
+    self.inner_client.api_stats().into()
+  }
+
+  #[wasm_bindgen(js_name = apiIdentityStatistics)]
+  pub fn api_identity_statistics(&self) -> IdentityStats {
+    self.inner_client.identity_api_stats().into()
+  }
+
+  #[wasm_bindgen(js_name = apiAggregateStatistics)]
+  pub fn api_aggregate_statistics(&self) -> String {
+    let api = self.inner_client.api_stats();
+    let identity = self.inner_client.identity_api_stats();
+    let aggregate = AggregateStats { mls: api, identity };
+    format!("{:?}", aggregate)
   }
 }
