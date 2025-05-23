@@ -152,6 +152,9 @@ pub struct MessageIdentifier {
     pub cursor: u64,
     pub group_id: Vec<u8>,
     pub created_ns: u64,
+    /// tru if the message has been processed previously
+    #[builder(default = false)]
+    pub previously_processed: bool,
     /// the id of the message in the local database
     #[builder(default = None)]
     pub internal_id: Option<Vec<u8>>,
@@ -192,6 +195,7 @@ impl From<&group_message::V1> for MessageIdentifierBuilder {
             internal_id: None,
             group_context: None,
             intent_kind: None,
+            previously_processed: Some(false),
         }
     }
 }
@@ -205,6 +209,7 @@ impl From<&group_message::V1> for MessageIdentifier {
             internal_id: None,
             group_context: None,
             intent_kind: None,
+            previously_processed: false,
         }
     }
 }

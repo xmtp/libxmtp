@@ -746,6 +746,7 @@ where
                     xmtp_common::fmt::debug_hex(&envelope.group_id),
                     envelope.created_ns
                  );
+                identifier.previously_processed(true);
                 return identifier.build();
             }
             // once the checks for processing pass, actually process the message
@@ -1146,6 +1147,7 @@ where
                             // has already been processed, has the potential to result in forks.
                             // In some cases, we may want to roll back the cursor if we updated the
                             // cursor, but actually cannot process the message.
+                            identifier.previously_processed(true);
                             return Ok(());
                         }
                         let (intent_state, internal_message_id) = match maybe_validated_commit {
