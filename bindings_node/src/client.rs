@@ -1,5 +1,5 @@
 use crate::conversations::Conversations;
-use crate::identity::{Identifier, IdentityExt};
+use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
@@ -18,6 +18,7 @@ use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::Client as MlsClient;
+use xmtp_proto::api_client::AggregateStats;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
 pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
@@ -346,5 +347,23 @@ impl Client {
     let num_groups_synced: u32 = num_groups_synced.try_into().map_err(ErrorWrapper::from)?;
 
     Ok(num_groups_synced)
+  }
+
+  #[napi]
+  pub fn api_statistics(&self) -> ApiStats {
+    self.inner_client.api_stats().into()
+  }
+
+  #[napi]
+  pub fn api_identity_statistics(&self) -> IdentityStats {
+    self.inner_client.identity_api_stats().into()
+  }
+
+  #[napi]
+  pub fn api_aggregate_statistics(&self) -> String {
+    let api = self.inner_client.api_stats();
+    let identity = self.inner_client.identity_api_stats();
+    let aggregate = AggregateStats { mls: api, identity };
+    format!("{:?}", aggregate)
   }
 }
