@@ -210,11 +210,7 @@ impl ConnectionExt for WasmDbConnection {
         Ok(fun(&mut conn)?)
     }
 
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
+    fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
     }
 }
