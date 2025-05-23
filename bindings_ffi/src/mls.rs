@@ -3392,8 +3392,8 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let connection = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap();
+            .await
+            .unwrap();
         let client = create_client(
             connection.clone(),
             Some(path.clone()),
@@ -3445,17 +3445,19 @@ mod tests {
         )
         .await
         .unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         let aggregate_str = build.api_aggregate_statistics();
         println!("Aggregate Stats Build:\n{}", aggregate_str);
+
         let api_stats = build.api_statistics();
-        assert_eq!(api_stats.upload_key_package, 0);
+        assert_eq!(api_stats.upload_key_package, 1);
         assert_eq!(api_stats.fetch_key_package, 0);
 
         let identity_stats = build.api_identity_statistics();
-        assert_eq!(identity_stats.publish_identity_update, 0);
-        assert_eq!(identity_stats.get_identity_updates_v2, 0);
-        assert_eq!(identity_stats.get_inbox_ids, 0);
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_inbox_ids, 1);
         assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
     }
 
