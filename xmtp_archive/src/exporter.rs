@@ -1,17 +1,15 @@
-use super::{export_stream::BatchExportStream, OptionsToSave, BACKUP_VERSION};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::groups::device_sync::DeviceSyncError;
-use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
-use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
+use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+use crate::NONCE_SIZE;
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{pin_mut, task::Context, StreamExt};
+use futures::{StreamExt, pin_mut, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::ConnectionExt;
+use xmtp_db::{ConnectionExt, XmtpOpenMlsProvider};
 use xmtp_proto::xmtp::device_sync::{
-    backup_element::Element, BackupElement, BackupMetadataSave, BackupOptions,
+    BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -47,7 +45,7 @@ impl ArchiveExporter {
         provider: XmtpOpenMlsProvider,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<(), crate::ArchiveError> {
         let provider = Arc::new(provider);
         let mut exporter = Self::new(options, provider, key);
         exporter.write_to_file(path).await?;
@@ -55,11 +53,41 @@ impl ArchiveExporter {
         Ok(())
     }
 
-    pub(crate) fn new<C>(
-        options: BackupOptions,
-        provider: Arc<XmtpOpenMlsProvider<C>>,
-        key: &[u8],
-    ) -> Self
+    pub async fn post_to_url(self, url: &str) -> Result<String, crate::ArchiveError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let body = {
+            // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
+            let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(self);
+            // 3. Add a stream layer over the async read
+            let stream = tokio_util::io::ReaderStream::new(exporter_compat);
+            // 4. Pipe that stream as the body to the request to the history server
+            reqwest::Body::wrap_stream(stream)
+        };
+        #[cfg(target_arch = "wasm32")]
+        let body = {
+            use futures::AsyncReadExt;
+            // Make exporter mutable
+            let mut exporter = self;
+
+            // Wasm does not support stream uploads. So we'll just consume the stream into a vec.
+            let mut buffer = Vec::new();
+            exporter.read_to_end(&mut buffer).await?;
+            buffer
+        };
+
+        tracing::info!("Uploading sync payload to history server...");
+        let response = reqwest::Client::new().post(url).body(body).send().await?;
+        tracing::info!("Done uploading sync payload to history server.");
+
+        if let Err(err) = response.error_for_status_ref() {
+            tracing::error!("Failed to upload file. Status code: {:?}", err.status());
+            return Err(crate::ArchiveError::Reqwest(err));
+        }
+
+        Ok(response.text().await?)
+    }
+
+    pub fn new<C>(options: BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>, key: &[u8]) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,
     {
@@ -81,7 +109,7 @@ impl ArchiveExporter {
         }
     }
 
-    pub(crate) fn metadata(&self) -> &BackupMetadataSave {
+    pub fn metadata(&self) -> &BackupMetadataSave {
         &self.metadata
     }
 }

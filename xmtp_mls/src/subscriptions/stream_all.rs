@@ -11,6 +11,7 @@ use crate::{
 };
 
 use xmtp_db::{
+    events::{Details, Event, Events},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -60,6 +61,16 @@ where
         let (active_conversations, sync_groups) = async {
             let provider = context.mls_provider();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
+
+            Events::track(
+                provider.db(),
+                None,
+                Event::MsgStreamConnect,
+                Some(Details::MsgStreamConnect {
+                    conversation_type,
+                    consent_states: consent_states.clone(),
+                }),
+            );
 
             let groups = provider.db().find_groups(GroupQueryArgs {
                 conversation_type,
@@ -121,12 +132,14 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
+    #[tracing::instrument(skip_all, level = "trace", name = "poll_next_stream_all")]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
-        if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
-            if let Some(Ok(msg)) = &msg {
+        let next_message = this.messages.as_mut().poll_next(cx);
+        if let Ready(Some(msg)) = next_message {
+            if let Ok(msg) = &msg {
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
@@ -134,15 +147,21 @@ where
                         .send(LocalEvents::SyncWorkerEvent(
                             SyncWorkerEvent::NewSyncGroupMsg,
                         ));
-                    return self.poll_next(cx);
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
                 }
-            };
-
-            return Ready(msg);
+            }
+            return Ready(Some(msg));
         }
+
+        if let Ready(None) = next_message {
+            return Ready(None);
+        }
+
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             this.messages.as_mut().add(group?);
-            return self.poll_next(cx);
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
         Poll::Pending
     }
@@ -155,10 +174,11 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{assert_msg, builder::ClientBuilder};
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;
@@ -623,7 +643,7 @@ mod tests {
                 .group_list
                 .get(group.group_id.as_slice())
                 .unwrap();
-            assert!(*cursor > 1.into());
+            assert!(cursor.pos() > 1);
         }
 
         eve_group

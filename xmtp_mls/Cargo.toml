@@ -30,6 +30,7 @@ test-utils = [
   "dep:url",
   "dep:public-suffix",
   "dep:futures-executor",
+  "dep:mockall",
 ]
 bench = [
   "test-utils",
@@ -48,13 +49,13 @@ http-api = ["dep:xmtp_api_http", "xmtp_api_d14n?/http-api"]
 d14n = ["dep:xmtp_api_d14n"]
 
 [dependencies]
-aes-gcm = { version = "0.10.3", features = ["std"] }
-async-compression.workspace = true
+aes-gcm.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
 bytes.workspace = true
+derive_builder.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
-futures-util = { version = "0.3", default-features = false, features = ["io"] }
+futures-util.workspace = true
 hex.workspace = true
 hkdf.workspace = true
 openmls_rust_crypto = { workspace = true }
@@ -63,7 +64,7 @@ parking_lot.workspace = true
 pin-project-lite.workspace = true
 prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["stream"] }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
 sha2.workspace = true
@@ -72,12 +73,12 @@ tls_codec = { workspace = true }
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
-tokio-util = { version = "0.7", default-features = false, features = [
-  "compat",
-] }
+tokio-util.workspace = true
 tracing.workspace = true
 trait-variant.workspace = true
+xmtp_archive.workspace = true
 xmtp_common.workspace = true
+xmtp_mls_common.workspace = true
 zeroize.workspace = true
 
 # XMTP/Local
@@ -94,6 +95,7 @@ coset = { version = "0.3", optional = true }
 ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 futures-executor = { version = "0.3", optional = true }
+mockall = { workspace = true, optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
 url = { workspace = true, optional = true }
@@ -128,7 +130,7 @@ xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
@@ -146,6 +148,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 fdlimit = { workspace = true }
 once_cell.workspace = true
 rstest = { workspace = true, features = ["async-timeout"] }
+rstest_reuse = { workspace = true }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 passkey = { version = "0.4" }
 coset = { version = "0.3" }
@@ -154,7 +157,8 @@ public-suffix = { version = "0.1.2" }
 futures-executor = { version = "0.3" }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
-
+mockall.workspace = true
+futures-test = "0.3.31"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

@@ -1,0 +1,30 @@
+[package]
+name = "xmtp_archive"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+aes-gcm.workspace = true
+async-compression.workspace = true
+futures = { workspace = true, features = ["alloc", "std"] }
+futures-util.workspace = true
+openmls.workspace = true
+openmls_traits.workspace = true
+prost.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+xmtp_common.workspace = true
+xmtp_db.workspace = true
+xmtp_mls_common.workspace = true
+xmtp_proto.workspace = true
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+getrandom = { workspace = true }

@@ -149,7 +149,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// The XMTP Api Client
-    pub(crate) api_client: Arc<ApiClientWrapper<ApiClient>>,
+    pub(crate) api_client: ApiClientWrapper<ApiClient>,
     /// XMTP Local Storage
     pub(crate) store: Db,
     pub(crate) mutexes: MutexRegistry,

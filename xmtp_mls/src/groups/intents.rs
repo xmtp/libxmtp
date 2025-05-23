@@ -1,3 +1,12 @@
+use super::{
+    group_membership::GroupMembership,
+    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    GroupError, MlsGroup,
+};
+use crate::{
+    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
@@ -6,7 +15,15 @@ use prost::{bytes::Bytes, DecodeError, Message};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
+use xmtp_common::types::Address;
+use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
+use xmtp_db::{
+    db_connection::DbConnection,
+    events::{Details, Event, Events},
+    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+    MlsProviderExt, XmtpDb,
+};
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
@@ -25,22 +42,6 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
-use super::{
-    group_membership::GroupMembership,
-    group_mutable_metadata::MetadataField,
-    group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    GroupError, MlsGroup,
-};
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
-use xmtp_common::types::Address;
-use xmtp_db::{
-    db_connection::DbConnection,
-    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    MlsProviderExt, XmtpDb,
-};
 #[derive(Debug, Error)]
 pub enum IntentError {
     #[error("decode error: {0}")]
@@ -80,7 +81,8 @@ where
         intent_data: Vec<u8>,
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
-        let res = self.mls_provider().transaction(|provider| {
+        let provider = self.mls_provider();
+        let res = provider.transaction(|provider| {
             let conn = provider.db();
             self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
         });
@@ -108,12 +110,20 @@ where
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
+
+            Events::track(
+                conn,
+                Some(self.group_id.clone()),
+                &Event::QueueIntent,
+                Some(Details::QueueIntent { intent_kind }),
+            );
         }
         tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 
         Ok(intent)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn maybe_insert_key_update_intent(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
@@ -796,12 +806,10 @@ pub(crate) mod tests {
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls_common::group::GroupMetadataOptions;
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
-    use crate::{
-        builder::ClientBuilder, context::XmtpContextProvider, groups::GroupMetadataOptions,
-        utils::ConcreteMlsGroup,
-    };
+    use crate::{builder::ClientBuilder, context::XmtpContextProvider, utils::ConcreteMlsGroup};
 
     use super::*;
 
@@ -939,7 +947,9 @@ pub(crate) mod tests {
         let provider = group.context.mls_provider();
         let decrypted_message = group
             .load_mls_group_with_lock(&provider, |mut mls_group| {
-                Ok(mls_group.process_message(&provider, mls_message).unwrap())
+                Ok(mls_group
+                    .process_message(&provider, mls_message.clone())
+                    .unwrap())
             })
             .unwrap();
 

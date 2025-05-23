@@ -18,7 +18,7 @@ ecdsa = "0.16.9"
 ed25519-dalek = { workspace = true, features = ["digest"] }
 ethers = { workspace = true }
 hex = { workspace = true }
-k256 = { version = "0.13.3", features = ["ecdh"] }
+k256 = { version = "0.13.4", features = ["ecdh"] }
 openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
 rand = { workspace = true }
@@ -33,7 +33,7 @@ tracing.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 wasm-bindgen-test.workspace = true
 wasm-bindgen-futures.workspace = true
 

@@ -4,7 +4,7 @@ use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::subscriptions::SyncWorkerEvent;
-use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
+use crate::{subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -14,6 +14,7 @@ use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
+use xmtp_common::NS_IN_HOUR;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
@@ -114,9 +115,7 @@ where
             BackupElementSelection::Messages => {
                 vec![self.v1_syncable_groups()?, self.v1_syncable_messages()?]
             }
-            BackupElementSelection::Unspecified => {
-                return Err(DeviceSyncError::UnspecifiedDeviceSyncKind)
-            }
+            _ => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
         };
 
         let reply = self

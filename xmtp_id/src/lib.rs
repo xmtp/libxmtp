@@ -142,12 +142,6 @@ where
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn _setup() {
-        xmtp_common::logger();
-    }
-
     use ethers::contract::abigen;
 
     #[cfg(target_arch = "wasm32")]

@@ -7,9 +7,6 @@ mod debug;
 mod pretty;
 mod serializable;
 
-use std::iter::Iterator;
-use std::{fs, path::PathBuf, time::Duration};
-
 use crate::serializable::{SerializableGroup, SerializableMessage};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
@@ -19,7 +16,9 @@ use futures::future::join_all;
 use owo_colors::OwoColorize;
 use prost::Message;
 use serializable::maybe_get_text;
+use std::iter::Iterator;
 use std::sync::Arc;
+use std::{fs, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::Dispatch;
 use tracing_subscriber::field::MakeExt;
@@ -48,11 +47,11 @@ use xmtp_db::{
 };
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
+use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::configuration::DeviceSyncUrls;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::GroupError;
-use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};

@@ -17,6 +17,12 @@ pub mod xmtp {
             include!("xmtp.device_sync.content.rs");
             // @@protoc_insertion_point(xmtp.device_sync.content)
         }
+        #[cfg(feature = "xmtp-device_sync-event_backup")]
+        // @@protoc_insertion_point(attribute:xmtp.device_sync.event_backup)
+        pub mod event_backup {
+            include!("xmtp.device_sync.event_backup.rs");
+            // @@protoc_insertion_point(xmtp.device_sync.event_backup)
+        }
         #[cfg(feature = "xmtp-device_sync-group_backup")]
         // @@protoc_insertion_point(attribute:xmtp.device_sync.group_backup)
         pub mod group_backup {

@@ -15,6 +15,7 @@ use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
@@ -355,7 +356,7 @@ impl Client {
     let num_groups_synced: usize = inner
       .sync_all_welcomes_and_history_sync_groups()
       .await
-      .map_err(|e| JsError::new(&format!("{}", e)))?;
+      .map_err(|e| JsError::new(&format!("{e}")))?;
 
     let num_groups_synced: u32 = num_groups_synced
       .try_into()
@@ -380,5 +381,14 @@ impl Client {
     let identity = self.inner_client.identity_api_stats();
     let aggregate = AggregateStats { mls: api, identity };
     format!("{:?}", aggregate)
+  }
+
+  #[wasm_bindgen(js_name = uploadDebugArchive)]
+  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
+    let provider = Arc::new(self.inner_client().mls_provider());
+
+    upload_debug_archive(&provider, server_url)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))
   }
 }

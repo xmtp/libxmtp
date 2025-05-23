@@ -85,4 +85,11 @@ where
             Self::Mem(m) => m.raw_query_write(fun),
         }
     }
+
+    fn is_in_transaction(&self) -> bool {
+        match self {
+            Self::Persistent(p) => p.is_in_transaction(),
+            Self::Mem(m) => m.is_in_transaction(),
+        }
+    }
 }

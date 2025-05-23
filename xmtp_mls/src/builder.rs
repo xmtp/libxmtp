@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
+use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
 
 use crate::{
     client::{Client, DeviceSync},
@@ -34,9 +35,21 @@ pub enum ClientBuilderError {
     #[error(transparent)]
     WrappedApiError(#[from] xmtp_api::ApiError),
     #[error(transparent)]
-    GroupError(#[from] crate::groups::GroupError),
+    GroupError(#[from] Box<crate::groups::GroupError>),
     #[error(transparent)]
-    DeviceSync(#[from] crate::groups::device_sync::DeviceSyncError),
+    DeviceSync(#[from] Box<crate::groups::device_sync::DeviceSyncError>),
+}
+
+impl From<crate::groups::device_sync::DeviceSyncError> for ClientBuilderError {
+    fn from(value: crate::groups::device_sync::DeviceSyncError) -> Self {
+        ClientBuilderError::DeviceSync(Box::new(value))
+    }
+}
+
+impl From<crate::groups::GroupError> for ClientBuilderError {
+    fn from(value: crate::groups::GroupError) -> Self {
+        ClientBuilderError::GroupError(Box::new(value))
+    }
 }
 
 pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
@@ -49,6 +62,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
     allow_offline: bool,
+    disable_local_telemetry: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,6 +91,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
             allow_offline: false,
+            disable_local_telemetry: false,
         }
     }
 }
@@ -87,12 +102,8 @@ where
     ApiClient: Clone,
     Db: Clone,
 {
-    // This is not normal and should not be used outside of tests
-    // All Arc<> reference will almost definitely have more than 1 reference, so
-    // 'make_mut' is just used as a way to get a clone to the inner T,
-    // it is useful in tests to rebuild client with some other state.
     pub fn from_client(client: Client<ApiClient, Db>) -> ClientBuilder<ApiClient, Db> {
-        let cloned_api = Arc::make_mut(&mut client.context.api_client.clone()).clone();
+        let cloned_api = client.context.api_client.clone();
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
@@ -103,6 +114,7 @@ where
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
             allow_offline: false,
+            disable_local_telemetry: false,
         }
     }
 }
@@ -124,7 +136,12 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode,
             version_info,
             allow_offline,
+            disable_local_telemetry: disable_events,
         } = self;
+
+        if disable_events {
+            EVENTS_ENABLED.store(false, Ordering::SeqCst);
+        }
 
         let api_client = api_client
             .take()
@@ -171,7 +188,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
-            api_client: api_client.into(),
+            api_client,
             version_info,
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
@@ -192,6 +209,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         // start workers
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
+
+        Events::track(provider.db(), None, Event::ClientBuild, ());
 
         Ok(client)
     }
@@ -214,12 +233,20 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
+            disable_local_telemetry: self.disable_local_telemetry,
         }
     }
 
     pub fn device_sync_server_url(self, url: &str) -> Self {
         Self {
             device_sync_server_url: Some(url.into()),
+            ..self
+        }
+    }
+
+    pub fn disable_local_telemetry(self) -> Self {
+        Self {
+            disable_local_telemetry: true,
             ..self
         }
     }
@@ -244,6 +271,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
+            disable_local_telemetry: self.disable_local_telemetry,
         }
     }
 
@@ -288,6 +316,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
+            disable_local_telemetry: self.disable_local_telemetry,
         })
     }
 
@@ -306,6 +335,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
+            disable_local_telemetry: self.disable_local_telemetry,
         }
     }
 
@@ -335,6 +365,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
+            disable_local_telemetry: self.disable_local_telemetry,
         })
     }
 }
@@ -353,6 +384,7 @@ pub(crate) mod tests {
     use xmtp_api::test_utils::*;
     use xmtp_api::ApiClientWrapper;
     use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
+    use xmtp_db::events::Events;
     use xmtp_db::XmtpDb;
     use xmtp_db::XmtpTestDb;
     use xmtp_db::{identity::StoredIdentity, Store};
@@ -563,6 +595,39 @@ pub(crate) mod tests {
                 assert!(result.is_ok());
             }
         }
+    }
+
+    #[xmtp_common::test(unwrap_try = "true")]
+    async fn test_turn_local_telemetry_off() {
+        let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
+        let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
+        let inbox_id = legacy_ident.inbox_id(0).unwrap();
+
+        let identity_strategy = IdentityStrategy::new(
+            inbox_id.clone(),
+            legacy_ident.clone(),
+            0,
+            Some(legacy_key.clone()),
+        );
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let client = Client::builder(identity_strategy.clone())
+            .store(store)
+            .api_client(
+                <TestClient as XmtpTestClient>::create_local()
+                    .build()
+                    .await
+                    .unwrap(),
+            )
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .disable_local_telemetry()
+            .build()
+            .await?;
+
+        let provider = client.mls_provider();
+        let events = Events::all_events(provider.db())?;
+
+        // No events should be logged if telemetry is turned off.
+        assert!(events.is_empty());
     }
 
     // First, create a client1 using legacy key and then test following cases:

@@ -6,7 +6,6 @@ use crate::{
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     Client,
 };
-use archive::ArchiveError;
 use futures::future::join_all;
 use handle::{SyncMetric, WorkerHandle};
 use preference_sync::PreferenceSyncService;
@@ -15,6 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
+use xmtp_archive::ArchiveError;
 use xmtp_common::{types::InstallationId, RetryableError};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{group::GroupQueryArgs, group_message::StoredGroupMessage, NotFound, StorageError};
@@ -45,9 +45,6 @@ pub mod worker;
 #[cfg(test)]
 mod tests;
 
-pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
-pub const NONCE_SIZE: usize = 12; // 96-bit nonce
-
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
     #[error("IO error: {0}")]
@@ -58,10 +55,10 @@ pub enum DeviceSyncError {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
     #[error("type conversion error")]
     Conversion,
     #[error("utf-8 error: {0}")]
@@ -83,7 +80,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] ArchiveError),
+    Archive(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]

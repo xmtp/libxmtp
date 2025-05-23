@@ -1,12 +1,7 @@
-use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
-use crate::configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-};
+use crate::configuration::CIPHERSUITE;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use openmls::prelude::OpenMlsCrypto;
-use xmtp_db::{Fetch, StorageError, Store};
-
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::OpenMlsCrypto;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -31,6 +26,7 @@ use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
+use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -40,6 +36,9 @@ use xmtp_id::{
         sign_with_legacy_key, MemberIdentifier,
     },
     InboxId, InboxIdRef,
+};
+use xmtp_mls_common::config::{
+    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -643,7 +642,7 @@ fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, Id
     Ok(key_package_hash_ref)
 }
 
-fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
+pub(crate) fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
     let cred = MlsCredential { inbox_id };
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);

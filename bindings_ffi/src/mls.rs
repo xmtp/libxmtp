@@ -39,21 +39,25 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::common::group::DMMetadataOptions;
+use xmtp_mls::common::group::GroupMetadataOptions;
+use xmtp_mls::common::group_metadata::GroupMetadata;
+use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::common::group_mutable_metadata::MetadataField;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
-use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
+use xmtp_mls::groups::device_sync::archive::insert_importer;
+use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
+use xmtp_mls::groups::device_sync::archive::BackupMetadata;
+use xmtp_mls::groups::device_sync::DeviceSyncError;
+use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
+use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
-        device_sync::{
-            archive::{ArchiveImporter, BackupMetadata},
-            preference_sync::PreferenceUpdate,
-            ENC_KEY_SIZE,
-        },
-        group_metadata::GroupMetadata,
-        group_mutable_metadata::MessageDisappearingSettings,
-        group_mutable_metadata::MetadataField,
+        device_sync::preference_sync::PreferenceUpdate,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
@@ -61,7 +65,7 @@ use xmtp_mls::{
         },
         intents::{PermissionPolicyOption, PermissionUpdateType, UpdateGroupMembershipResult},
         members::PermissionLevel,
-        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
@@ -738,14 +742,19 @@ impl FfiXmtpClient {
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
+        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
         Ok(())
     }
 
     /// Import a previous archive
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
-        importer.run(&self.inner_client.context).await?;
+        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
+        insert_importer(&mut importer, &self.inner_client.context).await?;
+
         Ok(())
     }
 
@@ -756,8 +765,16 @@ impl FfiXmtpClient {
         path: String,
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, GenericError> {
-        let importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
+        let importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
+    }
+
+    /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
+    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
+        let provider = Arc::new(self.inner_client.mls_provider());
+        Ok(upload_debug_archive(&provider, server_url).await?)
     }
 }
 
@@ -839,13 +856,13 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     type Error = DeserializationError;
     fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
         let v = match value {
-            BackupElementSelection::Unspecified => {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+            _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
                 ))
             }
-            BackupElementSelection::Consent => Self::Consent,
-            BackupElementSelection::Messages => Self::Messages,
         };
         Ok(v)
     }
@@ -2627,6 +2644,7 @@ pub struct FfiMessage {
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
+    pub sequence_id: Option<u64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2639,6 +2657,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+            sequence_id: msg.sequence_id.map(|s| s as u64),
         }
     }
 }
@@ -3137,7 +3156,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            Some([0u8; 32].to_vec()),
             &inbox_id,
             ident,
             nonce,

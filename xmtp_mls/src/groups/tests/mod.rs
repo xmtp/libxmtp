@@ -1,13 +1,12 @@
 mod test_dm;
+mod test_key_updates;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpContextProvider;
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
-#[cfg(not(target_arch = "wasm32"))]
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
@@ -17,8 +16,6 @@ use crate::{
     groups::{
         build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
         build_protected_metadata_extension,
-        group_metadata::GroupMetadata,
-        group_mutable_metadata::MetadataField,
         intents::{PermissionPolicyOption, PermissionUpdateType},
         members::{GroupMember, PermissionLevel},
         mls_sync::GroupMessageProcessingError,
@@ -49,6 +46,8 @@ use xmtp_db::{
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::associations::Identifier;
+use xmtp_mls_common::group_metadata::GroupMetadata;
+use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -2418,10 +2417,10 @@ async fn process_messages_abort_on_retryable_error() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_messages() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let alix = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
 
     let bo_wallet = generate_local_wallet();
-    let bo_client = ClientBuilder::new_test_client(&bo_wallet).await;
+    let bo_client = ClientBuilder::new_test_client_no_sync(&bo_wallet).await;
 
     let alix_group = alix
         .create_group(None, GroupMetadataOptions::default())
@@ -2450,18 +2449,13 @@ async fn skip_already_processed_messages() {
             v1.id = 0;
         }
     }
+    let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
+    assert!(process_result.is_errored(), "expected message epoch error");
 
-    let process_result = bo_group.process_messages(bo_messages_from_api).await;
-    assert!(
-        process_result.is_errored(),
-        "expected process message error"
-    );
-
-    assert_eq!(process_result.errored.len(), 2);
-    assert!(process_result
-        .errored
-        .iter()
-        .any(|(_, err)| err.to_string().contains("already processed")));
+    assert_eq!(process_result.new_messages.len(), 1);
+    assert_eq!(process_result.errored.len(), 1);
+    let new = process_result.new_messages.pop().unwrap();
+    assert!(new.previously_processed);
 }
 
 #[xmtp_common::test]

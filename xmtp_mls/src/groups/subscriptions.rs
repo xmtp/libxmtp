@@ -4,7 +4,7 @@ use super::MlsGroup;
 use crate::{
     context::XmtpMlsLocalContext,
     subscriptions::{
-        process_message::ProcessMessageFuture,
+        process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::{MessageStreamError, StreamGroupMessages},
         Result, SubscribeError,
     },
@@ -35,8 +35,8 @@ where
         use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
         let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
-        ProcessMessageFuture::new(self.context.clone(), msg)?
-            .process()
+        ProcessMessageFuture::new(self.context.clone())
+            .create(msg)
             .await?
             .message
             .ok_or(SubscribeError::GroupMessageNotFound)
@@ -109,8 +109,9 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;

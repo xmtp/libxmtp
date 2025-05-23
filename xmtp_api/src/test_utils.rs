@@ -1,8 +1,12 @@
 #![allow(clippy::unwrap_used)]
 
+use std::pin::Pin;
+
+use futures::Stream;
 use mockall::mock;
 use xmtp_proto::{
     api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient, XmtpMlsStreams},
+    mls_v1::WelcomeMessage,
     prelude::ApiBuilder,
     xmtp::{
         identity::api::v1::{
@@ -22,9 +26,6 @@ use xmtp_proto::{
         },
     },
 };
-
-#[cfg(target_arch = "wasm32")]
-use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
 
 use xmtp_common::{ExponentialBackoff, Retry, RetryBuilder};
 use xmtp_proto::api_client::XmtpTestClient;
@@ -92,19 +93,42 @@ impl ApiBuilder for MockApiBuilder {
     fn rate_per_minute(&mut self, _limit: u32) {}
 }
 
+mock! {
+    pub GroupStream { }
+    impl Stream for GroupStream {
+        type Item = Result<GroupMessage, MockError>;
+        fn poll_next<'a>(self: Pin<&mut Self>, cx: &mut std::task::Context<'a> ) -> std::task::Poll<Option<Result<GroupMessage,MockError> > > ;
+    }
+}
+
+mock! {
+    pub WelcomeStream { }
+    impl Stream for WelcomeStream {
+        type Item = Result<WelcomeMessage, MockError>;
+        fn poll_next<'a>(self: Pin<&mut Self>, cx: &mut std::task::Context<'a> ) -> std::task::Poll<Option<Result<WelcomeMessage, MockError>>> ;
+    }
+}
+
+mock! {
+    pub ApiClientWrapper {
+        fn query_latest_group_message<Id: AsRef<[u8]> + Copy + 'static>(&self, group_id: Id) -> Result<Option<GroupMessage>, crate::ApiError>;
+    }
+}
+
 // Create a mock XmtpClient for testing the client wrapper
 // need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 #[cfg(not(target_arch = "wasm32"))]
 mod not_wasm {
     use super::*;
-    use xmtp_proto::xmtp::mls::api::v1::WelcomeMessage;
+
     #[derive(Clone)]
     pub struct ApiClient;
 
     mock! {
         pub ApiClient { }
         impl Clone for ApiClient {
-            fn clone(&self) -> Self;
+            fn clone(&self) -> Self {
+            }
         }
 
         #[async_trait::async_trait]
@@ -125,19 +149,11 @@ mod not_wasm {
         #[async_trait::async_trait]
         impl XmtpMlsStreams for ApiClient {
             type Error = MockError;
-            #[cfg(not(target_arch = "wasm32"))]
-            type GroupMessageStream<'a> = futures::stream::BoxStream<'static, Result<GroupMessage, MockError>>;
-            #[cfg(not(target_arch = "wasm32"))]
-            type WelcomeMessageStream<'a> = futures::stream::BoxStream<'static, Result<WelcomeMessage, MockError>>;
+            type GroupMessageStream<'a> = MockGroupStream;
+            type WelcomeMessageStream<'a> = MockWelcomeStream;
 
-            #[cfg(target_arch = "wasm32")]
-            type GroupMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<GroupMessage, MockError>>;
-            #[cfg(target_arch = "wasm32")]
-            type WelcomeMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<WelcomeMessage, MockError>>;
-
-
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<<Self as XmtpMlsStreams>::GroupMessageStream<'static>, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<<Self as XmtpMlsStreams>::WelcomeMessageStream<'static>, MockError>;
+            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
+            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait]
@@ -191,19 +207,11 @@ mod wasm {
         #[async_trait::async_trait(?Send)]
         impl XmtpMlsStreams for ApiClient {
             type Error = MockError;
-            #[cfg(not(target_arch = "wasm32"))]
-            type GroupMessageStream<'a> = futures::stream::BoxStream<'static, Result<GroupMessage, MockError>>;
-            #[cfg(not(target_arch = "wasm32"))]
-            type WelcomeMessageStream<'a> = futures::stream::BoxStream<'static, Result<WelcomeMessage, MockError>>;
+            type GroupMessageStream<'a> = MockGroupStream;
+            type WelcomeMessageStream<'a> = MockWelcomeStream;
 
-            #[cfg(target_arch = "wasm32")]
-            type GroupMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<GroupMessage, MockError>>;
-            #[cfg(target_arch = "wasm32")]
-            type WelcomeMessageStream<'a> = futures::stream::LocalBoxStream<'static, Result<WelcomeMessage, MockError>>;
-
-
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<<Self as XmtpMlsStreams>::GroupMessageStream<'static>, MockError>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<<Self as XmtpMlsStreams>::WelcomeMessageStream<'static>, MockError>;
+            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
+            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
         }
 
         #[async_trait::async_trait(?Send)]

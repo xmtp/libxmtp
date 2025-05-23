@@ -1,17 +1,16 @@
-use std::{collections::HashMap, fmt};
-
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
 };
 use prost::Message;
+use std::{collections::HashMap, fmt};
 use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMutableMetadataV1 as GroupMutableMetadataProto, Inboxes as InboxesProto,
 };
 
-use super::{DMMetadataOptions, GroupMetadataOptions};
-use crate::configuration::{
+use super::group::{DMMetadataOptions, GroupMetadataOptions};
+use crate::config::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
 };

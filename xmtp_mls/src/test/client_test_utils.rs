@@ -5,9 +5,11 @@ use xmtp_db::XmtpDb;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
-    groups::{DMMetadataOptions, GroupError, MlsGroup},
+    groups::{GroupError, MlsGroup},
     Client,
 };
+
+use super::group_test_utils::TestError;
 
 // Please ensure that all public functions defined in this module
 // start with `test_`
@@ -21,7 +23,7 @@ where
     pub async fn test_talk_in_dm_with(
         &self,
         other: &Self,
-    ) -> Result<(MlsGroup<ApiClient, Db>, String), GroupError> {
+    ) -> Result<(MlsGroup<ApiClient, Db>, String), TestError> {
         self.sync_welcomes().await?;
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), None)

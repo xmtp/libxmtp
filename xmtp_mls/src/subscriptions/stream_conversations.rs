@@ -1,4 +1,4 @@
-use super::{LocalEvents, Result, SubscribeError};
+use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
 use crate::{
     context::XmtpMlsLocalContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
@@ -39,7 +39,7 @@ impl xmtp_common::RetryableError for ConversationStreamError {
 }
 
 #[derive(Debug)]
-pub(super) enum WelcomeOrGroup {
+pub enum WelcomeOrGroup {
     Group(Vec<u8>),
     Welcome(WelcomeMessage),
 }
@@ -255,6 +255,7 @@ where
 {
     type Item = Result<MlsGroup<ApiClient, Db>>;
 
+    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -300,23 +301,6 @@ where
             }
         }
     }
-}
-
-pub enum ProcessWelcomeResult<ApiClient, Db> {
-    /// New Group and welcome id
-    New {
-        group: MlsGroup<ApiClient, Db>,
-        id: i64,
-    },
-    /// A group we already have/we created that might not have a welcome id
-    NewStored {
-        group: MlsGroup<ApiClient, Db>,
-        maybe_id: Option<i64>,
-    },
-    /// Skip this welcome but add and id to known welcome ids
-    IgnoreId { id: i64 },
-    /// Skip this payload
-    Ignore,
 }
 
 impl<'a, ApiClient, Db, Subscription> StreamConversations<'a, ApiClient, Db, Subscription>
@@ -375,14 +359,16 @@ where
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::Ignore)) => {
                 tracing::debug!("ignoring streamed conversation payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
                 tracing::debug!(
@@ -411,12 +397,12 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::GroupMetadataOptions;
     use crate::tester;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
