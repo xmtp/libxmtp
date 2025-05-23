@@ -584,7 +584,6 @@ mod tests {
 
     #[xmtp_common::test]
     async fn stream_messages_keeps_track_of_cursor() {
-        xmtp_common::logger();
         let wallet = generate_local_wallet();
         let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
         let bob = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;

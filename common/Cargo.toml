@@ -33,7 +33,7 @@ xmtp_macro = { workspace = true, optional = true }
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 tracing-wasm = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }

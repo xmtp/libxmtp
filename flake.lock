@@ -91,11 +91,11 @@
     },
     "mkshell-util": {
       "locked": {
-        "lastModified": 1743693235,
-        "narHash": "sha256-vYNsbSwTUeg8lWn88TfjLncpAda79eeiMW1b8OI2uvY=",
+        "lastModified": 1748025842,
+        "narHash": "sha256-3rUUH4szSpMmlGvAKpCI0C0PE8ast7CyChd/syFXIfI=",
         "owner": "insipx",
         "repo": "mkShell-util.nix",
-        "rev": "39cbf41fea7db929df5d4abedc79006a24919d77",
+        "rev": "9270b35f0ef3b830b9a5d41f26be44006c470349",
         "type": "github"
       },
       "original": {
@@ -135,11 +135,11 @@
     },
     "nixpkgs_2": {
       "locked": {
-        "lastModified": 1747533086,
-        "narHash": "sha256-+8goyptSXa7qV0k5uPKyky58jpBjI/qkzsbwCZFvhRY=",
+        "lastModified": 1747958103,
+        "narHash": "sha256-qmmFCrfBwSHoWw7cVK4Aj+fns+c54EBP8cGqp/yK410=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "8406224e30c258025cb8b31704bdb977a8f1f009",
+        "rev": "fe51d34885f7b5e3e7b59572796e1bcb427eccb1",
         "type": "github"
       },
       "original": {

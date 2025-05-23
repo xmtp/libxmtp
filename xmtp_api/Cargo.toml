@@ -32,6 +32,7 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["rt"] }
 wasm-bindgen-test.workspace = true
+xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -1,5 +1,5 @@
 use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
-use crate::{ArchiveError, NONCE_SIZE};
+use crate::NONCE_SIZE;
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
 use futures::{StreamExt, pin_mut, task::Context};
@@ -45,7 +45,7 @@ impl ArchiveExporter {
         provider: XmtpOpenMlsProvider,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), ArchiveError> {
+    ) -> Result<(), crate::ArchiveError> {
         let provider = Arc::new(provider);
         let mut exporter = Self::new(options, provider, key);
         exporter.write_to_file(path).await?;
@@ -53,7 +53,7 @@ impl ArchiveExporter {
         Ok(())
     }
 
-    pub async fn post_to_url(self, url: &str) -> Result<String, ArchiveError> {
+    pub async fn post_to_url(self, url: &str) -> Result<String, crate::ArchiveError> {
         #[cfg(not(target_arch = "wasm32"))]
         let body = {
             // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
@@ -81,7 +81,7 @@ impl ArchiveExporter {
 
         if let Err(err) = response.error_for_status_ref() {
             tracing::error!("Failed to upload file. Status code: {:?}", err.status());
-            return Err(ArchiveError::Reqwest(err));
+            return Err(crate::ArchiveError::Reqwest(err));
         }
 
         Ok(response.text().await?)

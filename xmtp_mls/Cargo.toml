@@ -130,7 +130,7 @@ xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }

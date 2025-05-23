@@ -2,11 +2,8 @@
 use crate::time::Expired;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use rand::{
-    Rng,
-    distributions::{Alphanumeric, DistString},
-    seq::IteratorRandom,
-};
+use rand::distributions::DistString;
+use rand::{Rng, distributions::Alphanumeric, seq::IteratorRandom};
 use std::collections::HashMap;
 use std::{future::Future, sync::OnceLock};
 
@@ -25,18 +22,24 @@ static REPLACE_IDS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::n
 /// Replace inbox id in Contextual output with a name (i.e Alix, Bo, etc.)
 #[derive(Default)]
 pub struct TestLogReplace {
+    #[allow(unused)]
     ids: HashMap<String, String>,
 }
 
 impl TestLogReplace {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn add(&mut self, id: &str, name: &str) {
         self.ids.insert(id.to_string(), name.to_string());
         let mut ids = REPLACE_IDS.lock();
         ids.insert(id.to_string(), name.to_string());
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn add(&mut self, _id: &str, _name: &str) {}
 }
 
 // remove ids for replacement from map on drop
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for TestLogReplace {
     fn drop(&mut self) {
         let mut ids = REPLACE_IDS.lock();
@@ -160,7 +163,7 @@ pub fn logger() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("info").unwrap();
+        let filter = EnvFilter::builder().parse("off").unwrap();
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())

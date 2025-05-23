@@ -67,9 +67,9 @@ bincode = "1.3"
 chrono = "0.4.38"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+criterion = { version = "0.6", features = ["html_reports", "async_tokio"] }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
-ctor = "0.2"
+ctor = "0.4"
 diesel = { version = "2.2", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
 dyn-clone = "1"
@@ -102,6 +102,7 @@ pbjson = "0.7.0"
 pbjson-types = "0.7.0"
 prost = { version = "^0.13", default-features = false }
 prost-types = { version = "^0.13", default-features = false }
+# updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 regex = "1.10.4"
@@ -124,7 +125,7 @@ bytes = "1.9"
 pin-project-lite = "0.2"
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
 itertools = "0.14"
-tonic = { version = "0.12", default-features = false }
+tonic = { version = "0.12.0", default-features = false }
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }

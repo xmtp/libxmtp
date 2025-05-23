@@ -127,7 +127,6 @@ mod tests {
     pub async fn test_process_returns_correct_cursor(
         #[values(5, 8, 10, 11, 13, 18)] current_message: u64,
     ) {
-        xmtp_common::logger();
         let current_message = generate_message_v1(current_message);
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
@@ -160,7 +159,6 @@ mod tests {
         success: Vec<u64>,
         expected: u64,
     ) {
-        xmtp_common::logger();
         let current_message = generate_message_v1(*success.first().unwrap_or(&55));
         let mut mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();
@@ -191,7 +189,6 @@ mod tests {
     #[case(Some(generate_stored_msg(55, xmtp_common::rand_vec::<32>())))]
     #[xmtp_common::test]
     pub async fn test_cursor_no_sync(#[case] message: Option<StoredGroupMessage>) {
-        xmtp_common::logger();
         let current_message = generate_message_v1(55);
         let mock_syncer = MockSync::new();
         let mut mock_db = MockGroupDatabase::new();

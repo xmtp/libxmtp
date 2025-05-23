@@ -86,7 +86,6 @@ use rstest::*;
     ])]
 #[xmtp_common::test]
 async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
-    xmtp_common::logger();
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {

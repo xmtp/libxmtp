@@ -35,12 +35,10 @@ pub mod logging;
 #[cfg(feature = "logging")]
 pub use logging::*;
 
-use rand::{
-    RngCore, SeedableRng,
-    distributions::{Alphanumeric, DistString},
-};
+use rand::distributions::Alphanumeric;
+use rand::distributions::DistString;
+use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-
 pub fn rng() -> ChaCha20Rng {
     ChaCha20Rng::from_entropy()
 }

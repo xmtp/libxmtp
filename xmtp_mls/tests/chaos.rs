@@ -20,7 +20,6 @@ fn new_identity(owner: impl InboxOwner) -> IdentityStrategy {
 #[xmtp_common::test]
 #[should_panic]
 async fn chaos_demo() {
-    xmtp_common::logger();
     let owner = generate_local_wallet();
     let store = xmtp_db::DefaultStore::create_persistent_store(None).await;
     let (chaos, store) = ChaosDb::builder(store).error_frequency(0.0).build();
