@@ -20,6 +20,7 @@ pub mod verified_key_package_v2;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
 
+use crate::groups::GroupError;
 pub use client::{Client, Network};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -82,21 +83,14 @@ impl GroupCommitLock {
         Ok(MlsGroupGuard { _permit: permit })
     }
 }
-
 /// A guard that releases the semaphore when dropped
 pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
-use crate::groups::GroupError;
-
-#[cfg(test)]
-pub(crate) mod tests {
-    // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
-    fn _setup() {
-        xmtp_common::logger();
-        let _ = fdlimit::raise_fd_limit();
-    }
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
+    let _ = fdlimit::raise_fd_limit();
 }

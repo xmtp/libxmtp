@@ -285,6 +285,10 @@ impl ConnectionExt for EphemeralDbConnection {
         let mut conn = self.conn.lock();
         fun(&mut conn).map_err(ConnectionError::from)
     }
+
+    fn is_in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
+    }
 }
 
 pub struct NativeDbConnection {
@@ -363,6 +367,9 @@ impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
 
     fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
+        if self.in_transaction.load(Ordering::SeqCst) {
+            tracing::warn!("already in transaction, acquiring lock..");
+        }
         let guard = self.global_transaction_lock.lock();
         let mut write = self.write.lock();
         AnsiTransactionManager::begin_transaction(&mut *write)?;
@@ -374,14 +381,13 @@ impl ConnectionExt for NativeDbConnection {
         })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         if self.in_transaction.load(Ordering::SeqCst) {
-            tracing::debug!("read in transaction");
             let mut conn = self.write.lock();
             return fun(&mut conn).map_err(ConnectionError::from);
         } else if let Some(pool) = &*self.read.read() {
@@ -400,7 +406,7 @@ impl ConnectionExt for NativeDbConnection {
         };
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -412,6 +418,10 @@ impl ConnectionExt for NativeDbConnection {
         }
         let mut locked = self.write.lock();
         fun(&mut locked).map_err(ConnectionError::from)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
     }
 }
 

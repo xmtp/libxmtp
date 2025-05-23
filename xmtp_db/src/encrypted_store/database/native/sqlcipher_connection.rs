@@ -102,6 +102,7 @@ impl EncryptedConnection {
                         Self::create(db_path, key, &mut salt)?;
                     }
                 }
+                tracing::info!("db_path=[{}]", db_path);
                 Some(salt)
             }
         };

@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
 use crate::{DbConnection, EncryptedMessageStore, StorageOption};
-use xmtp_common::tmp_path;
 mod impls;
 
 pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
@@ -21,7 +20,9 @@ pub trait XmtpTestDb {
 
 impl<Db> EncryptedMessageStore<Db> {
     pub fn generate_enc_key() -> [u8; 32] {
-        xmtp_common::rand_array::<32>()
+        let key = xmtp_common::rand_array::<32>();
+        tracing::debug!("generated key is [{}]", hex::encode(key));
+        key
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -43,7 +44,6 @@ pub use wasm::*;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm {
     use super::*;
-    use crate::XmtpDb;
 
     impl XmtpTestDb for super::TestDb {
         async fn create_ephemeral_store() -> EncryptedMessageStore<crate::DefaultDatabase> {
@@ -100,7 +100,6 @@ mod wasm {
 
     impl EncryptedMessageStore<crate::database::WasmDb> {
         pub async fn new_test() -> Self {
-            let tmp_path = tmp_path();
             let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
                 .await
                 .unwrap();
@@ -108,13 +107,10 @@ mod wasm {
         }
 
         pub async fn new_test_with_path(path: &str) -> Self {
-            let tmp_path = tmp_path();
-            let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
+            let db = crate::database::WasmDb::new(&StorageOption::Persistent(path.into()))
                 .await
                 .unwrap();
-            EncryptedMessageStore::new(&StorageOption::Persistent(path.to_string()), [0u8; 32])
-                .await
-                .expect("constructing message store failed.")
+            EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
     }
 }
@@ -172,7 +168,7 @@ mod native {
 
     impl EncryptedMessageStore<crate::database::NativeDb> {
         pub async fn new_test() -> Self {
-            let tmp_path = tmp_path();
+            let tmp_path = xmtp_common::tmp_path();
             let opts = StorageOption::Persistent(tmp_path);
             let db =
                 crate::database::NativeDb::new(&opts, xmtp_common::rand_array::<32>()).unwrap();

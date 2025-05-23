@@ -1,26 +1,14 @@
-//! The future for processing a welcome from a stream
+use std::collections::HashSet;
 
-use super::{
-    stream_conversations::{ConversationStreamError, ProcessWelcomeResult},
-    Result, WelcomeOrGroup,
-};
-use crate::{
-    context::XmtpMlsLocalContext,
-    groups::{welcome_sync::WelcomeService, MlsGroup},
-};
+use super::{stream_conversations::ConversationStreamError, Result};
+use crate::groups::welcome_sync::WelcomeService;
+use crate::{context::XmtpMlsLocalContext, groups::MlsGroup, subscriptions::WelcomeOrGroup};
+use std::sync::Arc;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group::ConversationType, NotFound, XmtpDb};
-
-use std::{collections::HashSet, sync::Arc};
-use xmtp_proto::{mls_v1::WelcomeMessage, xmtp::mls::api::v1::welcome_message};
-
-fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
-    match welcome.version {
-        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
-        _ => Err(ConversationStreamError::InvalidPayload.into()),
-    }
-}
+use xmtp_db::XmtpDb;
+use xmtp_db::{group::ConversationType, NotFound};
+use xmtp_proto::mls_v1::{welcome_message, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<ApiClient, Db> {
@@ -32,6 +20,23 @@ pub struct ProcessWelcomeFuture<ApiClient, Db> {
     item: WelcomeOrGroup,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
+}
+
+pub enum ProcessWelcomeResult<ApiClient, Db> {
+    /// New Group and welcome id
+    New {
+        group: MlsGroup<ApiClient, Db>,
+        id: i64,
+    },
+    /// A group we already have/we created that might not have a welcome id
+    NewStored {
+        group: MlsGroup<ApiClient, Db>,
+        maybe_id: Option<i64>,
+    },
+    /// Skip this welcome but add and id to known welcome ids
+    IgnoreId { id: i64 },
+    /// Skip this payload
+    Ignore,
 }
 
 impl<ApiClient, Db> ProcessWelcomeFuture<ApiClient, Db>
@@ -67,7 +72,7 @@ where
     /// )?;
     /// let result = future.process().await?;
     /// ```
-    pub(super) fn new(
+    pub fn new(
         known_welcome_ids: HashSet<i64>,
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         item: WelcomeOrGroup,
@@ -79,6 +84,13 @@ where
             item,
             conversation_type,
         })
+    }
+}
+
+fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message::V1> {
+    match welcome.version {
+        Some(welcome_message::Version::V1(ref welcome)) => Ok(welcome),
+        _ => Err(ConversationStreamError::InvalidPayload.into()),
     }
 }
 
@@ -130,15 +142,17 @@ where
                     tracing::debug!(
                         "Found existing welcome. Returning from db & skipping processing"
                     );
-                    let (group, id) = self.load_from_store(id)?;
-                    return self.filter(ProcessWelcomeResult::New { group, id }).await;
+                    if let Ok((group, id)) = self.load_from_store(id) {
+                        return self.filter(ProcessWelcomeResult::New { group, id }).await;
+                    }
                 }
+                tracing::info!("could not find group for welcome {}, processing", id);
                 // sync welcome from the network
                 let (group, id) = self.on_welcome(welcome).await?;
                 ProcessWelcomeResult::New { group, id }
             }
             Group(ref id) => {
-                tracing::debug!("Stream conversations got existing group, pulling from db.");
+                tracing::info!("stream got existing group, pulling from db.");
                 let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {

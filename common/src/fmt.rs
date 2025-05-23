@@ -1,3 +1,8 @@
+/// print bytes as a truncated hex string
+pub fn debug_hex(bytes: impl AsRef<[u8]>) -> String {
+    truncate_hex(hex::encode(bytes.as_ref()))
+}
+
 pub fn truncate_hex(hex_string: impl AsRef<str>) -> String {
     let hex_string = hex_string.as_ref();
     // If empty string, return it

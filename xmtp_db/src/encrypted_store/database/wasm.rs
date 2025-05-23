@@ -209,6 +209,10 @@ impl ConnectionExt for WasmDbConnection {
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
     }
+
+    fn is_in_transaction(&self) -> bool {
+        self.in_transaction.load(Ordering::SeqCst)
+    }
 }
 
 impl XmtpDb for WasmDb {
@@ -256,10 +260,11 @@ mod tests {
         let p = o
             .map(|o| String::from(o))
             .unwrap_or(xmtp_common::tmp_path());
-        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32])
+        let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
             .await
             .unwrap();
-        let conn = store.conn().expect("acquiring connection failed");
+        let store = EncryptedMessageStore::new(db).unwrap();
+        let conn = store.conn();
         let r = f(DbConnection::new(conn));
         if let Ok(u) = util {
             u.wipe_files().await.unwrap();
@@ -278,10 +283,11 @@ mod tests {
         let p = o
             .map(|o| String::from(o))
             .unwrap_or(xmtp_common::tmp_path());
-        let store = EncryptedMessageStore::new(StorageOption::Persistent(p), [0u8; 32])
+        let db = crate::database::WasmDb::new(&StorageOption::Persistent(p))
             .await
             .unwrap();
-        let conn = store.conn().expect("acquiring connection failed");
+        let store = EncryptedMessageStore::new(db).unwrap();
+        let conn = store.conn();
         let r = f(DbConnection::new(conn)).await;
         if let Ok(u) = util {
             u.wipe_files().await.unwrap();

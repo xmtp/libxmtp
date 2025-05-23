@@ -469,6 +469,20 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
+    pub fn get_group_message_by_sequence_id<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        sequence_id: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        self.raw_query_read(|conn| {
+            dsl::group_messages
+                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::sequence_id.eq(sequence_id))
+                .first(conn)
+                .optional()
+        })
+    }
+
     pub fn get_sync_group_messages(
         &self,
         group_id: &[u8],
@@ -487,6 +501,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         &self,
         msg_id: &MessageId,
         timestamp: u64,
+        sequence_id: i64,
     ) -> Result<usize, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
@@ -494,6 +509,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .set((
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
+                    dsl::sequence_id.eq(sequence_id),
                 ))
                 .execute(conn)
         })

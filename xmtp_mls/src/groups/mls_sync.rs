@@ -5,11 +5,12 @@ use super::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
-    summary::{MessageIdentifier, ProcessSummary, SyncSummary},
+    summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
 use crate::subscriptions::SyncWorkerEvent;
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
@@ -40,10 +41,6 @@ use crate::{
 use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
-};
-use crate::{
-    groups::summary::MessageSource,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
@@ -110,8 +107,10 @@ use xmtp_proto::xmtp::mls::{
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
-    #[error("[{0}] already processed")]
-    AlreadyProcessed(u64),
+    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
+    MessageAlreadyProcessed(MessageIdentifier),
+    #[error("welcome with cursor [{0}] already processed")]
+    WelcomeAlreadyProcessed(u64),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
     InvalidSender {
         message_time_ns: u64,
@@ -159,12 +158,14 @@ pub enum GroupMessageProcessingError {
     Client(#[from] ClientError),
     #[error("Group paused due to minimum protocol version requirement")]
     GroupPaused,
-    #[error("Message epoch is too old")]
+    #[error("Message epoch [{0}] is too old [{1}]")]
     OldEpoch(u64, u64),
-    #[error("Message epoch is greater than group epoch")]
+    #[error("Message epoch [{0}] is greater than group epoch [{1}]")]
     FutureEpoch(u64, u64),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    Builder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl RetryableError for GroupMessageProcessingError {
@@ -181,7 +182,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::Db(e) => e.is_retryable(),
             Self::WrongCredentialType(_)
             | Self::Codec(_)
-            | Self::AlreadyProcessed(_)
+            | Self::MessageAlreadyProcessed(_)
+            | Self::WelcomeAlreadyProcessed(_)
             | Self::InvalidSender { .. }
             | Self::DecodeProto(_)
             | Self::InvalidPayload
@@ -196,6 +198,7 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::GroupPaused
             | Self::FutureEpoch(_, _)
             | Self::OldEpoch(_, _) => false,
+            Self::Builder(_) => false,
         }
     }
 }
@@ -349,7 +352,7 @@ where
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(super) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -387,7 +390,7 @@ where
                     state: IntentState::Processed,
                     ..
                 })) => {
-                    tracing::warn!(
+                    tracing::debug!(
                         "not retrying intent ID {id}. since it is in state processed. {}",
                         summary
                     );
@@ -616,12 +619,13 @@ where
                 );
 
                 // If no error committing the change, write a transcript message
-                let msg = self.save_transcript_message(validated_commit, envelope_timestamp_ns)?;
-
+                let msg =
+                    self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
                 return Ok((IntentState::Committed, msg.map(|m| m.id)));
             }
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
-            conn.set_delivery_status_to_published(&id, envelope_timestamp_ns)?;
+            tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
+            conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)?;
             return Ok((IntentState::Processed, Some(id)));
         }
         // TODO: Should clarify when this would happen
@@ -635,7 +639,7 @@ where
         message: PrivateMessageIn,
         envelope: &GroupMessageV1,
         allow_cursor_increment: bool,
-    ) -> Result<Option<MessageIdentifier>, GroupMessageProcessingError> {
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
             use crate::utils::maybe_mock_wrong_epoch_for_tests;
@@ -647,6 +651,7 @@ where
             id: ref cursor,
             ..
         } = *envelope;
+        let mut identifier = MessageIdentifierBuilder::from(envelope);
 
         let provider = self.mls_provider();
         // We need to process the message twice to avoid an async transaction.
@@ -691,7 +696,7 @@ where
                 let validated_commit =
                     ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
                         .await?;
-
+                identifier.group_context(staged_commit.group_context().clone());
                 Some(validated_commit)
             }
             _ => None,
@@ -710,8 +715,6 @@ where
                 mls_group.epoch().as_u64(),
                 cursor
             );
-            let processed_message = mls_group.process_message(&provider, message)?;
-
             let requires_processing = if allow_cursor_increment {
                 tracing::info!(
                     "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -735,10 +738,20 @@ where
                 current_cursor < *cursor as i64
             };
             if !requires_processing {
-                return Err(ProcessIntentError::AlreadyProcessed(*cursor).into());
+                // early return if the message is already procesed
+                // _NOTE_: Not early returning and re-processing a message that
+                // has already been processed, has the potential to result in forks.
+                tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                    envelope.id,
+                    xmtp_common::fmt::debug_hex(&envelope.group_id),
+                    envelope.created_ns
+                 );
+                identifier.previously_processed(true);
+                return identifier.build();
             }
+            // once the checks for processing pass, actually process the message
+            let processed_message = mls_group.process_message(&provider, message)?;
             let previous_epoch = mls_group.epoch().as_u64();
-
             let identifier = self.process_external_message(
                 mls_group,
                 processed_message,
@@ -784,7 +797,7 @@ where
         processed_message: ProcessedMessage,
         envelope: &GroupMessageV1,
         validated_commit: Option<ValidatedCommit>,
-    ) -> Result<Option<MessageIdentifier>, GroupMessageProcessingError> {
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -796,7 +809,8 @@ where
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
 
-        let processed_message = match processed_message.into_content() {
+        let mut identifier = MessageIdentifierBuilder::from(envelope);
+        match processed_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
@@ -826,7 +840,7 @@ where
                             Self::extract_queryable_content_fields(&content);
 
                         let message = StoredGroupMessage {
-                            id: message_id,
+                            id: message_id.clone(),
                             group_id: self.group_id.clone(),
                             decrypted_message_bytes: content,
                             sent_at_ns: envelope_timestamp_ns as i64,
@@ -839,10 +853,12 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            sequence_id: None,
+                            sequence_id: Some(*cursor as i64),
                             originator_id: None,
                         };
                         message.store_or_ignore(provider.db())?;
+                        // make sure internal id is on return type after its stored successfully
+                        identifier.internal_id(message_id);
 
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
@@ -860,7 +876,7 @@ where
                                         ));
                             }
                         }
-                        Ok::<_, GroupMessageProcessingError>(Some(message))
+                        Ok::<_, GroupMessageProcessingError>(())
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
@@ -891,10 +907,11 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: None,
+                                    sequence_id: Some(*cursor as i64),
                                     originator_id: None,
                                 };
                                 message.store_or_ignore(provider.db())?;
+                                identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history request.");
                                 let _ =
@@ -903,7 +920,7 @@ where
                                         .send(LocalEvents::SyncWorkerEvent(
                                             SyncWorkerEvent::Request { message_id },
                                         ));
-                                Ok(Some(message))
+                                Ok(())
                             }
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
                                 let content = DeviceSyncContent::Reply(history_reply);
@@ -929,10 +946,11 @@ where
                                     version_minor: 0,
                                     authority_id: "unknown".to_string(),
                                     reference_id: None,
-                                    sequence_id: None,
+                                    sequence_id: Some(*cursor as i64),
                                     originator_id: None,
                                 };
                                 message.store_or_ignore(provider.db())?;
+                                identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history reply.");
                                 let _ =
@@ -941,7 +959,7 @@ where
                                         .send(LocalEvents::SyncWorkerEvent(
                                             SyncWorkerEvent::Reply { message_id },
                                         ));
-                                Ok(Some(message))
+                                Ok(())
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
                                 // This function inserts the updates appropriately,
@@ -954,7 +972,7 @@ where
                                     .context
                                     .local_events()
                                     .send(LocalEvents::PreferencesChanged(updates));
-                                Ok(None)
+                                Ok(())
                             }
                             _ => {
                                 return Err(GroupMessageProcessingError::InvalidPayload);
@@ -967,11 +985,11 @@ where
                 }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                Ok(None)
+                Ok(())
                 // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
-                Ok(None)
+                Ok(())
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
@@ -1004,15 +1022,16 @@ where
                     "[{}] staged commit is valid, will attempt to merge",
                     self.context().inbox_id()
                 );
+                identifier.group_context(staged_commit.group_context().clone());
 
                 mls_group.merge_staged_commit(&provider, staged_commit)?;
-                let msg = self.save_transcript_message(validated_commit, envelope_timestamp_ns)?;
-                Ok(msg)
+                let msg =
+                    self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
+                identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
+                Ok(())
             }
-        };
-        let processed_message = processed_message?
-            .map(|m| MessageIdentifier::new(*cursor, m.id, MessageSource::External));
-        Ok(processed_message)
+        }?;
+        identifier.build()
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
@@ -1027,7 +1046,7 @@ where
         &self,
         envelope: &GroupMessageV1,
         trust_message_order: bool,
-    ) -> Result<Option<MessageIdentifier>, GroupMessageProcessingError> {
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
@@ -1046,20 +1065,23 @@ where
 
         let intent = provider
             .db()
-            .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+            .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
+            .map_err(GroupMessageProcessingError::Storage)?;
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
             group_id = hex::encode(&self.group_id),
             cursor = envelope.id,
-            "Processing envelope with hash {}, id = {}",
+            "Processing envelope with hash {}, sequence_id = {}, is_own_intent={}",
             hex::encode(sha256(envelope.data.as_slice())),
-            envelope.id
+            envelope.id,
+            intent.is_some()
         );
-
         match intent {
             // Intent with the payload hash matches
-            Ok(Some(intent)) => {
+            Some(intent) => {
+                let mut identifier = MessageIdentifierBuilder::from(envelope);
+                identifier.intent_kind(intent.kind);
                 let intent_id = intent.id;
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
@@ -1068,13 +1090,14 @@ where
                     cursor = envelope.id,
                     intent_id,
                     intent.kind = %intent.kind,
-                    "client [{}] is about to process own envelope [{}] for intent [{}]",
+                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
                     self.context.inbox_id(),
                     envelope.id,
-                    intent_id
+                    intent_id,
+                    intent.kind
                 );
 
-                let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move  {
+                let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
                     let message = message.into();
                     // TODO: the return type of stage_and_validated_commit should be fixed
                     // We should never be nesting Result types within the error return type, it is
@@ -1092,11 +1115,15 @@ where
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
                             );
-                            provider.db().update_cursor(
+                            let updated = provider.db().update_cursor(
                                 &envelope.group_id,
                                 EntityKind::Group,
                                 cursor as i64,
-                            )?
+                            )?;
+                            if updated {
+                                tracing::debug!("cursor updated to [{}]", cursor as i64);
+                            } else { tracing::debug!("no cursor update required"); }
+                            updated
                         } else {
                             tracing::info!(
                                 "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1109,7 +1136,19 @@ where
                             current_cursor < cursor as i64
                         };
                         if !requires_processing {
-                            return Err(GroupMessageProcessingError::ProcessIntent(ProcessIntentError::AlreadyProcessed(cursor)));
+                            tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                                envelope.id,
+                                xmtp_common::fmt::debug_hex(&envelope.group_id),
+                                envelope.created_ns
+                            );
+
+                            // early return if the message is already procesed
+                            // _NOTE_: Not early returning and re-processing a message that
+                            // has already been processed, has the potential to result in forks.
+                            // In some cases, we may want to roll back the cursor if we updated the
+                            // cursor, but actually cannot process the message.
+                            identifier.previously_processed(true);
+                            return Ok(());
                         }
                         let (intent_state, internal_message_id) = match maybe_validated_commit {
                             // the error is also a Result
@@ -1122,13 +1161,13 @@ where
                                 .process_own_message(&mut mls_group, commit, &intent, &message, envelope)?
                             }
                         };
+                        identifier.internal_id(internal_message_id.clone());
 
                         match intent_state {
                             IntentState::ToPublish => {
                                 provider.db().set_group_intent_to_publish(intent_id)?;
                             }
                             IntentState::Committed => {
-
                                 self.handle_metadata_update_from_intent(&intent)?;
                                 provider.db().set_group_intent_committed(intent_id)?;
                             }
@@ -1136,24 +1175,22 @@ where
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
                             }
                             IntentState::Error => {
-                                tracing::warn!("Intent [{}] moved to error status", intent_id);
+                                tracing::error!("Intent [{}] moved to error status", intent_id);
                                 provider.db().set_group_intent_error(intent_id)?;
                             }
                             IntentState::Processed => {
-                                tracing::warn!("Intent [{}] moved to Processed status", intent_id);
+                                tracing::debug!("Intent [{}] moved to Processed status", intent_id);
                                 provider.db().set_group_intent_processed(intent_id)?;
                             }
                         }
-                        Ok(internal_message_id.map(|i| {
-                            MessageIdentifier::new(cursor, i, MessageSource::Own(intent_state))
-                        }))
-                    })
+                        Ok(())
+                    })?;
+                    Ok::<_, GroupMessageProcessingError>(identifier)
                 }).await?;
-
-                Ok(identifier)
+                identifier.build()
             }
             // No matching intent found. The message did not originate here.
-            Ok(None) => {
+            None => {
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
@@ -1178,7 +1215,6 @@ where
 
                 Ok(identifier)
             }
-            Err(err) => Err(GroupMessageProcessingError::Storage(err)),
         }
     }
 
@@ -1247,7 +1283,7 @@ where
     async fn consume_message(
         &self,
         envelope: &GroupMessage,
-    ) -> Result<Option<MessageIdentifier>, GroupMessageProcessingError> {
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
@@ -1274,7 +1310,10 @@ where
                 message_entity_kind,
                 last_cursor
             );
-            return Err(GroupMessageProcessingError::AlreadyProcessed(msgv1.id));
+            // early return if the message is already procesed
+            // _NOTE_: Not early returning and re-processing a message that
+            // has already been processed, has the potential to result in forks.
+            return MessageIdentifierBuilder::from(msgv1).build();
         }
 
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
@@ -1323,24 +1362,19 @@ where
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages.into_iter() {
-            let message_cursor = extract_message_cursor(&message);
-            if message_cursor.is_none() {
+            let message_cursor = match extract_message_cursor(&message) {
                 // None means unsupported message version
                 // skip the message
-                continue;
-            }
-            let message_cursor = message_cursor.expect("checked for none");
+                None => continue,
+                Some(c) => c,
+            };
             summary.add_id(message_cursor);
             let result = retry_async!(
                 Retry::default(),
                 (async { self.consume_message(&message).await })
             );
             match result {
-                Ok(m) => {
-                    if let Some(m) = m {
-                        summary.add(m)
-                    }
-                }
+                Ok(m) => summary.add(m),
                 Err(GroupMessageProcessingError::GroupPaused) => {
                     tracing::info!(
                         "Group [{}] is paused, skip syncing remaining messages",
@@ -1373,14 +1407,12 @@ where
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "debug")]
-
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
-        tracing::info!("{summary}");
         Ok(summary)
     }
 
@@ -1388,6 +1420,7 @@ where
         &self,
         validated_commit: ValidatedCommit,
         timestamp_ns: u64,
+        cursor: u64,
     ) -> Result<Option<StoredGroupMessage>, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let conn = provider.db();
@@ -1444,7 +1477,7 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            sequence_id: None,
+            sequence_id: Some(cursor as i64),
             originator_id: None,
         };
         msg.store_or_ignore(conn)?;
@@ -1569,22 +1602,27 @@ where
                             })) => {
                         let payload_slice = payload_to_publish.as_slice();
                         let has_staged_commit = staged_commit.is_some();
-                        provider.db().set_group_intent_published(
-                            intent.id,
-                            sha256(payload_slice),
-                            post_commit_action,
-                            staged_commit,
-                            mls_group.epoch().as_u64() as i64,
-                        )?;
+                        let intent_hash = sha256(payload_slice);
+                        // removing this transaction causes missed messages
+                        provider.transaction(|provider| {
+                            provider.db().set_group_intent_published(
+                                intent.id,
+                                &intent_hash,
+                                post_commit_action,
+                                staged_commit,
+                                mls_group.epoch().as_u64() as i64,
+                            )
+                        })?;
                         tracing::debug!(
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
                             intent.id,
                             intent.kind = %intent.kind,
                             group_id = hex::encode(&self.group_id),
-                            "[{}] set stored intent [{}] to state `published`",
+                            "[{}] set stored intent [{}] with hash [{}] to state `published`",
                             self.context.inbox_id(),
-                            intent.id
+                            intent.id,
+                            hex::encode(&intent_hash)
                         );
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
@@ -1599,10 +1637,11 @@ where
                             inbox_id = self.context.inbox_id(),
                             installation_id = %self.context.installation_id(),
                             group_id = hex::encode(&self.group_id),
-                            "[{}] published intent [{}] of type [{}]",
+                            "[{}] published intent [{}] of type [{}] with hash [{}]",
                             self.context.inbox_id(),
                             intent.id,
-                            intent.kind
+                            intent.kind,
+                            hex::encode(sha256(payload_slice))
                         );
                         if has_staged_commit {
                             tracing::info!("Commit sent. Stopping further publishes for this round");
