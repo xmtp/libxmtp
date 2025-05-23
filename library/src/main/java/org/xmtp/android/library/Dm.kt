@@ -9,6 +9,7 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
 import org.xmtp.android.library.libxmtp.Member
+import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DecodedMessage.MessageDeliveryStatus
 import org.xmtp.android.library.libxmtp.DecodedMessage.SortDirection
@@ -23,7 +24,6 @@ import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiSubscribeException
-import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import java.util.Date
 
 class Dm(
@@ -274,12 +274,14 @@ class Dm(
         val conversations = libXMTPGroup.getHmacKeys()
         conversations.iterator().forEach {
             val hmacKeys = Keystore.GetConversationHmacKeysResponse.HmacKeys.newBuilder()
-            val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
-            hmacKeyData.hmacKey = it.key.toByteString()
-            hmacKeyData.thirtyDayPeriodsSinceEpoch = it.epoch.toInt()
-            hmacKeys.addValues(hmacKeyData)
+            it.value.forEach { key ->
+                val hmacKeyData = Keystore.GetConversationHmacKeysResponse.HmacKeyData.newBuilder()
+                hmacKeyData.hmacKey = key.key.toByteString()
+                hmacKeyData.thirtyDayPeriodsSinceEpoch = key.epoch.toInt()
+                hmacKeys.addValues(hmacKeyData)
+            }
             hmacKeysResponse.putHmacKeys(
-                Topic.groupMessage(libXMTPGroup.id().toHex()).description,
+                Topic.groupMessage(it.key.toHex()).description,
                 hmacKeys.build()
             )
         }

@@ -3,10 +3,10 @@ package org.xmtp.android.library
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.libxmtp.Member
+import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.proto.keystore.api.v1.Keystore
-import uniffi.xmtpv3.org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import java.util.Date
 
 sealed class Conversation {

@@ -34,4 +34,12 @@ enum class XMTPEnvironment(val rawValue: String) {
             LOCAL -> "http://${getValue()}:5556"
         }
     }
+
+    fun getHistorySyncUrl(): String {
+        return when (this) {
+            PRODUCTION -> "https://message-history.production.ephemera.network"
+            LOCAL -> "http://10.0.2.2:5558"
+            DEV -> "https://message-history.dev.ephemera.network"
+        }
+    }
 }

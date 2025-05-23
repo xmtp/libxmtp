@@ -2,6 +2,10 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -911,7 +915,12 @@ class ClientTest {
 
         try {
             // Activate persistent logging with a small number of log files
-            Client.activatePersistentLibXMTPLogWriter(context, FfiLogLevel.TRACE, FfiLogRotation.HOURLY, 3)
+            Client.activatePersistentLibXMTPLogWriter(
+                context,
+                FfiLogLevel.TRACE,
+                FfiLogRotation.HOURLY,
+                3
+            )
 
             // Log the actual log directory path
             val actualLogDir = File(context.filesDir, "xmtp_logs")
@@ -966,5 +975,82 @@ class ClientTest {
         Client.clearXMTPLogs(context)
         val logFiles2 = Client.getXMTPLogFilePaths(context)
         assertEquals(logFiles2.size, 0)
+    }
+
+    @Test
+    fun testNetworkDebugInformation() = runBlocking {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        val alix = Client.create(
+            account = alixWallet,
+            options = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                appContext = context,
+                dbEncryptionKey = key
+            )
+        )
+        delay(2000)
+        val aggregateStats1 = alix.XMTPDebugInformation.aggregateStatistics
+        println("Aggregate Stats Create:\n$aggregateStats1")
+
+        val apiStats1 = alix.XMTPDebugInformation.apiStatistics
+        assertEquals(1, apiStats1.uploadKeyPackage)
+        assertEquals(0, apiStats1.fetchKeyPackage)
+        assertEquals(2, apiStats1.sendGroupMessages)
+        assertEquals(0, apiStats1.sendWelcomeMessages)
+        assertEquals(4, apiStats1.queryGroupMessages)
+        assertEquals(0, apiStats1.queryWelcomeMessages)
+        assertEquals(0, apiStats1.subscribeMessages)
+        assertEquals(0, apiStats1.subscribeWelcomes)
+
+        val identityStats1 = alix.XMTPDebugInformation.identityStatistics
+        assertEquals(1, identityStats1.publishIdentityUpdate)
+        assertEquals(3, identityStats1.getIdentityUpdatesV2)
+        assertEquals(2, identityStats1.getInboxIds)
+        assertEquals(0, identityStats1.verifySmartContractWalletSignature)
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            alix.conversations.streamAllMessages().collect { }
+        }
+        val group = alix.conversations.newGroup(emptyList())
+        group.send("hi")
+
+        val aggregateStats2 = alix.XMTPDebugInformation.aggregateStatistics
+        println("Aggregate Stats Create:\n$aggregateStats2")
+
+        val apiStats2 = alix.XMTPDebugInformation.apiStatistics
+        assertEquals(1, apiStats2.uploadKeyPackage)
+        assertEquals(0, apiStats2.fetchKeyPackage)
+        assertEquals(6, apiStats2.sendGroupMessages)
+        assertEquals(0, apiStats2.sendWelcomeMessages)
+        assertEquals(11, apiStats2.queryGroupMessages)
+        assertEquals(1, apiStats2.queryWelcomeMessages)
+        assertEquals(1, apiStats2.subscribeMessages)
+        assertEquals(1, apiStats2.subscribeWelcomes)
+
+        val identityStats2 = alix.XMTPDebugInformation.identityStatistics
+        assertEquals(1, identityStats2.publishIdentityUpdate)
+        assertEquals(4, identityStats2.getIdentityUpdatesV2)
+        assertEquals(2, identityStats2.getInboxIds)
+        assertEquals(0, identityStats2.verifySmartContractWalletSignature)
+        job.cancel()
+    }
+
+    @Test
+    fun testUploadArchiveDebugInformation() = runBlocking {
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val alixWallet = PrivateKeyBuilder()
+        val alix = Client.create(
+            account = alixWallet,
+            options = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                appContext = context,
+                dbEncryptionKey = key
+            )
+        )
+        val uploadKey = alix.XMTPDebugInformation.uploadDebugInformation()
+        assert(uploadKey.isNotEmpty())
     }
 }

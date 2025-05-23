@@ -1159,6 +1159,12 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1350,8 +1356,6 @@ fun uniffi_xmtpv3_checksum_method_fficonversations_sync(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations(
 ): Short
-fun uniffi_xmtpv3_checksum_method_fficonversations_sync_device_sync(
-): Short
 fun uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type(
@@ -1393,6 +1397,12 @@ fun uniffi_xmtpv3_checksum_method_ffisyncworker_wait(
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request(
 ): Short
@@ -1449,6 +1459,8 @@ fun uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key(
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences(
+): Short
+fun uniffi_xmtpv3_checksum_method_ffixmtpclient_upload_debug_archive(
 ): Short
 fun uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key(
 ): Short
@@ -1688,8 +1700,6 @@ fun uniffi_xmtpv3_fn_method_fficonversations_sync(`ptr`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversations_sync_all_conversations(`ptr`: Pointer,`consentStates`: RustBuffer.ByValue,
 ): Long
-fun uniffi_xmtpv3_fn_method_fficonversations_sync_device_sync(`ptr`: Pointer,
-): Long
 fun uniffi_xmtpv3_fn_clone_ffigrouppermissions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Pointer
 fun uniffi_xmtpv3_fn_free_ffigrouppermissions(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1770,6 +1780,12 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_add_identity(`ptr`: Pointer,`newIdenti
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_addresses_from_inbox_id(`ptr`: Pointer,`refreshFromNetwork`: Byte,`inboxIds`: RustBuffer.ByValue,
 ): Long
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_api_aggregate_statistics(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_api_identity_statistics(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_api_statistics(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_apply_signature_request(`ptr`: Pointer,`signatureRequest`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_archive_metadata(`ptr`: Pointer,`path`: RustBuffer.ByValue,`key`: RustBuffer.ByValue,
@@ -1825,6 +1841,8 @@ fun uniffi_xmtpv3_fn_method_ffixmtpclient_sign_with_installation_key(`ptr`: Poin
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_signature_request(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_sync_preferences(`ptr`: Pointer,
+): Long
+fun uniffi_xmtpv3_fn_method_ffixmtpclient_upload_debug_archive(`ptr`: Pointer,`serverUrl`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_method_ffixmtpclient_verify_signed_with_installation_key(`ptr`: Pointer,`signatureText`: RustBuffer.ByValue,`signatureBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -2071,7 +2089,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 33179.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 4665.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 35284.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 53570.toShort()) {
@@ -2248,9 +2266,6 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 30657.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync_device_sync() != 29077.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 24928.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2312,6 +2327,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 29264.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 18475.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics() != 47055.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 31059.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 32172.toShort()) {
@@ -2396,6 +2420,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 59168.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_upload_debug_archive() != 21347.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 3285.toShort()) {
@@ -2521,7 +2548,102 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
  *
  * @suppress
  * */
-object NoPointer
+object NoPointer// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+internal const val IDX_CALLBACK_FREE = 0
+// Callback return codes
+internal const val UNIFFI_CALLBACK_SUCCESS = 0
+internal const val UNIFFI_CALLBACK_ERROR = 1
+internal const val UNIFFI_CALLBACK_UNEXPECTED_ERROR = 2
+
+/**
+ * @suppress
+ */
+public abstract class FfiConverterCallbackInterface<CallbackInterface: Any>: FfiConverter<CallbackInterface, Long> {
+    internal val handleMap = UniffiHandleMap<CallbackInterface>()
+
+    internal fun drop(handle: Long) {
+        handleMap.remove(handle)
+    }
+
+    override fun lift(value: Long): CallbackInterface {
+        return handleMap.get(value)
+    }
+
+    override fun read(buf: ByteBuffer) = lift(buf.getLong())
+
+    override fun lower(value: CallbackInterface) = handleMap.insert(value)
+
+    override fun allocationSize(value: CallbackInterface) = 8UL
+
+    override fun write(value: CallbackInterface, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+/**
+ * The cleaner interface for Object finalization code to run.
+ * This is the entry point to any implementation that we're using.
+ *
+ * The cleaner registers objects and returns cleanables, so now we are
+ * defining a `UniffiCleaner` with a `UniffiClenaer.Cleanable` to abstract the
+ * different implmentations available at compile time.
+ *
+ * @suppress
+ */
+interface UniffiCleaner {
+    interface Cleanable {
+        fun clean()
+    }
+
+    fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable
+
+    companion object
+}
+
+// The fallback Jna cleaner, which is available for both Android, and the JVM.
+private class UniffiJnaCleaner : UniffiCleaner {
+    private val cleaner = com.sun.jna.internal.Cleaner.getCleaner()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class UniffiJnaCleanable(
+    private val cleanable: com.sun.jna.internal.Cleaner.Cleanable,
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
+
+
+// We decide at uniffi binding generation time whether we were
+// using Android or not.
+// There are further runtime checks to chose the correct implementation
+// of the cleaner.
+private fun UniffiCleaner.Companion.create(): UniffiCleaner =
+    try {
+        // For safety's sake: if the library hasn't been run in android_cleaner = true
+        // mode, but is being run on Android, then we still need to think about
+        // Android API versions.
+        // So we check if java.lang.ref.Cleaner is there, and use that…
+        java.lang.Class.forName("java.lang.ref.Cleaner")
+        JavaLangRefCleaner()
+    } catch (e: ClassNotFoundException) {
+        // … otherwise, fallback to the JNA cleaner.
+        UniffiJnaCleaner()
+    }
+
+private class JavaLangRefCleaner : UniffiCleaner {
+    val cleaner = java.lang.ref.Cleaner.create()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class JavaLangRefCleanable(
+    val cleanable: java.lang.ref.Cleaner.Cleanable
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
 
 /**
  * @suppress
@@ -2813,70 +2935,6 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 //
 
 
-/**
- * The cleaner interface for Object finalization code to run.
- * This is the entry point to any implementation that we're using.
- *
- * The cleaner registers objects and returns cleanables, so now we are
- * defining a `UniffiCleaner` with a `UniffiClenaer.Cleanable` to abstract the
- * different implmentations available at compile time.
- *
- * @suppress
- */
-interface UniffiCleaner {
-    interface Cleanable {
-        fun clean()
-    }
-
-    fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable
-
-    companion object
-}
-
-// The fallback Jna cleaner, which is available for both Android, and the JVM.
-private class UniffiJnaCleaner : UniffiCleaner {
-    private val cleaner = com.sun.jna.internal.Cleaner.getCleaner()
-
-    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
-        UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
-}
-
-private class UniffiJnaCleanable(
-    private val cleanable: com.sun.jna.internal.Cleaner.Cleanable,
-) : UniffiCleaner.Cleanable {
-    override fun clean() = cleanable.clean()
-}
-
-
-// We decide at uniffi binding generation time whether we were
-// using Android or not.
-// There are further runtime checks to chose the correct implementation
-// of the cleaner.
-private fun UniffiCleaner.Companion.create(): UniffiCleaner =
-    try {
-        // For safety's sake: if the library hasn't been run in android_cleaner = true
-        // mode, but is being run on Android, then we still need to think about
-        // Android API versions.
-        // So we check if java.lang.ref.Cleaner is there, and use that…
-        java.lang.Class.forName("java.lang.ref.Cleaner")
-        JavaLangRefCleaner()
-    } catch (e: ClassNotFoundException) {
-        // … otherwise, fallback to the JNA cleaner.
-        UniffiJnaCleaner()
-    }
-
-private class JavaLangRefCleaner : UniffiCleaner {
-    val cleaner = java.lang.ref.Cleaner.create()
-
-    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
-        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
-}
-
-private class JavaLangRefCleanable(
-    val cleanable: java.lang.ref.Cleaner.Cleanable
-) : UniffiCleaner.Cleanable {
-    override fun clean() = cleanable.clean()
-}
 public interface FfiConsentCallback {
     
     fun `onConsentUpdate`(`consent`: List<FfiConsent>)
@@ -2997,38 +3055,7 @@ open class FfiConsentCallbackImpl: Disposable, AutoCloseable, FfiConsentCallback
     companion object
     
 }
-// Magic number for the Rust proxy to call using the same mechanism as every other method,
-// to free the callback once it's dropped by Rust.
-internal const val IDX_CALLBACK_FREE = 0
-// Callback return codes
-internal const val UNIFFI_CALLBACK_SUCCESS = 0
-internal const val UNIFFI_CALLBACK_ERROR = 1
-internal const val UNIFFI_CALLBACK_UNEXPECTED_ERROR = 2
 
-/**
- * @suppress
- */
-public abstract class FfiConverterCallbackInterface<CallbackInterface: Any>: FfiConverter<CallbackInterface, Long> {
-    internal val handleMap = UniffiHandleMap<CallbackInterface>()
-
-    internal fun drop(handle: Long) {
-        handleMap.remove(handle)
-    }
-
-    override fun lift(value: Long): CallbackInterface {
-        return handleMap.get(value)
-    }
-
-    override fun read(buf: ByteBuffer) = lift(buf.getLong())
-
-    override fun lower(value: CallbackInterface) = handleMap.insert(value)
-
-    override fun allocationSize(value: CallbackInterface) = 8UL
-
-    override fun write(value: CallbackInterface, buf: ByteBuffer) {
-        buf.putLong(lower(value))
-    }
-}
 
 // Put the implementation in an object so we don't pollute the top-level namespace
 internal object uniffiCallbackInterfaceFfiConsentCallback {
@@ -3236,7 +3263,7 @@ public interface FfiConversationInterface {
     
     suspend fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions>
     
-    fun `getHmacKeys`(): List<FfiHmacKey>
+    fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>>
     
     fun `groupDescription`(): kotlin.String
     
@@ -3659,8 +3686,8 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     }
 
     
-    @Throws(GenericException::class)override fun `getHmacKeys`(): List<FfiHmacKey> {
-            return FfiConverterSequenceTypeFfiHmacKey.lift(
+    @Throws(GenericException::class)override fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>> {
+            return FfiConverterMapByteArraySequenceTypeFfiHmacKey.lift(
     callWithPointer {
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(
@@ -5216,8 +5243,6 @@ public interface FfiConversationsInterface {
     
     suspend fun `syncAllConversations`(`consentStates`: List<FfiConsentState>?): kotlin.UInt
     
-    suspend fun `syncDeviceSync`()
-    
     companion object
 }
 
@@ -5699,28 +5724,6 @@ open class FfiConversations: Disposable, AutoCloseable, FfiConversationsInterfac
         { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_u32(future) },
         // lift function
         { FfiConverterUInt.lift(it) },
-        // Error FFI converter
-        GenericException.ErrorHandler,
-    )
-    }
-
-    
-    @Throws(GenericException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `syncDeviceSync`() {
-        return uniffiRustCallAsync(
-        callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_sync_device_sync(
-                thisPtr,
-                
-            )
-        },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
-        // lift function
-        { Unit },
-        
         // Error FFI converter
         GenericException.ErrorHandler,
     )
@@ -7953,6 +7956,12 @@ public interface FfiXmtpClientInterface {
      */
     suspend fun `addressesFromInboxId`(`refreshFromNetwork`: kotlin.Boolean, `inboxIds`: List<kotlin.String>): List<FfiInboxState>
     
+    fun `apiAggregateStatistics`(): kotlin.String
+    
+    fun `apiIdentityStatistics`(): FfiIdentityStats
+    
+    fun `apiStatistics`(): FfiApiStats
+    
     suspend fun `applySignatureRequest`(`signatureRequest`: FfiSignatureRequest)
     
     /**
@@ -8042,6 +8051,11 @@ public interface FfiXmtpClientInterface {
     fun `signatureRequest`(): FfiSignatureRequest?
     
     suspend fun `syncPreferences`(): kotlin.ULong
+    
+    /**
+     * Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
+     */
+    suspend fun `uploadDebugArchive`(`serverUrl`: kotlin.String): kotlin.String
     
     /**
      * A utility function to easily verify that a piece of text was signed by this installation.
@@ -8189,6 +8203,42 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
         GenericException.ErrorHandler,
     )
     }
+
+    override fun `apiAggregateStatistics`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_api_aggregate_statistics(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `apiIdentityStatistics`(): FfiIdentityStats {
+            return FfiConverterTypeFfiIdentityStats.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_api_identity_statistics(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `apiStatistics`(): FfiApiStats {
+            return FfiConverterTypeFfiApiStats.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_api_statistics(
+        it, _status)
+}
+    }
+    )
+    }
+    
 
     
     @Throws(GenericException::class)
@@ -8744,6 +8794,30 @@ open class FfiXmtpClient: Disposable, AutoCloseable, FfiXmtpClientInterface
 
     
     /**
+     * Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
+     */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `uploadDebugArchive`(`serverUrl`: kotlin.String) : kotlin.String {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_ffixmtpclient_upload_debug_archive(
+                thisPtr,
+                FfiConverterString.lower(`serverUrl`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterString.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
+    
+    /**
      * A utility function to easily verify that a piece of text was signed by this installation.
      */
     @Throws(GenericException::class)override fun `verifySignedWithInstallationKey`(`signatureText`: kotlin.String, `signatureBytes`: kotlin.ByteArray)
@@ -9028,6 +9102,62 @@ public object FfiConverterTypeXmtpApiClient: FfiConverter<XmtpApiClient, Pointer
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+
+data class FfiApiStats (
+    var `uploadKeyPackage`: kotlin.ULong, 
+    var `fetchKeyPackage`: kotlin.ULong, 
+    var `sendGroupMessages`: kotlin.ULong, 
+    var `sendWelcomeMessages`: kotlin.ULong, 
+    var `queryGroupMessages`: kotlin.ULong, 
+    var `queryWelcomeMessages`: kotlin.ULong, 
+    var `subscribeMessages`: kotlin.ULong, 
+    var `subscribeWelcomes`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiApiStats: FfiConverterRustBuffer<FfiApiStats> {
+    override fun read(buf: ByteBuffer): FfiApiStats {
+        return FfiApiStats(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiApiStats) = (
+            FfiConverterULong.allocationSize(value.`uploadKeyPackage`) +
+            FfiConverterULong.allocationSize(value.`fetchKeyPackage`) +
+            FfiConverterULong.allocationSize(value.`sendGroupMessages`) +
+            FfiConverterULong.allocationSize(value.`sendWelcomeMessages`) +
+            FfiConverterULong.allocationSize(value.`queryGroupMessages`) +
+            FfiConverterULong.allocationSize(value.`queryWelcomeMessages`) +
+            FfiConverterULong.allocationSize(value.`subscribeMessages`) +
+            FfiConverterULong.allocationSize(value.`subscribeWelcomes`)
+    )
+
+    override fun write(value: FfiApiStats, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`uploadKeyPackage`, buf)
+            FfiConverterULong.write(value.`fetchKeyPackage`, buf)
+            FfiConverterULong.write(value.`sendGroupMessages`, buf)
+            FfiConverterULong.write(value.`sendWelcomeMessages`, buf)
+            FfiConverterULong.write(value.`queryGroupMessages`, buf)
+            FfiConverterULong.write(value.`queryWelcomeMessages`, buf)
+            FfiConverterULong.write(value.`subscribeMessages`, buf)
+            FfiConverterULong.write(value.`subscribeWelcomes`, buf)
     }
 }
 
@@ -9369,6 +9499,46 @@ public object FfiConverterTypeFfiIdentifier: FfiConverterRustBuffer<FfiIdentifie
 
 
 
+data class FfiIdentityStats (
+    var `publishIdentityUpdate`: kotlin.ULong, 
+    var `getIdentityUpdatesV2`: kotlin.ULong, 
+    var `getInboxIds`: kotlin.ULong, 
+    var `verifySmartContractWalletSignature`: kotlin.ULong
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiIdentityStats: FfiConverterRustBuffer<FfiIdentityStats> {
+    override fun read(buf: ByteBuffer): FfiIdentityStats {
+        return FfiIdentityStats(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiIdentityStats) = (
+            FfiConverterULong.allocationSize(value.`publishIdentityUpdate`) +
+            FfiConverterULong.allocationSize(value.`getIdentityUpdatesV2`) +
+            FfiConverterULong.allocationSize(value.`getInboxIds`) +
+            FfiConverterULong.allocationSize(value.`verifySmartContractWalletSignature`)
+    )
+
+    override fun write(value: FfiIdentityStats, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`publishIdentityUpdate`, buf)
+            FfiConverterULong.write(value.`getIdentityUpdatesV2`, buf)
+            FfiConverterULong.write(value.`getInboxIds`, buf)
+            FfiConverterULong.write(value.`verifySmartContractWalletSignature`, buf)
+    }
+}
+
+
+
 data class FfiInboxState (
     var `inboxId`: kotlin.String, 
     var `recoveryIdentity`: FfiIdentifier, 
@@ -9604,7 +9774,8 @@ data class FfiMessage (
     var `senderInboxId`: kotlin.String, 
     var `content`: kotlin.ByteArray, 
     var `kind`: FfiConversationMessageKind, 
-    var `deliveryStatus`: FfiDeliveryStatus
+    var `deliveryStatus`: FfiDeliveryStatus, 
+    var `sequenceId`: kotlin.ULong?
 ) {
     
     companion object
@@ -9623,6 +9794,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
             FfiConverterByteArray.read(buf),
             FfiConverterTypeFfiConversationMessageKind.read(buf),
             FfiConverterTypeFfiDeliveryStatus.read(buf),
+            FfiConverterOptionalULong.read(buf),
         )
     }
 
@@ -9633,7 +9805,8 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
             FfiConverterString.allocationSize(value.`senderInboxId`) +
             FfiConverterByteArray.allocationSize(value.`content`) +
             FfiConverterTypeFfiConversationMessageKind.allocationSize(value.`kind`) +
-            FfiConverterTypeFfiDeliveryStatus.allocationSize(value.`deliveryStatus`)
+            FfiConverterTypeFfiDeliveryStatus.allocationSize(value.`deliveryStatus`) +
+            FfiConverterOptionalULong.allocationSize(value.`sequenceId`)
     )
 
     override fun write(value: FfiMessage, buf: ByteBuffer) {
@@ -9644,6 +9817,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
             FfiConverterByteArray.write(value.`content`, buf)
             FfiConverterTypeFfiConversationMessageKind.write(value.`kind`, buf)
             FfiConverterTypeFfiDeliveryStatus.write(value.`deliveryStatus`, buf)
+            FfiConverterOptionalULong.write(value.`sequenceId`, buf)
     }
 }
 
