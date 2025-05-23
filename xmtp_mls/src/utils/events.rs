@@ -35,10 +35,9 @@ mod tests {
 
     use xmtp_mls_common::group::GroupMetadataOptions;
 
-    use crate::{tester, utils::events::upload_debug_archive};
+    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
 
     #[xmtp_common::test(unwrap_try = "true")]
-    #[ignore]
     async fn test_debug_pkg() {
         tester!(alix, stream);
         tester!(bo);
@@ -77,7 +76,8 @@ mod tests {
 
         g.sync().await?;
 
-        let key = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
-        tracing::info!("{key}");
+        upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
+
+        // Exported and uploaded no problem
     }
 }
