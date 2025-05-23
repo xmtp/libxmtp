@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{Store, impl_store, schema::client_events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
@@ -121,7 +121,7 @@ pub enum ClientEvent {
     MsgStreamConnect,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Details {
     MsgStreamConnect {
         conversation_type: Option<ConversationType>,
