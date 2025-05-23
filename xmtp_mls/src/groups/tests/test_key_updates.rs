@@ -89,5 +89,6 @@ async fn key_update_out_of_epoch() {
     g.test_can_talk_with(&bo_g).await?;
 
     let key_updates = Events::key_updates(bo.provider.db())?;
+
     assert_eq!(key_updates.len(), 1);
 }
