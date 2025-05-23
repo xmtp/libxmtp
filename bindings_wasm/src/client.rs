@@ -383,10 +383,9 @@ impl Client {
   #[wasm_bindgen(js_name = uploadDebugArchive)]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
     let provider = Arc::new(self.inner_client().mls_provider());
-    Ok(
-      upload_debug_archive(&provider, server_url)
-        .await
-        .map_err(|e| JsError::new(&format!("{e}")))?,
-    )
+
+    upload_debug_archive(&provider, server_url)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))
   }
 }
