@@ -1,8 +1,10 @@
 use super::*;
-use crate::groups::{group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata};
 use openmls::group::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
+use xmtp_mls_common::{
+    group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
+};
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
     group_backup::{

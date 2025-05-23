@@ -1,22 +1,21 @@
-use crate::builder::SyncWorkerMode;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
-use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
-use crate::groups::device_sync::preference_sync::PreferenceSyncService;
-use crate::groups::device_sync::DeviceSyncClient;
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
-use crate::groups::welcome_sync::WelcomeService;
-use crate::groups::{ConversationListItem, DMMetadataOptions};
-use crate::identity_updates::IdentityUpdates;
-use crate::mls_store::{MlsStore, MlsStoreError};
-use crate::utils::VersionInfo;
 use crate::{
+    builder::SyncWorkerMode,
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::preference_sync::PreferenceUpdate, group_metadata::DmMembers,
-        group_permissions::PolicySet, GroupError, GroupMetadataOptions, MlsGroup,
+        device_sync::{
+            handle::{SyncMetric, WorkerHandle},
+            preference_sync::{PreferenceSyncService, PreferenceUpdate},
+            DeviceSyncClient,
+        },
+        group_permissions::PolicySet,
+        welcome_sync::WelcomeService,
+        ConversationListItem, GroupError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
-    identity_updates::{load_identity_updates, IdentityUpdateError},
+    identity_updates::{load_identity_updates, IdentityUpdateError, IdentityUpdates},
+    mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEventError, LocalEvents},
+    utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpApi,
 };
@@ -27,25 +26,27 @@ use tokio::sync::broadcast;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::consent_record::ConsentType;
-use xmtp_db::XmtpDb;
 use xmtp_db::{
-    consent_record::{ConsentState, StoredConsentRecord},
+    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
     group::{GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    NotFound, StorageError,
+    NotFound, StorageError, XmtpDb,
 };
-use xmtp_id::AsIdRef;
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
         AssociationError, AssociationState, Identifier, MemberIdentifier, SignatureError,
     },
     scw_verifier::SmartContractSignatureVerifier,
-    InboxId, InboxIdRef,
+    AsIdRef, InboxId, InboxIdRef,
+};
+use xmtp_mls_common::{
+    group::{DMMetadataOptions, GroupMetadataOptions},
+    group_metadata::DmMembers,
+    group_mutable_metadata::MessageDisappearingSettings,
 };
 use xmtp_proto::api_client::{ApiStats, IdentityStats};
 
@@ -182,7 +183,6 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
-    #[allow(unused)] // TODO: Will be used very soon...
     pub(crate) mode: SyncWorkerMode,
     pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
 }
@@ -889,7 +889,6 @@ pub(crate) mod tests {
     use crate::utils::{LocalTesterBuilder, Tester};
     use crate::{
         builder::ClientBuilder,
-        groups::GroupMetadataOptions,
         hpke::{decrypt_welcome, encrypt_welcome},
         identity::serialize_key_package_hash_ref,
         XmtpApi,
@@ -905,6 +904,7 @@ pub(crate) mod tests {
         schema::identity_updates, ConnectionExt,
     };
     use xmtp_id::associations::test_utils::WalletTestExt;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[xmtp_common::test]
     async fn test_group_member_recovery() {

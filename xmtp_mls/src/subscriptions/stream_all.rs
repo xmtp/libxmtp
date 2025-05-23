@@ -155,10 +155,11 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{assert_msg, builder::ClientBuilder};
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;

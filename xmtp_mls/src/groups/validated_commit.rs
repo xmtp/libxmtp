@@ -1,5 +1,3 @@
-use std::{collections::HashSet, sync::Arc};
-
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -9,6 +7,7 @@ use openmls::{
     treesync::LeafNode,
 };
 use prost::Message;
+use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 #[cfg(doc)]
@@ -23,21 +22,22 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
 use xmtp_db::{StorageError, XmtpDb};
 
 use xmtp_common::{retry::RetryableError, retryable};
-
-use super::{
-    group_membership::{GroupMembership, MembershipDiff},
+use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
         find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
         MetadataField,
     },
+};
+
+use super::{
+    group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
         extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
     },
@@ -784,7 +784,7 @@ pub fn extract_group_membership(
 ) -> Result<GroupMembership, CommitValidationError> {
     for extension in extensions.iter() {
         if let Extension::Unknown(
-            GROUP_MEMBERSHIP_EXTENSION_ID,
+            xmtp_mls_common::config::GROUP_MEMBERSHIP_EXTENSION_ID,
             UnknownExtension(group_membership),
         ) = extension
         {

@@ -7,6 +7,7 @@ use diesel::{
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
 };
+use serde::{Deserialize, Serialize};
 use xmtp_common::fmt;
 
 use super::{
@@ -21,7 +22,7 @@ use crate::{
 pub type ID = i32;
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow, Serialize, Deserialize)]
 #[diesel(sql_type = Integer)]
 pub enum IntentKind {
     SendMessage = 1,

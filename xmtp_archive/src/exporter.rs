@@ -1,17 +1,15 @@
-use super::{export_stream::BatchExportStream, OptionsToSave, BACKUP_VERSION};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::groups::device_sync::DeviceSyncError;
-use crate::{groups::device_sync::NONCE_SIZE, XmtpOpenMlsProvider};
-use aes_gcm::{aead::Aead, aes::Aes256, Aes256Gcm, AesGcm, KeyInit};
+use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+use crate::{ArchiveError, NONCE_SIZE};
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{pin_mut, task::Context, StreamExt};
+use futures::{StreamExt, pin_mut, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::ConnectionExt;
+use xmtp_db::{ConnectionExt, XmtpOpenMlsProvider};
 use xmtp_proto::xmtp::device_sync::{
-    backup_element::Element, BackupElement, BackupMetadataSave, BackupOptions,
+    BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -47,7 +45,7 @@ impl ArchiveExporter {
         provider: XmtpOpenMlsProvider,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), DeviceSyncError> {
+    ) -> Result<(), ArchiveError> {
         let provider = Arc::new(provider);
         let mut exporter = Self::new(options, provider, key);
         exporter.write_to_file(path).await?;
@@ -55,11 +53,7 @@ impl ArchiveExporter {
         Ok(())
     }
 
-    pub(crate) fn new<C>(
-        options: BackupOptions,
-        provider: Arc<XmtpOpenMlsProvider<C>>,
-        key: &[u8],
-    ) -> Self
+    pub fn new<C>(options: BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>, key: &[u8]) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,
     {
@@ -81,7 +75,7 @@ impl ArchiveExporter {
         }
     }
 
-    pub(crate) fn metadata(&self) -> &BackupMetadataSave {
+    pub fn metadata(&self) -> &BackupMetadataSave {
         &self.metadata
     }
 }

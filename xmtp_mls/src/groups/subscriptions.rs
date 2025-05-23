@@ -109,8 +109,9 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_mls_common::group::GroupMetadataOptions;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;

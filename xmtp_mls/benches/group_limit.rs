@@ -7,9 +7,9 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{trace_span, Instrument};
 use xmtp_common::bench::{self, bench_async_setup, BENCH_ROOT_SPAN};
+use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::{
     builder::ClientBuilder,
-    groups::GroupMetadataOptions,
     utils::bench::{create_identities_if_dont_exist, BenchClient, Identity},
 };
 

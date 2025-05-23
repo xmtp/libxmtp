@@ -1,11 +1,11 @@
 mod test_dm;
+mod test_key_updates;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpContextProvider;
-use crate::groups::group_mutable_metadata::MessageDisappearingSettings;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::groups::{
@@ -17,8 +17,6 @@ use crate::{
     groups::{
         build_dm_protected_metadata_extension, build_mutable_metadata_extension_default,
         build_protected_metadata_extension,
-        group_metadata::GroupMetadata,
-        group_mutable_metadata::MetadataField,
         intents::{PermissionPolicyOption, PermissionUpdateType},
         members::{GroupMember, PermissionLevel},
         mls_sync::GroupMessageProcessingError,
@@ -49,6 +47,8 @@ use xmtp_db::{
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::associations::Identifier;
+use xmtp_mls_common::group_metadata::GroupMetadata;
+use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 

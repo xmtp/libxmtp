@@ -3,6 +3,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
+use xmtp_db::client_events::{ClientEvent, ClientEvents};
 
 use crate::{
     client::{Client, DeviceSync},
@@ -186,6 +187,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         // start workers
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
+
+        ClientEvents::track(provider.db(), ClientEvent::ClientBuild);
 
         Ok(client)
     }

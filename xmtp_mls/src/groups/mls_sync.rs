@@ -11,7 +11,7 @@ use super::{
 };
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{
-    client::ClientError, groups::group_mutable_metadata::MetadataField, mls_store::MlsStore,
+    client::ClientError, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
@@ -55,6 +55,7 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
     ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
 };
+use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
