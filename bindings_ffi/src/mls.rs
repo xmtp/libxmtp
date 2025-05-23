@@ -3391,10 +3391,11 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
 
-        let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+        let connection = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
-                .unwrap(),
+                .unwrap();
+        let client = create_client(
+            connection.clone(),
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -3408,23 +3409,30 @@ mod tests {
         .await
         .unwrap();
 
+        let signature_request = client.signature_request().unwrap().clone();
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
         let aggregate_str = client.api_aggregate_statistics();
-        println!("Aggregate Stats:\n{}", aggregate_str);
+        println!("Aggregate Stats Create:\n{}", aggregate_str);
 
         let api_stats = client.api_statistics();
-        assert_eq!(api_stats.upload_key_package, 0);
+        assert_eq!(api_stats.upload_key_package, 1);
         assert_eq!(api_stats.fetch_key_package, 0);
 
         let identity_stats = client.api_identity_statistics();
-        assert_eq!(identity_stats.publish_identity_update, 0);
-        assert_eq!(identity_stats.get_identity_updates_v2, 1);
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert_eq!(identity_stats.get_identity_updates_v2, 3);
         assert_eq!(identity_stats.get_inbox_ids, 1);
         assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
 
         let build = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
+            connection.clone(),
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -3439,7 +3447,7 @@ mod tests {
         .unwrap();
 
         let aggregate_str = build.api_aggregate_statistics();
-        println!("Aggregate Stats:\n{}", aggregate_str);
+        println!("Aggregate Stats Build:\n{}", aggregate_str);
         let api_stats = build.api_statistics();
         assert_eq!(api_stats.upload_key_package, 0);
         assert_eq!(api_stats.fetch_key_package, 0);
