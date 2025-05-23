@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use super::tests::*;
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
 use crate::test::mock::{MockContext, MockProcessFutureFactory};
@@ -12,6 +11,7 @@ use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
+use xmtp_common::types::GroupId;
 use xmtp_common::FutureWrapper;
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
 
@@ -40,7 +40,8 @@ where
     }
 }
 
-fn ready_after<T>(t: T, after: usize) -> ReadyAfter<Ready<T>> {
+/// create a future that will be immediately ready after 'after' times, returning T
+pub fn ready_after<T>(t: T, after: usize) -> ReadyAfter<Ready<T>> {
     ReadyAfter {
         future: future::ready(t),
         after,
@@ -48,7 +49,68 @@ fn ready_after<T>(t: T, after: usize) -> ReadyAfter<Ready<T>> {
     }
 }
 
-fn setup_stream(cases: Vec<MessageTestCase>, stream: &mut MockGroupStream) {
+#[derive(Clone, Debug)]
+pub struct StreamSession {
+    // groups to call add() with
+    pub groups: Vec<GroupTestCase>,
+    // messages coming after the add
+    pub messages: Vec<MessageCase>,
+    // array of expected cursors
+    pub expected: Vec<u64>,
+}
+
+pub fn group_list_from_session(sessions: &[StreamSession]) -> Vec<GroupId> {
+    let first = sessions
+        .iter()
+        .next()
+        .expect("sessions must have at least one init");
+    return first
+        .groups
+        .iter()
+        .copied()
+        .map(|g| group_id(g.group_id))
+        .collect();
+}
+
+impl StreamSession {
+    pub fn messages(&self) -> Vec<MessageCase> {
+        self.messages.clone()
+    }
+
+    pub fn session(groups: Vec<u8>, messages: Vec<MessageCase>, expected: Vec<u64>) -> Self {
+        StreamSession {
+            groups: groups
+                .into_iter()
+                .map(|g| GroupTestCase { group_id: g })
+                .collect(),
+            messages,
+            expected,
+        }
+    }
+}
+
+pub fn group_id(id: u8) -> GroupId {
+    let mut v = vec![id];
+    v.resize(31, 0);
+    GroupId::from(v)
+}
+
+/*
+        /// Message will be processed, and it will be busy for 'busy_for' poll_next calls
+        fn busy_for(cursor: u64, group_id: u8, next_cursor: u64, busy_for: u8) -> Self {
+            Self::message(cursor, group_id, true, next_cursor, false, busy_for)
+        }
+*/
+
+#[derive(Default)]
+pub struct CaseState {
+    pub current_session: usize,
+    pub message_cases: Vec<Vec<MessageCase>>,
+    pub group_cases: Vec<GroupTestCase>,
+    pub sessions: HashMap<usize, StreamSession>,
+}
+
+fn setup_stream(cases: Vec<MessageCase>, stream: &mut MockGroupStream) {
     let mut msg_seq = Sequence::new();
     for case in &cases {
         if case.polls_to_resolve > 1 {
@@ -76,6 +138,72 @@ fn setup_stream(cases: Vec<MessageTestCase>, stream: &mut MockGroupStream) {
     // default value for a stream is to just end it
     // doesn't need to be called necessarily
     stream.expect_poll_next().returning(|_| Poll::Ready(None));
+}
+
+#[derive(Clone, Debug, Copy)]
+pub struct MessageCase {
+    pub cursor: u64,
+    pub group_id: u8,
+    pub found: bool,
+    pub next_cursor: u64,
+    /// whether the message is retrieved from the db
+    pub retrieved: bool,
+    /// amnt of polls that return pending before future resolved
+    pub polls_to_resolve: u8,
+    pub polls_to_process: u8,
+}
+
+impl MessageCase {
+    fn message(
+        cursor: u64,
+        group_id: u8,
+        found: bool,
+        next_cursor: u64,
+        retrieved: bool,
+        polls_to_resolve: u8,
+        polls_to_process: u8,
+    ) -> Self {
+        MessageCase {
+            cursor,
+            group_id,
+            found,
+            next_cursor,
+            retrieved,
+            polls_to_resolve,
+            polls_to_process,
+        }
+    }
+
+    pub fn found(cursor: u64, group_id: u8, next_cursor: u64) -> Self {
+        Self::message(cursor, group_id, true, next_cursor, false, 1, 1)
+    }
+
+    /// The message should be retrieved from the database
+    pub fn retrieved(cursor: u64, group_id: u8, found: bool) -> Self {
+        Self::message(cursor, group_id, found, 9999, true, 1, 1)
+    }
+
+    pub fn not_found(cursor: u64, group_id: u8, next_cursor: u64) -> Self {
+        Self::message(cursor, group_id, false, next_cursor, false, 1, 1)
+    }
+
+    /// Number of polls that a message will be processing for before resolved
+    pub fn processing_for(cursor: u64, group_id: u8, next_cursor: u64, processing_for: u8) -> Self {
+        Self::message(
+            cursor,
+            group_id,
+            true,
+            next_cursor,
+            false,
+            1,
+            processing_for,
+        )
+    }
+}
+
+#[derive(Clone, Debug, Copy, Default)]
+pub struct GroupTestCase {
+    pub group_id: u8,
 }
 
 pub struct StreamSequenceBuilder {
@@ -121,12 +249,12 @@ impl StreamSequenceBuilder {
     }
 
     pub fn session(&mut self, session: StreamSession) {
-        self.add_session(session.clone());
-        match session.clone() {
-            StreamSession::Init { groups, .. } => self.init_session(groups),
-            StreamSession::Session { groups, .. } => {
-                self.create_session(groups);
-            }
+        if self.sessions.is_empty() {
+            self.add_session(session.clone());
+            self.init_session(session.groups.clone())
+        } else {
+            self.add_session(session.clone());
+            self.create_session(session.groups.clone());
         }
         self.init_processing(session);
     }
