@@ -1285,8 +1285,8 @@ pub(crate) mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let provider = client.mls_provider();
 
-        let kp = client.identity().new_key_package(&provider).unwrap();
-        let hpke_public_key = kp.hpke_init_key().as_slice();
+        let kp_result = client.identity().new_key_package(&provider).unwrap();
+        let hpke_public_key = kp_result.key_package.hpke_init_key().as_slice();
         let to_encrypt = vec![1, 2, 3];
 
         // Encryption doesn't require any details about the sender, so we can test using one client

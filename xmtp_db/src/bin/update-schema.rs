@@ -29,8 +29,12 @@ const DIESEL_TOML: &str = "diesel.toml";
 /// Notes:
 /// - there is not great handling around tmp database cleanup in error cases.
 /// - https://github.com/diesel-rs/diesel/issues/852 -> BigInts are weird.
-fn main() {
-    update_schemas_encrypted_message_store().unwrap();
+#[tokio::main]
+async fn main() {
+    match update_schemas_encrypted_message_store() {
+        Ok(_) => println!("Schema updated successfully"),
+        Err(e) => panic!("{:?}", e),
+    }
 }
 
 fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
@@ -44,8 +48,9 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
         let db = NativeDb::new_unencrypted(&StorageOption::Persistent(tmp_db.clone())).unwrap();
         let _ = EncryptedMessageStore::new(db).unwrap();
     }
+    let toml_output = parse_diesel_toml().unwrap();
 
-    let diesel_result = exec_diesel(&tmp_db);
+    let diesel_result = exec_diesel(&tmp_db, &toml_output.patch_file_path);
     if let Err(e) = fs::remove_file(tmp_db) {
         println!("Error Deleting Tmp DB: {}", e);
     }
@@ -90,19 +95,18 @@ fn get_schema_path() -> Result<PathBuf, std::io::Error> {
     Ok(Path::new(manifest).join(schema_file_path))
 }
 
-fn exec_diesel(db: &str) -> Result<Vec<u8>, String> {
-    let schema_defs = Command::new("diesel")
-        .args(["print-schema", "--database-url", db])
-        .output()
-        .expect("failed to execute process");
+fn exec_diesel(db: &str, patch_file_path: &str) -> Result<Vec<u8>, String> {
+    let output = get_command_output(
+        "diesel",
+        &[
+            "print-schema",
+            "--database-url",
+            db,
+            "--patch-file",
+            patch_file_path,
+        ],
+    )
+    .expect("command failed");
 
-    if !schema_defs.status.success() {
-        return Err(format!(
-            "Diesel-CLI failed to execute {} - {}",
-            schema_defs.status.code().unwrap(),
-            String::from_utf8(schema_defs.stderr).unwrap()
-        ));
-    }
-
-    Ok(schema_defs.stdout)
+    Ok(output)
 }
