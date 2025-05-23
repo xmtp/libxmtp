@@ -52,6 +52,7 @@ use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
 use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
@@ -767,6 +768,12 @@ impl FfiXmtpClient {
             .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
     }
+
+    /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
+    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
+        let provider = Arc::new(self.inner_client.mls_provider());
+        Ok(upload_debug_archive(&provider, server_url).await?)
+    }
 }
 
 fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, GenericError> {
@@ -847,13 +854,13 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     type Error = DeserializationError;
     fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
         let v = match value {
-            BackupElementSelection::Unspecified => {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+            _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
                 ))
             }
-            BackupElementSelection::Consent => Self::Consent,
-            BackupElementSelection::Messages => Self::Messages,
         };
         Ok(v)
     }

@@ -19,8 +19,8 @@ use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents},
     db_connection::DbConnection,
+    events::{Details, Event, Events},
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
 };
@@ -108,16 +108,15 @@ where
             should_push,
         ))?;
 
-        ClientEvents::track(
-            conn,
-            &ClientEvent::QueueIntent {
-                group_id: self.group_id.clone(),
-                intent_kind,
-            },
-        );
-
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
+
+            Events::track(
+                conn,
+                Some(self.group_id.clone()),
+                &Event::QueueIntent,
+                Some(Details::QueueIntent { intent_kind }),
+            );
         }
         tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 

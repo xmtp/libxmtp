@@ -438,42 +438,9 @@ where
         let exporter = ArchiveExporter::new(options, provider.clone(), &key);
         let metadata = exporter.metadata().clone();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let body = {
-            // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
-            let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(exporter);
-            // 3. Add a stream layer over the async read
-            let stream = tokio_util::io::ReaderStream::new(exporter_compat);
-            // 4. Pipe that stream as the body to the request to the history server
-            reqwest::Body::wrap_stream(stream)
-        };
-        #[cfg(target_arch = "wasm32")]
-        let body = {
-            use futures::AsyncReadExt;
-            // Make exporter mutable
-            let mut exporter = exporter;
-
-            // Wasm does not support stream uploads. So we'll just consume the stream into a vec.
-            let mut buffer = Vec::new();
-            exporter.read_to_end(&mut buffer).await?;
-            buffer
-        };
-
         // 5. Make the request
         let url = format!("{device_sync_server_url}/upload");
-        tracing::info!("Uploading sync payload to history server...");
-        let response = reqwest::Client::new().post(url).body(body).send().await?;
-        tracing::info!("Done uploading sync payload to history server.");
-
-        if let Err(err) = response.error_for_status_ref() {
-            tracing::error!(
-                inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.context.installation_public_key()),
-                "Failed to upload file. Status code: {:?}",
-                err.status()
-            );
-            return Err(DeviceSyncError::Reqwest(err));
-        }
+        let response = exporter.post_to_url(&url).await?;
 
         // Build a sync reply message that the new installation will consume
         let reply = DeviceSyncReplyProto {
@@ -481,7 +448,7 @@ where
                 key: Some(Key::Aes256Gcm(key)),
             }),
             request_id,
-            url: format!("{device_sync_server_url}/files/{}", response.text().await?),
+            url: format!("{device_sync_server_url}/files/{response}",),
             metadata: Some(metadata),
 
             // Deprecated fields

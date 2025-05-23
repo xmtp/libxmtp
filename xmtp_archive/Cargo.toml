@@ -12,6 +12,9 @@ futures-util.workspace = true
 openmls.workspace = true
 openmls_traits.workspace = true
 prost.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

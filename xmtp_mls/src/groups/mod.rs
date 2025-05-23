@@ -70,7 +70,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
-use xmtp_db::client_events::{ClientEvent, ClientEvents};
+use xmtp_db::events::{Details, Event, Events};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -508,12 +508,21 @@ where
         stored_group.store(provider.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id,
+            group_id.clone(),
             stored_group.dm_id.clone(),
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
+
+        Events::track(
+            provider.db(),
+            Some(group_id),
+            Event::GroupCreate,
+            Details::GroupCreate {
+                conversation_type: ConversationType::Dm,
+            },
+        );
         Ok(new_group)
     }
 
@@ -686,7 +695,15 @@ where
 
             let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
-            ClientEvents::track(db, ClientEvent::WelcomedIntoGroup { group_id: stored_group.id.clone(), conversation_type: stored_group.conversation_type, added_by_inbox_id: stored_group.added_by_inbox_id.clone() });
+            Events::track(
+                db,
+                Some(stored_group.id.clone()),
+                Event::GroupWelcome,
+                Some(Details::GroupWelcome  {
+                    conversation_type: stored_group.conversation_type,
+                    added_by_inbox_id: stored_group.added_by_inbox_id.clone()
+                })
+            );
 
             Ok(Self::new(
                 context,
@@ -971,6 +988,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+
+        Events::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            Event::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: ids.into_iter().map(String::from).collect(),
+                removed: vec![],
+            },
+        );
         ok_result
     }
 
@@ -1020,6 +1047,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        Events::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            Event::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: vec![],
+                removed: inbox_ids.iter().map(|&id| String::from(id)).collect(),
+            },
+        );
         Ok(())
     }
 

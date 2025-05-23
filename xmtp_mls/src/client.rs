@@ -30,7 +30,8 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{GroupMembershipState, GroupQueryArgs},
+    events::{Details, Event, Events},
+    group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     NotFound, StorageError, XmtpDb,
@@ -486,6 +487,15 @@ where
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
+
+        Events::track(
+            self.mls_provider().db(),
+            Some(group.group_id.clone()),
+            Event::GroupCreate,
+            Details::GroupCreate {
+                conversation_type: ConversationType::Group,
+            },
+        );
 
         Ok(group)
     }

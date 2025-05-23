@@ -53,6 +53,40 @@ impl ArchiveExporter {
         Ok(())
     }
 
+    pub async fn post_to_url(self, url: &str) -> Result<String, ArchiveError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let body = {
+            // 2. A compat layer to have futures AsyncRead play nice with tokio's AsyncRead
+            let exporter_compat = tokio_util::compat::FuturesAsyncReadCompatExt::compat(self);
+            // 3. Add a stream layer over the async read
+            let stream = tokio_util::io::ReaderStream::new(exporter_compat);
+            // 4. Pipe that stream as the body to the request to the history server
+            reqwest::Body::wrap_stream(stream)
+        };
+        #[cfg(target_arch = "wasm32")]
+        let body = {
+            use futures::AsyncReadExt;
+            // Make exporter mutable
+            let mut exporter = self;
+
+            // Wasm does not support stream uploads. So we'll just consume the stream into a vec.
+            let mut buffer = Vec::new();
+            exporter.read_to_end(&mut buffer).await?;
+            buffer
+        };
+
+        tracing::info!("Uploading sync payload to history server...");
+        let response = reqwest::Client::new().post(url).body(body).send().await?;
+        tracing::info!("Done uploading sync payload to history server.");
+
+        if let Err(err) = response.error_for_status_ref() {
+            tracing::error!("Failed to upload file. Status code: {:?}", err.status());
+            return Err(ArchiveError::Reqwest(err));
+        }
+
+        Ok(response.text().await?)
+    }
+
     pub fn new<C>(options: BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>, key: &[u8]) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,

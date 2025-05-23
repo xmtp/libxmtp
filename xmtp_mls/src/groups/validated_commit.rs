@@ -7,6 +7,7 @@ use openmls::{
     treesync::LeafNode,
 };
 use prost::Message;
+use serde::Serialize;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
@@ -108,7 +109,7 @@ impl RetryableError for CommitValidationError {
     }
 }
 
-#[derive(Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Hash, Serialize)]
 pub struct CommitParticipant {
     pub inbox_id: String,
     pub installation_id: Vec<u8>,
@@ -173,7 +174,7 @@ impl CommitParticipant {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct MutableMetadataValidationInfo {
     pub metadata_field_changes: Vec<MetadataFieldChange>,
     pub admins_added: Vec<Inbox>,
@@ -195,7 +196,7 @@ impl MutableMetadataValidationInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Inbox {
     pub inbox_id: String,
     #[allow(dead_code)]
@@ -204,7 +205,7 @@ pub struct Inbox {
     pub is_super_admin: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MetadataFieldChange {
     pub field_name: String,
     #[allow(dead_code)]
@@ -288,7 +289,7 @@ impl LibXMTPVersion {
  * 7. New installations may be missing from the commit but still be present in the expected diff.
  * 8. Confirms metadata character limit is not exceeded
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ValidatedCommit {
     pub actor: CommitParticipant,
     pub added_inboxes: Vec<Inbox>,

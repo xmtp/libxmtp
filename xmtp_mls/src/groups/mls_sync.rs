@@ -47,6 +47,7 @@ use crate::{
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
+    events::{Details, Event, Events},
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -588,7 +589,7 @@ where
             hex::encode(self.group_id.clone()),
             intent.id,
             intent.kind,
-            message_epoch
+            message_epoch.clone()
         );
 
         if let Some((staged_commit, validated_commit)) = commit {
@@ -601,8 +602,22 @@ where
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             } else {
+                Events::track(
+                    provider.db(),
+                    Some(envelope.group_id.clone()),
+                    Event::EpochChange,
+                    Some(Details::EpochChange {
+                        cursor: *cursor as i64,
+                        prev_epoch: message_epoch.as_u64() as i64,
+                        new_epoch: mls_group.epoch().as_u64() as i64,
+                        validated_commit: Some(&validated_commit)
+                            .and_then(|c| serde_json::to_string_pretty(c).ok()),
+                    }),
+                );
+
                 // If no error committing the change, write a transcript message
                 let msg = self.save_transcript_message(validated_commit, envelope_timestamp_ns)?;
+
                 return Ok((IntentState::Committed, msg.map(|m| m.id)));
             }
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
@@ -728,10 +743,21 @@ where
                 mls_group,
                 processed_message,
                 envelope,
-                validated_commit,
+                validated_commit.clone(),
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
+                Events::track(
+                    provider.db(),
+                    Some(envelope.group_id.clone()),
+                    Event::EpochChange,
+                    Some(Details::EpochChange {
+                        cursor: *cursor as i64,
+                        prev_epoch: previous_epoch as i64,
+                        new_epoch: new_epoch as i64,
+                        validated_commit: validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
+                    })
+                );
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
                     self.context.inbox_id(),
