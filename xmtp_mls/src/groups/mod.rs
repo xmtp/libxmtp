@@ -57,7 +57,7 @@ use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::SendMessageIntentData;
-use mls_ext::DecryptedWelcome;
+use mls_ext::{DecryptedWelcome, UnwrapWelcomeError, WrapWelcomeError};
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,
@@ -570,6 +570,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             );
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
@@ -589,6 +590,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             )?;
             let DecryptedWelcome {
                 staged_welcome,
