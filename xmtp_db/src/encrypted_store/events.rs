@@ -1,33 +1,33 @@
 use super::{
     ConnectionExt, DbConnection, consent_record::ConsentState, group::ConversationType,
-    group_intent::IntentKind, schema::client_events::dsl,
+    group_intent::IntentKind, schema::events::dsl,
 };
-use crate::{Store, impl_store, schema::client_events};
+use crate::{Store, impl_store, schema::events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
-#[diesel(table_name = client_events)]
+#[diesel(table_name = events)]
 #[diesel(primary_key(created_at_ns))]
-pub struct ClientEvents {
+pub struct Events {
     pub created_at_ns: i64,
     pub group_id: Option<Vec<u8>>,
     pub event: String,
     pub details: serde_json::Value,
 }
 
-impl_store!(ClientEvents, client_events);
+impl_store!(Events, events);
 
 pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
 
-impl ClientEvents {
+impl Events {
     #[allow(invalid_type_param_default)]
     pub fn track<C: ConnectionExt>(
         db: &DbConnection<C>,
         group_id: Option<Vec<u8>>,
-        event: impl AsRef<ClientEvent>,
+        event: impl AsRef<Event>,
         details: impl Serialize,
     ) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
@@ -52,7 +52,7 @@ impl ClientEvents {
             }
         };
 
-        let result = ClientEvents {
+        let result = Events {
             created_at_ns: now_ns(),
             group_id,
             event,
@@ -65,7 +65,7 @@ impl ClientEvents {
         }
 
         // Clear old events on build.
-        if matches!(client_event, ClientEvent::ClientBuild) {
+        if matches!(client_event, Event::ClientBuild) {
             if let Err(err) = Self::clear_old_events(db) {
                 tracing::warn!("ClientEvents clear old events: {err:?}");
             }
@@ -76,16 +76,14 @@ impl ClientEvents {
         db: &DbConnection<C>,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
-            diesel::delete(
-                dsl::client_events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_30_DAYS)),
-            )
-            .execute(db)?;
+            diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_30_DAYS)))
+                .execute(db)?;
             Ok(())
         })
     }
 
     pub fn all_events(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
-        Ok(db.raw_query_read(|db| dsl::client_events.load(db))?)
+        Ok(db.raw_query_read(|db| dsl::events.load(db))?)
     }
 
     pub fn all_events_paged<C: ConnectionExt>(
@@ -93,7 +91,7 @@ impl ClientEvents {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Self>, crate::ConnectionError> {
-        let query = dsl::client_events::table()
+        let query = dsl::events::table()
             .order_by(dsl::created_at_ns.asc())
             .limit(limit)
             .offset(offset);
@@ -102,17 +100,17 @@ impl ClientEvents {
 
     pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
         Ok(db.raw_query_read(|db| {
-            let query = dsl::client_events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+            let query = dsl::events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "jsonb_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
             ));
 
-            query.load::<ClientEvents>(db)
+            query.load::<Events>(db)
         })?)
     }
 }
 
 #[derive(Debug, Serialize)]
-pub enum ClientEvent {
+pub enum Event {
     ClientBuild,
     QueueIntent,
     EpochChange,
@@ -150,8 +148,8 @@ pub enum Details {
     },
 }
 
-impl AsRef<ClientEvent> for ClientEvent {
-    fn as_ref(&self) -> &ClientEvent {
+impl AsRef<Event> for Event {
+    fn as_ref(&self) -> &Event {
         self
     }
 }
@@ -163,7 +161,7 @@ mod tests {
 
     use crate::{
         Store,
-        client_events::{ClientEvent, ClientEvents, Details},
+        events::{Details, Event, Events},
         group_intent::IntentKind,
         with_connection,
     };
@@ -173,28 +171,28 @@ mod tests {
     async fn clear_old_events() {
         with_connection(|conn| {
             let details: HashMap<String, String> = HashMap::default();
-            ClientEvents {
+            Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&ClientEvent::ClientBuild)?,
+                event: serde_json::to_string(&Event::ClientBuild)?,
                 details: serde_json::to_value(details.clone())?,
             }
             .store(conn)?;
-            ClientEvents {
+            Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&ClientEvent::QueueIntent)?,
+                event: serde_json::to_string(&Event::QueueIntent)?,
                 details: serde_json::to_value(Details::QueueIntent {
                     intent_kind: IntentKind::KeyUpdate,
                 })?,
             }
             .store(conn)?;
 
-            let all = ClientEvents::all_events(conn)?;
+            let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            ClientEvents::track(conn, None, ClientEvent::ClientBuild, Some(details));
-            let all = ClientEvents::all_events(conn)?;
+            Events::track(conn, None, Event::ClientBuild, Some(details));
+            let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 1);
         })
         .await;

@@ -13,7 +13,7 @@ pub async fn upload_debug_archive(
     let device_sync_server_url = device_sync_server_url.as_ref();
 
     let options = BackupOptions {
-        elements: vec![BackupElementSelection::ClientEvent as i32],
+        elements: vec![BackupElementSelection::Event as i32],
         ..Default::default()
     };
 
@@ -35,7 +35,7 @@ mod tests {
 
     use xmtp_mls_common::group::GroupMetadataOptions;
 
-    use crate::{tester, utils::client_events::upload_debug_archive};
+    use crate::{tester, utils::events::upload_debug_archive};
 
     #[xmtp_common::test(unwrap_try = "true")]
     #[ignore]

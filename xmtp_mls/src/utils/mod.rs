@@ -8,7 +8,7 @@ pub mod test;
 #[cfg(any(test, feature = "test-utils"))]
 pub use self::test::*;
 
-pub mod client_events;
+pub mod events;
 
 pub mod hash {
     pub use xmtp_cryptography::hash::sha256_bytes as sha256;

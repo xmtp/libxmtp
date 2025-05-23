@@ -3,7 +3,7 @@ use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
-use xmtp_db::client_events::{ClientEvent, ClientEvents, EVENTS_ENABLED};
+use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
 
 use crate::{
     client::{Client, DeviceSync},
@@ -196,7 +196,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
 
-        ClientEvents::track(provider.db(), None, ClientEvent::ClientBuild, ());
+        Events::track(provider.db(), None, Event::ClientBuild, ());
 
         Ok(client)
     }
@@ -357,7 +357,7 @@ pub(crate) mod tests {
     use xmtp_api::test_utils::*;
     use xmtp_api::ApiClientWrapper;
     use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
-    use xmtp_db::client_events::ClientEvents;
+    use xmtp_db::events::Events;
     use xmtp_db::XmtpDb;
     use xmtp_db::XmtpTestDb;
     use xmtp_db::{identity::StoredIdentity, Store};
@@ -597,7 +597,7 @@ pub(crate) mod tests {
             .await?;
 
         let provider = client.mls_provider();
-        let events = ClientEvents::all_events(provider.db())?;
+        let events = Events::all_events(provider.db())?;
 
         // No events should be logged if telemetry is turned off.
         assert!(events.is_empty());

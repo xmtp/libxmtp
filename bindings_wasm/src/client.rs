@@ -15,7 +15,7 @@ use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
-use xmtp_mls::utils::client_events::upload_debug_archive;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 

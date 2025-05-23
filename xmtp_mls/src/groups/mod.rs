@@ -70,7 +70,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
-use xmtp_db::client_events::{ClientEvent, ClientEvents, Details};
+use xmtp_db::events::{Details, Event, Events};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -515,10 +515,10 @@ where
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
 
-        ClientEvents::track(
+        Events::track(
             provider.db(),
             Some(group_id),
-            ClientEvent::GroupCreate,
+            Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Dm,
             },
@@ -695,10 +695,10 @@ where
 
             let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
-            ClientEvents::track(
+            Events::track(
                 db,
                 Some(stored_group.id.clone()),
-                ClientEvent::GroupWelcome,
+                Event::GroupWelcome,
                 Some(Details::GroupWelcome  {
                     conversation_type: stored_group.conversation_type,
                     added_by_inbox_id: stored_group.added_by_inbox_id.clone()
@@ -989,10 +989,10 @@ where
 
         self.sync_until_intent_resolved(intent.id).await?;
 
-        ClientEvents::track(
+        Events::track(
             self.mls_provider().db(),
             Some(self.group_id.clone()),
-            ClientEvent::GroupMembershipChange,
+            Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: ids.into_iter().map(String::from).collect(),
                 removed: vec![],
@@ -1048,10 +1048,10 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
-        ClientEvents::track(
+        Events::track(
             self.mls_provider().db(),
             Some(self.group_id.clone()),
-            ClientEvent::GroupMembershipChange,
+            Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: vec![],
                 removed: inbox_ids.into_iter().map(|&id| String::from(id)).collect(),

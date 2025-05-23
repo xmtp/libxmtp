@@ -11,7 +11,7 @@ use crate::{
 };
 
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, Details},
+    events::{Details, Event, Events},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -62,10 +62,10 @@ where
             let provider = context.mls_provider();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
 
-            ClientEvents::track(
+            Events::track(
                 provider.db(),
                 None,
-                ClientEvent::MsgStreamConnect,
+                Event::MsgStreamConnect,
                 Some(Details::MsgStreamConnect {
                     conversation_type: conversation_type.clone(),
                     consent_states: consent_states.clone(),

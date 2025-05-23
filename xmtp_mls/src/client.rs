@@ -27,10 +27,10 @@ use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, Details},
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
+    events::{Details, Event, Events},
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -488,10 +488,10 @@ where
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
-        ClientEvents::track(
+        Events::track(
             self.mls_provider().db(),
             Some(group.group_id.clone()),
-            ClientEvent::GroupCreate,
+            Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Group,
             },

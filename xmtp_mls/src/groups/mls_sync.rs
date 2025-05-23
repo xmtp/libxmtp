@@ -47,7 +47,7 @@ use crate::{
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, Details},
+    events::{Details, Event, Events},
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -602,10 +602,10 @@ where
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             } else {
-                ClientEvents::track(
+                Events::track(
                     provider.db(),
                     Some(envelope.group_id.clone()),
-                    ClientEvent::EpochChange,
+                    Event::EpochChange,
                     Some(Details::EpochChange {
                         cursor: *cursor as i64,
                         prev_epoch: message_epoch.as_u64() as i64,
@@ -747,10 +747,10 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                ClientEvents::track(
+                Events::track(
                     provider.db(),
                     Some(envelope.group_id.clone()),
-                    ClientEvent::EpochChange,
+                    Event::EpochChange,
                     Some(Details::EpochChange {
                         cursor: *cursor as i64,
                         prev_epoch: previous_epoch as i64,
