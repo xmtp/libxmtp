@@ -5,7 +5,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_db::XmtpOpenMlsProvider;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
-pub async fn upload_debug_package(
+pub async fn upload_debug_archive(
     provider: &Arc<XmtpOpenMlsProvider>,
     device_sync_server_url: impl AsRef<str>,
 ) -> Result<String, DeviceSyncError> {
@@ -35,9 +35,10 @@ mod tests {
 
     use xmtp_mls_common::group::GroupMetadataOptions;
 
-    use crate::{tester, utils::client_events::upload_debug_package};
+    use crate::{tester, utils::client_events::upload_debug_archive};
 
     #[xmtp_common::test(unwrap_try = "true")]
+    #[ignore]
     async fn test_debug_pkg() {
         tester!(alix, stream);
         tester!(bo);
@@ -76,7 +77,7 @@ mod tests {
 
         g.sync().await?;
 
-        let key = upload_debug_package(&alix.provider, "http://localhost:5559").await?;
+        let key = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
         tracing::info!("{key}");
     }
 }

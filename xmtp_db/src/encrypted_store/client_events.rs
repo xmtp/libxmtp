@@ -118,6 +118,7 @@ pub enum ClientEvent {
     EpochChange,
     GroupWelcome,
     GroupCreate,
+    GroupMembershipChange,
     MsgStreamConnect,
 }
 
@@ -136,7 +137,10 @@ pub enum Details {
     },
     GroupCreate {
         conversation_type: ConversationType,
-        initial_members: Vec<String>,
+    },
+    GroupMembershipChange {
+        added: Vec<String>,
+        removed: Vec<String>,
     },
     EpochChange {
         prev_epoch: i64,

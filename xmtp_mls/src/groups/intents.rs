@@ -108,15 +108,15 @@ where
             should_push,
         ))?;
 
-        ClientEvents::track(
-            conn,
-            Some(self.group_id.clone()),
-            &ClientEvent::QueueIntent,
-            Some(Details::QueueIntent { intent_kind }),
-        );
-
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
+
+            ClientEvents::track(
+                conn,
+                Some(self.group_id.clone()),
+                &ClientEvent::QueueIntent,
+                Some(Details::QueueIntent { intent_kind }),
+            );
         }
         tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
 

@@ -508,12 +508,21 @@ where
         stored_group.store(provider.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id,
+            group_id.clone(),
             stored_group.dm_id.clone(),
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
+
+        ClientEvents::track(
+            provider.db(),
+            Some(group_id),
+            ClientEvent::GroupCreate,
+            Details::GroupCreate {
+                conversation_type: ConversationType::Dm,
+            },
+        );
         Ok(new_group)
     }
 
@@ -979,6 +988,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+
+        ClientEvents::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            ClientEvent::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: ids.into_iter().map(String::from).collect(),
+                removed: vec![],
+            },
+        );
         ok_result
     }
 
@@ -1028,6 +1047,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        ClientEvents::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            ClientEvent::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: vec![],
+                removed: inbox_ids.into_iter().map(|&id| String::from(id)).collect(),
+            },
+        );
         Ok(())
     }
 

@@ -27,10 +27,11 @@ use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{
+    client_events::{ClientEvent, ClientEvents, Details},
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    group::{GroupMembershipState, GroupQueryArgs},
+    group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     NotFound, StorageError, XmtpDb,
@@ -486,6 +487,15 @@ where
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
+
+        ClientEvents::track(
+            self.mls_provider().db(),
+            Some(group.group_id.clone()),
+            ClientEvent::GroupCreate,
+            Details::GroupCreate {
+                conversation_type: ConversationType::Group,
+            },
+        );
 
         Ok(group)
     }
