@@ -770,12 +770,9 @@ impl FfiXmtpClient {
     }
 
     /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
-    pub async fn upload_debug_archive(
-        &self,
-        device_sync_server_url: String,
-    ) -> Result<String, GenericError> {
+    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
         let provider = Arc::new(self.inner_client.mls_provider());
-        Ok(upload_debug_archive(&provider, device_sync_server_url).await?)
+        Ok(upload_debug_archive(&provider, server_url).await?)
     }
 }
 
