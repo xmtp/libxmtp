@@ -1054,7 +1054,7 @@ where
             Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: vec![],
-                removed: inbox_ids.into_iter().map(|&id| String::from(id)).collect(),
+                removed: inbox_ids.iter().map(|&id| String::from(id)).collect(),
             },
         );
         Ok(())

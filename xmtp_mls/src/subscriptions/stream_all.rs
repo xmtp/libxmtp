@@ -67,7 +67,7 @@ where
                 None,
                 Event::MsgStreamConnect,
                 Some(Details::MsgStreamConnect {
-                    conversation_type: conversation_type.clone(),
+                    conversation_type,
                     consent_states: consent_states.clone(),
                 }),
             );
