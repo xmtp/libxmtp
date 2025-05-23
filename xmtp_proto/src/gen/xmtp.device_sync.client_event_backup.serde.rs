@@ -10,6 +10,9 @@ impl serde::Serialize for ClientEventSave {
         if self.created_at_ns != 0 {
             len += 1;
         }
+        if !self.event.is_empty() {
+            len += 1;
+        }
         if !self.details.is_empty() {
             len += 1;
         }
@@ -21,6 +24,9 @@ impl serde::Serialize for ClientEventSave {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("createdAtNs", ToString::to_string(&self.created_at_ns).as_str())?;
+        }
+        if !self.event.is_empty() {
+            struct_ser.serialize_field("event", &self.event)?;
         }
         if !self.details.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -44,6 +50,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
         const FIELDS: &[&str] = &[
             "created_at_ns",
             "createdAtNs",
+            "event",
             "details",
             "group_id",
             "groupId",
@@ -52,6 +59,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CreatedAtNs,
+            Event,
             Details,
             GroupId,
         }
@@ -76,6 +84,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                     {
                         match value {
                             "createdAtNs" | "created_at_ns" => Ok(GeneratedField::CreatedAtNs),
+                            "event" => Ok(GeneratedField::Event),
                             "details" => Ok(GeneratedField::Details),
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -98,6 +107,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut created_at_ns__ = None;
+                let mut event__ = None;
                 let mut details__ = None;
                 let mut group_id__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -109,6 +119,12 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                             created_at_ns__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::Event => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("event"));
+                            }
+                            event__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Details => {
                             if details__.is_some() {
@@ -130,6 +146,7 @@ impl<'de> serde::Deserialize<'de> for ClientEventSave {
                 }
                 Ok(ClientEventSave {
                     created_at_ns: created_at_ns__.unwrap_or_default(),
+                    event: event__.unwrap_or_default(),
                     details: details__.unwrap_or_default(),
                     group_id: group_id__,
                 })

@@ -11,7 +11,7 @@ use crate::{
 };
 
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, EvtMsgStreamConnect},
+    client_events::{ClientEvent, ClientEvents, Details},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -65,7 +65,8 @@ where
             ClientEvents::track(
                 provider.db(),
                 None,
-                ClientEvent::MsgStreamConnect(EvtMsgStreamConnect {
+                ClientEvent::MsgStreamConnect,
+                Some(Details::MsgStreamConnect {
                     conversation_type: conversation_type.clone(),
                     consent_states: consent_states.clone(),
                 }),

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{Store, impl_store, schema::client_events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
@@ -14,6 +14,7 @@ use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 pub struct ClientEvents {
     pub created_at_ns: i64,
     pub group_id: Option<Vec<u8>>,
+    pub event: String,
     pub details: serde_json::Value,
 }
 
@@ -22,21 +23,31 @@ impl_store!(ClientEvents, client_events);
 pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
 
 impl ClientEvents {
+    #[allow(invalid_type_param_default)]
     pub fn track<C: ConnectionExt>(
         db: &DbConnection<C>,
         group_id: Option<Vec<u8>>,
         event: impl AsRef<ClientEvent>,
+        details: impl Serialize,
     ) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
             return;
         }
 
-        let event = event.as_ref();
+        let client_event = event.as_ref();
 
-        let details = match serde_json::to_value(event) {
-            Ok(details) => details,
+        let event = match serde_json::to_string(client_event) {
+            Ok(event) => event,
             Err(err) => {
                 tracing::warn!("ClientEvents: unable to serialize event. {err:?}");
+                return;
+            }
+        };
+
+        let serialized_details = match serde_json::to_value(details) {
+            Ok(details) => details,
+            Err(err) => {
+                tracing::warn!("ClientEvents: unable to serialize details. {err:?}");
                 return;
             }
         };
@@ -44,7 +55,8 @@ impl ClientEvents {
         let result = ClientEvents {
             created_at_ns: now_ns(),
             group_id,
-            details,
+            event,
+            details: serialized_details,
         }
         .store(db);
         if let Err(err) = result {
@@ -53,7 +65,7 @@ impl ClientEvents {
         }
 
         // Clear old events on build.
-        if matches!(event, ClientEvent::ClientBuild) {
+        if matches!(client_event, ClientEvent::ClientBuild) {
             if let Err(err) = Self::clear_old_events(db) {
                 tracing::warn!("ClientEvents clear old events: {err:?}");
             }
@@ -99,38 +111,39 @@ impl ClientEvents {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub enum ClientEvent {
     ClientBuild,
-    Generic(String),
-    QueueIntent(EvtQueueIntent),
-    EpochChange(EvtEpochChange),
-    GroupWelcome(EvtGroupWelcome),
-    MsgStreamConnect(EvtMsgStreamConnect),
+    QueueIntent,
+    EpochChange,
+    GroupWelcome,
+    GroupCreate,
+    MsgStreamConnect,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EvtMsgStreamConnect {
-    pub conversation_type: Option<ConversationType>,
-    pub consent_states: Option<Vec<ConsentState>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EvtQueueIntent {
-    pub intent_kind: IntentKind,
-}
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EvtGroupWelcome {
-    pub conversation_type: ConversationType,
-    pub added_by_inbox_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EvtEpochChange {
-    pub prev_epoch: i64,
-    pub new_epoch: i64,
-    pub cursor: i64,
-    pub validated_commit: Option<String>,
+#[derive(Debug, Serialize)]
+pub enum Details {
+    MsgStreamConnect {
+        conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
+    },
+    QueueIntent {
+        intent_kind: IntentKind,
+    },
+    GroupWelcome {
+        conversation_type: ConversationType,
+        added_by_inbox_id: String,
+    },
+    GroupCreate {
+        conversation_type: ConversationType,
+        initial_members: Vec<String>,
+    },
+    EpochChange {
+        prev_epoch: i64,
+        new_epoch: i64,
+        cursor: i64,
+        validated_commit: Option<String>,
+    },
 }
 
 impl AsRef<ClientEvent> for ClientEvent {
@@ -142,9 +155,11 @@ impl AsRef<ClientEvent> for ClientEvent {
 #[cfg(test)]
 mod tests {
 
+    use std::collections::HashMap;
+
     use crate::{
         Store,
-        client_events::{ClientEvent, ClientEvents, EvtQueueIntent},
+        client_events::{ClientEvent, ClientEvents, Details},
         group_intent::IntentKind,
         with_connection,
     };
@@ -153,25 +168,28 @@ mod tests {
     // A client build event should clear old events.
     async fn clear_old_events() {
         with_connection(|conn| {
+            let details: HashMap<String, String> = HashMap::default();
             ClientEvents {
                 created_at_ns: 0,
                 group_id: None,
-                details: serde_json::to_value(ClientEvent::ClientBuild)?,
+                event: serde_json::to_string(&ClientEvent::ClientBuild)?,
+                details: serde_json::to_value(details.clone())?,
             }
             .store(conn)?;
             ClientEvents {
                 created_at_ns: 0,
                 group_id: None,
-                details: serde_json::to_value(ClientEvent::QueueIntent(EvtQueueIntent {
+                event: serde_json::to_string(&ClientEvent::QueueIntent)?,
+                details: serde_json::to_value(Details::QueueIntent {
                     intent_kind: IntentKind::KeyUpdate,
-                }))?,
+                })?,
             }
             .store(conn)?;
 
             let all = ClientEvents::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            ClientEvents::track(conn, None, ClientEvent::ClientBuild);
+            ClientEvents::track(conn, None, ClientEvent::ClientBuild, Some(details));
             let all = ClientEvents::all_events(conn)?;
             assert_eq!(all.len(), 1);
         })

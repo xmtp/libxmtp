@@ -22,12 +22,15 @@ impl BackupRecordProvider for ClientEventSave {
 
         let records = batch
             .into_iter()
-            .map(|r| BackupElement {
-                element: Some(Element::ClientEvent(ClientEventSave {
-                    created_at_ns: r.created_at_ns,
-                    group_id: r.group_id,
-                    details: serde_json::to_vec(&r.details).unwrap(),
-                })),
+            .filter_map(|r| {
+                Some(BackupElement {
+                    element: Some(Element::ClientEvent(ClientEventSave {
+                        created_at_ns: r.created_at_ns,
+                        group_id: r.group_id,
+                        event: r.event,
+                        details: serde_json::to_vec(&r.details).ok()?,
+                    })),
+                })
             })
             .collect();
 

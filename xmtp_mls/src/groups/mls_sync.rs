@@ -47,7 +47,7 @@ use crate::{
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, EvtEpochChange},
+    client_events::{ClientEvent, ClientEvents, Details},
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -736,14 +736,14 @@ where
                 ClientEvents::track(
                     provider.db(),
                     Some(envelope.group_id.clone()),
-                    ClientEvent::EpochChange(
-                        EvtEpochChange {
-                            cursor: *cursor as i64,
-                            prev_epoch: previous_epoch as i64,
-                            new_epoch: new_epoch as i64,
-                            validated_commit: validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
-                        }
-                    )
+                    ClientEvent::EpochChange,
+                    Some(Details::EpochChange {
+                        cursor: *cursor as i64,
+                        prev_epoch: previous_epoch as i64,
+                        new_epoch: new_epoch as i64,
+                        validated_commit: validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
+                    })
+
                 );
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",

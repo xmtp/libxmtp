@@ -70,7 +70,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
-use xmtp_db::client_events::{ClientEvent, ClientEvents, EvtGroupWelcome};
+use xmtp_db::client_events::{ClientEvent, ClientEvents, Details};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -689,12 +689,11 @@ where
             ClientEvents::track(
                 db,
                 Some(stored_group.id.clone()),
-                ClientEvent::GroupWelcome(
-                    EvtGroupWelcome  {
-                        conversation_type: stored_group.conversation_type,
-                        added_by_inbox_id: stored_group.added_by_inbox_id.clone()
-                    }
-                )
+                ClientEvent::GroupWelcome,
+                Some(Details::GroupWelcome  {
+                    conversation_type: stored_group.conversation_type,
+                    added_by_inbox_id: stored_group.added_by_inbox_id.clone()
+                })
             );
 
             Ok(Self::new(

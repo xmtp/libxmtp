@@ -19,7 +19,7 @@ use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
 use xmtp_db::{
-    client_events::{ClientEvent, ClientEvents, EvtQueueIntent},
+    client_events::{ClientEvent, ClientEvents, Details},
     db_connection::DbConnection,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
@@ -111,7 +111,8 @@ where
         ClientEvents::track(
             conn,
             Some(self.group_id.clone()),
-            &ClientEvent::QueueIntent(EvtQueueIntent { intent_kind }),
+            &ClientEvent::QueueIntent,
+            Some(Details::QueueIntent { intent_kind }),
         );
 
         if intent_kind != IntentKind::SendMessage {
