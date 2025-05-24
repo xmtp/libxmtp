@@ -794,4 +794,86 @@ class ClientTests: XCTestCase {
 		let logFilesAfterClear = Client.getXMTPLogFilePaths(customLogDirectory: logDirectory)
 		XCTAssertEqual(logFilesAfterClear.count, 0, "Logs were not cleared properly")
 	}
+
+	func testNetworkDebugInformation() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alixWallet = try PrivateKey.generate()
+		let alix = try await Client.create(
+			account: alixWallet,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key
+			)
+		)
+		
+		// Wait for initial operations to complete
+		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+		
+		let aggregateStats1 = alix.debugInformation.aggregateStatistics
+		print("Aggregate Stats Create:\n\(aggregateStats1)")
+		
+		let apiStats1 = alix.debugInformation.apiStatistics
+		XCTAssertEqual(1, apiStats1.uploadKeyPackage)
+		XCTAssertEqual(0, apiStats1.fetchKeyPackage)
+		XCTAssertEqual(2, apiStats1.sendGroupMessages)
+		XCTAssertEqual(0, apiStats1.sendWelcomeMessages)
+		XCTAssertEqual(4, apiStats1.queryGroupMessages)
+		XCTAssertEqual(0, apiStats1.queryWelcomeMessages)
+		XCTAssertEqual(0, apiStats1.subscribeMessages)
+		XCTAssertEqual(0, apiStats1.subscribeWelcomes)
+		
+		let identityStats1 = alix.debugInformation.identityStatistics
+		XCTAssertEqual(1, identityStats1.publishIdentityUpdate)
+		XCTAssertEqual(3, identityStats1.getIdentityUpdatesV2)
+		XCTAssertEqual(2, identityStats1.getInboxIds)
+		XCTAssertEqual(0, identityStats1.verifySmartContractWalletSignature)
+		
+		// Start streaming messages
+		let streamTask = Task {
+			for try await _ in await alix.conversations.streamAllMessages() {
+				// Just consume the stream
+			}
+		}
+		
+		// Create a group and send a message
+		let group = try await alix.conversations.newGroup(with: [])
+		_ = try await group.send(content: "hi")
+		
+		let aggregateStats2 = alix.debugInformation.aggregateStatistics
+		print("Aggregate Stats Create:\n\(aggregateStats2)")
+		
+		let apiStats2 = alix.debugInformation.apiStatistics
+		XCTAssertEqual(1, apiStats2.uploadKeyPackage)
+		XCTAssertEqual(0, apiStats2.fetchKeyPackage)
+		XCTAssertEqual(6, apiStats2.sendGroupMessages)
+		XCTAssertEqual(0, apiStats2.sendWelcomeMessages)
+		XCTAssertEqual(12, apiStats2.queryGroupMessages) // this seems inconsistently 11 or 12
+		XCTAssertEqual(1, apiStats2.queryWelcomeMessages)
+		XCTAssertEqual(1, apiStats2.subscribeMessages)
+		XCTAssertEqual(1, apiStats2.subscribeWelcomes)
+		
+		let identityStats2 = alix.debugInformation.identityStatistics
+		XCTAssertEqual(1, identityStats2.publishIdentityUpdate)
+		XCTAssertEqual(4, identityStats2.getIdentityUpdatesV2)
+		XCTAssertEqual(2, identityStats2.getInboxIds)
+		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignature)
+		
+		// Cancel the streaming task
+		streamTask.cancel()
+	}
+	
+	func testUploadArchiveDebugInformation() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alixWallet = try PrivateKey.generate()
+		let alix = try await Client.create(
+			account: alixWallet,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key
+			)
+		)
+		
+		let uploadKey = try await alix.debugInformation.uploadDebugInformation()
+		XCTAssertFalse(uploadKey.isEmpty)
+	}
 }

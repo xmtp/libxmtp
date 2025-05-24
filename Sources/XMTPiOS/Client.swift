@@ -69,16 +69,7 @@ public struct ClientOptions {
 		self.dbEncryptionKey = dbEncryptionKey
 		self.dbDirectory = dbDirectory
 		if useDefaultHistorySyncUrl && historySyncUrl == nil {
-			switch api.env {
-			case .production:
-				self.historySyncUrl =
-					"https://message-history.production.ephemera.network/"
-			case .local:
-				self.historySyncUrl = "http://localhost:5558"
-			default:
-				self.historySyncUrl =
-					"https://message-history.dev.ephemera.network/"
-			}
+            self.historySyncUrl = api.env.getHistorySyncUrl()
 		} else {
 			self.historySyncUrl = historySyncUrl
 		}
@@ -112,9 +103,13 @@ public final class Client {
 	public lazy var conversations: Conversations = .init(
 		client: self, ffiConversations: ffiClient.conversations(),
 		ffiClient: ffiClient)
+    
 	public lazy var preferences: PrivatePreferences = .init(
 		client: self, ffiClient: ffiClient)
-
+    
+    public lazy var debugInformation: XMTPDebugInformation = .init(
+        client: self, ffiClient: ffiClient)
+    
 	static var codecRegistry = CodecRegistry()
 
 	public static func register(codec: any ContentCodec) {

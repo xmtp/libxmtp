@@ -538,18 +538,26 @@ public struct Group: Identifiable, Equatable, Hashable {
     
     public func getHmacKeys() throws
     -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
-        var hmacKeysResponse = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
-        let keys = try ffiGroup.getHmacKeys()
-        for key in keys {
-            var hmacKeys = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
-            var hmacKeyData = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeyData()
-            hmacKeyData.hmacKey = key.key
-            hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
-            hmacKeys.values.append(hmacKeyData)
-            hmacKeysResponse.hmacKeys[
-                Topic.groupMessage(ffiGroup.id().toHex).description] = hmacKeys
-        }
-        return hmacKeysResponse
+        var hmacKeysResponse =
+			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+        let conversations: [Data: [FfiHmacKey]] = try ffiGroup.getHmacKeys()
+        for convo in conversations {
+			var hmacKeys =
+				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+			for key in convo.value {
+				var hmacKeyData =
+					Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+					.HmacKeyData()
+				hmacKeyData.hmacKey = key.key
+				hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(key.epoch)
+				hmacKeys.values.append(hmacKeyData)
+
+			}
+			hmacKeysResponse.hmacKeys[
+				Topic.groupMessage(convo.key.toHex).description] = hmacKeys
+		}
+
+		return hmacKeysResponse
     }
     
     public func getPushTopics() throws -> [String] {

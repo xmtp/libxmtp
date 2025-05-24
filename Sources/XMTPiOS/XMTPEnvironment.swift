@@ -48,4 +48,15 @@ public enum XMTPEnvironment: String, Sendable {
 	public var isSecure: Bool {
 		url.starts(with: "https")
 	}
+
+	public func getHistorySyncUrl() -> String {
+		switch self {
+		case .production:
+			return "https://message-history.production.ephemera.network"
+		case .local:
+			return "http://localhost:5558"
+		case .dev:
+			return "https://message-history.dev.ephemera.network"
+		}
+	}
 }

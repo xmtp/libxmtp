@@ -608,7 +608,7 @@ public actor Conversations {
 	{
 		var hmacKeysResponse =
 			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
-		let conversations = try ffiConversations.getHmacKeys()
+		let conversations: [Data: [FfiHmacKey]] = try ffiConversations.getHmacKeys()
 		for convo in conversations {
 			var hmacKeys =
 				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
