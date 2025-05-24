@@ -1,0 +1,28 @@
+#!/bin/bash
+set -eou pipefail
+script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+"${script_dir}"/../docker/down
+
+nix build .#validationServiceDocker
+
+"${script_dir}"/up-cached
+
+
+docker inspect $(docker ps | grep validation | awk '{print $1}') --format '{{.Config.Image}}'
+docker images
+
+
+cargo nextest --profile local run --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features grpc-api &
+
+cargo nextest run --profile local --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --features http-api &
+
+"${script_dir}"/wasm &
+
+cargo nextest run --profile local --workspace -E '(kind(lib) + kind(bin)) and (rdeps(xmtp_mls) and not package(xmtp_mls))' &
+
+"${script_dir}"/kotlin-bindings &
+
+wait
+
+
