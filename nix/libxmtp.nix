@@ -28,7 +28,6 @@
 
 let
   inherit (stdenv) isDarwin;
-  inherit (darwin.apple_sdk) frameworks;
   mkShell =
     top:
     (
@@ -91,10 +90,6 @@ mkShell {
       corepack
     ]
     ++ lib.optionals isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      frameworks.ApplicationServices
-      frameworks.AppKit
       darwin.cctools
     ] ++ lib.optionals stdenv.isLinux [
 
