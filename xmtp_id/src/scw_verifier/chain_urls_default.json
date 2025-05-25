@@ -7,5 +7,5 @@
   "eip155:42161": "https://arbitrum.llamarpc.com",
   "eip155:59144": "https://linea-rpc.publicnode.com",
   "eip155:480": "https://worldchain-mainnet.g.alchemy.com/public",
-  "eip155:42": "rpc.lukso.sigmacore.io"
+  "eip155:42": "https://rpc.lukso.sigmacore.io"
 }
