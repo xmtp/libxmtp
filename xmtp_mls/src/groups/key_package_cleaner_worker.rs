@@ -106,6 +106,8 @@ where
 
         Ok(())
     }
+    
+    /// Delete all the expired keys
     async fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let provider = self.client.mls_provider();
         let conn = provider.db();
@@ -140,7 +142,7 @@ where
         Ok(())
     }
 
-    /// Iterate on the list of groups and delete expired messages
+    /// Check if we need to rotate the keys and upload new keypackage if the las one rotate in has passed
     async fn rotate_last_key_package_if_needed(&mut self) -> Result<(), KeyPackagesCleanerError> {
         self.client.rotate_and_upload_key_package(true).await?;
         Ok(())
