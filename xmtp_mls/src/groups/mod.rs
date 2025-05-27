@@ -15,6 +15,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod validated_commit;
+mod key_package_cleaner_worker;
 
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::{

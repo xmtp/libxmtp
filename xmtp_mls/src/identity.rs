@@ -25,8 +25,10 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use xmtp_db::{ConnectionExt, MlsProviderExt};
+use xmtp_db::{ConnectionExt, MlsProviderExt, NotFound};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::group_intent::IntentState;
+use xmtp_db::schema::group_intents::dsl;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -563,7 +565,7 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_and_upload_key_package(provider, api_client)
+        self.rotate_and_upload_key_package(provider,false, api_client)
             .await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
     }
@@ -572,26 +574,27 @@ impl Identity {
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: impl MlsProviderExt + Copy,
+        force_rotate: bool,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         let conn = provider.db();
+        if !conn.last_key_package_needs_rotation()? && !force_rotate {
+            // If not ready, mark it for rotation in 5 seconds and return
+            conn.mark_last_key_package_to_rotate_in_5s()?;
+            tracing::debug!("Last key package not ready for rotation, scheduled for 5s later");
+            return Ok(());
+        }
 
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
+        
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                let old_id = history_id - 1;
                 provider.transaction(|provider| {
-                    let old_key_packages = provider
-                        .db()
-                        .find_key_package_history_entries_before_id(old_id)?;
-                    for kp in old_key_packages {
-                        self.delete_key_package(provider, kp.key_package_hash_ref)?;
-                    }
-                    conn.delete_key_package_history_entries_before_id(old_id)?;
+                    conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<_, IdentityError>(())
                 })?;
 
@@ -601,8 +604,7 @@ impl Identity {
                 tracing::info!("Kp err");
                 // Did not upload. Delete the newly created KP.
                 self.delete_key_package(provider, hash_ref)?;
-                conn.delete_key_package_entry_with_id(history_id)?;
-
+                conn.mark_last_key_package_to_rotate_in_5s()?;
                 Err(IdentityError::ApiClient(err))
             }
         }
@@ -635,7 +637,7 @@ pub(crate) fn serialize_key_package_hash_ref(
     Ok(serialized)
 }
 
-fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, IdentityError> {
+pub(crate) fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, IdentityError> {
     let key_package_hash_ref: HashReference =
         bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
 

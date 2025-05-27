@@ -759,10 +759,10 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
+    pub async fn rotate_and_upload_key_package(&self, force_rotate: bool) -> Result<(), ClientError> {
         let provider = self.mls_provider();
         self.identity()
-            .rotate_and_upload_key_package(&provider, self.context.api())
+            .rotate_and_upload_key_package(&provider,force_rotate, self.context.api())
             .await?;
 
         Ok(())
@@ -988,7 +988,7 @@ pub(crate) mod tests {
         let init1 = binding.inner.hpke_init_key();
 
         // Rotate and fetch again.
-        client.rotate_and_upload_key_package().await.unwrap();
+        client.rotate_and_upload_key_package(false).await.unwrap();
 
         let kp2 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])

@@ -20,6 +20,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    events (rowid) {
+        rowid -> Integer,
+        created_at_ns -> BigInt,
+        group_id -> Nullable<Binary>,
+        event -> Text,
+        details -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
     group_intents (id) {
         id -> Integer,
         kind -> Integer,
@@ -118,6 +128,8 @@ diesel::table! {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
+        delete_in -> Nullable<BigInt>,
+        rotate_in -> Nullable<BigInt>,
     }
 }
 
@@ -164,6 +176,7 @@ diesel::joinable!(group_messages -> groups (group_id));
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
+    events,
     group_intents,
     group_messages,
     groups,
