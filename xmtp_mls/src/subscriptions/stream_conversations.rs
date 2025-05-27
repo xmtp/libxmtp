@@ -398,6 +398,7 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::tester;
+    use tokio::task::JoinSet;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -637,5 +638,52 @@ mod test {
         let result =
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(15))]
+    async fn test_stream_welcomes_one_by_one() {
+        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        let caro = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+
+        let stream = bo
+            .stream_conversations(Some(ConversationType::Group))
+            .await
+            .unwrap();
+        futures::pin_mut!(stream);
+
+        let mut set = JoinSet::new();
+
+        for _ in 0..40 {
+            let (alix_p, caro_p, bo_p) = (alix.clone(), caro.clone(), bo.clone());
+            let bo_1 = bo_p.clone();
+            set.spawn(async move {
+                let _ = alix_p
+                    .create_group_with_inbox_ids(
+                        &[bo_1.inbox_id().to_string()],
+                        None,
+                        GroupMetadataOptions::default(),
+                    )
+                    .await
+                    .unwrap();
+            });
+            let bo_2 = bo_p.clone();
+            set.spawn(async move {
+                let _ = caro_p
+                    .create_group_with_inbox_ids(
+                        &[bo_2.inbox_id().to_string()],
+                        None,
+                        GroupMetadataOptions::default(),
+                    )
+                    .await
+                    .unwrap();
+            });
+        }
+
+        while let Some(Ok(g)) = stream.next().await {
+            tracing::info!("{}", hex::encode(g.group_id));
+        }
     }
 }
