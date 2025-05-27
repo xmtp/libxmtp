@@ -3946,8 +3946,8 @@ dependencies = [
 
 [[package]]
 name = "openmls"
-version = "0.6.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+version = "0.6.1"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
  "fluvio-wasm-timer",
  "getrandom 0.2.16",
@@ -3955,14 +3955,14 @@ dependencies = [
  "openmls_traits",
  "rayon",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "tls_codec",
 ]
 
 [[package]]
 name = "openmls_basic_credential"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -3975,19 +3975,19 @@ dependencies = [
 [[package]]
 name = "openmls_memory_storage"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
  "log",
  "openmls_traits",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -4004,14 +4004,14 @@ dependencies = [
  "rand_chacha 0.3.1",
  "serde",
  "sha2",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "tls_codec",
 ]
 
 [[package]]
 name = "openmls_traits"
-version = "0.3.0"
-source = "git+https://github.com/xmtp/openmls?rev=082cab5f17a54796e87bc1762a64496c86cb9bf8#082cab5f17a54796e87bc1762a64496c86cb9bf8"
+version = "0.4.0"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
  "serde",
  "tls_codec",
