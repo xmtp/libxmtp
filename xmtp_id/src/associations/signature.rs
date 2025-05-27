@@ -1,5 +1,5 @@
+use alloy::signers::{local::LocalSigner, SignerSync};
 use ed25519_dalek::{DigestSigner, Signature, VerifyingKey};
-use ethers::signers::{LocalWallet, Signer};
 use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
@@ -17,17 +17,10 @@ use super::{
     verified_signature::VerifiedSignature,
 };
 
-use ethers::core::k256::ecdsa::Signature as K256Signature;
+use alloy::signers::k256::ecdsa::Signature as K256Signature;
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
-    // ethers errors
-    #[error(transparent)]
-    ProviderError(#[from] ethers::providers::ProviderError),
-    #[error(transparent)]
-    WalletError(#[from] ethers::signers::WalletError),
-    #[error(transparent)]
-    ECDSAError(#[from] ethers::types::SignatureError),
     #[error("Malformed legacy key: {0}")]
     MalformedLegacyKey(String),
     #[error(transparent)]
@@ -42,8 +35,6 @@ pub enum SignatureError {
     Invalid,
     #[error(transparent)]
     AddressValidationError(#[from] xmtp_cryptography::signature::IdentifierValidationError),
-    #[error("Invalid account address")]
-    InvalidAccountAddress(#[from] rustc_hex::FromHexError),
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
     #[error(transparent)]
@@ -56,6 +47,10 @@ pub enum SignatureError {
     InvalidPublicKey,
     #[error("client_data is invalid")]
     InvalidClientData,
+    #[error(transparent)]
+    SignerError(#[from] alloy::signers::Error),
+    #[error(transparent)]
+    Signature(#[from] alloy::primitives::SignatureError),
 }
 
 /// Xmtp Installation Credential for Specialized for XMTP Identity
@@ -192,7 +187,7 @@ impl AccountId {
 }
 
 /// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
-pub async fn sign_with_legacy_key(
+pub fn sign_with_legacy_key(
     signature_text: String,
     legacy_signed_private_key: Vec<u8>,
 ) -> Result<UnverifiedLegacyDelegatedSignature, SignatureError> {
@@ -204,8 +199,8 @@ pub async fn sign_with_legacy_key(
             "Missing secp256k1.union field".to_string(),
         ))?;
     let legacy_private_key = secp256k1.bytes;
-    let wallet: LocalWallet = hex::encode(legacy_private_key).parse::<LocalWallet>()?;
-    let signature = wallet.sign_message(signature_text).await?;
+    let signer = LocalSigner::from_slice(legacy_private_key.as_slice())?;
+    let signature = signer.sign_message_sync(signature_text.as_bytes())?;
 
     let legacy_signed_public_key_proto =
         legacy_signed_private_key_proto
@@ -215,7 +210,7 @@ pub async fn sign_with_legacy_key(
             ))?;
 
     Ok(UnverifiedLegacyDelegatedSignature::new(
-        UnverifiedRecoverableEcdsaSignature::new(signature.to_vec()),
+        UnverifiedRecoverableEcdsaSignature::new(signature.as_bytes().to_vec()),
         legacy_signed_public_key_proto,
     ))
 }
@@ -281,7 +276,7 @@ pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
     // If s is already normalized (lower-s), return the original bytes
     let normalized = match sig.normalize_s() {
         None => sig_data.to_vec(),
-        Some(normalized) => normalized.to_vec(),
+        Some(normalized) => normalized.to_bytes().to_vec(),
     };
 
     // Add back recovery id if it was present
@@ -297,20 +292,20 @@ pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
 #[cfg(test)]
 mod tests {
     use super::to_lower_s;
-    use ethers::core::k256::{ecdsa::Signature as K256Signature, elliptic_curve::scalar::IsHigh};
-    use ethers::signers::{LocalWallet, Signer};
-    use rand::thread_rng;
+    use alloy::signers::k256::ecdsa::Signature as K256Signature;
+    use alloy::signers::k256::elliptic_curve::scalar::IsHigh;
+    use alloy::signers::{local::LocalSigner, SignerSync};
     use wasm_bindgen_test::wasm_bindgen_test;
 
-    #[wasm_bindgen_test(unsupported = tokio::test)]
-    async fn test_to_lower_s() {
+    #[xmtp_common::test]
+    fn test_to_lower_s() {
         // Create a test wallet
-        let wallet = LocalWallet::new(&mut thread_rng());
+        let signer = LocalSigner::random();
 
         // Sign a test message
         let message = "test message";
-        let signature = wallet.sign_message(message).await.unwrap();
-        let sig_bytes = signature.to_vec();
+        let signature = signer.sign_message_sync(message.as_bytes()).unwrap();
+        let sig_bytes: Vec<u8> = signature.into();
 
         // Test normalizing an already normalized signature
         let normalized = to_lower_s(&sig_bytes).unwrap();

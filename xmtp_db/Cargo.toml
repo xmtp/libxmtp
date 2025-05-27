@@ -33,7 +33,6 @@ xmtp_common.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
-anyhow = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",
   "tracing",
@@ -88,5 +87,5 @@ tokio = { workspace = true, features = [
 wasm-bindgen-test.workspace = true
 
 [features]
-update-schema = ["dep:toml", "dep:anyhow"]
+update-schema = ["dep:toml"]
 test-utils = ["xmtp_common/test-utils"]

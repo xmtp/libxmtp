@@ -32,7 +32,7 @@ xmtp_mls = { workspace = true, features = ["http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 [dev-dependencies]
-wasm-bindgen-test.workspace = true
-xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
-xmtp_common = { workspace = true, features = ["test-utils"] }
 chrono = { workspace = true }
+wasm-bindgen-test.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }

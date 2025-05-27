@@ -379,13 +379,10 @@ impl Identity {
                 .await?;
             signature_request
                 .add_signature(
-                    UnverifiedSignature::LegacyDelegated(
-                        sign_with_legacy_key(
-                            signature_request.signature_text(),
-                            legacy_signed_private_key,
-                        )
-                        .await?,
-                    ),
+                    UnverifiedSignature::LegacyDelegated(sign_with_legacy_key(
+                        signature_request.signature_text(),
+                        legacy_signed_private_key,
+                    )?),
                     scw_signature_verifier,
                 )
                 .await?;

@@ -22,9 +22,8 @@ test-utils = [
   "xmtp_api/test-utils",
   "xmtp_api_http/test-utils",
   "xmtp_api_grpc/test-utils",
-  "dep:const_format",
   "xmtp_common/test-utils",
-  "dep:ethers",
+  "dep:alloy",
   "dep:passkey",
   "dep:coset",
   "dep:url",
@@ -39,8 +38,7 @@ bench = [
   "dep:xmtp_api_grpc",
   "criterion",
   "dep:fdlimit",
-  "dep:ethers",
-  "dep:const_format",
+  "dep:alloy",
   "xmtp_common/bench",
 ]
 default = ["grpc-api"]
@@ -75,11 +73,9 @@ tokio-stream = { workspace = true, default-features = false, features = [
 ] }
 tokio-util.workspace = true
 tracing.workspace = true
-trait-variant.workspace = true
 xmtp_archive.workspace = true
 xmtp_common.workspace = true
 xmtp_mls_common.workspace = true
-zeroize.workspace = true
 
 # XMTP/Local
 xmtp_api = { workspace = true }
@@ -90,9 +86,8 @@ xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["convert"] }
 
 # Optional/Features
-const_format = { workspace = true, optional = true }
+alloy = { workspace = true, optional = true }
 coset = { version = "0.3", optional = true }
-ethers = { workspace = true, features = ["openssl"], optional = true }
 fdlimit = { workspace = true, optional = true }
 futures-executor = { version = "0.3", optional = true }
 mockall = { workspace = true, optional = true }
@@ -138,62 +133,46 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 [dev-dependencies]
-const_format.workspace = true
-openmls_basic_credential.workspace = true
-wasm-bindgen-test.workspace = true
-xmtp_common = { workspace = true, features = ["test-utils"] }
-xmtp_api = { workspace = true, features = ["test-utils"] }
-xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["test-utils"] }
-fdlimit = { workspace = true }
-once_cell.workspace = true
-rstest = { workspace = true, features = ["async-timeout"] }
-rstest_reuse = { workspace = true }
-xmtp_db = { workspace = true, features = ["test-utils"] }
-passkey = { version = "0.4" }
+alloy.workspace = true
 coset = { version = "0.3" }
-url = { workspace = true }
-public-suffix = { version = "0.1.2" }
-futures-executor = { version = "0.3" }
-xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
-xmtp_db_test.workspace = true
-mockall.workspace = true
-futures-test = "0.3.31"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-ctor.workspace = true
-ethers = { workspace = true, features = ["openssl"] }
-mockito = "1.6.1"
-openmls = { workspace = true }
-tempfile = "3.15.0"
-tracing-subscriber = { workspace = true, features = [
-  "env-filter",
-  "fmt",
-  "ansi",
-  "json",
-] }
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
 ] }
+fdlimit = { workspace = true }
+futures-executor = { version = "0.3" }
+futures-test = "0.3.31"
+mockall.workspace = true
+once_cell.workspace = true
+openmls_basic_credential.workspace = true
+passkey = { version = "0.4" }
+public-suffix = { version = "0.1.2" }
+rstest = { workspace = true, features = ["async-timeout"] }
+rstest_reuse = { workspace = true }
+url = { workspace = true }
+wasm-bindgen-test.workspace = true
+xmtp_api = { workspace = true, features = ["test-utils"] }
+xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_db_test.workspace = true
+xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ctor.workspace = true
+mockito = "1.6.1"
+openmls = { workspace = true }
+tempfile = "3.15.0"
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http", features = ["test-utils"] }
-diesel = { workspace = true, features = [
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
-] }
-sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
-  "bundled",
-] }
 
 [[bench]]
 harness = false

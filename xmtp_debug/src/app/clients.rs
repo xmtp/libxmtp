@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::types::*;
+use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre;
 use xmtp_db::NativeDb;
 
@@ -10,9 +11,9 @@ pub async fn new_registered_client(
     wallet: Option<&types::EthereumWallet>,
 ) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
-        w.clone().into_ethers()
+        w.clone().into_alloy()
     } else {
-        generate_wallet().into_ethers()
+        generate_wallet().into_alloy()
     };
     new_client_inner(network, &local_wallet, None).await
 }
@@ -23,9 +24,9 @@ pub async fn temp_client(
     wallet: Option<&types::EthereumWallet>,
 ) -> Result<crate::DbgClient> {
     let local_wallet = if let Some(w) = wallet {
-        w.clone().into_ethers()
+        w.clone().into_alloy()
     } else {
-        generate_wallet().into_ethers()
+        generate_wallet().into_alloy()
     };
 
     let tmp_dir = (*crate::constants::TMPDIR).path();
@@ -56,7 +57,7 @@ pub async fn client_from_identity(
 /// Create a new client + Identity & register it
 async fn new_client_inner(
     network: args::BackendOpts,
-    wallet: &LocalWallet,
+    wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
 ) -> Result<crate::DbgClient> {
     let api = network.connect().await?;

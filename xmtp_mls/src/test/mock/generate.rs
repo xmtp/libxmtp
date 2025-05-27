@@ -31,7 +31,7 @@ pub fn context() -> MockContext {
 pub fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
     let signing_key = XmtpInstallationCredential::new();
 
-    let wallet = LocalWallet::new(&mut rand::thread_rng());
+    let wallet = PrivateKeySigner::random();
     let inbox_id = wallet.identifier().inbox_id(0).unwrap();
 
     (inbox_id, signing_key)

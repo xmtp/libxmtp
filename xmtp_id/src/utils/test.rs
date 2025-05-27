@@ -1,173 +1,175 @@
 #![allow(clippy::unwrap_used)]
 
-use ethers::{
-    contract::abigen,
-    core::k256::{elliptic_curve::SecretKey, Secp256k1},
-    middleware::SignerMiddleware,
-    providers::{Http, Provider},
-    signers::LocalWallet,
-};
-use std::sync::LazyLock;
+use alloy::network::{Ethereum, EthereumWallet};
+use alloy::primitives::{Address, Bytes};
+use alloy::providers::DynProvider;
+use alloy::providers::Provider;
+use alloy::providers::ProviderBuilder;
+use alloy::signers::local::PrivateKeySigner;
+use alloy::sol;
+use alloy::sol_types::SolValue;
+use alloy::{primitives::U256, providers::ext::AnvilApi};
+use rstest::*;
+use CoinbaseSmartWallet::CoinbaseSmartWalletInstance;
+use CoinbaseSmartWalletFactory::CoinbaseSmartWalletFactoryInstance;
 
-abigen!(
+sol!(
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[sol(rpc)]
     CoinbaseSmartWallet,
     "artifact/CoinbaseSmartWallet.json",
-    derives(serde::Serialize, serde::Deserialize)
 );
 
-abigen!(
+sol!(
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[sol(rpc)]
     CoinbaseSmartWalletFactory,
     "artifact/CoinbaseSmartWalletFactory.json",
-    derives(serde::Serialize, serde::Deserialize)
 );
 
-pub struct SmartContracts {
-    coinbase_smart_wallet_factory:
-        CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>>,
-}
+pub const ANVIL_ENDPOINT: &str = "http://localhost:8545";
 
-impl SmartContracts {
-    #[cfg(not(target_arch = "wasm32"))]
-    fn new(
-        coinbase_smart_wallet_factory: CoinbaseSmartWalletFactory<
-            SignerMiddleware<Provider<Http>, LocalWallet>,
-        >,
-    ) -> Self {
-        Self {
-            coinbase_smart_wallet_factory,
-        }
-    }
-
-    pub fn coinbase_smart_wallet_factory(
-        &self,
-    ) -> &CoinbaseSmartWalletFactory<SignerMiddleware<Provider<Http>, LocalWallet>> {
-        &self.coinbase_smart_wallet_factory
-    }
-}
-
-pub static ANVIL_KEYS: LazyLock<Vec<SecretKey<Secp256k1>>> = LazyLock::new(|| {
-    vec![
-        SecretKey::from_slice(
-            hex::decode("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-                .unwrap()
-                .as_slice(),
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn fund_user(user: PrivateKeySigner, anvil: impl AnvilApi<Ethereum>) {
+    anvil
+        .anvil_set_balance(
+            user.address(),
+            U256::from(1_000_000_000_000_000_000_000u128),
         )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("dbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-        SecretKey::from_slice(
-            hex::decode("2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6")
-                .unwrap()
-                .as_slice(),
-        )
-        .unwrap(),
-    ]
-});
-
-pub struct AnvilMeta {
-    pub keys: Vec<SecretKey<Secp256k1>>,
-    pub endpoint: String,
-    pub chain_id: u64,
+        .await
+        .unwrap();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn with_docker_smart_contracts<Func, Fut>(fun: Func)
-where
-    Func: FnOnce(
-        AnvilMeta,
-        Provider<Http>,
-        SignerMiddleware<Provider<Http>, LocalWallet>,
-        SmartContracts,
-    ) -> Fut,
-    Fut: futures::Future<Output = ()>,
-{
-    use ethers::signers::Signer;
-    use std::sync::Arc;
+#[fixture]
+pub async fn smart_wallet(#[future] spawned_provider: EthereumProvider) -> SmartWalletContext {
+    deploy_wallets(spawned_provider.await).await
+}
 
-    let keys = ANVIL_KEYS.clone();
-    let anvil_meta = AnvilMeta {
-        keys: keys.clone(),
-        chain_id: 31337,
-        endpoint: "http://localhost:8545".to_string(),
-    };
+#[cfg(not(target_arch = "wasm32"))]
+#[fixture]
+pub async fn docker_smart_wallet(
+    #[future] docker_provider: EthereumProvider,
+) -> SmartWalletContext {
+    deploy_wallets(docker_provider.await).await
+}
 
-    let contract_deployer: LocalWallet = keys[9].clone().into();
-    let provider = Provider::<Http>::try_from(&anvil_meta.endpoint).unwrap();
-    let client = SignerMiddleware::new(
-        provider.clone(),
-        contract_deployer.clone().with_chain_id(anvil_meta.chain_id),
-    );
-    // 1. coinbase smart wallet
-    // deploy implementation for factory
-    let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
-        .unwrap()
-        .gas_price(100)
-        .send()
+#[cfg(not(target_arch = "wasm32"))]
+async fn deploy_wallets(provider: EthereumProvider) -> SmartWalletContext {
+    let EthereumProvider {
+        provider,
+        owner0,
+        owner1,
+        sc_owner,
+        ..
+    } = provider;
+    let factory = cb_smart_wallet(sc_owner.clone(), provider.clone()).await;
+    let nonce = U256::from(0); // needed when creating a smart wallet
+    let owners_addresses = vec![
+        Bytes::from(owner0.address().abi_encode()),
+        Bytes::from(owner1.address().abi_encode()),
+    ];
+    let sw_address = factory
+        .getAddress(owners_addresses.clone(), nonce)
+        .call()
         .await
         .unwrap();
-    // deploy factory
-    let factory =
-        CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
-            .unwrap()
-            .gas_price(100)
-            .send()
-            .await
-            .unwrap();
+    println!("smart wallet address: {}", sw_address);
+    let _ = factory
+        .createAccount(owners_addresses.clone(), nonce)
+        .send()
+        .await
+        .unwrap()
+        .watch()
+        .await
+        .unwrap();
+    let sw = CoinbaseSmartWallet::new(sw_address, provider.clone());
 
-    let smart_contracts = SmartContracts::new(factory);
-    fun(
-        anvil_meta,
-        provider.clone(),
-        client.clone(),
-        smart_contracts,
-    )
-    .await
+    SmartWalletContext {
+        factory,
+        sw,
+        owner0,
+        owner1,
+        sw_address,
+    }
+}
+
+pub struct EthereumProvider {
+    pub provider: DynProvider,
+    pub owner0: PrivateKeySigner,
+    pub owner1: PrivateKeySigner,
+    pub sc_owner: PrivateKeySigner,
+    pub wallet: EthereumWallet,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn provider(url: Option<String>) -> EthereumProvider {
+    let provider = ProviderBuilder::new();
+    let sc_owner = PrivateKeySigner::random();
+    let owner0 = PrivateKeySigner::random();
+    let owner1 = PrivateKeySigner::random();
+    let mut wallet = EthereumWallet::new(sc_owner.clone());
+    wallet.register_signer(owner0.clone());
+    wallet.register_signer(owner1.clone());
+    println!("owner0: {}, owner1: {}", owner0.address(), owner1.address());
+    let provider = provider.wallet(wallet.clone());
+    let provider = if let Some(s) = url {
+        provider.connect_http(s.parse().unwrap()).erased()
+    } else {
+        provider.connect_anvil().erased()
+    };
+    fund_user(owner0.clone(), &provider).await;
+    fund_user(owner1.clone(), &provider).await;
+
+    EthereumProvider {
+        provider,
+        owner0,
+        owner1,
+        sc_owner,
+        wallet,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[fixture]
+pub async fn spawned_provider() -> EthereumProvider {
+    provider(None).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[fixture]
+pub async fn docker_provider() -> EthereumProvider {
+    provider(Some(ANVIL_ENDPOINT.to_string())).await
+}
+
+pub struct SmartWalletContext {
+    pub factory: CoinbaseSmartWalletFactoryInstance<DynProvider>,
+    pub sw: CoinbaseSmartWalletInstance<DynProvider>,
+    pub owner0: PrivateKeySigner,
+    pub owner1: PrivateKeySigner,
+    /// Address of the scw
+    pub sw_address: Address,
+}
+
+pub type SignatureWithNonce = sol! { tuple(uint256, bytes) };
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn cb_smart_wallet(
+    sc_owner: PrivateKeySigner,
+    provider: impl Provider + AnvilApi<Ethereum> + 'static,
+) -> CoinbaseSmartWalletFactoryInstance<DynProvider> {
+    provider
+        .anvil_set_balance(
+            sc_owner.address(),
+            U256::from(1_000_000_000_000_000_000_000u128),
+        )
+        .await
+        .unwrap();
+    let provider = provider.erased();
+    let smart_wallet = CoinbaseSmartWallet::deploy(provider.clone()).await.unwrap();
+    CoinbaseSmartWalletFactory::deploy(provider, *smart_wallet.address())
+        .await
+        .unwrap()
 }
 
 // anvil can't be used in wasm because it is a system binary
@@ -175,41 +177,25 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn with_smart_contracts<Func, Fut>(fun: Func)
 where
-    Func: FnOnce(
-        ethers::utils::AnvilInstance,
-        Provider<Http>,
-        SignerMiddleware<Provider<Http>, LocalWallet>,
-        SmartContracts,
-    ) -> Fut,
+    Func: FnOnce(CoinbaseSmartWalletFactoryInstance<DynProvider>) -> Fut,
     Fut: futures::Future<Output = ()>,
 {
-    use ethers::signers::Signer;
-    use ethers::utils::Anvil;
-    use std::sync::Arc;
-    let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
-    let contract_deployer: LocalWallet = anvil.keys()[9].clone().into();
-    let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
-    let client = SignerMiddleware::new(
-        provider.clone(),
-        contract_deployer.clone().with_chain_id(anvil.chain_id()),
-    );
-    // 1. coinbase smart wallet
-    // deploy implementation for factory
-    let implementation = CoinbaseSmartWallet::deploy(Arc::new(client.clone()), ())
-        .unwrap()
-        .gas_price(100)
-        .send()
+    let sc_owner = PrivateKeySigner::random();
+    let provider = ProviderBuilder::new()
+        .wallet(sc_owner.clone())
+        .connect_anvil_with_config(|anvil| anvil.args(vec!["--base-fee", "100"]));
+    provider
+        .anvil_set_balance(
+            sc_owner.address(),
+            U256::from(1_000_000_000_000_000_000_000u128),
+        )
         .await
         .unwrap();
-    // deploy factory
-    let factory =
-        CoinbaseSmartWalletFactory::deploy(Arc::new(client.clone()), implementation.address())
-            .unwrap()
-            .gas_price(100)
-            .send()
-            .await
-            .unwrap();
+    let provider = provider.erased();
+    let smart_wallet = CoinbaseSmartWallet::deploy(provider.clone()).await.unwrap();
+    let factory = CoinbaseSmartWalletFactory::deploy(provider, *smart_wallet.address())
+        .await
+        .unwrap();
 
-    let smart_contracts = SmartContracts::new(factory);
-    fun(anvil, provider.clone(), client.clone(), smart_contracts).await
+    fun(factory).await
 }
