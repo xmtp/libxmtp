@@ -24,7 +24,7 @@ use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    Store, StoreOrIgnore, XmtpDb,
+    StoreOrIgnore, XmtpDb,
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
