@@ -26,6 +26,7 @@
 , wasm-bindgen-cli
 , foundry-bin
 , graphite-cli
+, jq
 , ...
 }:
 
@@ -61,8 +62,7 @@ mkShell {
   hardeningDisable = [ "zerocallusedregs" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
-
-    nativeBuildInputs = [ pkg-config ];
+  nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
       wasm-bindgen-cli
@@ -92,6 +92,7 @@ mkShell {
       inferno
       lnav
       google-chrome
+      jq
 
       # make sure to use nodePackages! or it will install yarn irrespective of environmental node.
       corepack
