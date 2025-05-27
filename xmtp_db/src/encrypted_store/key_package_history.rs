@@ -116,7 +116,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                     .filter(dsl::id.lt(id))
                     .filter(dsl::delete_in.is_null()), // Only set if not already set
             )
-            .set(dsl::delete_in.eq(86_400_000_000_000i64))
+            .set(dsl::delete_in.eq(now_ns() + 86_400_000_000_000i64))
             .execute(conn)
         })?;
 
