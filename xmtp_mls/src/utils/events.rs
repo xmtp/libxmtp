@@ -76,7 +76,7 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
+        let k = upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem
