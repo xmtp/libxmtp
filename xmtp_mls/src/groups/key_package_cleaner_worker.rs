@@ -12,7 +12,7 @@ use xmtp_db::{MlsProviderExt, StorageError, XmtpDb};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Error)]
 pub enum KeyPackagesCleanerError {
