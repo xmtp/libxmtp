@@ -1,9 +1,9 @@
-use diesel::prelude::*;
-
 use super::{
     ConnectionExt, StorageError, db_connection::DbConnection, schema::key_package_history,
 };
+use crate::configuration::keys_expiration_interval_ns;
 use crate::{StoreOrIgnore, impl_store_or_ignore};
+use diesel::prelude::*;
 use xmtp_common::time::now_ns;
 
 #[derive(Insertable, Debug, Clone)]
@@ -19,6 +19,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
     pub created_at_ns: i64,
+    pub delete_at_ns: Option<i64>,
 }
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
@@ -63,14 +64,50 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(result)
     }
 
-    pub fn delete_key_package_history_entries_before_id(
+    pub fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
+        use crate::schema::key_package_history::dsl;
+        let delete_at_24_hrs_ns = now_ns() + keys_expiration_interval_ns();
+        self.raw_query_write(|conn| {
+            diesel::update(
+                dsl::key_package_history
+                    .filter(dsl::id.lt(id))
+                    .filter(dsl::delete_at_ns.is_null()), // Only set if not already set
+            )
+            .set(dsl::delete_at_ns.eq(delete_at_24_hrs_ns))
+            .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn get_expired_key_packages(
         &self,
-        id: i32,
-    ) -> Result<(), StorageError> {
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+        use crate::schema::key_package_history::dsl;
+        self.raw_query_read(|conn| {
+            dsl::key_package_history
+                .filter(dsl::delete_at_ns.le(now_ns()))
+                .load::<StoredKeyPackageHistoryEntry>(conn)
+        })
+        .map_err(StorageError::from) // convert ConnectionError into StorageError
+    }
+
+    pub fn delete_expired_key_packages(&self) -> Result<(), StorageError> {
+        use crate::schema::key_package_history::dsl;
+
+        self.raw_query_write(|conn| {
+            diesel::delete(dsl::key_package_history.filter(dsl::delete_at_ns.le(now_ns())))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
-                    .filter(key_package_history::dsl::id.lt(id)),
+                    .filter(key_package_history::dsl::id.le(id)),
             )
             .execute(conn)
         })?;
