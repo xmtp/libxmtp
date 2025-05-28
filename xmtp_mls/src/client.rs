@@ -1480,6 +1480,13 @@ pub(crate) mod tests {
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_keys.unwrap().delete_at_ns.is_some());
 
+        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+        let bo_keys = bo
+            .context
+            .db()
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
+        assert!(bo_keys.is_err());
+
         bo.sync_welcomes().await.unwrap();
         let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
             .await
@@ -1515,7 +1522,7 @@ pub(crate) mod tests {
         let bo_original_after_delete = bo_store
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
-        assert!(bo_original_after_delete.unwrap().delete_at_ns.is_some());
+        assert!(bo_original_after_delete.is_err());
     }
 
     #[xmtp_common::test]
