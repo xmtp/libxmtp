@@ -568,22 +568,13 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    /// If a rotation is already scheduled and its time has passed, immediately rotate the keys.
-    pub(crate) async fn queue_key_rotation<ApiClient: XmtpApi>(
+    pub(crate) async fn queue_key_rotation(
         &self,
         provider: impl MlsProviderExt + Copy,
-        api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let conn = provider.db();
-        if !conn.is_identity_needs_rotation()? {
-            // If not ready, mark it for rotation in 5 seconds and return
-            conn.queue_key_package_rotation()?;
-            tracing::info!("Last key package not ready for rotation, queued for rotation");
-            Ok(())
-        } else {
-            self.rotate_and_upload_key_package(provider, api_client)
-                .await
-        }
+        provider.db().queue_key_package_rotation()?;
+        tracing::info!("Last key package not ready for rotation, queued for rotation");
+        Ok(())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

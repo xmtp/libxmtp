@@ -758,12 +758,9 @@ where
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    /// If a rotation is already scheduled and its time has passed, immediately rotate the keys.
     pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
         let provider = self.mls_provider();
-        self.identity()
-            .queue_key_rotation(&provider, self.context.api())
-            .await?;
+        self.identity().queue_key_rotation(&provider).await?;
 
         Ok(())
     }
