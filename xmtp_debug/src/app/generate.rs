@@ -41,19 +41,21 @@ impl Generate {
                 GenerateGroups::new(db, network)
                     .create_groups(amount, invite.unwrap_or(0), *concurrency)
                     .await?;
-                info!("Groups generated");
+                info!("groups generated");
                 Ok(())
             }
             Message => {
                 GenerateMessages::new(db, network, message_opts)
                     .run(amount, *concurrency)
-                    .await
+                    .await?;
+                info!("messages generated");
+                Ok(())
             }
             Identity => {
                 GenerateIdentity::new(db.into(), network)
                     .create_identities(amount, *concurrency)
                     .await?;
-                info!("identitites generated");
+                info!("identities generated");
                 Ok(())
             }
         }
