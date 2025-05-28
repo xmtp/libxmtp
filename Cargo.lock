@@ -7768,6 +7768,7 @@ dependencies = [
  "lazy_static",
  "lipsum",
  "miniserde",
+ "num_cpus",
  "openmls",
  "owo-colors",
  "prost",

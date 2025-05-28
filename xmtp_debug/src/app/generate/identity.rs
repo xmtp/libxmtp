@@ -63,13 +63,13 @@ impl GenerateIdentity {
             }
         }
         info!("Could not find identities to load, creating new identities");
-        let identities = self.create_identities(n).await?;
+        let identities = self.create_identities(n, 10).await?;
         self.identity_store
             .set_all(identities.as_slice(), &self.network)?;
         Ok(identities)
     }
 
-    pub async fn create_identities(&self, n: usize) -> Result<Vec<Identity>> {
+    pub async fn create_identities(&self, n: usize, concurrency: usize) -> Result<Vec<Identity>> {
         let mut identities: Vec<Identity> = Vec::with_capacity(n);
 
         let style = ProgressStyle::with_template(
@@ -79,10 +79,15 @@ impl GenerateIdentity {
         let mut set: tokio::task::JoinSet<Result<_, eyre::Error>> = tokio::task::JoinSet::new();
 
         let network = &self.network;
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+
         for _ in 0..n {
             let bar_pointer = bar.clone();
             let network = network.clone();
+            let semaphore = semaphore.clone();
             set.spawn(async move {
+                let _permit = semaphore.acquire().await?;
                 let wallet = crate::app::generate_wallet();
                 // TODO: maybe create all new clients in a temp directory
                 // then copy + store at the same time

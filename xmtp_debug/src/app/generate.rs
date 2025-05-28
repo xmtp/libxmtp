@@ -31,24 +31,27 @@ impl Generate {
             amount,
             invite,
             message_opts,
+            concurrency,
         } = opts;
+
+        info!(?concurrency, "using concurrency");
 
         match entity {
             Group => {
                 GenerateGroups::new(db, network)
-                    .create_groups(amount, invite.unwrap_or(0))
+                    .create_groups(amount, invite.unwrap_or(0), *concurrency)
                     .await?;
                 info!("Groups generated");
                 Ok(())
             }
             Message => {
                 GenerateMessages::new(db, network, message_opts)
-                    .run(amount)
+                    .run(amount, *concurrency)
                     .await
             }
             Identity => {
                 GenerateIdentity::new(db.into(), network)
-                    .create_identities(amount)
+                    .create_identities(amount, *concurrency)
                     .await?;
                 info!("identitites generated");
                 Ok(())
