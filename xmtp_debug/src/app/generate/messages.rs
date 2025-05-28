@@ -6,6 +6,7 @@ use crate::{
     args,
 };
 use color_eyre::eyre::{self, Result, eyre};
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -81,18 +82,29 @@ impl GenerateMessages {
     async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize) -> Result<usize> {
         let Self { network, opts, .. } = self;
 
+        let style = ProgressStyle::with_template(
+            "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
+        );
+        let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
+
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         for _ in 0..n {
+            let bar_pointer = bar.clone();
             let d = db.clone();
             let n = network.clone();
             let opts = opts.clone();
             set.spawn(async move {
                 Self::send_message(&d.clone().into(), &d.clone().into(), n, opts).await?;
+                bar_pointer.inc(1);
                 Ok(())
             });
         }
 
         let res = set.join_all().await;
+
+        bar.finish();
+        bar.reset();
+
         let errors: Vec<_> = res
             .iter()
             .filter(|r| r.is_err())
