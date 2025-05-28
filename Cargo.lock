@@ -7765,7 +7765,6 @@ dependencies = [
  "hex",
  "indicatif",
  "k256",
- "lazy_static",
  "lipsum",
  "miniserde",
  "openmls",

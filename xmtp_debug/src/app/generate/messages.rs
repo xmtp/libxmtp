@@ -8,7 +8,7 @@ use crate::{
 use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::Mutex as TokioMutex;
 use xmtp_mls::groups::summary::SyncSummary;
 
@@ -16,15 +16,14 @@ mod content_type;
 
 type IdentityLockMap = Arc<Mutex<HashMap<[u8; 32], Arc<TokioMutex<()>>>>>;
 
-lazy_static::lazy_static! {
-    static ref IDENTITY_LOCKS: IdentityLockMap = Arc::new(Mutex::new(HashMap::new()));
-}
+static IDENTITY_LOCKS: OnceLock<IdentityLockMap> = OnceLock::new();
 
 fn get_identity_lock(inbox_id: &[u8; 32]) -> Result<Arc<TokioMutex<()>>, eyre::Error> {
-    let mut locks = IDENTITY_LOCKS
+    let locks = IDENTITY_LOCKS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
+    let mut map = locks
         .lock()
         .map_err(|e| eyre!("Failed to lock IDENTITY_LOCKS: {}", e))?;
-    Ok(locks
+    Ok(map
         .entry(*inbox_id)
         .or_insert_with(|| Arc::new(TokioMutex::new(())))
         .clone())
