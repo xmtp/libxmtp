@@ -22,6 +22,7 @@ fs_extra = "1.3"
 hex.workspace = true
 indicatif = "0.17"
 k256 = "0.13"
+lazy_static = "1.5.0"
 lipsum = "0.9"
 miniserde = "0.1"
 openmls.workspace = true
@@ -54,4 +55,3 @@ xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-lazy_static = "1.5.0"
