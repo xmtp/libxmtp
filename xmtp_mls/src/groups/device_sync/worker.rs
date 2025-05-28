@@ -22,7 +22,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
-    events::{Event, Events},
+    events::Event,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
     Store, XmtpDb,
@@ -89,7 +89,7 @@ where
                         break;
                     } else {
                         tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
-                        let _ = te!(Err::<(), _>(err));
+                        let _ = te!(&self.client.db(), Err::<(), _>(err));
                         // Wait before restarting.
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting sync worker...");
@@ -119,8 +119,7 @@ where
         self.handle.increment_metric(SyncMetric::Init);
 
         while let Ok(event) = self.receiver.recv().await {
-            tracing::info!("New event: {event:?}");
-            t!(Event::SyncGroupMsg, &event);
+            t!(&self.client.db(), Event::SyncGroupMsg, &event);
 
             match event {
                 WorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
@@ -131,13 +130,6 @@ where
                 }
                 WorkerEvent::SyncPreferences(preference_updates) => {
                     self.evt_sync_preferences(preference_updates).await?;
-                }
-
-                WorkerEvent::Track(event) => {
-                    event.store(&self.client.db())?;
-                }
-                WorkerEvent::ClearOldEvents => {
-                    Events::clear_old_events(&self.client.db())?;
                 }
 
                 // Device Sync V1 events

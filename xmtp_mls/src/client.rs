@@ -265,7 +265,7 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     /// Reconnect to the client's database if it has previously been released
-    pub fn reconnect_db(&mut self) -> Result<(), ClientError> {
+    pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
         // restart all the workers
         // TODO: The only worker we have right now are the
@@ -496,6 +496,7 @@ where
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
         t!(
+            &self.db(),
             Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Group,
@@ -1515,7 +1516,7 @@ pub(crate) mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn should_stream_consent() {
-        let alix = Tester::builder().sync_worker().build().await;
+        let alix = Tester::builder().worker().build().await;
         let bo = Tester::new().await;
 
         let receiver = alix.local_events.subscribe();

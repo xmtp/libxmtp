@@ -63,6 +63,7 @@ where
             WelcomeService::new(context.clone()).sync_welcomes().await?;
 
             t!(
+                &context.db(),
                 Event::MsgStreamConnect,
                 Details::MsgStreamConnect {
                     conversation_type,

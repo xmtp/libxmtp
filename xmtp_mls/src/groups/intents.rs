@@ -112,6 +112,7 @@ where
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
             t!(
+                conn,
                 Event::QueueIntent,
                 Details::QueueIntent { intent_kind },
                 self.group_id.clone()

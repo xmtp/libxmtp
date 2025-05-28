@@ -20,7 +20,6 @@ use tracing::instrument;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
-    events::Events,
     group::ConversationType,
     group_message::StoredGroupMessage,
     NotFound, StorageError, XmtpDb,
@@ -62,8 +61,6 @@ pub enum WorkerEvent {
     NewSyncGroupMsg,
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
-    Track(Events),
-    ClearOldEvents,
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },

@@ -178,7 +178,7 @@ mod tests {
         use diesel::QueryDsl;
         use xmtp_db::group::{ConversationType, GroupQueryArgs};
 
-        tester!(alix, sync_worker, sync_server);
+        tester!(alix, worker, sync_server);
         tester!(bo);
 
         let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;

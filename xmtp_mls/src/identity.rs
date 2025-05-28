@@ -582,7 +582,7 @@ impl Identity {
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
-        match te!(api_client.upload_key_package(kp_bytes, true).await) {
+        match te!(conn, api_client.upload_key_package(kp_bytes, true).await) {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
                 let old_id = history_id - 1;
@@ -597,7 +597,7 @@ impl Identity {
                     Ok::<_, IdentityError>(())
                 })?;
 
-                t!(Event::KPRotate, Details::KPRotate { history_id });
+                t!(conn, Event::KPRotate, Details::KPRotate { history_id });
 
                 Ok(())
             }

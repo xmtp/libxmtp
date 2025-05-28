@@ -516,6 +516,7 @@ where
         new_group.update_consent_state(ConsentState::Allowed)?;
 
         t!(
+            &context.db(),
             Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Dm,
@@ -695,6 +696,7 @@ where
 
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
             t!(
+                &context.db(),
                 Event::GroupWelcome,
                 Details::GroupWelcome  {
                     conversation_type: stored_group.conversation_type,
@@ -988,6 +990,7 @@ where
         self.sync_until_intent_resolved(intent.id).await?;
 
         t!(
+            &self.context.db(),
             Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: ids.into_iter().map(String::from).collect(),
@@ -1046,6 +1049,7 @@ where
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
         t!(
+            &self.context.db(),
             Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: vec![],

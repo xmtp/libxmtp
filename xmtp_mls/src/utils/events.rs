@@ -1,17 +1,16 @@
-use crate::{groups::device_sync::DeviceSyncError, subscriptions::WorkerEvent};
-use parking_lot::RwLock;
+use crate::groups::device_sync::DeviceSyncError;
 use serde::Serialize;
 use std::{
     fmt::Debug,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, LazyLock,
+        Arc,
     },
 };
-use tokio::sync::broadcast;
-use xmtp_common::time::now_ns;
-
 use xmtp_archive::exporter::ArchiveExporter;
+use xmtp_common::time::now_ns;
+use xmtp_db::{ConnectionExt, DbConnection, Store};
+
 use xmtp_db::{
     events::{Details, Event, Events},
     XmtpOpenMlsProvider,
@@ -19,20 +18,16 @@ use xmtp_db::{
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 pub(crate) static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
-static WORKER_TX: LazyLock<RwLock<Option<broadcast::Sender<WorkerEvent>>>> =
-    LazyLock::new(|| RwLock::default());
 
-pub(crate) fn set_worker_tx(tx: broadcast::Sender<WorkerEvent>) {
-    *WORKER_TX.write() = Some(tx);
-}
-
-pub(crate) fn track(event: impl AsRef<Event>, details: impl Serialize, group_id: Option<Vec<u8>>) {
+pub(crate) fn track<C: ConnectionExt>(
+    db: &DbConnection<C>,
+    event: impl AsRef<Event>,
+    details: impl Serialize,
+    group_id: Option<Vec<u8>>,
+) {
     if !EVENTS_ENABLED.load(Ordering::Relaxed) {
         return;
     }
-    let Some(tx) = (*WORKER_TX.read()).clone() else {
-        return;
-    };
 
     let client_event = event.as_ref();
 
@@ -58,19 +53,25 @@ pub(crate) fn track(event: impl AsRef<Event>, details: impl Serialize, group_id:
         event,
         details: serialized_details,
     };
-    let _ = tx.send(WorkerEvent::Track(event));
+    if let Err(err) = event.store(db) {
+        tracing::warn!("Unable to save event: {err:?}");
+    };
 
     // Clear old events on build.
     if matches!(client_event, Event::ClientBuild) {
-        let _ = tx.send(WorkerEvent::ClearOldEvents);
+        if let Err(err) = Events::clear_old_events(db) {
+            tracing::warn!("Unable to clear old events: {err:?}");
+        }
     }
 }
-pub(crate) fn track_err<T, E: Debug>(
+pub(crate) fn track_err<T, E: Debug, C: ConnectionExt>(
+    db: &DbConnection<C>,
     result: Result<T, E>,
     group_id: Option<Vec<u8>>,
 ) -> Result<T, E> {
     if let Err(err) = &result {
         track(
+            db,
             Event::Error,
             Details::Error {
                 error: format!("{err:?}"),
@@ -83,28 +84,28 @@ pub(crate) fn track_err<T, E: Debug>(
 
 #[macro_export]
 macro_rules! t {
-    ($event:expr, $details:expr, $group_id:expr) => {{
+    ($db:expr, $event:expr, $details:expr, $group_id:expr) => {{
         use $crate::utils::events::track;
-        track($event, $details, Some($group_id))
+        track($db, $event, $details, Some($group_id))
     }};
-    ($event:expr, $details:expr) => {
+    ($db:expr, $event:expr, $details:expr) => {
         use $crate::utils::events::track;
-        track($event, $details, None)
+        track($db, $event, $details, None)
     };
-    ($event:expr) => {
+    ($db:expr, $event:expr) => {
         use $crate::utils::events::track;
-        track($event, (), None)
+        track($db, $event, (), None)
     };
 }
 #[macro_export]
 macro_rules! te {
-    ($result:expr, $group_id:expr) => {
+    ($db:expr, $result:expr, $group_id:expr) => {
         use $crate::utils::events::track_err;
-        track_err($result, $group_id)
+        track_err($db, $result, $group_id)
     };
-    ($result:expr) => {{
+    ($db:expr, $result:expr) => {{
         use $crate::utils::events::track_err;
-        track_err($result, None)
+        track_err($db, $result, None)
     }};
 }
 
@@ -149,14 +150,14 @@ mod tests {
         let events = Events::all_events(alix.provider.db())?;
         assert_eq!(events.len(), 2);
 
-        t!(Event::ClientBuild);
+        t!(alix.provider.db(), Event::ClientBuild);
         let events = Events::all_events(alix.provider.db())?;
         assert_eq!(events.len(), 1);
     }
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_debug_pkg() {
-        tester!(alix, stream);
+        tester!(alix, stream, worker);
         tester!(bo);
         tester!(caro);
 

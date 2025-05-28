@@ -608,6 +608,7 @@ where
                 return Ok((IntentState::ToPublish, None));
             } else {
                 t!(
+                    conn,
                     Event::EpochChange,
                     Details::EpochChange {
                         cursor: *cursor as i64,
@@ -762,6 +763,7 @@ where
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
                 t!(
+                    provider.db(),
                     Event::EpochChange,
                     Details::EpochChange {
                         cursor: *cursor as i64,
@@ -1365,7 +1367,7 @@ where
             summary.add_id(message_cursor);
             let result = retry_async!(
                 Retry::default(),
-                (async { te!(self.consume_message(&message).await) })
+                (async { te!(&self.context.db(), self.consume_message(&message).await) })
             );
             match result {
                 Ok(m) => summary.add(m),

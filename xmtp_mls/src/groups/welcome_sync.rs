@@ -39,7 +39,11 @@ where
         &self,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Api, Db>, GroupError> {
-        match te!(MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await) {
+        let db = self.context.db();
+        match te!(
+            &db,
+            MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await
+        ) {
             Ok(mls_group) => Ok(mls_group),
             Err(err) => {
                 use crate::DuplicateItem::*;

@@ -432,7 +432,7 @@ mod test {
     #[xmtp_common::test(unwrap_try = "true")]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_sync_groups_are_not_streamed() {
-        tester!(alix, sync_worker);
+        tester!(alix, worker);
         let stream = alix.stream_conversations(None).await?;
         futures::pin_mut!(stream);
 

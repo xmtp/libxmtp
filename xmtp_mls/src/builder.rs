@@ -5,10 +5,7 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     t,
-    utils::{
-        events::{self, EVENTS_ENABLED},
-        VersionInfo,
-    },
+    utils::{events::EVENTS_ENABLED, VersionInfo},
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 use std::sync::{atomic::Ordering, Arc};
@@ -122,7 +119,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub async fn build(self) -> Result<Client<ApiClient, Db>, ClientBuilderError>
     where
         ApiClient: XmtpApi + 'static + Send + Sync,
-        Db: xmtp_db::XmtpDb + 'static + Send + Sync,
+        Db: xmtp_db::XmtpDb + 'static + Send + Sync + Clone,
     {
         let ClientBuilder {
             mut api_client,
@@ -202,13 +199,12 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         };
 
         EVENTS_ENABLED.store(!disable_events, Ordering::SeqCst);
-        events::set_worker_tx(worker_tx);
 
         // start workers
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
 
-        t!(Event::ClientBuild);
+        t!(&client.context.db(), Event::ClientBuild);
 
         Ok(client)
     }
