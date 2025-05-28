@@ -561,7 +561,7 @@ where
             return Ok(group);
         };
 
-        let mut decrypted_welcome: Option<Result<DecryptedWelcome, StorageError>> = None;
+        let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
         let result = provider.transaction(|provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,

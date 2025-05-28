@@ -90,8 +90,10 @@ where
             .collect()
             .await;
 
-        // If processed groups equal to the number of envelopes we received, then delete old kps and rotate the keys
-        if num_envelopes > 0 && num_envelopes == groups.len() {
+        // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
+        // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
+        // rotation interval.
+        if num_envelopes > 0 {
             let provider = self.context.mls_provider();
             self.context.identity.queue_key_rotation(&provider).await?;
         }
