@@ -586,7 +586,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
-            )?;
+            )?; //todo: match the error and if it's HPKE then allow_cursor_increment, then move the cursor
             let DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,

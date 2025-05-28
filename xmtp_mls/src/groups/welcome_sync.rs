@@ -68,7 +68,6 @@ where
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages(provider.db()).await?;
         let num_envelopes = envelopes.len();
-
         let groups: Vec<MlsGroup<Api, Db>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match envelope.version {
@@ -90,7 +89,7 @@ where
             .await;
 
         // If processed groups equal to the number of envelopes we received, then delete old kps and rotate the keys
-        if num_envelopes > 0 && num_envelopes == groups.len() {
+        if num_envelopes > 0 {
             let provider = self.context.mls_provider();
             self.context
                 .identity
