@@ -6,10 +6,10 @@ use crate::{
     args,
 };
 use color_eyre::eyre::{self, Result, eyre};
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::Mutex as TokioMutex;
 use xmtp_mls::groups::summary::SyncSummary;
 
@@ -81,7 +81,6 @@ impl GenerateMessages {
 
     async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize) -> Result<usize> {
         let Self { network, opts, .. } = self;
-
 
         let style = ProgressStyle::with_template(
             "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
