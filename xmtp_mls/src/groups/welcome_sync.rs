@@ -69,6 +69,7 @@ where
         let envelopes = store.query_welcome_messages(provider.db()).await?;
         let num_envelopes = envelopes.len();
 
+        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Api, Db>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match envelope.version {

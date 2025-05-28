@@ -561,7 +561,7 @@ where
             return Ok(group);
         };
 
-        let mut decrypted_welcome = None;
+        let mut decrypted_welcome: Option<Result<DecryptedWelcome, StorageError>> = None;
         let result = provider.transaction(|provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
@@ -572,7 +572,7 @@ where
             Err(StorageError::IntentionalRollback)
         });
 
-        // TODO: Check for HPKE error here, and update cursor
+        // TODO: Move cursor forward on non-retriable errors, but not on retriable errors
         let Err(StorageError::IntentionalRollback) = result else {
             return Err(result?);
         };
@@ -599,6 +599,8 @@ where
                 "calling update cursor for welcome {}",
                 welcome.id
             );
+            // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
+            // failed due to retriable errors, this will permanently skip them.
             let requires_processing = provider.db().update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
