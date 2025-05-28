@@ -541,7 +541,6 @@ where
     pub(super) async fn create_from_welcome(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
-        allow_cursor_increment: bool,
     ) -> Result<Self, GroupError> {
         let provider = context.mls_provider();
         // Check if this welcome was already processed. Return the existing group if so.
@@ -553,6 +552,7 @@ where
             let group = provider
                 .db()
                 .find_group_by_welcome_id(welcome.id as i64)?
+                // The welcome previously errored out, e.g. HPKE error, so it's not in the DB
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
                 )))?;
@@ -571,6 +571,8 @@ where
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
         });
+
+        // TODO: Check for HPKE error here, and update cursor
         let Err(StorageError::IntentionalRollback) = result else {
             return Err(result?);
         };
@@ -593,26 +595,15 @@ where
                 ..
             } = decrypted_welcome;
 
-            let requires_processing = if allow_cursor_increment {
-                tracing::debug!(
-                    "calling update cursor for welcome {}, allow_cursor_increment is true",
-                    welcome.id
-                );
-                provider.db().update_cursor(
-                    context.installation_id(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?
-            } else {
-                tracing::debug!(
-                    "will not call update cursor for welcome {}, allow_cursor_increment is false",
-                    welcome.id
-                );
-                let current_cursor = provider
-                    .db()
-                    .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?;
-                current_cursor < welcome.id as i64
-            };
+            tracing::debug!(
+                "calling update cursor for welcome {}",
+                welcome.id
+            );
+            let requires_processing = provider.db().update_cursor(
+                context.installation_id(),
+                EntityKind::Welcome,
+                welcome.id as i64,
+            )?;
             if !requires_processing {
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }

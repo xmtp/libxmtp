@@ -38,7 +38,7 @@ where
         &self,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Api, Db>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await;
+        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
