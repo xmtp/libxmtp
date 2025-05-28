@@ -19,7 +19,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
     pub created_at_ns: i64,
-    pub delete_in_ns: Option<i64>,
+    pub delete_at_ns: Option<i64>,
 }
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
@@ -71,9 +71,9 @@ impl<C: ConnectionExt> DbConnection<C> {
             diesel::update(
                 dsl::key_package_history
                     .filter(dsl::id.lt(id))
-                    .filter(dsl::delete_in_ns.is_null()), // Only set if not already set
+                    .filter(dsl::delete_at_ns.is_null()), // Only set if not already set
             )
-            .set(dsl::delete_in_ns.eq(delete_in_24_hrs_ns))
+            .set(dsl::delete_at_ns.eq(delete_in_24_hrs_ns))
             .execute(conn)
         })?;
 
@@ -86,7 +86,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         use crate::schema::key_package_history::dsl;
         self.raw_query_read(|conn| {
             dsl::key_package_history
-                .filter(dsl::delete_in_ns.le(now_ns()))
+                .filter(dsl::delete_at_ns.le(now_ns()))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
         })
         .map_err(StorageError::from) // convert ConnectionError into StorageError
@@ -96,7 +96,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         use crate::schema::key_package_history::dsl;
 
         self.raw_query_write(|conn| {
-            diesel::delete(dsl::key_package_history.filter(dsl::delete_in_ns.le(now_ns())))
+            diesel::delete(dsl::key_package_history.filter(dsl::delete_at_ns.le(now_ns())))
                 .execute(conn)
         })?;
 

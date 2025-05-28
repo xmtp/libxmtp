@@ -129,7 +129,7 @@ diesel::table! {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
-        delete_in_ns -> Nullable<BigInt>,
+        delete_at_ns -> Nullable<BigInt>,
     }
 }
 
