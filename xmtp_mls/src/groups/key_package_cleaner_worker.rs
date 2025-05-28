@@ -1,15 +1,15 @@
 use crate::client::ClientError;
 use crate::configuration::WORKER_RESTART_DELAY;
+use crate::identity::IdentityError;
 use crate::Client;
 use futures::StreamExt;
-use std::time::Duration;
 use openmls_traits::storage::StorageProvider;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use xmtp_db::{MlsProviderExt, StorageError, XmtpDb};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
-use crate::identity::IdentityError;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
@@ -96,13 +96,13 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     /// Delete a key package from the local database.
-    pub(crate) fn delete_key_package(
-        &self,
-        hash_ref: Vec<u8>,
-    ) -> Result<(), IdentityError> {
+    pub(crate) fn delete_key_package(&self, hash_ref: Vec<u8>) -> Result<(), IdentityError> {
         let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;
-        self.client.mls_provider().key_store().delete_key_package(&openmls_hash_ref)?;
-        
+        self.client
+            .mls_provider()
+            .key_store()
+            .delete_key_package(&openmls_hash_ref)?;
+
         Ok(())
     }
 
@@ -124,10 +124,10 @@ where
                 if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
                     conn.delete_key_package_history_entries_before_id(max_id)?;
                     tracing::info!(
-                    "Deleted {} expired key packages (up to ID {}) from local DB and state",
-                    expired_kps.len(),
-                    max_id
-                );
+                        "Deleted {} expired key packages (up to ID {}) from local DB and state",
+                        expired_kps.len(),
+                        max_id
+                    );
                 }
             }
             Ok(_) => {
@@ -143,7 +143,7 @@ where
 
     /// Check if we need to rotate the keys and upload new keypackage if the las one rotate in has passed
     async fn rotate_last_key_package_if_needed(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        self.client.rotate_and_upload_key_package(true).await?;
+        self.client.rotate_and_upload_key_package().await?;
         Ok(())
     }
 

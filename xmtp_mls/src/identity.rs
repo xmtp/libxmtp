@@ -11,7 +11,6 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
 };
-use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,10 +24,8 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
-use xmtp_db::{ConnectionExt, MlsProviderExt, NotFound};
+use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
-use xmtp_db::group_intent::IntentState;
-use xmtp_db::schema::group_intents::dsl;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -387,7 +384,7 @@ impl Identity {
                             signature_request.signature_text(),
                             legacy_signed_private_key,
                         )
-                            .await?,
+                        .await?,
                     ),
                     scw_signature_verifier,
                 )
@@ -565,26 +562,37 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_and_upload_key_package(provider, false, api_client)
+        self.rotate_and_upload_key_package(provider, api_client)
             .await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
+    }
+
+    /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
+    /// If a rotation is already scheduled and its time has passed, immediately rotate the keys.
+    pub(crate) async fn queue_key_rotation<ApiClient: XmtpApi>(
+        &self,
+        provider: impl MlsProviderExt + Copy,
+        api_client: &ApiClientWrapper<ApiClient>,
+    ) -> Result<(), IdentityError> {
+        let conn = provider.db();
+        if !conn.is_identity_needs_rotation()? {
+            // If not ready, mark it for rotation in 5 seconds and return
+            conn.queue_key_package_rotation()?;
+            tracing::debug!("Last key package not ready for rotation, scheduled for 5s later");
+            Ok(())
+        } else {
+            self.rotate_and_upload_key_package(provider, api_client)
+                .await
+        }
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: impl MlsProviderExt + Copy,
-        force_rotate: bool,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         let conn = provider.db();
-        if !conn.is_identity_needs_rotation()? && !force_rotate {
-            // If not ready, mark it for rotation in 5 seconds and return
-            conn.queue_key_package_rotation()?;
-            tracing::debug!("Last key package not ready for rotation, scheduled for 5s later");
-            return Ok(());
-        }
-
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
@@ -593,7 +601,7 @@ impl Identity {
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                provider.transaction(|provider| {
+                provider.transaction(|_provider| {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<_, IdentityError>(())
                 })?;
@@ -621,7 +629,9 @@ pub(crate) fn serialize_key_package_hash_ref(
     Ok(serialized)
 }
 
-pub(crate) fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, IdentityError> {
+pub(crate) fn deserialize_key_package_hash_ref(
+    hash_ref: &[u8],
+) -> Result<HashReference, IdentityError> {
     let key_package_hash_ref: HashReference =
         bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
 

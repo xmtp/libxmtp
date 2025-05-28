@@ -3,8 +3,8 @@ use super::{
 };
 use crate::{StoreOrIgnore, impl_store_or_ignore};
 use diesel::prelude::*;
-use xmtp_common::time::now_ns;
 use xmtp_common::NS_IN_DAY;
+use xmtp_common::time::now_ns;
 
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = key_package_history)]
