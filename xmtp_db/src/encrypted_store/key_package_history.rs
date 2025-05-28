@@ -1,11 +1,10 @@
-use diesel::prelude::*;
-
 use super::{
     ConnectionExt, StorageError, db_connection::DbConnection, schema::key_package_history,
 };
-use crate::schema::key_package_history::dsl;
 use crate::{StoreOrIgnore, impl_store_or_ignore};
+use diesel::prelude::*;
 use xmtp_common::time::now_ns;
+use xmtp_common::NS_IN_DAY;
 
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = key_package_history)]
@@ -20,8 +19,7 @@ pub struct StoredKeyPackageHistoryEntry {
     pub id: i32,
     pub key_package_hash_ref: Vec<u8>,
     pub created_at_ns: i64,
-    pub delete_in: Option<i64>,
-    pub rotate_in: Option<i64>,
+    pub delete_in_ns: Option<i64>,
 }
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
@@ -66,57 +64,16 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(result)
     }
 
-    pub fn mark_last_key_package_to_rotate_in_5s(&self) -> Result<(), StorageError> {
-        use crate::schema::key_package_history::dsl;
-
-        let rotate_at = now_ns() + 5_000_000_000;
-
-        self.raw_query_write(|conn| {
-            // Get the most recent key package entry
-            if let Some(entry) = dsl::key_package_history
-                .order(dsl::id.desc())
-                .first::<StoredKeyPackageHistoryEntry>(conn)
-                .optional()?
-            {
-                // Only update if rotate_in is currently None
-                if entry.rotate_in.is_none() {
-                    diesel::update(dsl::key_package_history.filter(dsl::id.eq(entry.id)))
-                        .set(dsl::rotate_in.eq(rotate_at))
-                        .execute(conn)?;
-                }
-            }
-
-            Ok(())
-        })?;
-
-        Ok(())
-    }
-
-    pub fn last_key_package_needs_rotation(&self) -> Result<bool, StorageError> {
-        let rotate_in_opt: Option<i64> = self
-            .raw_query_read(|conn| {
-                dsl::key_package_history
-                    .select(dsl::rotate_in)
-                    .order(dsl::id.desc())
-                    .filter(dsl::rotate_in.is_not_null())
-                    .first::<Option<i64>>(conn)
-                    .optional()
-            })?
-            .flatten();
-
-        Ok(matches!(rotate_in_opt, Some(rotate_in) if now_ns() >= rotate_in))
-    }
-
     pub fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
         use crate::schema::key_package_history::dsl;
-
+        let delete_in_24_hrs_ns = now_ns() + NS_IN_DAY;
         self.raw_query_write(|conn| {
             diesel::update(
                 dsl::key_package_history
                     .filter(dsl::id.lt(id))
-                    .filter(dsl::delete_in.is_null()), // Only set if not already set
+                    .filter(dsl::delete_in_ns.is_null()), // Only set if not already set
             )
-            .set(dsl::delete_in.eq(now_ns() + 86_400_000_000_000i64))
+            .set(dsl::delete_in_ns.eq(delete_in_24_hrs_ns))
             .execute(conn)
         })?;
 
@@ -129,7 +86,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         use crate::schema::key_package_history::dsl;
         self.raw_query_read(|conn| {
             dsl::key_package_history
-                .filter(dsl::delete_in.le(now_ns()))
+                .filter(dsl::delete_in_ns.le(now_ns()))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
         })
         .map_err(StorageError::from) // convert ConnectionError into StorageError
@@ -139,7 +96,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         use crate::schema::key_package_history::dsl;
 
         self.raw_query_write(|conn| {
-            diesel::delete(dsl::key_package_history.filter(dsl::delete_in.le(now_ns())))
+            diesel::delete(dsl::key_package_history.filter(dsl::delete_in_ns.le(now_ns())))
                 .execute(conn)
         })?;
 

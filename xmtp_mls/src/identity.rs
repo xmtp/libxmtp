@@ -387,7 +387,7 @@ impl Identity {
                             signature_request.signature_text(),
                             legacy_signed_private_key,
                         )
-                        .await?,
+                            .await?,
                     ),
                     scw_signature_verifier,
                 )
@@ -565,7 +565,7 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_and_upload_key_package(provider,false, api_client)
+        self.rotate_and_upload_key_package(provider, false, api_client)
             .await?;
         Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
     }
@@ -578,9 +578,9 @@ impl Identity {
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
         let conn = provider.db();
-        if !conn.last_key_package_needs_rotation()? && !force_rotate {
+        if !conn.is_identity_needs_rotation()? && !force_rotate {
             // If not ready, mark it for rotation in 5 seconds and return
-            conn.mark_last_key_package_to_rotate_in_5s()?;
+            conn.queue_key_package_rotation()?;
             tracing::debug!("Last key package not ready for rotation, scheduled for 5s later");
             return Ok(());
         }
@@ -589,7 +589,7 @@ impl Identity {
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
-        
+
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
@@ -597,30 +597,14 @@ impl Identity {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<_, IdentityError>(())
                 })?;
-
+                conn.clear_key_package_rotation_queue()?;
                 Ok(())
             }
             Err(err) => {
                 tracing::info!("Kp err");
-                // Did not upload. Delete the newly created KP.
-                self.delete_key_package(provider, hash_ref)?;
-                conn.mark_last_key_package_to_rotate_in_5s()?;
                 Err(IdentityError::ApiClient(err))
             }
         }
-    }
-
-    /// Delete a key package from the local database.
-    pub(crate) fn delete_key_package(
-        &self,
-        provider: impl MlsProviderExt + Copy,
-        hash_ref: Vec<u8>,
-    ) -> Result<(), IdentityError> {
-        let openmls_hash_ref = deserialize_key_package_hash_ref(&hash_ref)?;
-        tracing::info!("key store");
-        provider.key_store().delete_key_package(&openmls_hash_ref)?;
-
-        Ok(())
     }
 }
 

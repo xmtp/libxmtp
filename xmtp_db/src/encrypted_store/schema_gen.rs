@@ -103,6 +103,7 @@ diesel::table! {
         installation_keys -> Binary,
         credential_bytes -> Binary,
         rowid -> Nullable<Integer>,
+        next_key_package_rotation_ns -> Nullable<BigInt>,
     }
 }
 
@@ -128,8 +129,7 @@ diesel::table! {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
-        delete_in -> Nullable<BigInt>,
-        rotate_in -> Nullable<BigInt>,
+        delete_in_ns -> Nullable<BigInt>,
     }
 }
 

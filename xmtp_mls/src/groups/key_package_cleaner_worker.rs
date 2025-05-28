@@ -101,12 +101,11 @@ where
         hash_ref: Vec<u8>,
     ) -> Result<(), IdentityError> {
         let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;
-        tracing::info!("key store");
         self.client.mls_provider().key_store().delete_key_package(&openmls_hash_ref)?;
-
+        
         Ok(())
     }
-    
+
     /// Delete all the expired keys
     async fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let provider = self.client.mls_provider();
@@ -147,7 +146,7 @@ where
         self.client.rotate_and_upload_key_package(true).await?;
         Ok(())
     }
-    
+
     async fn run(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
