@@ -204,6 +204,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
 
+        client.start_key_packages_cleaner_worker();
         t!(&client.context.db(), Event::ClientBuild);
 
         Ok(client)

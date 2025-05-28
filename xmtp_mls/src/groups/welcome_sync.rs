@@ -95,10 +95,7 @@ where
         // If processed groups equal to the number of envelopes we received, then delete old kps and rotate the keys
         if num_envelopes > 0 && num_envelopes == groups.len() {
             let provider = self.context.mls_provider();
-            self.context
-                .identity
-                .rotate_and_upload_key_package(&provider, self.context.api())
-                .await?;
+            self.context.identity.queue_key_rotation(&provider).await?;
         }
 
         Ok(groups)
