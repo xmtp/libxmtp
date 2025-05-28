@@ -140,7 +140,7 @@ mod tests {
     use xmtp_db::events::{Event, Events};
     use xmtp_mls_common::group::GroupMetadataOptions;
 
-    use crate::{tester, utils::events::upload_debug_archive};
+    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_clear_old_events() {
@@ -194,7 +194,7 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
+        let k = upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem

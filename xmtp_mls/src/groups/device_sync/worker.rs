@@ -25,7 +25,7 @@ use xmtp_db::{
     events::Event,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    Store, XmtpDb,
+    StoreOrIgnore, XmtpDb,
 };
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
@@ -277,7 +277,8 @@ where
         }
 
         for msg in unprocessed_messages {
-            StoredProcessedDeviceSyncMessages { message_id: msg.id }.store(&self.context.db())?;
+            StoredProcessedDeviceSyncMessages { message_id: msg.id }
+                .store_or_ignore(&self.context.db())?;
         }
 
         Ok(())

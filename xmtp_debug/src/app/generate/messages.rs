@@ -6,11 +6,29 @@ use crate::{
     args,
 };
 use color_eyre::eyre::{self, Result, eyre};
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::sync::Mutex as TokioMutex;
 use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
+
+type IdentityLockMap = Arc<Mutex<HashMap<[u8; 32], Arc<TokioMutex<()>>>>>;
+
+static IDENTITY_LOCKS: OnceLock<IdentityLockMap> = OnceLock::new();
+
+fn get_identity_lock(inbox_id: &[u8; 32]) -> Result<Arc<TokioMutex<()>>, eyre::Error> {
+    let locks = IDENTITY_LOCKS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
+    let mut map = locks
+        .lock()
+        .map_err(|e| eyre!("Failed to lock IDENTITY_LOCKS: {}", e))?;
+    Ok(map
+        .entry(*inbox_id)
+        .or_insert_with(|| Arc::new(TokioMutex::new(())))
+        .clone())
+}
 
 #[derive(thiserror::Error, Debug)]
 enum MessageSendError {
@@ -64,18 +82,29 @@ impl GenerateMessages {
     async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize) -> Result<usize> {
         let Self { network, opts, .. } = self;
 
+        let style = ProgressStyle::with_template(
+            "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
+        );
+        let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
+
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         for _ in 0..n {
+            let bar_pointer = bar.clone();
             let d = db.clone();
             let n = network.clone();
             let opts = opts.clone();
             set.spawn(async move {
                 Self::send_message(&d.clone().into(), &d.clone().into(), n, opts).await?;
+                bar_pointer.inc(1);
                 Ok(())
             });
         }
 
         let res = set.join_all().await;
+
+        bar.finish();
+        bar.reset();
+
         let errors: Vec<_> = res
             .iter()
             .filter(|r| r.is_err())
@@ -115,6 +144,11 @@ impl GenerateMessages {
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
             let key = (u64::from(&network), *inbox_id);
+
+            // each identity can only be used by one worker thread
+            let identity_lock = get_identity_lock(inbox_id)?;
+            let _lock_guard = identity_lock.lock().await;
+
             let identity = identity_store.get(key.into())?.ok_or(eyre!(
                 "No identity with inbox id [{}] in local store",
                 hex::encode(inbox_id)

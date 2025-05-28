@@ -24,13 +24,9 @@ where
 {
     while let Some(element) = importer.next().await {
         let element = element?;
-        match insert(element, context, context.mls_provider()) {
-            Err(DeviceSyncError::Deserialization(err)) => {
-                tracing::warn!("Unable to insert record: {err:?}");
-            }
-            Err(err) => return Err(err)?,
-            _ => {}
-        }
+        if let Err(err) = insert(element, context, context.mls_provider()) {
+            tracing::warn!("Unable to insert record: {err:?}");
+        };
     }
 
     Ok(())
