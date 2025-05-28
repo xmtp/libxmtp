@@ -117,7 +117,6 @@ where
                 for kp in &expired_kps {
                     if let Err(err) = self.delete_key_package(kp.key_package_hash_ref.clone()) {
                         tracing::error!("Couldn't delete KeyPackage: {:?}", err);
-                        //todo: should we get the results from this deletion and only delete the ones were actually deleted from the history table?
                     }
                 }
 
