@@ -1,3 +1,5 @@
+use xmtp_common::NS_IN_DAY;
+
 #[allow(unused)]
 pub const MAX_DB_POOL_SIZE: u32 = 25;
 
@@ -6,7 +8,6 @@ const KEYS_EXPIRATION_INTERVAL_NS: i64 = NS_IN_DAY; // 1 day
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::*;
-use xmtp_common::NS_IN_DAY;
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
