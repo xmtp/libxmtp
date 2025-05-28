@@ -133,6 +133,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info,
             disable_local_telemetry: disable_events,
         } = self;
+        EVENTS_ENABLED.store(!disable_events, Ordering::SeqCst);
 
         let api_client = api_client
             .take()
@@ -197,8 +198,6 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             local_events: tx,
             worker_events: worker_tx.clone(),
         };
-
-        EVENTS_ENABLED.store(!disable_events, Ordering::SeqCst);
 
         // start workers
         client.start_sync_worker();
@@ -609,6 +608,7 @@ pub(crate) mod tests {
         let events = Events::all_events(provider.db())?;
 
         // No events should be logged if telemetry is turned off.
+
         assert!(events.is_empty());
     }
 

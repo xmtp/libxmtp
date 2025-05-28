@@ -137,7 +137,10 @@ pub async fn upload_debug_archive(
 mod tests {
     use std::time::Duration;
 
-    use xmtp_db::events::{Event, Events};
+    use xmtp_db::{
+        events::{Event, Events},
+        Store,
+    };
     use xmtp_mls_common::group::GroupMetadataOptions;
 
     use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
@@ -146,13 +149,21 @@ mod tests {
     async fn test_clear_old_events() {
         tester!(alix);
 
+        Events {
+            created_at_ns: 0,
+            group_id: None,
+            event: serde_json::to_string(&Event::ClientBuild)?,
+            details: serde_json::to_value(())?,
+        }
+        .store(&alix.provider.db())?;
+
         alix.create_group(None, GroupMetadataOptions::default())?;
         let events = Events::all_events(alix.provider.db())?;
-        assert_eq!(events.len(), 2);
+        let old_len = events.len();
 
         t!(alix.provider.db(), Event::ClientBuild);
         let events = Events::all_events(alix.provider.db())?;
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), old_len);
     }
 
     #[xmtp_common::test(unwrap_try = "true")]
