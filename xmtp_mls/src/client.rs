@@ -1004,7 +1004,7 @@ pub(crate) mod tests {
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(!fetched_identity.next_key_package_rotation_ns.is_none());
+        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
 
         xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
 
