@@ -6,7 +6,6 @@ mod version;
 
 use crate::cached_signature_verifier::CachedSmartContractSignatureVerifier;
 use crate::version::get_version;
-use clap::Parser;
 use config::Args;
 use handlers::ValidationService;
 use health_check::health_check_server;
@@ -31,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let args = Args::parse();
+    let args = Args::parse()?;
 
     if args.version {
         info!("Version: {0}", get_version());
