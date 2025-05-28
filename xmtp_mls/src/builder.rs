@@ -203,7 +203,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         // start workers
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
-
+        client.start_key_packages_cleaner_worker();
         Events::track(provider.db(), None, Event::ClientBuild, ());
 
         Ok(client)

@@ -1,7 +1,7 @@
 CREATE TABLE events (
     created_at_ns BIGINT NOT NULL,
     group_id BLOB,
-    event String NOT NULL,
+    event TEXT NOT NULL,
     details BLOB
 );
 
