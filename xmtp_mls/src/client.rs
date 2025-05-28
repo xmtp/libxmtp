@@ -1449,7 +1449,7 @@ pub(crate) mod tests {
 
         //check the rotation value has been set
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(!bo_fetched_identity.next_key_package_rotation_ns.is_none());
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
 
         //check original keys must not be marked to be deleted
         let bo_keys = bo
@@ -1478,7 +1478,7 @@ pub(crate) mod tests {
             .context
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
-        assert!(!bo_keys.unwrap().delete_at_ns.is_none());
+        assert!(bo_keys.unwrap().delete_at_ns.is_some());
 
         bo.sync_welcomes().await.unwrap();
         let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
@@ -1515,7 +1515,7 @@ pub(crate) mod tests {
         let bo_original_after_delete = bo_store
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
-        assert!(!bo_original_after_delete.unwrap().delete_at_ns.is_none());
+        assert!(bo_original_after_delete.unwrap().delete_at_ns.is_some());
     }
 
     #[xmtp_common::test]
