@@ -86,3 +86,36 @@ impl std::str::FromStr for MillisecondInterval {
         Ok(MillisecondInterval(Duration::from_millis(millis)))
     }
 }
+
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
+pub struct Concurrency(usize);
+
+impl Default for Concurrency {
+    fn default() -> Self {
+        Concurrency(num_cpus::get())
+    }
+}
+
+impl std::fmt::Display for Concurrency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for Concurrency {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let n = s.parse()?;
+        Ok(Concurrency(n))
+    }
+}
+
+impl std::ops::Deref for Concurrency {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}

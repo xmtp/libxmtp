@@ -7767,6 +7767,7 @@ dependencies = [
  "k256",
  "lipsum",
  "miniserde",
+ "num_cpus",
  "openmls",
  "owo-colors",
  "prost",

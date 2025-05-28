@@ -68,6 +68,10 @@ pub struct Generate {
     pub invite: Option<usize>,
     #[command(flatten)]
     pub message_opts: MessageGenerateOpts,
+    /// Maximum number of concurrent tasks to use during generation.
+    /// Defaults to the number of available CPU cores if not specified.
+    #[arg(long, short, default_value_t = Concurrency::default())]
+    pub concurrency: Concurrency,
 }
 
 #[derive(Args, Debug, Clone)]

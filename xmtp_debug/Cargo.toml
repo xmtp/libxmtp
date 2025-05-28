@@ -24,6 +24,7 @@ indicatif = "0.17"
 k256 = "0.13"
 lipsum = "0.9"
 miniserde = "0.1"
+num_cpus = "1.16.0"
 openmls.workspace = true
 owo-colors = "4.1"
 prost.workspace = true
