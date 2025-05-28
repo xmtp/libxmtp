@@ -14,7 +14,8 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError, IdentityUpdates},
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEventError, LocalEvents},
+    subscriptions::{LocalEventError, LocalEvents, WorkerEvent},
+    t,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpApi,
@@ -30,7 +31,7 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    events::{Details, Event, Events},
+    events::{Details, Event},
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -149,6 +150,7 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
     pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) worker_events: broadcast::Sender<WorkerEvent>,
 }
 
 impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient, XDb> {
@@ -179,6 +181,10 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.context.local_events
     }
+
+    fn worker_events(&self) -> &broadcast::Sender<WorkerEvent> {
+        &self.context.worker_events
+    }
 }
 
 #[derive(Clone)]
@@ -200,6 +206,7 @@ impl<ApiClient, Db> Clone for Client<ApiClient, Db> {
         Self {
             context: self.context.clone(),
             local_events: self.local_events.clone(),
+            worker_events: self.worker_events.clone(),
         }
     }
 }
@@ -258,7 +265,7 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     /// Reconnect to the client's database if it has previously been released
-    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+    pub fn reconnect_db(&mut self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
         // restart all the workers
         // TODO: The only worker we have right now are the
@@ -488,13 +495,12 @@ where
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
-        Events::track(
-            self.mls_provider().db(),
-            Some(group.group_id.clone()),
+        t!(
             Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Group,
             },
+            group.group_id.clone()
         );
 
         Ok(group)

@@ -27,8 +27,6 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
-use crate::subscriptions::SyncWorkerEvent;
-use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
     configuration::{
@@ -38,9 +36,11 @@ use crate::{
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
+    t,
     utils::id::calculate_message_id,
 };
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
+use crate::{subscriptions::WorkerEvent, GroupCommitLock};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
@@ -70,7 +70,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
-use xmtp_db::events::{Details, Event, Events};
+use xmtp_db::events::{Details, Event};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -515,13 +515,12 @@ where
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
 
-        Events::track(
-            provider.db(),
-            Some(group_id),
+        t!(
             Event::GroupCreate,
             Details::GroupCreate {
                 conversation_type: ConversationType::Dm,
             },
+            group_id
         );
         Ok(new_group)
     }
@@ -681,7 +680,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
+                    let _ = context.worker_events().send(WorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -694,16 +693,14 @@ where
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
-            let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
-            Events::track(
-                db,
-                Some(stored_group.id.clone()),
+            t!(
                 Event::GroupWelcome,
-                Some(Details::GroupWelcome  {
+                Details::GroupWelcome  {
                     conversation_type: stored_group.conversation_type,
                     added_by_inbox_id: stored_group.added_by_inbox_id.clone()
-                })
+                },
+                stored_group.id.clone()
             );
 
             Ok(Self::new(
@@ -990,14 +987,13 @@ where
 
         self.sync_until_intent_resolved(intent.id).await?;
 
-        Events::track(
-            self.mls_provider().db(),
-            Some(self.group_id.clone()),
+        t!(
             Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: ids.into_iter().map(String::from).collect(),
                 removed: vec![],
             },
+            self.group_id.clone()
         );
         ok_result
     }
@@ -1049,14 +1045,13 @@ where
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
-        Events::track(
-            self.mls_provider().db(),
-            Some(self.group_id.clone()),
+        t!(
             Event::GroupMembershipChange,
             Details::GroupMembershipChange {
                 added: vec![],
                 removed: inbox_ids.iter().map(|&id| String::from(id)).collect(),
             },
+            self.group_id.clone()
         );
         Ok(())
     }
@@ -1425,10 +1420,8 @@ where
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .context
-                .local_events()
-                .send(LocalEvents::SyncWorkerEvent(
-                    SyncWorkerEvent::SyncPreferences(new_records.clone()),
-                ));
+                .worker_events()
+                .send(WorkerEvent::SyncPreferences(new_records.clone()));
             // Broadcast the changes
             let _ = self
                 .context

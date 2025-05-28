@@ -1,24 +1,3 @@
-use futures::{Stream, StreamExt};
-use process_welcome::ProcessWelcomeFuture;
-use prost::Message;
-use std::{collections::HashSet, sync::Arc};
-use tokio::sync::{broadcast, oneshot};
-use tokio_stream::wrappers::BroadcastStream;
-
-use tracing::instrument;
-use xmtp_db::XmtpDb;
-use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
-
-use process_welcome::ProcessWelcomeResult;
-use stream_all::StreamAllMessages;
-use stream_conversations::{StreamConversations, WelcomeOrGroup};
-
-pub(super) mod process_message;
-pub(super) mod process_welcome;
-mod stream_all;
-mod stream_conversations;
-pub(crate) mod stream_messages;
-
 use crate::{
     groups::{
         device_sync::preference_sync::PreferenceUpdate, mls_sync::GroupMessageProcessingError,
@@ -26,14 +5,33 @@ use crate::{
     },
     Client, XmtpApi,
 };
+use futures::{Stream, StreamExt};
+use process_welcome::ProcessWelcomeFuture;
+use process_welcome::ProcessWelcomeResult;
+use prost::Message;
+use serde::Serialize;
+use std::{collections::HashSet, sync::Arc};
+use stream_all::StreamAllMessages;
+use stream_conversations::{StreamConversations, WelcomeOrGroup};
 use thiserror::Error;
+use tokio::sync::{broadcast, oneshot};
+use tokio_stream::wrappers::BroadcastStream;
+use tracing::instrument;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
+    events::Events,
     group::ConversationType,
     group_message::StoredGroupMessage,
-    NotFound, StorageError,
+    NotFound, StorageError, XmtpDb,
 };
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
+
+pub(super) mod process_message;
+pub(super) mod process_welcome;
+mod stream_all;
+mod stream_conversations;
+pub(crate) mod stream_messages;
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -55,16 +53,17 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncWorkerEvent(SyncWorkerEvent),
     PreferencesChanged(Vec<PreferenceUpdate>),
 }
 
-#[derive(Debug, Clone)]
-pub enum SyncWorkerEvent {
+#[derive(Debug, Clone, Serialize)]
+pub enum WorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
     NewSyncGroupMsg,
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
+    Track(Events),
+    ClearOldEvents,
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
@@ -77,15 +76,6 @@ impl LocalEvents {
         // this is just to protect against any future variants
         match self {
             NewGroup(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    fn sync_filter(self) -> Option<Self> {
-        use LocalEvents::*;
-
-        match &self {
-            SyncWorkerEvent(_) => Some(self),
             _ => None,
         }
     }
@@ -125,21 +115,11 @@ impl LocalEvents {
 }
 
 pub(crate) trait StreamMessages {
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>>;
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
-    #[instrument(level = "debug", skip_all)]
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::sync_filter)
-                .map(Result::Ok)
-        })
-    }
-
     #[instrument(level = "debug", skip_all)]
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
         BroadcastStream::new(self).filter_map(|event| async {

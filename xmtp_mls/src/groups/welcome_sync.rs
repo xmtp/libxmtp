@@ -1,6 +1,7 @@
 use crate::client::ClientError;
 use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
 use crate::mls_store::MlsStore;
+use crate::te;
 use crate::{
     groups::{GroupError, MlsGroup},
     XmtpApi,
@@ -38,9 +39,7 @@ where
         &self,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Api, Db>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await;
-
-        match result {
+        match te!(MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await) {
             Ok(mls_group) => Ok(mls_group),
             Err(err) => {
                 use crate::DuplicateItem::*;

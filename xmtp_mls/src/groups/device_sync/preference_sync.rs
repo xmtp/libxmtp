@@ -1,5 +1,6 @@
 use super::*;
 use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
+use serde::Serialize;
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
@@ -12,7 +13,7 @@ use xmtp_proto::xmtp::device_sync::content::{
 };
 use xmtp_proto::ConversionError;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum PreferenceUpdate {
     Consent(StoredConsentRecord),
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },

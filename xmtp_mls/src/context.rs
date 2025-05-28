@@ -1,6 +1,6 @@
 use crate::builder::SyncWorkerMode;
 use crate::client::DeviceSync;
-use crate::subscriptions::LocalEvents;
+use crate::subscriptions::{LocalEvents, WorkerEvent};
 use crate::utils::VersionInfo;
 use crate::GroupCommitLock;
 use crate::{
@@ -43,6 +43,7 @@ pub trait XmtpContextProvider: Sized {
     fn version_info(&self) -> &VersionInfo;
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
+    fn worker_events(&self) -> &broadcast::Sender<WorkerEvent>;
 }
 
 impl<XApiClient, XDb> XmtpContextProvider for XmtpMlsLocalContext<XApiClient, XDb>
@@ -76,6 +77,10 @@ where
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.local_events
     }
+
+    fn worker_events(&self) -> &broadcast::Sender<WorkerEvent> {
+        &self.worker_events
+    }
 }
 
 impl<T> XmtpContextProvider for Arc<T>
@@ -107,6 +112,10 @@ where
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         <T as XmtpContextProvider>::local_events(&**self)
+    }
+
+    fn worker_events(&self) -> &broadcast::Sender<WorkerEvent> {
+        <T as XmtpContextProvider>::worker_events(&**self)
     }
 }
 
@@ -140,6 +149,10 @@ where
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         <T as XmtpContextProvider>::local_events(*self)
     }
+
+    fn worker_events(&self) -> &broadcast::Sender<WorkerEvent> {
+        <T as XmtpContextProvider>::worker_events(*self)
+    }
 }
 
 /// The local context a XMTP MLS needs to function:
@@ -156,6 +169,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) mls_commit_lock: std::sync::Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) worker_events: broadcast::Sender<WorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
 }

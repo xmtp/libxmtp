@@ -12,16 +12,17 @@ use crate::{
         device_sync_legacy::DeviceSyncContent,
         GroupError,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
+    subscriptions::{LocalEvents, WorkerEvent},
+    t, te,
 };
-use futures::{Stream, StreamExt};
-use std::{pin::Pin, sync::Arc};
-use tokio::sync::OnceCell;
+use std::sync::Arc;
+use tokio::sync::{broadcast, OnceCell};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
+    events::{Event, Events},
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
     Store, XmtpDb,
@@ -45,8 +46,7 @@ const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 pub struct SyncWorker<ApiClient, Db> {
     client: DeviceSyncClient<ApiClient, Db>,
     /// The sync events stream
-    #[allow(clippy::type_complexity)]
-    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
+    receiver: broadcast::Receiver<WorkerEvent>,
     init: OnceCell<()>,
 
     handle: Arc<WorkerHandle<SyncMetric>>,
@@ -58,12 +58,12 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let receiver = context.local_events.subscribe();
-        let stream = Box::pin(receiver.stream_sync_messages());
+        let receiver = context.worker_events.subscribe();
         let client = DeviceSyncClient::new(context.clone());
+
         Self {
             client,
-            stream,
+            receiver,
             init: OnceCell::new(),
             handle: Arc::new(WorkerHandle::new()),
         }
@@ -89,6 +89,7 @@ where
                         break;
                     } else {
                         tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
+                        let _ = te!(Err::<(), _>(err));
                         // Wait before restarting.
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting sync worker...");
@@ -117,32 +118,36 @@ where
         self.sync_init().await?;
         self.handle.increment_metric(SyncMetric::Init);
 
-        while let Some(event) = self.stream.next().await {
-            let event = event?;
-
+        while let Ok(event) = self.receiver.recv().await {
             tracing::info!("New event: {event:?}");
+            t!(Event::SyncGroupMsg, &event);
 
-            if let LocalEvents::SyncWorkerEvent(msg) = event {
-                match msg {
-                    SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                        self.evt_new_sync_group_from_welcome().await?;
-                    }
-                    SyncWorkerEvent::NewSyncGroupMsg => {
-                        self.evt_new_sync_group_msg().await?;
-                    }
-                    SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                        self.evt_sync_preferences(preference_updates).await?;
-                    }
-
-                    // Device Sync V1 events
-                    SyncWorkerEvent::Reply { message_id } => {
-                        self.evt_v1_device_sync_reply(message_id).await?;
-                    }
-                    SyncWorkerEvent::Request { message_id } => {
-                        self.evt_v1_device_sync_request(message_id).await?;
-                    }
+            match event {
+                WorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                    self.evt_new_sync_group_from_welcome().await?;
                 }
-            };
+                WorkerEvent::NewSyncGroupMsg => {
+                    self.evt_new_sync_group_msg().await?;
+                }
+                WorkerEvent::SyncPreferences(preference_updates) => {
+                    self.evt_sync_preferences(preference_updates).await?;
+                }
+
+                WorkerEvent::Track(event) => {
+                    event.store(&self.client.db())?;
+                }
+                WorkerEvent::ClearOldEvents => {
+                    Events::clear_old_events(&self.client.db())?;
+                }
+
+                // Device Sync V1 events
+                WorkerEvent::Reply { message_id } => {
+                    self.evt_v1_device_sync_reply(message_id).await?;
+                }
+                WorkerEvent::Request { message_id } => {
+                    self.evt_v1_device_sync_request(message_id).await?;
+                }
+            }
         }
         Ok(())
     }
