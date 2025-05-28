@@ -117,12 +117,13 @@ where
                 for kp in &expired_kps {
                     if let Err(err) = self.delete_key_package(kp.key_package_hash_ref.clone()) {
                         tracing::error!("Couldn't delete KeyPackage: {:?}", err);
+                        //todo: should we get the results from this deletion and only delete the ones were actually deleted from the history table?
                     }
                 }
 
                 // Delete from database using the max expired ID
                 if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
-                    conn.delete_key_package_history_entries_before_id(max_id)?;
+                    conn.delete_key_package_history_up_to_id(max_id)?;
                     tracing::info!(
                         "Deleted {} expired key packages (up to ID {}) from local DB and state",
                         expired_kps.len(),

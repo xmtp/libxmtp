@@ -103,14 +103,11 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn delete_key_package_history_entries_before_id(
-        &self,
-        id: i32,
-    ) -> Result<(), StorageError> {
+    pub fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
-                    .filter(key_package_history::dsl::id.lt(id)),
+                    .filter(key_package_history::dsl::id.le(id)),
             )
             .execute(conn)
         })?;
