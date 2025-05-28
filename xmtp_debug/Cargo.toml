@@ -54,3 +54,4 @@ xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+lazy_static = "1.5.0"

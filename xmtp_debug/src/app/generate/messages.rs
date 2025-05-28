@@ -7,10 +7,28 @@ use crate::{
 };
 use color_eyre::eyre::{self, Result, eyre};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as TokioMutex;
 use xmtp_mls::groups::summary::SyncSummary;
 
 mod content_type;
+
+type IdentityLockMap = Arc<Mutex<HashMap<[u8; 32], Arc<TokioMutex<()>>>>>;
+
+lazy_static::lazy_static! {
+    static ref IDENTITY_LOCKS: IdentityLockMap = Arc::new(Mutex::new(HashMap::new()));
+}
+
+fn get_identity_lock(inbox_id: &[u8; 32]) -> Result<Arc<TokioMutex<()>>, eyre::Error> {
+    let mut locks = IDENTITY_LOCKS
+        .lock()
+        .map_err(|e| eyre!("Failed to lock IDENTITY_LOCKS: {}", e))?;
+    Ok(locks
+        .entry(*inbox_id)
+        .or_insert_with(|| Arc::new(TokioMutex::new(())))
+        .clone())
+}
 
 #[derive(thiserror::Error, Debug)]
 enum MessageSendError {
@@ -115,6 +133,11 @@ impl GenerateMessages {
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
             let key = (u64::from(&network), *inbox_id);
+
+            // each identity can only be used by one worker thread
+            let identity_lock = get_identity_lock(inbox_id)?;
+            let _lock_guard = identity_lock.lock().await;
+
             let identity = identity_store.get(key.into())?.ok_or(eyre!(
                 "No identity with inbox id [{}] in local store",
                 hex::encode(inbox_id)
