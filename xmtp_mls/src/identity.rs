@@ -578,7 +578,7 @@ impl Identity {
         if !conn.is_identity_needs_rotation()? {
             // If not ready, mark it for rotation in 5 seconds and return
             conn.queue_key_package_rotation()?;
-            tracing::debug!("Last key package not ready for rotation, scheduled for 5s later");
+            tracing::info!("Last key package not ready for rotation, queued for rotation");
             Ok(())
         } else {
             self.rotate_and_upload_key_package(provider, api_client)
@@ -592,6 +592,7 @@ impl Identity {
         provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
+        tracing::info!("Start rotating keys and uploading the new key package");
         let conn = provider.db();
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;

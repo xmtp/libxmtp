@@ -144,7 +144,14 @@ where
 
     /// Check if we need to rotate the keys and upload new keypackage if the las one rotate in has passed
     async fn rotate_last_key_package_if_needed(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        self.client.rotate_and_upload_key_package().await?;
+        let provider = self.client.mls_provider();
+        let conn = provider.db();
+
+        if conn.is_identity_needs_rotation()? {
+            self.client.rotate_and_upload_key_package().await?;
+            return Ok(());
+        }
+
         Ok(())
     }
 

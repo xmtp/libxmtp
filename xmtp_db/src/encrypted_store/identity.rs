@@ -18,7 +18,7 @@ pub struct StoredIdentity {
     #[builder(setter(skip))]
     rowid: Option<i32>,
     #[builder(setter(skip))]
-    next_key_package_rotation_ns: Option<i64>,
+    pub next_key_package_rotation_ns: Option<i64>,
 }
 
 impl_fetch!(StoredIdentity, identity);

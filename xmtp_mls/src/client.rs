@@ -920,9 +920,10 @@ pub(crate) mod tests {
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
+    use xmtp_db::identity::StoredIdentity;
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
-        schema::identity_updates, ConnectionExt,
+        schema::identity_updates, ConnectionExt, Fetch,
     };
     use xmtp_id::associations::test_utils::WalletTestExt;
     use xmtp_mls_common::group::GroupMetadataOptions;
@@ -997,9 +998,15 @@ pub(crate) mod tests {
         assert_eq!(kp1.len(), 1);
         let binding = kp1[&installation_public_key].clone().unwrap();
         let init1 = binding.inner.hpke_init_key();
-
+        let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
+        assert!(fetched_identity.next_key_package_rotation_ns.is_none());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
+        //check the rotation value has been set
+        let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
+        assert!(!fetched_identity.next_key_package_rotation_ns.is_none());
+
+        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
 
         let kp2 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
@@ -1435,14 +1442,43 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
+        let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
+        assert!(!bo_keys_queued_for_rotation);
 
         bo.sync_welcomes().await.unwrap();
+
+        //check the rotation value has been set
+        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
+        assert!(!bo_fetched_identity.next_key_package_rotation_ns.is_none());
+
+        //check original keys must not be marked to be deleted
+        let bo_keys = bo
+            .context
+            .db()
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
+        assert!(bo_keys.unwrap().delete_at_ns.is_none());
+
+        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        //check the rotation queue must be cleared
+        let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
+        assert!(!bo_keys_queued_for_rotation);
+
+        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_none());
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
             .await
             .unwrap();
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
+
+        //check old key marked to be deleted
+        let bo_keys = bo
+            .context
+            .db()
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
+        assert!(!bo_keys.unwrap().delete_at_ns.is_none());
 
         bo.sync_welcomes().await.unwrap();
         let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
@@ -1451,10 +1487,14 @@ pub(crate) mod tests {
         // Bo's key should not have changed syncing the second time.
         assert_eq!(bo_new_key, bo_new_key_2);
 
+        let alix_keys_queued_for_rotation = alix.context.db().is_identity_needs_rotation().unwrap();
+        assert!(!alix_keys_queued_for_rotation);
+
         alix.sync_welcomes().await.unwrap();
         let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key())
             .await
             .unwrap();
+
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 
@@ -1475,7 +1515,7 @@ pub(crate) mod tests {
         let bo_original_after_delete = bo_store
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
-        assert!(bo_original_after_delete.is_err());
+        assert!(!bo_original_after_delete.unwrap().delete_at_ns.is_none());
     }
 
     #[xmtp_common::test]
