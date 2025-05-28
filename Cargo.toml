@@ -154,6 +154,15 @@ xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
 xmtp_db_test = { path = "xmtp_db_test" }
 
+[profile.dbg]
+inherits = "dev"
+debug = true
+opt-level = 0
+incremental = true
+debug-assertions = true
+overflow-checks = true
+panic = "unwind"
+strip = "none"
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,
