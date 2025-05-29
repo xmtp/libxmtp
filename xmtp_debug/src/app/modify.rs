@@ -1,6 +1,7 @@
-use color_eyre::eyre::{Result, bail, eyre};
+use color_eyre::eyre::{Context, Result, bail, eyre};
 use rand::{SeedableRng as _, rngs::SmallRng, seq::IteratorRandom};
 use std::sync::Arc;
+use xmtp_mls::groups::UpdateAdminListType;
 
 use crate::{
     app::{
@@ -92,11 +93,15 @@ impl Modify {
                 let inbox_id = inbox_id.expect("Checked for none");
                 group
                     .add_members_by_inbox_id(&[hex::encode(*inbox_id)])
+                    .await
+                    .context("the identity/inbox_id might not exist for this network in the local database")?;
+                group
+                    .update_admin_list(UpdateAdminListType::AddSuper, inbox_id.to_string())
                     .await?;
                 info!(
                     inbox_id = hex::encode(*inbox_id),
                     group_id = hex::encode(local_group.id),
-                    "Member added"
+                    "Member added as Super Admin"
                 );
             }
         }
