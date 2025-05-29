@@ -319,7 +319,7 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .create_group(group_permissions, metadata_options)
+      .create_group(group_permissions, Some(metadata_options))
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
 
     Ok(group.into())

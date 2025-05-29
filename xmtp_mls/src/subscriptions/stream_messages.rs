@@ -703,7 +703,6 @@ pub mod tests {
     use crate::builder::ClientBuilder;
     use rstest::*;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[rstest]
     #[xmtp_common::test]
@@ -712,9 +711,7 @@ pub mod tests {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alice_group = alice.create_group(None, None).unwrap();
         tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
         alice_group
