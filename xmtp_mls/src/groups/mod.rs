@@ -396,7 +396,7 @@ where
         let protected_metadata =
             build_protected_metadata_extension(creator_inbox_id, ConversationType::Group)?;
         let mutable_metadata =
-            build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
+            build_mutable_metadata_extension_default(creator_inbox_id, Some(opts.clone()))?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
@@ -716,10 +716,7 @@ where
 
         let protected_metadata =
             build_protected_metadata_extension(context.inbox_id(), ConversationType::Sync)?;
-        let mutable_metadata = build_mutable_metadata_extension_default(
-            context.inbox_id(),
-            GroupMetadataOptions::default(),
-        )?;
+        let mutable_metadata = build_mutable_metadata_extension_default(context.inbox_id(), None)?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions =
             build_mutable_permissions_extension(PreconfiguredPolicies::default().to_policy_set())?;
@@ -1672,10 +1669,10 @@ fn build_mutable_permissions_extension(
 
 pub fn build_mutable_metadata_extension_default(
     creator_inbox_id: &str,
-    opts: GroupMetadataOptions,
+    opts: Option<GroupMetadataOptions>,
 ) -> Result<Extension, GroupError> {
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts)
+        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts.unwrap_or_default())
             .try_into()
             .map_err(MetadataPermissionsError::from)?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);

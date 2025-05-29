@@ -54,11 +54,7 @@ mod tests {
         alix.sync_welcomes().await?;
 
         let g = alix
-            .create_group_with_inbox_ids(
-                &[bo.inbox_id().to_string()],
-                None,
-                GroupMetadataOptions::default(),
-            )
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
             .await?;
         g.update_group_name("Group with the buds".to_string())
             .await?;

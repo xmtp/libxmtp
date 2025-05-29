@@ -114,9 +114,7 @@ mod tests {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -177,7 +175,7 @@ mod tests {
         tester!(alix, sync_worker, sync_server);
         tester!(bo);
 
-        let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
+        let alix_group = alix.create_group(None, None)?;
 
         // wait for user preference update
         wait_for_min_intents(alix.provider.db(), 2).await?;
