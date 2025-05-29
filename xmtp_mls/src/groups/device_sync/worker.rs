@@ -119,8 +119,6 @@ where
         self.handle.increment_metric(SyncMetric::Init);
 
         while let Ok(event) = self.receiver.recv().await {
-            t!(&self.client.db(), Event::SyncGroupMsg, &event);
-
             match event {
                 WorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
                     self.evt_new_sync_group_from_welcome().await?;
@@ -258,12 +256,14 @@ where
     where
         <Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
-        let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
+        let db = self.context.db();
+        let unprocessed_messages = db.unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
 
         tracing::info!("Processing {} messages.", unprocessed_messages.len());
 
         for (msg, content) in unprocessed_messages.clone().iter_with_content() {
+            t!(&db, Event::SyncGroupMsg, (), msg.group_id.clone());
             let is_external = msg.sender_installation_id != installation_id;
 
             tracing::info!(

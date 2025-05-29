@@ -154,8 +154,6 @@ where
         *self.context.device_sync.worker_handle.lock() = Some(worker.handle().clone());
         worker.spawn_worker();
     }
-
-    pub fn reconnect_sync_worker(&self) {}
 }
 
 #[derive(Clone)]
