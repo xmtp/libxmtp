@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Cache size: {:?}", args.cache_size);
 
     let health_server = health_check_server(args.health_check_port as u16);
-
+    tracing::info!("Chain Urls: {:?}", args.chain_urls);
     let verifier = match args.chain_urls {
         Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path)?,
         None => MultiSmartContractSignatureVerifier::new_from_env()?,

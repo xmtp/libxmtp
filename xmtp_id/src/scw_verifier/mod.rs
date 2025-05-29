@@ -193,6 +193,15 @@ impl MultiSmartContractSignatureVerifier {
                 info!("No upgraded chain url for chain {id}, using default.");
             };
         }
+
+        #[cfg(feature = "test-utils")]
+        if let Ok(url) = std::env::var("ANVIL_URL") {
+            info!("Adding anvil to the verifiers: {url}");
+            self.verifiers.insert(
+                "eip155:31337".to_string(),
+                Box::new(RpcSmartContractWalletVerifier::new(url)?),
+            );
+        }
         Ok(self)
     }
 
