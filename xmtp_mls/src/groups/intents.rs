@@ -811,7 +811,7 @@ pub(crate) mod tests {
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
-    
+
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
     use crate::{builder::ClientBuilder, context::XmtpContextProvider, utils::ConcreteMlsGroup};

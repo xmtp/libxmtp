@@ -924,7 +924,6 @@ pub(crate) mod tests {
         schema::identity_updates, ConnectionExt, Fetch,
     };
     use xmtp_id::associations::test_utils::WalletTestExt;
-    
 
     #[xmtp_common::test]
     async fn test_group_member_recovery() {

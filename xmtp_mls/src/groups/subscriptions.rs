@@ -111,7 +111,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
-    
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
