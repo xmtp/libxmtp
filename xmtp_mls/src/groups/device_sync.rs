@@ -15,7 +15,7 @@ use thiserror::Error;
 use tracing::instrument;
 use worker::SyncWorker;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{types::InstallationId, RetryableError, NS_IN_DAY};
+use xmtp_common::{time::now_ns, types::InstallationId, RetryableError, NS_IN_DAY};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
     consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
@@ -282,8 +282,8 @@ where
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
-            activity_after_ns: Some(NS_IN_DAY * 90),
-            consent_states: Some(vec![ConsentState::Unknown, ConsentState::Allowed]),
+            activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+            consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;
 

@@ -5,7 +5,6 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
 };
-use xmtp_mls_common::group::GroupMetadataOptions;
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
@@ -122,14 +121,73 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_only_added_to_correct_groups() {
-    tester!(alix1);
+    use diesel::prelude::*;
+    use xmtp_db::schema::groups::dsl;
+
+    tester!(alix1, stream, sync_worker);
     tester!(bo);
 
-    let mut group = alix1
+    let old_group = alix1
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
+    old_group.send_message(b"hi there").await?;
+    alix1.provider.db().raw_query_write(|conn| {
+        diesel::update(dsl::groups.find(&old_group.group_id))
+            .set((dsl::last_message_ns.eq(0), dsl::created_at_ns.eq(0)))
+            .execute(conn)
+    })?;
 
-    bo.sync_welcomes().await?;
+    let bo_group_denied = bo
+        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .await?;
+    let bo_group_unknown = bo
+        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
+        .await?;
+    bo_group_unknown.send_message(b"hi").await?;
+    let bo_dm = bo
+        .find_or_create_dm_by_inbox_id(alix1.inbox_id(), None)
+        .await?;
+
+    alix1.sync_welcomes().await?;
+    let alix_bo_group_denied = alix1.group(&bo_group_denied.group_id)?;
+    let alix_bo_group_unknown = alix1.group(&bo_group_unknown.group_id)?;
+    let alix_bo_dm = alix1.group(&bo_dm.group_id)?;
+
+    alix_bo_dm.update_consent_state(ConsentState::Allowed)?;
+    alix_bo_group_denied.update_consent_state(ConsentState::Denied)?;
+
+    let new_group = alix1
+        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+        .await?;
+    new_group.send_message(b"hi there").await?;
+
+    tester!(alix2, from: alix1);
+
+    alix1
+        .worker()
+        .wait(SyncMetric::SyncGroupWelcomesProcessed, 1)
+        .await?;
+    alix2.sync_welcomes().await?;
+
+    // Added to new fresh group
+    let alix2_new_group = alix2.group(&new_group.group_id);
+    assert!(alix2_new_group.is_ok());
+
+    // Not added to old stale group
+    let alix2_old_group = alix2.group(&old_group.group_id);
+    assert!(alix2_old_group.is_err());
+
+    // Added to group with unknown consent state
+    let alix2_bo_group_unknown = alix2.group(&alix_bo_group_unknown.group_id);
+    assert!(alix2_bo_group_unknown.is_ok());
+
+    // Added to consented DM
+    let alix2_bo_dm = alix2.group(&alix_bo_dm.group_id);
+    assert!(alix2_bo_dm.is_ok());
+
+    // Not added to denied group from Bo
+    let alix2_bo_group_denied = alix2.group(&alix_bo_group_denied.group_id);
+    assert!(alix2_bo_group_denied.is_err());
 }
 
 #[xmtp_common::test(unwrap_try = "true")]
