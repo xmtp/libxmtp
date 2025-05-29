@@ -45,12 +45,11 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         self.raw_query_write(|conn| {
             // Fetch the identity row (assuming a single row exists)
-            if let Some(identity) = dsl::identity.first::<StoredIdentity>(conn).optional()? {
-                if identity.next_key_package_rotation_ns.is_none() {
-                    diesel::update(dsl::identity)
-                        .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
-                        .execute(conn)?;
-                }
+            let identity = dsl::identity.first::<StoredIdentity>(conn)?;
+            if identity.next_key_package_rotation_ns.is_none() {
+                diesel::update(dsl::identity)
+                    .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
+                    .execute(conn)?;
             }
 
             Ok(())
@@ -75,14 +74,11 @@ impl<C: ConnectionExt> DbConnection<C> {
     pub fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
-        let next_rotation_opt: Option<i64> = self
-            .raw_query_read(|conn| {
-                dsl::identity
-                    .select(dsl::next_key_package_rotation_ns)
-                    .first::<Option<i64>>(conn)
-                    .optional()
-            })?
-            .flatten();
+        let next_rotation_opt: Option<i64> = self.raw_query_read(|conn| {
+            dsl::identity
+                .select(dsl::next_key_package_rotation_ns)
+                .first::<Option<i64>>(conn)
+        })?;
 
         Ok(matches!(next_rotation_opt, Some(rotate_at) if now_ns() >= rotate_at))
     }

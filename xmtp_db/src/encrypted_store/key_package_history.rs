@@ -92,17 +92,6 @@ impl<C: ConnectionExt> DbConnection<C> {
         .map_err(StorageError::from) // convert ConnectionError into StorageError
     }
 
-    pub fn delete_expired_key_packages(&self) -> Result<(), StorageError> {
-        use crate::schema::key_package_history::dsl;
-
-        self.raw_query_write(|conn| {
-            diesel::delete(dsl::key_package_history.filter(dsl::delete_at_ns.le(now_ns())))
-                .execute(conn)
-        })?;
-
-        Ok(())
-    }
-
     pub fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
