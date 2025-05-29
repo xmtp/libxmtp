@@ -178,7 +178,6 @@ mod tests {
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
-    
 
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::test_utils::WalletTestExt;

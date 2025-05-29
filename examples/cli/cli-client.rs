@@ -47,7 +47,6 @@ use xmtp_db::{
 };
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
-use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::configuration::DeviceSyncUrls;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
