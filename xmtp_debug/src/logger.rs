@@ -55,7 +55,8 @@ impl Logger {
 
         // prefer `RUST_LOG` variable if set
         // otherwise passed-in level filter
-        let app_filter = || EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}"));
+        let app_filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::builder().parse_lossy(format!("xdbg={verbosity}")));
         let file_filter = || {
             EnvFilter::builder().parse_lossy(
                 "xmtp_api_d14n=DEBUG,xmtp_api=DEBUG,xmtp_mls=DEBUG,xmtp_id=DEBUG,xmtp_cryptography=DEBUG,xmtp_api_grpc=DEBUG",
@@ -67,7 +68,7 @@ impl Logger {
 
         let subscriber = subscriber
             // default, always-on layer
-            .with(human_layer(app_filter(), true, std::io::stdout))
+            .with(human_layer(app_filter, true, std::io::stdout))
             .with(json.then(|| {
                 let mut json = log_file_name.clone();
                 json.set_extension("json");
