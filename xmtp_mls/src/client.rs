@@ -267,6 +267,7 @@ where
 
         self.start_sync_worker();
         self.start_disappearing_messages_cleaner_worker();
+        self.start_key_packages_cleaner_worker();
 
         Ok(())
     }
@@ -1003,7 +1004,7 @@ pub(crate) mod tests {
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
         assert!(fetched_identity.next_key_package_rotation_ns.is_some());
 
-        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+        xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
 
         let kp2 = client
             .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
@@ -1455,7 +1456,7 @@ pub(crate) mod tests {
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_keys.unwrap().delete_at_ns.is_none());
 
-        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
+        xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
 
         //check the rotation queue must be cleared
         let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
@@ -1470,12 +1471,15 @@ pub(crate) mod tests {
         // Bo's key should have changed
         assert_ne!(bo_original_init_key, bo_new_key);
 
-        //check old key marked to be deleted
+        // Depending on timing, old key should already be deleted, or marked to be deleted
         let bo_keys = bo
             .context
             .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
-        assert!(bo_keys.unwrap().delete_at_ns.is_some());
+            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone())
+            .ok();
+        if let Some(key) = bo_keys {
+            assert!(key.delete_at_ns.is_some());
+        }
 
         xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
         let bo_keys = bo
