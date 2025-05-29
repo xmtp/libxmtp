@@ -33,7 +33,7 @@ pub async fn upload_debug_archive(
 mod tests {
     use std::time::Duration;
 
-    use xmtp_mls_common::group::GroupMetadataOptions;
+    
 
     use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
 
