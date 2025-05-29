@@ -118,28 +118,33 @@ where
         self.sync_init().await?;
         self.handle.increment_metric(SyncMetric::Init);
 
-        while let Ok(event) = self.receiver.recv().await {
+        loop {
+            let event = self.receiver.recv().await;
             match event {
-                WorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                    self.evt_new_sync_group_from_welcome().await?;
-                }
-                WorkerEvent::NewSyncGroupMsg => {
-                    self.evt_new_sync_group_msg().await?;
-                }
-                WorkerEvent::SyncPreferences(preference_updates) => {
-                    self.evt_sync_preferences(preference_updates).await?;
-                }
+                Ok(event) => {
+                    match event {
+                        WorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                            self.evt_new_sync_group_from_welcome().await?;
+                        }
+                        WorkerEvent::NewSyncGroupMsg => {
+                            self.evt_new_sync_group_msg().await?;
+                        }
+                        WorkerEvent::SyncPreferences(preference_updates) => {
+                            self.evt_sync_preferences(preference_updates).await?;
+                        }
 
-                // Device Sync V1 events
-                WorkerEvent::Reply { message_id } => {
-                    self.evt_v1_device_sync_reply(message_id).await?;
+                        // Device Sync V1 events
+                        WorkerEvent::Reply { message_id } => {
+                            self.evt_v1_device_sync_reply(message_id).await?;
+                        }
+                        WorkerEvent::Request { message_id } => {
+                            self.evt_v1_device_sync_request(message_id).await?;
+                        }
+                    }
                 }
-                WorkerEvent::Request { message_id } => {
-                    self.evt_v1_device_sync_request(message_id).await?;
-                }
+                Err(err) => tracing::error!("Broadcast recv error: {err:?}"),
             }
         }
-        Ok(())
     }
 
     //// Ideally called when the client is registered.
