@@ -35,19 +35,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains
-        run: rustup update
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
       - name: Start Docker containers
         run: |
           dev/build_validation_service_local
           dev/docker/up
+      - name: Dump docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: build tests

@@ -1,5 +1,12 @@
 #![allow(dead_code)]
-use alloy::primitives::{Address, Signature as EtherSignature};
+use super::{
+    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
+    SignatureKind, ValidatedLegacySignedPublicKey,
+};
+use crate::scw_verifier::SmartContractSignatureVerifier;
+use alloy::primitives::Signature as EtherSignature;
+use alloy::signers::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey;
+use alloy::signers::utils::public_key_to_address;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
@@ -7,13 +14,6 @@ use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
-
-use crate::scw_verifier::SmartContractSignatureVerifier;
-
-use super::{
-    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
-    SignatureKind, ValidatedLegacySignedPublicKey,
-};
 
 #[derive(Debug, Clone)]
 pub struct VerifiedSignature {
@@ -166,8 +166,8 @@ impl VerifiedSignature {
             Self::from_recoverable_ecdsa(signature_text, signature_bytes)?;
         let signed_public_key: ValidatedLegacySignedPublicKey =
             signed_public_key_proto.try_into()?;
-        let address = Address::try_from(signed_public_key.public_key_bytes.as_slice())?;
-        let address = h160addr_to_string(address);
+        let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
+        let address = h160addr_to_string(public_key_to_address(&public_key));
 
         if MemberIdentifier::eth(address)? != verified_legacy_signature.signer {
             return Err(SignatureError::Invalid);

@@ -215,6 +215,9 @@ async fn test_client_creation() {
                 Err(ClientBuilderError::Identity(IdentityError::NewIdentity(err))) if err == err_string
             ));
         } else {
+            if let Err(ref e) = result {
+                println!("{e}");
+            }
             assert!(result.is_ok());
         }
     }

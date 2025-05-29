@@ -159,6 +159,8 @@ xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
+# Required for traced_test! macro
+tracing-subscriber = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true
