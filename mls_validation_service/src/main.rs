@@ -45,10 +45,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_server = health_check_server(args.health_check_port as u16);
 
-    let verifier = match args.chain_urls {
+    let mut verifier = match args.chain_urls {
         Some(path) => MultiSmartContractSignatureVerifier::new_from_file(path)?,
         None => MultiSmartContractSignatureVerifier::new_from_env()?,
     };
+
+    if cfg!(feature = "test-utils") {
+        info!("adding anvil");
+        if let Ok(url) = std::env::var("ANVIL_URL") {
+            info!("Adding anvil to the verifiers: {url}");
+            verifier.add_verifier("eip155:31337".to_string(), url.to_string())?;
+        }
+    }
 
     let cached_verifier: CachedSmartContractSignatureVerifier =
         CachedSmartContractSignatureVerifier::new(verifier, args.cache_size)?;
