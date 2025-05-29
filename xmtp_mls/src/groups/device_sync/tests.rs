@@ -5,6 +5,7 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_message::MsgQueryArgs,
 };
+use xmtp_mls_common::group::GroupMetadataOptions;
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
@@ -104,6 +105,19 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     let alix2_dm = alix2.group(&dm.group_id)?;
     assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
+
+    // Now alix1 receives a group from bo, alix1 consents. Alix2 should see the group as consented as well.
+    let bo_group = bo
+        .create_group_with_inbox_ids(&[alix1.inbox_id()], None, GroupMetadataOptions::default())
+        .await?;
+    alix1.sync_welcomes().await?;
+    let alix1_group = alix1.group(&bo_group.group_id)?;
+    assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
+    alix1_group.update_consent_state(ConsentState::Allowed)?;
+
+    alix2.worker().wait(SyncMetric::ConsentReceived, 2).await?;
+    let alix2_group = alix2.group(&bo_group.group_id)?;
+    assert_eq!(alix2_group.consent_state()?, ConsentState::Allowed);
 }
 
 #[xmtp_common::test(unwrap_try = "true")]
