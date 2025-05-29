@@ -1490,7 +1490,10 @@ where
             ValidationError::WrongEpoch,
         )) = error
         {
-            let group_epoch = match self.epoch().await {
+            let provider = self.mls_provider();
+            let db = provider.db();
+
+            let group_epoch = match te!(db, self.epoch().await) {
                 Ok(epoch) => epoch,
                 Err(error) => {
                     tracing::info!(
