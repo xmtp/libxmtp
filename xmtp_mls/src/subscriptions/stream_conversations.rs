@@ -413,9 +413,7 @@ mod test {
     async fn test_stream_welcomes() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let alice_bob_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alice_bob_group = alice.create_group(None, None).unwrap();
 
         let mut stream = StreamConversations::new(&bob.context, None).await.unwrap();
         let group_id = alice_bob_group.group_id.clone();
@@ -466,9 +464,7 @@ mod test {
             .await
             .unwrap();
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alix.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -522,9 +518,7 @@ mod test {
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alix.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -549,13 +543,10 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        alix.create_group(None, None).unwrap();
         let _self_group = stream.next().await.unwrap();
 
-        let group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = bo.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[alix.inbox_id()])
             .await
@@ -576,11 +567,7 @@ mod test {
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
 
         let alix_group = alix
-            .create_group_with_inbox_ids(
-                &[bo.inbox_id().to_string()],
-                None,
-                GroupMetadataOptions::default(),
-            )
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
 

@@ -439,10 +439,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 }
             };
             let group = client
-                .create_group(
-                    Some(group_permissions.to_policy_set()),
-                    GroupMetadataOptions::default(),
-                )
+                .create_group(Some(group_permissions.to_policy_set()), None)
                 .expect("failed to create group");
             let group_id = hex::encode(group.group_id);
             info!(

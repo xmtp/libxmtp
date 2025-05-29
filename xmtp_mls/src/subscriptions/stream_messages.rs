@@ -712,9 +712,7 @@ pub mod tests {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alice_group = alice.create_group(None, None).unwrap();
         tracing::info!("Group Id = [{}]", hex::encode(&alice_group.group_id));
 
         alice_group

@@ -193,9 +193,7 @@ mod tests {
         let caro_wallet = generate_local_wallet();
         let caro = ClientBuilder::new_test_client(&caro_wallet).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         tracing::info!("Created alix group {}", hex::encode(&alix_group.group_id));
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
@@ -218,9 +216,7 @@ mod tests {
         alix_group.send_message(b"third").await.unwrap();
         assert_msg!(stream, "third");
 
-        let alix_group_2 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group_2 = alix.create_group(None, None).unwrap();
         alix_group_2
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
@@ -241,17 +237,13 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
-        let bo_group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let bo_group = bo.create_group(None, None).unwrap();
         bo_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
@@ -279,9 +271,7 @@ mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -374,9 +364,7 @@ mod tests {
         replace.add(eve.inbox_id(), "eve");
         replace.add(alix.inbox_id(), "alix");
         replace.add(bo.inbox_id(), "bo");
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id(), bo.inbox_id()])
             .await
@@ -405,9 +393,7 @@ mod tests {
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..15 {
-                let new_group = eve
-                    .create_group(None, GroupMetadataOptions::default())
-                    .unwrap();
+                let new_group = eve.create_group(None, None).unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
                 let msg = format!("EVE spam {i} from new group");
                 new_group.send_message(msg.as_bytes()).await.unwrap();
@@ -468,9 +454,7 @@ mod tests {
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
-                let new_group = hale
-                    .create_group(None, GroupMetadataOptions::default())
-                    .unwrap();
+                let new_group = hale.create_group(None, None).unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
                 tracing::info!(
                     "\n\n HALE SENDING {i} to group {}\n\n",
@@ -525,18 +509,14 @@ mod tests {
         let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create group with Allowed consent
-        let allowed_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let allowed_group = sender.create_group(None, None).unwrap();
         allowed_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
             .unwrap();
 
         // Create group with Denied consent
-        let denied_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let denied_group = sender.create_group(None, None).unwrap();
         denied_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
@@ -546,9 +526,7 @@ mod tests {
             .unwrap();
 
         // Create group with Unknown consent
-        let unknown_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let unknown_group = sender.create_group(None, None).unwrap();
         unknown_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
@@ -588,9 +566,7 @@ mod tests {
         let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
         let bob = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
         let eve = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
-        let group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alice.create_group(None, None).unwrap();
 
         group
             .add_members_by_inbox_id(&[bob.inbox_id(), eve.inbox_id()])

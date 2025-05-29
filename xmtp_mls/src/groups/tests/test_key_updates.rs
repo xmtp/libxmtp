@@ -9,11 +9,7 @@ async fn test_key_rotation_with_optimistic_send() {
     tester!(alix, stream);
     tester!(bo, stream);
     let g = alix
-        .create_group_with_inbox_ids(
-            &[bo.inbox_id().to_string()],
-            None,
-            GroupMetadataOptions::default(),
-        )
+        .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
         .await?;
 
     bo.sync_welcomes().await?;
@@ -61,11 +57,7 @@ async fn key_update_out_of_epoch() {
     tester!(greg);
 
     let g = alix
-        .create_group_with_inbox_ids(
-            &[bo.inbox_id().to_string()],
-            None,
-            GroupMetadataOptions::default(),
-        )
+        .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
         .await?;
 
     bo.sync_welcomes().await?;

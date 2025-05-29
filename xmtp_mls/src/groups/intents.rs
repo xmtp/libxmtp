@@ -875,9 +875,7 @@ pub(crate) mod tests {
         let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // client A makes a group with client B, and then sends a message to client B.
-        let group_a = client_a
-            .create_group(None, GroupMetadataOptions::default())
-            .expect("create group");
+        let group_a = client_a.create_group(None, None).expect("create group");
         group_a
             .add_members_by_inbox_id(&[client_b.inbox_id()])
             .await
