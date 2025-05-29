@@ -87,7 +87,6 @@ impl std::str::FromStr for MillisecondInterval {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct Concurrency(usize);
 

@@ -67,19 +67,26 @@ impl GenerateMessages {
             r#loop, interval, ..
         } = self.opts;
 
-        self.send_many_messages(self.db.clone(), n, concurrency).await?;
+        self.send_many_messages(self.db.clone(), n, concurrency)
+            .await?;
 
         if r#loop {
             loop {
                 info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
                 tokio::time::sleep(*interval).await;
-                self.send_many_messages(self.db.clone(), n, concurrency).await?;
+                self.send_many_messages(self.db.clone(), n, concurrency)
+                    .await?;
             }
         }
         Ok(())
     }
 
-    async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize, concurrency: usize) -> Result<usize> {
+    async fn send_many_messages(
+        &self,
+        db: Arc<redb::Database>,
+        n: usize,
+        concurrency: usize,
+    ) -> Result<usize> {
         let Self { network, opts, .. } = self;
 
         let style = ProgressStyle::with_template(

@@ -33,7 +33,12 @@ impl GenerateGroups {
             .map(|i| i.map(|i| Ok(i.value()))))
     }
 
-    pub async fn create_groups(&self, n: usize, invitees: usize, concurrency: usize) -> Result<Vec<Group>> {
+    pub async fn create_groups(
+        &self,
+        n: usize,
+        invitees: usize,
+        concurrency: usize,
+    ) -> Result<Vec<Group>> {
         // TODO: Check if identities still exist
         let mut groups: Vec<Group> = Vec::with_capacity(n);
         let style = ProgressStyle::with_template(
