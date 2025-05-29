@@ -45,7 +45,7 @@
           mkToolchain = targets: components: pkgs.fenix.combine [
             toolchain
             (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${c}"))
+            (pkgs.lib.forEach components (component: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${component}"))
           ];
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };

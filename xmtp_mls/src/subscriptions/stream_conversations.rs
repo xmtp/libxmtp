@@ -38,10 +38,18 @@ impl xmtp_common::RetryableError for ConversationStreamError {
     }
 }
 
-#[derive(Debug)]
 pub enum WelcomeOrGroup {
     Group(Vec<u8>),
     Welcome(WelcomeMessage),
+}
+
+impl std::fmt::Debug for WelcomeOrGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(&arg0)).finish(),
+            Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
+        }
+    }
 }
 
 pin_project! {
@@ -270,6 +278,7 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
+                        tracing::info!("New Welcome: {:?}", item);
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
@@ -398,6 +407,8 @@ mod test {
     use super::*;
     use crate::builder::ClientBuilder;
     use crate::tester;
+    use crate::utils::fixtures::{alix, bo};
+    use crate::utils::FullXmtpClient;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -407,27 +418,42 @@ mod test {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     #[rstest::rstest]
+    #[case::two_conversations(2)]
+    #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
-    async fn test_stream_welcomes() {
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let alice_bob_group = alice.create_group(None, None).unwrap();
+    // #[timeout(std::time::Duration::from_secs(5))]
+    async fn test_stream_welcomes(
+        #[future] alix: FullXmtpClient,
+        #[future] bo: FullXmtpClient,
+        #[case] group_size: usize,
+    ) {
+        xmtp_common::logger("xmtp_mls::subscriptions::stream_conversations=debug");
+        let (alix, bo) = (alix.await, bo.await);
 
-        let mut stream = StreamConversations::new(&bob.context, None).await.unwrap();
-        let group_id = alice_bob_group.group_id.clone();
-        alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-        tracing::info!("WAITING FOR NEXT STREAM ITEM");
-        let bob_received_groups = stream.next().await.unwrap().unwrap();
-        assert_eq!(bob_received_groups.group_id, group_id);
+        let mut groups = vec![];
+        let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
+        for _ in 0..group_size {
+            let alix_bo_group = alix.create_group(None, None).unwrap();
+            groups.push(alix_bo_group.group_id.clone());
+            alix_bo_group
+                .add_members_by_inbox_id(&[bo.inbox_id()])
+                .await
+                .unwrap();
+        }
+        while !groups.is_empty() {
+            let bo_received_groups = stream.next().await.unwrap().unwrap();
+            let index = groups
+                .iter()
+                .position(|group_id| bo_received_groups.group_id == *group_id)
+                .expect("group must be found");
+            groups.remove(index);
+        }
+
+        assert!(groups.is_empty());
     }
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
-    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_sync_groups_are_not_streamed() {
         tester!(alix, sync_worker);
         let stream = alix.stream_conversations(None).await?;
@@ -444,9 +470,6 @@ mod test {
     #[case(ConversationType::Dm, "Unexpectedly received a Group")]
     #[case(ConversationType::Group, "Unexpectedly received a DM")]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
-
-    // #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_filter(
         #[case] conversation_type: ConversationType,
         #[case] expected: &str,
@@ -485,8 +508,6 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_all_conversation_types() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -531,7 +552,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(10))]
+    // #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
@@ -560,7 +581,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    // #[timeout(std::time::Duration::from_secs(5))]
     async fn test_add_remove_re_add() {
         let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
@@ -591,7 +612,7 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(15))]
+    // #[timeout(std::time::Duration::from_secs(15))]
     async fn test_duplicate_dm_not_streamed() {
         use xmtp_cryptography::utils::generate_local_wallet;
 

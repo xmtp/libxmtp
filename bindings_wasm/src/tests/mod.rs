@@ -6,12 +6,12 @@ use crate::inbox_id::generate_inbox_id;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_http::constants::ApiUrls;
-use xmtp_cryptography::utils::{rng, LocalWallet};
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::InboxOwner;
 
 async fn create_test_client() -> Client {
   // crate::opfs::Opfs::wipe_files().await.unwrap();
-  let wallet = LocalWallet::new(&mut rng());
+  let wallet = generate_local_wallet();
   let account_address = wallet.get_identifier().unwrap_throw();
   let host = ApiUrls::LOCAL_ADDRESS.to_string();
   let inbox_id = generate_inbox_id(account_address.clone().into());
