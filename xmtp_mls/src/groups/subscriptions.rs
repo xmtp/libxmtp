@@ -111,7 +111,6 @@ pub(crate) mod tests {
     use super::*;
     use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
-    use xmtp_mls_common::group::GroupMetadataOptions;
 
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -125,9 +124,7 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])
@@ -162,9 +159,7 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])
@@ -194,9 +189,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = amal.create_group(None, None).unwrap();
 
         let stream = group.stream().await.unwrap();
         futures::pin_mut!(stream);
@@ -227,9 +220,7 @@ pub(crate) mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
 
         let stream = amal_group.stream().await.unwrap();
         futures::pin_mut!(stream);

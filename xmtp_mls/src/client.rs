@@ -474,14 +474,14 @@ where
     pub fn create_group(
         &self,
         permissions_policy_set: Option<PolicySet>,
-        opts: GroupMetadataOptions,
+        opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
         tracing::info!("creating group");
         let group: MlsGroup<ApiClient, Db> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
-            opts,
+            opts.unwrap_or_default(),
         )?;
 
         // notify streams of our new group
@@ -506,7 +506,7 @@ where
         &self,
         account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
-        opts: GroupMetadataOptions,
+        opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
@@ -520,7 +520,7 @@ where
         &self,
         inbox_ids: &[impl AsIdRef],
         permissions_policy_set: Option<PolicySet>,
-        opts: GroupMetadataOptions,
+        opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
@@ -924,7 +924,6 @@ pub(crate) mod tests {
         schema::identity_updates, ConnectionExt, Fetch,
     };
     use xmtp_id::associations::test_utils::WalletTestExt;
-    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[xmtp_common::test]
     async fn test_group_member_recovery() {
@@ -934,9 +933,7 @@ pub(crate) mod tests {
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
 
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = amal.create_group(None, None).unwrap();
 
         // Add both of Bola's installations to the group
         group
@@ -1020,12 +1017,8 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group_1 = client
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let group_2 = client
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group_1 = client.create_group(None, None).unwrap();
+        let group_2 = client.create_group(None, None).unwrap();
 
         let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(groups.len(), 2);
@@ -1123,9 +1116,7 @@ pub(crate) mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alice_bob_group = alice.create_group(None, None).unwrap();
         alice_bob_group
             .add_members_by_inbox_id(&[bob.inbox_id()])
             .await
@@ -1151,12 +1142,8 @@ pub(crate) mod tests {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_bo_group1 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let alix_bo_group2 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_bo_group1 = alix.create_group(None, None).unwrap();
+        let alix_bo_group2 = alix.create_group(None, None).unwrap();
         alix_bo_group1
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -1204,12 +1191,8 @@ pub(crate) mod tests {
         tester!(bo, passkey);
 
         // Create two groups and add Bob
-        let alix_bo_group1 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
-        let alix_bo_group2 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_bo_group1 = alix.create_group(None, None).unwrap();
+        let alix_bo_group2 = alix.create_group(None, None).unwrap();
 
         alix_bo_group1
             .add_members_by_inbox_id(&[bo.inbox_id()])
@@ -1333,9 +1316,7 @@ pub(crate) mod tests {
         let bola = Tester::new().await;
 
         // Create a group and invite bola
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])
             .await
@@ -1433,13 +1414,9 @@ pub(crate) mod tests {
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_original_from_db.is_ok());
 
-        alix.create_group_with_members(
-            &[bo_wallet.identifier()],
-            None,
-            GroupMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
+        alix.create_group_with_members(&[bo_wallet.identifier()], None, None)
+            .await
+            .unwrap();
         let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
         assert!(!bo_keys_queued_for_rotation);
 
@@ -1506,13 +1483,9 @@ pub(crate) mod tests {
         // Alix's key should not have changed at all
         assert_eq!(alix_original_init_key, alix_key_2);
 
-        alix.create_group_with_members(
-            &[bo_wallet.identifier()],
-            None,
-            GroupMetadataOptions::default(),
-        )
-        .await
-        .unwrap();
+        alix.create_group_with_members(&[bo_wallet.identifier()], None, None)
+            .await
+            .unwrap();
         bo.sync_welcomes().await.unwrap();
 
         // Bo should have two groups now
@@ -1576,11 +1549,7 @@ pub(crate) mod tests {
         futures::pin_mut!(stream);
 
         let group = alix
-            .create_group_with_inbox_ids(
-                &[bo.inbox_id().to_string()],
-                None,
-                GroupMetadataOptions::default(),
-            )
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
         xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;

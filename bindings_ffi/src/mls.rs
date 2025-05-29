@@ -1240,7 +1240,7 @@ impl FfiConversations {
 
         let convo = self
             .inner_client
-            .create_group(group_permissions, metadata_options)?;
+            .create_group(group_permissions, Some(metadata_options))?;
 
         Ok(Arc::new(convo.into()))
     }
