@@ -703,7 +703,6 @@ pub mod tests {
     use crate::builder::ClientBuilder;
     use rstest::*;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_mls_common::group::GroupMetadataOptions;
 
     #[rstest]
     #[xmtp_common::test]

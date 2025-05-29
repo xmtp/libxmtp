@@ -1,4 +1,4 @@
-use crate::{groups::GroupMetadataOptions, tester};
+use crate::tester;
 use futures::future::join_all;
 use std::{future::Future, pin::Pin, time::Duration};
 use xmtp_common::{retry_async, Retry};
