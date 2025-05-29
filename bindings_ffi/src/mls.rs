@@ -3394,7 +3394,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
-        let tester = Tester::builder().sync_worker().sync_server().build().await;
+        let tester = Tester::builder().worker().sync_server().build().await;
         let client: &FfiXmtpClient = &tester.client;
 
         let bo = Tester::new().await;
@@ -3446,12 +3446,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder()
-            .sync_worker()
-            .sync_server()
-            .stream()
-            .build()
-            .await;
+        let alex = Tester::builder().worker().sync_server().build().await;
 
         let convo_callback = Arc::new(RustStreamCallback::default());
         let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
@@ -6589,7 +6584,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_consent() {
-        let alix_a = Tester::builder().sync_worker().sync_server().build().await;
+        let alix_a = Tester::builder().worker().sync_server().build().await;
 
         let alix_b = alix_a.builder.build().await;
 
@@ -6736,7 +6731,7 @@ mod tests {
     async fn test_stream_preferences() {
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
-            .sync_worker()
+            .worker()
             .build()
             .instrument(alix_a_span)
             .await;
@@ -8037,7 +8032,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_consent() {
         // Create two test users
-        let alix = Tester::builder().sync_server().sync_worker().build().await;
+        let alix = Tester::builder().sync_server().worker().build().await;
         let bo = Tester::new().await;
 
         // Create a group conversation

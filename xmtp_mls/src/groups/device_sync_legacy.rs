@@ -3,7 +3,6 @@
 use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
-use crate::subscriptions::SyncWorkerEvent;
 use crate::{subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -602,7 +601,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     async fn v1_sync_still_works() {
-        tester!(alix1, sync_worker, sync_server);
+        tester!(alix1, worker, sync_server);
         tester!(alix2, from: alix1);
 
         alix1.test_has_same_sync_group_as(&alix2).await?;

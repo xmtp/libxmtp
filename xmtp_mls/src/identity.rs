@@ -1,4 +1,5 @@
 use crate::configuration::CIPHERSUITE;
+use crate::{t, te};
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::OpenMlsCrypto;
@@ -22,6 +23,7 @@ use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
+use xmtp_db::events::{Details, Event};
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
@@ -590,14 +592,17 @@ impl Identity {
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
 
-        match api_client.upload_key_package(kp_bytes, true).await {
+        match te!(conn, api_client.upload_key_package(kp_bytes, true).await) {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
                 provider.transaction(|_provider| {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<_, IdentityError>(())
                 })?;
+
                 conn.clear_key_package_rotation_queue()?;
+                t!(conn, Event::KPRotate, Details::KPRotate { history_id });
+
                 Ok(())
             }
             Err(err) => {

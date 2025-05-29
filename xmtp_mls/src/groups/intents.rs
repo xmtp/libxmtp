@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    t,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use openmls::prelude::{
@@ -18,7 +19,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::types::Address;
 use xmtp_db::{
     db_connection::DbConnection,
-    events::{Details, Event, Events},
+    events::{Details, Event},
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
 };
@@ -114,12 +115,11 @@ where
 
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
-
-            Events::track(
+            t!(
                 conn,
-                Some(self.group_id.clone()),
-                &Event::QueueIntent,
-                Some(Details::QueueIntent { intent_kind }),
+                Event::QueueIntent,
+                Details::QueueIntent { intent_kind },
+                self.group_id.clone()
             );
         }
         tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");

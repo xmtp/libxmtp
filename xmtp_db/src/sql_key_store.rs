@@ -1,7 +1,4 @@
-use xmtp_common::{RetryableError, retryable};
-
 use crate::{ConnectionExt, DbConnection};
-
 use bincode;
 use diesel::{
     prelude::*,
@@ -10,6 +7,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+use xmtp_common::{RetryableError, retryable};
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";

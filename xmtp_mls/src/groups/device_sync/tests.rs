@@ -8,7 +8,7 @@ use xmtp_db::{
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn basic_sync() {
-    tester!(alix1, sync_server, sync_worker, stream);
+    tester!(alix1, sync_server, worker, stream);
     tester!(bo);
     // Talk with bo
     let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -30,7 +30,7 @@ async fn basic_sync() {
 async fn only_one_payload_sent() {
     use std::time::Duration;
 
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, worker, sync_server);
     tester!(alix2, from: alix1);
     tester!(alix3, from: alix1);
 
@@ -49,7 +49,7 @@ async fn only_one_payload_sent() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker, sync_server);
+    tester!(alix1, worker, sync_server);
     tester!(bo);
 
     alix1.test_talk_in_dm_with(&bo).await?;
@@ -76,7 +76,7 @@ async fn test_double_sync_works_fine() {
 
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_hmac_and_consent_prefrence_sync() {
-    tester!(alix1, sync_worker, sync_server, stream);
+    tester!(alix1, worker, sync_server, stream);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -111,7 +111,7 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
     use diesel::prelude::*;
     use xmtp_db::schema::groups::dsl;
 
-    tester!(alix1, sync_worker);
+    tester!(alix1, worker);
     tester!(alix2, from: alix1);
 
     alix1.test_has_same_sync_group_as(&alix2).await?;

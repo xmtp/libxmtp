@@ -2,13 +2,13 @@ use super::{
     ConnectionExt, DbConnection, consent_record::ConsentState, group::ConversationType,
     group_intent::IntentKind, schema::events::dsl,
 };
-use crate::{Store, impl_store, schema::events};
+use crate::{impl_store, schema::events};
 use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::fmt::Debug;
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
 
-#[derive(Insertable, Queryable, Debug, Clone)]
+#[derive(Insertable, Queryable, Debug, Clone, Serialize)]
 #[diesel(table_name = events)]
 #[diesel(primary_key(created_at_ns))]
 pub struct Events {
@@ -20,59 +20,8 @@ pub struct Events {
 
 impl_store!(Events, events);
 
-pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
-
 impl Events {
-    #[allow(invalid_type_param_default)]
-    pub fn track<C: ConnectionExt>(
-        db: &DbConnection<C>,
-        group_id: Option<Vec<u8>>,
-        event: impl AsRef<Event>,
-        details: impl Serialize,
-    ) {
-        if !EVENTS_ENABLED.load(Ordering::Relaxed) {
-            return;
-        }
-
-        let client_event = event.as_ref();
-
-        let event = match serde_json::to_string(client_event) {
-            Ok(event) => event,
-            Err(err) => {
-                tracing::warn!("ClientEvents: unable to serialize event. {err:?}");
-                return;
-            }
-        };
-
-        let serialized_details = match serde_json::to_value(details) {
-            Ok(details) => details,
-            Err(err) => {
-                tracing::warn!("ClientEvents: unable to serialize details. {err:?}");
-                return;
-            }
-        };
-
-        let result = Events {
-            created_at_ns: now_ns(),
-            group_id,
-            event,
-            details: serialized_details,
-        }
-        .store(db);
-        if let Err(err) = result {
-            // We don't want ClientEvents causing any issues, so we just warn if something goes wrong.
-            tracing::warn!("ClientEvents: {err:?}");
-        }
-
-        // Clear old events on build.
-        if matches!(client_event, Event::ClientBuild) {
-            if let Err(err) = Self::clear_old_events(db) {
-                tracing::warn!("ClientEvents clear old events: {err:?}");
-            }
-        }
-    }
-
-    fn clear_old_events<C: ConnectionExt>(
+    pub fn clear_old_events<C: ConnectionExt>(
         db: &DbConnection<C>,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
@@ -117,7 +66,10 @@ pub enum Event {
     GroupWelcome,
     GroupCreate,
     GroupMembershipChange,
+    KPRotate,
     MsgStreamConnect,
+    SyncGroupMsg,
+    Error,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -146,6 +98,12 @@ pub enum Details {
         cursor: i64,
         validated_commit: Option<String>,
     },
+    KPRotate {
+        history_id: i32,
+    },
+    Error {
+        error: String,
+    },
 }
 
 impl AsRef<Event> for Event {
@@ -168,7 +126,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     // A client build event should clear old events.
-    async fn clear_old_events() {
+    async fn test_store_events() {
         with_connection(|conn| {
             let details: HashMap<String, String> = HashMap::default();
             Events {
@@ -190,10 +148,6 @@ mod tests {
 
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 2);
-
-            Events::track(conn, None, Event::ClientBuild, Some(details));
-            let all = Events::all_events(conn)?;
-            assert_eq!(all.len(), 1);
         })
         .await;
     }

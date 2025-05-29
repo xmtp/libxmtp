@@ -268,7 +268,7 @@ where
         self.owner(block_on(async { PasskeyUser::new().await }))
     }
 
-    pub fn sync_worker(self) -> Self {
+    pub fn worker(self) -> Self {
         Self {
             sync_mode: SyncWorkerMode::Enabled,
             ..self

@@ -1,22 +1,21 @@
-use std::sync::{atomic::Ordering, Arc};
-
-use thiserror::Error;
-use tokio::sync::broadcast;
-use tracing::debug;
-use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
-
 use crate::{
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
-    utils::VersionInfo,
+    t,
+    utils::{events::EVENTS_ENABLED, VersionInfo},
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use std::sync::{atomic::Ordering, Arc};
+use thiserror::Error;
+use tokio::sync::broadcast;
+use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::events::Event;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -120,7 +119,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub async fn build(self) -> Result<Client<ApiClient, Db>, ClientBuilderError>
     where
         ApiClient: XmtpApi + 'static + Send + Sync,
-        Db: xmtp_db::XmtpDb + 'static + Send + Sync,
+        Db: xmtp_db::XmtpDb + 'static + Send + Sync + Clone,
     {
         let ClientBuilder {
             mut api_client,
@@ -134,10 +133,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info,
             disable_local_telemetry: disable_events,
         } = self;
-
-        if disable_events {
-            EVENTS_ENABLED.store(false, Ordering::SeqCst);
-        }
+        EVENTS_ENABLED.store(!disable_events, Ordering::SeqCst);
 
         let api_client = api_client
             .take()
@@ -179,6 +175,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         .await?;
 
         let (tx, _) = broadcast::channel(32);
+        let (worker_tx, _) = broadcast::channel(50);
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
@@ -193,18 +190,21 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: tx.clone(),
+            worker_events: worker_tx.clone(),
         });
 
         let client = Client {
             context,
             local_events: tx,
+            worker_events: worker_tx.clone(),
         };
 
         // start workers
         client.start_sync_worker();
         client.start_disappearing_messages_cleaner_worker();
+
         client.start_key_packages_cleaner_worker();
-        Events::track(provider.db(), None, Event::ClientBuild, ());
+        t!(provider.db(), Event::ClientBuild);
 
         Ok(client)
     }
@@ -608,6 +608,7 @@ pub(crate) mod tests {
         let events = Events::all_events(provider.db())?;
 
         // No events should be logged if telemetry is turned off.
+
         assert!(events.is_empty());
     }
 
