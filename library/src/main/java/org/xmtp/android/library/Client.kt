@@ -59,7 +59,7 @@ class Client(
         ffiConversations = libXMTPClient.conversations(),
         ffiClient = libXMTPClient
     )
-    val XMTPDebugInformation: XMTPDebugInformation =
+    val debugInformation: XMTPDebugInformation =
         XMTPDebugInformation(ffiClient = libXMTPClient, this)
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient

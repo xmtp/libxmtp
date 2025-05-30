@@ -991,10 +991,10 @@ class ClientTest {
             )
         )
         delay(2000)
-        val aggregateStats1 = alix.XMTPDebugInformation.aggregateStatistics
+        val aggregateStats1 = alix.debugInformation.aggregateStatistics
         println("Aggregate Stats Create:\n$aggregateStats1")
 
-        val apiStats1 = alix.XMTPDebugInformation.apiStatistics
+        val apiStats1 = alix.debugInformation.apiStatistics
         assertEquals(1, apiStats1.uploadKeyPackage)
         assertEquals(0, apiStats1.fetchKeyPackage)
         assertEquals(2, apiStats1.sendGroupMessages)
@@ -1004,7 +1004,7 @@ class ClientTest {
         assertEquals(0, apiStats1.subscribeMessages)
         assertEquals(0, apiStats1.subscribeWelcomes)
 
-        val identityStats1 = alix.XMTPDebugInformation.identityStatistics
+        val identityStats1 = alix.debugInformation.identityStatistics
         assertEquals(1, identityStats1.publishIdentityUpdate)
         assertEquals(3, identityStats1.getIdentityUpdatesV2)
         assertEquals(2, identityStats1.getInboxIds)
@@ -1016,10 +1016,10 @@ class ClientTest {
         val group = alix.conversations.newGroup(emptyList())
         group.send("hi")
 
-        val aggregateStats2 = alix.XMTPDebugInformation.aggregateStatistics
+        val aggregateStats2 = alix.debugInformation.aggregateStatistics
         println("Aggregate Stats Create:\n$aggregateStats2")
 
-        val apiStats2 = alix.XMTPDebugInformation.apiStatistics
+        val apiStats2 = alix.debugInformation.apiStatistics
         assertEquals(1, apiStats2.uploadKeyPackage)
         assertEquals(0, apiStats2.fetchKeyPackage)
         assertEquals(6, apiStats2.sendGroupMessages)
@@ -1029,7 +1029,7 @@ class ClientTest {
         assertEquals(1, apiStats2.subscribeMessages)
         assertEquals(1, apiStats2.subscribeWelcomes)
 
-        val identityStats2 = alix.XMTPDebugInformation.identityStatistics
+        val identityStats2 = alix.debugInformation.identityStatistics
         assertEquals(1, identityStats2.publishIdentityUpdate)
         assertEquals(4, identityStats2.getIdentityUpdatesV2)
         assertEquals(2, identityStats2.getInboxIds)
@@ -1050,7 +1050,7 @@ class ClientTest {
                 dbEncryptionKey = key
             )
         )
-        val uploadKey = alix.XMTPDebugInformation.uploadDebugInformation()
+        val uploadKey = alix.debugInformation.uploadDebugInformation()
         assert(uploadKey.isNotEmpty())
     }
 }
