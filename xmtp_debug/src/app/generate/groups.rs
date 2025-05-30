@@ -33,7 +33,12 @@ impl GenerateGroups {
             .map(|i| i.map(|i| Ok(i.value()))))
     }
 
-    pub async fn create_groups(&self, n: usize, invitees: usize) -> Result<Vec<Group>> {
+    pub async fn create_groups(
+        &self,
+        n: usize,
+        invitees: usize,
+        concurrency: usize,
+    ) -> Result<Vec<Group>> {
         // TODO: Check if identities still exist
         let mut groups: Vec<Group> = Vec::with_capacity(n);
         let style = ProgressStyle::with_template(
@@ -45,12 +50,17 @@ impl GenerateGroups {
 
         let network = &self.network;
         let mut rng = rand::thread_rng();
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+
         for _ in 0..n {
             let identity = self.identity_store.random(network, &mut rng)?.unwrap();
             let invitees = self.identity_store.random_n(network, &mut rng, invitees)?;
             let bar_pointer = bar.clone();
             let network = network.clone();
+            let semaphore = semaphore.clone();
             handles.push(set.spawn(async move {
+                let _permit = semaphore.acquire().await?;
                 debug!(address = identity.address(), "group owner");
                 let client = app::client_from_identity(&identity, &network).await?;
                 let ids = invitees

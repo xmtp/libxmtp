@@ -61,25 +61,32 @@ impl GenerateMessages {
         Self { db, network, opts }
     }
 
-    pub async fn run(self, n: usize) -> Result<()> {
+    pub async fn run(self, n: usize, concurrency: usize) -> Result<()> {
         info!(fdlimit = app::get_fdlimit(), "generating messages");
         let args::MessageGenerateOpts {
             r#loop, interval, ..
         } = self.opts;
 
-        self.send_many_messages(self.db.clone(), n).await?;
+        self.send_many_messages(self.db.clone(), n, concurrency)
+            .await?;
 
         if r#loop {
             loop {
                 info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
                 tokio::time::sleep(*interval).await;
-                self.send_many_messages(self.db.clone(), n).await?;
+                self.send_many_messages(self.db.clone(), n, concurrency)
+                    .await?;
             }
         }
         Ok(())
     }
 
-    async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize) -> Result<usize> {
+    async fn send_many_messages(
+        &self,
+        db: Arc<redb::Database>,
+        n: usize,
+        concurrency: usize,
+    ) -> Result<usize> {
         let Self { network, opts, .. } = self;
 
         let style = ProgressStyle::with_template(
@@ -87,13 +94,17 @@ impl GenerateMessages {
         );
         let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
 
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         for _ in 0..n {
             let bar_pointer = bar.clone();
             let d = db.clone();
             let n = network.clone();
             let opts = opts.clone();
+            let semaphore = semaphore.clone();
             set.spawn(async move {
+                let _permit = semaphore.acquire().await?;
                 Self::send_message(&d.clone().into(), &d.clone().into(), n, opts).await?;
                 bar_pointer.inc(1);
                 Ok(())
