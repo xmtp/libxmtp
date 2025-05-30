@@ -143,6 +143,7 @@ pub async fn create_client(
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
+    allow_offline: Option<bool>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -184,6 +185,7 @@ pub async fn create_client(
         .api_client(Arc::unwrap_or_clone(api).0)
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
+        .with_allow_offline(allow_offline)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -3159,6 +3161,7 @@ mod tests {
             None,
             history_sync_url,
             sync_worker_mode,
+            None,
         )
         .await
         .unwrap();
@@ -3191,6 +3194,7 @@ mod tests {
             nonce,
             None,
             sync_server_url,
+            None,
             None,
         )
         .await?;
@@ -3258,6 +3262,7 @@ mod tests {
             Some(legacy_keys),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3286,6 +3291,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3303,6 +3309,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3342,6 +3349,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3360,6 +3368,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3386,6 +3395,85 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn create_client_does_not_hit_network() {
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
+        let nonce = 1;
+        let ident = ffi_inbox_owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+
+        let connection = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+        let client = create_client(
+            connection.clone(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let signature_request = client.signature_request().unwrap().clone();
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats Create:\n{}", aggregate_str);
+
+        let api_stats = client.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 1);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_inbox_ids, 1);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+
+        let build = create_client(
+            connection.clone(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            Some(true),
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let aggregate_str = build.api_aggregate_statistics();
+        println!("Aggregate Stats Build:\n{}", aggregate_str);
+
+        let api_stats = build.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 1);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = build.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_inbox_ids, 1);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3512,6 +3600,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3629,6 +3718,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3722,6 +3812,7 @@ mod tests {
             None, // v2_signed_private_key_proto
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3751,6 +3842,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3792,6 +3884,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -7039,6 +7132,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7078,6 +7172,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await
@@ -7144,6 +7239,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await;
 
@@ -7180,6 +7276,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7203,6 +7300,7 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7222,6 +7320,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await
@@ -7253,6 +7352,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
         )
         .await;

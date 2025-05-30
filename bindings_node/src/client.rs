@@ -146,6 +146,7 @@ pub async fn create_client(
   device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<SyncWorkerMode>,
   log_options: Option<LogOptions>,
+  allow_offline: Option<bool>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
 
@@ -193,6 +194,7 @@ pub async fn create_client(
       .map_err(ErrorWrapper::from)?
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
+      .with_allow_offline(allow_offline)
       .store(store)
       .device_sync_server_url(&url),
 
@@ -202,6 +204,7 @@ pub async fn create_client(
       .map_err(ErrorWrapper::from)?
       .with_remote_verifier()
       .map_err(ErrorWrapper::from)?
+      .with_allow_offline(allow_offline)
       .store(store),
   };
 
