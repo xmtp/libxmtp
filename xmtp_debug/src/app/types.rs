@@ -1,14 +1,14 @@
 use std::mem::size_of;
 use std::sync::atomic::AtomicBool;
 
+use alloy::signers::local::PrivateKeySigner;
 use color_eyre::eyre::{self, Result};
 use ecdsa::SigningKey;
-use ethers::signers::Signer;
 use openmls::{credentials::BasicCredential, prelude::Credential};
 use prost::Message;
 use speedy::{Readable, Writable};
 
-use xmtp_cryptography::{XmtpInstallationCredential, utils::LocalWallet};
+use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -19,8 +19,8 @@ pub type InboxId = [u8; 32];
 pub struct EthereumWallet(SigningKey<k256::Secp256k1>);
 
 impl EthereumWallet {
-    pub fn into_ethers(self) -> LocalWallet {
-        LocalWallet::from_bytes(self.0.to_bytes().as_slice()).expect("Should never fail")
+    pub fn into_alloy(self) -> PrivateKeySigner {
+        PrivateKeySigner::from_slice(self.0.to_bytes().as_slice()).expect("Should never fail")
     }
 
     fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -29,7 +29,7 @@ impl EthereumWallet {
 
     // checksummed addresses for a bit more chaos
     fn address(&self) -> String {
-        ethers::core::utils::to_checksum(&self.clone().into_ethers().address(), None)
+        alloy::primitives::Address::to_checksum(&self.clone().into_alloy().address(), None)
     }
 }
 

@@ -2,7 +2,7 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
 
-use ethers::types::{BlockNumber, Bytes};
+use alloy::primitives::{BlockNumber, Bytes};
 use xmtp_id::associations::AccountId;
 use xmtp_id::scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 
@@ -61,119 +61,97 @@ impl SmartContractSignatureVerifier for CachedSmartContractSignatureVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ethers::{
-        abi::{self, Token},
-        middleware::MiddlewareBuilder,
-        providers::{Http, Middleware, Provider},
-        signers::{LocalWallet, Signer as _},
-        types::{H256, U256},
-    };
-    use std::{collections::HashMap, sync::Arc};
+    use alloy::dyn_abi::SolType;
+    use alloy::primitives::map::HashMap;
+    use alloy::primitives::{B256, U256};
+    use alloy::providers::Provider;
+    use alloy::signers::Signer;
     use xmtp_id::scw_verifier::{
         MultiSmartContractSignatureVerifier, SmartContractSignatureVerifier, ValidationResponse,
         VerifierError,
     };
-    use xmtp_id::utils::test::{with_smart_contracts, CoinbaseSmartWallet};
+    use xmtp_id::utils::test::{smart_wallet, SignatureWithNonce, SmartWalletContext};
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_is_valid_signature() {
-        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
-            let owner: LocalWallet = anvil.keys()[0].clone().into();
-            let owners_addresses = vec![Bytes::from(H256::from(owner.address()).0.to_vec())];
-            let factory = smart_contracts.coinbase_smart_wallet_factory();
-            let nonce = U256::from(0);
-            let smart_wallet_address = factory
-                .get_address(owners_addresses.clone(), nonce)
+    async fn test_is_valid_signature(#[future] smart_wallet: SmartWalletContext) {
+        let SmartWalletContext {
+            factory,
+            owner0: owner,
+            sw,
+            sw_address,
+            ..
+        } = smart_wallet.await;
+        let chain_id = factory.provider().get_chain_id().await.unwrap();
+        let hash = B256::random();
+        let replay_safe_hash = sw.replaySafeHash(hash).call().await.unwrap();
+        let signature = owner.sign_hash(&replay_safe_hash).await.unwrap();
+        let signature =
+            SignatureWithNonce::abi_encode(&(U256::from(0), signature.as_bytes().to_vec()));
+
+        // Create the verifiers map
+        let mut verifiers = HashMap::new();
+        verifiers.insert("eip155:31337".to_string(), factory.provider().clone());
+
+        // Create the cached verifier
+        let verifier = CachedSmartContractSignatureVerifier::new(
+            MultiSmartContractSignatureVerifier::new_providers(verifiers).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        )
+        .unwrap();
+
+        let account_id = AccountId::new_evm(chain_id, format!("{:?}", sw_address));
+
+        // Testing ERC-6492 signatures with deployed ERC-1271.
+        assert!(
+            verifier
+                .is_valid_signature(account_id.clone(), *hash, signature.clone().into(), None)
                 .await
-                .unwrap();
-            let contract_call = factory.create_account(owners_addresses.clone(), nonce);
-            let pending_tx = contract_call.send().await.unwrap();
-            pending_tx.await.unwrap();
+                .unwrap()
+                .is_valid
+        );
 
-            // Check that the smart contract is deployed
-            let provider: Provider<Http> = Provider::new(anvil.endpoint().parse().unwrap());
-            let code = provider.get_code(smart_wallet_address, None).await.unwrap();
-            assert!(!code.is_empty());
+        assert!(
+            !verifier
+                .is_valid_signature(
+                    account_id.clone(),
+                    B256::random().into(),
+                    signature.into(),
+                    None
+                )
+                .await
+                .unwrap()
+                .is_valid
+        );
 
-            // Generate the signature for coinbase smart wallet
-            let smart_wallet = CoinbaseSmartWallet::new(
-                smart_wallet_address,
-                Arc::new(client.with_signer(owner.clone().with_chain_id(anvil.chain_id()))),
-            );
-            let hash: [u8; 32] = H256::random().into();
-            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-            let signature = owner.sign_hash(replay_safe_hash.into()).unwrap();
-            let signature: Bytes = abi::encode(&[Token::Tuple(vec![
-                Token::Uint(U256::from(0)),
-                Token::Bytes(signature.to_vec()),
-            ])])
-            .into();
+        // Testing if EOA wallet signature is valid on ERC-6492
+        let signature = owner.sign_hash(&hash).await.unwrap();
+        let owner_account_id = AccountId::new_evm(chain_id, format!("{:?}", owner.address()));
+        assert!(
+            verifier
+                .is_valid_signature(
+                    owner_account_id.clone(),
+                    *hash,
+                    signature.as_bytes().into(),
+                    None
+                )
+                .await
+                .unwrap()
+                .is_valid
+        );
 
-            // Create the verifiers map
-            let mut verifiers = HashMap::new();
-            verifiers.insert(
-                "eip155:31337".to_string(),
-                anvil.endpoint().parse().unwrap(),
-            );
-
-            // Create the cached verifier
-            let verifier = CachedSmartContractSignatureVerifier::new(
-                MultiSmartContractSignatureVerifier::new(verifiers).unwrap(),
-                NonZeroUsize::new(5).unwrap(),
-            )
-            .unwrap();
-
-            let account_id =
-                AccountId::new_evm(anvil.chain_id(), format!("{:?}", smart_wallet_address));
-
-            // Testing ERC-6492 signatures with deployed ERC-1271.
-            assert!(
-                verifier
-                    .is_valid_signature(account_id.clone(), hash, signature.clone(), None)
-                    .await
-                    .unwrap()
-                    .is_valid
-            );
-
-            assert!(
-                !verifier
-                    .is_valid_signature(account_id.clone(), H256::random().into(), signature, None)
-                    .await
-                    .unwrap()
-                    .is_valid
-            );
-
-            // Testing if EOA wallet signature is valid on ERC-6492
-            let signature = owner.sign_hash(hash.into()).unwrap();
-            let owner_account_id =
-                AccountId::new_evm(anvil.chain_id(), format!("{:?}", owner.address()));
-            assert!(
-                verifier
-                    .is_valid_signature(
-                        owner_account_id.clone(),
-                        hash,
-                        signature.to_vec().into(),
-                        None
-                    )
-                    .await
-                    .unwrap()
-                    .is_valid
-            );
-
-            assert!(
-                !verifier
-                    .is_valid_signature(
-                        owner_account_id,
-                        H256::random().into(),
-                        signature.to_vec().into(),
-                        None
-                    )
-                    .await
-                    .unwrap()
-                    .is_valid
-            );
-        })
-        .await;
+        assert!(
+            !verifier
+                .is_valid_signature(
+                    owner_account_id,
+                    B256::random().into(),
+                    signature.as_bytes().into(),
+                    None
+                )
+                .await
+                .unwrap()
+                .is_valid
+        );
     }
 
     #[tokio::test]
@@ -216,7 +194,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_verifier() {
-        //
         let verifiers = std::collections::HashMap::new();
         let multi_verifier = MultiSmartContractSignatureVerifier::new(verifiers).unwrap();
         let cached_verifier = CachedSmartContractSignatureVerifier::new(
@@ -228,23 +205,12 @@ mod tests {
         let account_id = AccountId::new("missing".to_string(), "account1".to_string());
         let hash = [0u8; 32];
         let signature = Bytes::from(vec![1, 2, 3]);
-        let block_number = Some(BlockNumber::Number(1.into()));
+        let block_number = Some(1);
 
-        let result = cached_verifier
+        let result: Result<_, VerifierError> = cached_verifier
             .is_valid_signature(account_id, hash, signature, block_number)
             .await;
         assert!(result.is_err());
-
-        match result {
-            Err(VerifierError::Provider(provider_error)) => {
-                assert_eq!(
-                    provider_error.to_string(),
-                    "custom error: Verifier not present"
-                );
-            }
-            _ => {
-                panic!("Expected a VerifierError::Provider error.");
-            }
-        }
+        assert!(matches!(result, Err(VerifierError::NoVerifier)));
     }
 }

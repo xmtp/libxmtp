@@ -1,4 +1,3 @@
-use ethers::types::{BlockNumber, U64};
 use futures::future::{join_all, try_join_all};
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
@@ -201,9 +200,7 @@ async fn verify_smart_contract_wallet_signatures(
                         GrpcServerError::Deserialization(DeserializationError::InvalidHash)
                     })?,
                     signature.signature.into(),
-                    signature
-                        .block_number
-                        .map(|bn| BlockNumber::Number(U64::from(bn))),
+                    signature.block_number,
                 )
                 .await
                 .map_err(|e| GrpcServerError::Signature(SignatureError::VerifierError(e)))?;
@@ -298,19 +295,18 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::dyn_abi::SolType;
+    use alloy::primitives::{B256, U256};
+    use alloy::providers::Provider;
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::signers::Signer;
     use associations::AccountId;
-    use ethers::{
-        abi::Token,
-        signers::{LocalWallet, Signer as _},
-        types::{Bytes, H256, U256},
-    };
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         key_packages::KeyPackage,
         prelude::{tls_codec::Serialize, Credential as OpenMlsCredential, CredentialWithKey},
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
-    use std::sync::Arc;
     use xmtp_common::{rand_string, rand_u64};
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
@@ -319,8 +315,7 @@ mod tests {
             unverified::{UnverifiedAction, UnverifiedIdentityUpdate},
             Identifier,
         },
-        is_smart_contract,
-        utils::test::{with_smart_contracts, CoinbaseSmartWallet},
+        utils::test::{docker_smart_wallet, SignatureWithNonce, SmartWalletContext},
     };
     use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
@@ -340,7 +335,7 @@ mod tests {
     fn generate_inbox_id_credential() -> (String, XmtpInstallationCredential) {
         let signing_key = XmtpInstallationCredential::new();
 
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let inbox_id = wallet.identifier().inbox_id(0).unwrap();
 
         (inbox_id, signing_key)
@@ -484,68 +479,49 @@ mod tests {
         assert_eq!(first_response.installation_public_key, Vec::<u8>::new());
     }
 
+    #[rstest::rstest]
     #[tokio::test]
-    async fn test_validate_scw() {
-        with_smart_contracts(|anvil, _provider, client, smart_contracts| async move {
-            let key = anvil.keys()[0].clone();
-            let wallet: LocalWallet = key.clone().into();
+    async fn test_validate_scw(#[future] docker_smart_wallet: SmartWalletContext) {
+        let SmartWalletContext {
+            owner0: wallet,
+            factory,
+            sw,
+            sw_address,
+            ..
+        } = docker_smart_wallet.await;
 
-            let owners = vec![Bytes::from(H256::from(wallet.address()).0.to_vec())];
+        let provider = factory.provider();
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let hash = B256::random();
+        let account_id = AccountId::new_evm(chain_id, format!("{sw_address}"));
+        let rsh = sw.replaySafeHash(hash).call().await.unwrap();
+        let signed_rsh = wallet.sign_hash(&rsh).await.unwrap().as_bytes().to_vec();
+        let signature = SignatureWithNonce::abi_encode(&(U256::from(0), signed_rsh));
 
-            let scw_factory = smart_contracts.coinbase_smart_wallet_factory();
-            let nonce = U256::from(0);
+        let resp = ValidationService::default()
+            .verify_smart_contract_wallet_signatures(Request::new(
+                VerifySmartContractWalletSignaturesRequest {
+                    signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
+                        account_id: account_id.into(),
+                        block_number: None,
+                        hash: hash.to_vec(),
+                        signature,
+                    }],
+                },
+            ))
+            .await
+            .unwrap();
 
-            let scw_addr = scw_factory
-                .get_address(owners.clone(), nonce)
-                .await
-                .unwrap();
+        let VerifySmartContractWalletSignaturesResponse { responses } = resp.into_inner();
 
-            let contract_call = scw_factory.create_account(owners.clone(), nonce);
-            contract_call.send().await.unwrap().await.unwrap();
-
-            assert!(is_smart_contract(scw_addr, anvil.endpoint(), None)
-                .await
-                .unwrap());
-
-            let hash = H256::random().into();
-            let smart_wallet = CoinbaseSmartWallet::new(
-                scw_addr,
-                Arc::new(client.with_signer(wallet.clone().with_chain_id(anvil.chain_id()))),
-            );
-            let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
-            let account_id = AccountId::new_evm(anvil.chain_id(), format!("{scw_addr:?}"));
-
-            let signature = ethers::abi::encode(&[Token::Tuple(vec![
-                Token::Uint(U256::from(0)),
-                Token::Bytes(wallet.sign_hash(replay_safe_hash.into()).unwrap().to_vec()),
-            ])]);
-
-            let resp = ValidationService::default()
-                .verify_smart_contract_wallet_signatures(Request::new(
-                    VerifySmartContractWalletSignaturesRequest {
-                        signatures: vec![VerifySmartContractWalletSignatureRequestSignature {
-                            account_id: account_id.into(),
-                            block_number: None,
-                            hash: hash.to_vec(),
-                            signature,
-                        }],
-                    },
-                ))
-                .await
-                .unwrap();
-
-            let VerifySmartContractWalletSignaturesResponse { responses } = resp.into_inner();
-
-            assert_eq!(responses.len(), 1);
-            assert_eq!(
-                responses[0],
-                VerifySmartContractWalletSignaturesValidationResponse {
-                    is_valid: true,
-                    block_number: Some(1),
-                    error: None
-                }
-            );
-        })
-        .await;
+        assert_eq!(responses.len(), 1);
+        assert_eq!(
+            responses[0],
+            VerifySmartContractWalletSignaturesValidationResponse {
+                is_valid: true,
+                block_number: Some(1),
+                error: None
+            }
+        );
     }
 }

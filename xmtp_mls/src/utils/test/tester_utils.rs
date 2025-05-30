@@ -9,7 +9,7 @@ use crate::{
     subscriptions::SubscribeError,
     Client,
 };
-use ethers::signers::LocalWallet;
+use alloy::signers::local::PrivateKeySigner;
 use futures::Stream;
 use futures_executor::block_on;
 use parking_lot::Mutex;
@@ -83,8 +83,8 @@ macro_rules! tester {
     };
 }
 
-impl Tester<LocalWallet, FullXmtpClient> {
-    pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
+impl Tester<PrivateKeySigner, FullXmtpClient> {
+    pub(crate) async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
@@ -94,7 +94,7 @@ impl Tester<LocalWallet, FullXmtpClient> {
         Tester::new_with_owner(passkey_user).await
     }
 
-    pub(crate) fn builder() -> TesterBuilder<LocalWallet> {
+    pub(crate) fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
 }
@@ -217,13 +217,13 @@ where
     pub name: Option<String>,
 }
 
-impl TesterBuilder<LocalWallet> {
+impl TesterBuilder<PrivateKeySigner> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl Default for TesterBuilder<LocalWallet> {
+impl Default for TesterBuilder<PrivateKeySigner> {
     fn default() -> Self {
         Self {
             owner: generate_local_wallet(),

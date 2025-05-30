@@ -1,11 +1,11 @@
 mod chain_rpc_verifier;
 mod remote_signature_verifier;
 use crate::associations::AccountId;
-pub use chain_rpc_verifier::*;
-use ethers::{
-    providers::{Http, Provider, ProviderError},
-    types::{BlockNumber, Bytes},
+use alloy::{
+    primitives::{BlockNumber, Bytes},
+    providers::DynProvider,
 };
+pub use chain_rpc_verifier::*;
 pub use remote_signature_verifier::*;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use thiserror::Error;
@@ -16,16 +16,12 @@ static DEFAULT_CHAIN_URLS: &str = include_str!("chain_urls_default.json");
 
 #[derive(Debug, Error)]
 pub enum VerifierError {
-    #[error("calling smart contract {0}")]
-    Contract(#[from] ethers::contract::ContractError<Provider<Http>>),
     #[error("unexpected result from ERC-6492 {0}")]
     UnexpectedERC6492Result(String),
     #[error(transparent)]
     FromHex(#[from] hex::FromHexError),
     #[error(transparent)]
-    Abi(#[from] ethers::abi::Error),
-    #[error(transparent)]
-    Provider(#[from] ethers::providers::ProviderError),
+    Provider(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
     #[error(transparent)]
     Url(#[from] url::ParseError),
     #[error(transparent)]
@@ -36,11 +32,20 @@ pub enum VerifierError {
     MalformedEipUrl,
     #[error(transparent)]
     Api(#[from] xmtp_api::ApiError),
+    #[error("verifier not present")]
+    NoVerifier,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SmartContractSignatureVerifier: Send + Sync {
+    /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `signer` - can be the smart wallet address or EOA address.
+    /// * `hash` - Message digest for the signature.
+    /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -53,6 +58,13 @@ pub trait SmartContractSignatureVerifier: Send + Sync {
 #[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait SmartContractSignatureVerifier {
+    /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `signer` - can be the smart wallet address or EOA address.
+    /// * `hash` - Message digest for the signature.
+    /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
@@ -137,12 +149,24 @@ impl MultiSmartContractSignatureVerifier {
             .map(|(chain_id, url)| {
                 Ok::<_, VerifierError>((
                     chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?)
-                        as Box<dyn SmartContractSignatureVerifier + Send + Sync>,
+                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?) as Box<_>,
                 ))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
 
+        Ok(Self { verifiers })
+    }
+
+    pub fn new_providers(providers: HashMap<String, DynProvider>) -> Result<Self, VerifierError> {
+        let verifiers = providers
+            .into_iter()
+            .map(|(chain_id, provider)| {
+                (
+                    chain_id,
+                    Box::new(RpcSmartContractWalletVerifier::new_from_provider(provider)) as Box<_>,
+                )
+            })
+            .collect();
         Ok(Self { verifiers })
     }
 
@@ -178,7 +202,6 @@ impl MultiSmartContractSignatureVerifier {
                 Box::new(RpcSmartContractWalletVerifier::new(url)?),
             );
         }
-
         Ok(self)
     }
 
@@ -205,8 +228,6 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
                 .await;
         }
 
-        Err(VerifierError::Provider(ProviderError::CustomError(
-            "Verifier not present".to_string(),
-        )))
+        Err(VerifierError::NoVerifier)
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
     mutex_registry::MutexRegistry, utils::VersionInfo,
 };
-use ethers::signers::LocalWallet;
+use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
 use xmtp_api::test_utils::MockApiClient;
 use xmtp_api::ApiClientWrapper;

@@ -1,21 +1,19 @@
 #![allow(dead_code)]
+use super::{
+    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
+    SignatureKind, ValidatedLegacySignedPublicKey,
+};
+use crate::scw_verifier::SmartContractSignatureVerifier;
+use alloy::primitives::Signature as EtherSignature;
+use alloy::signers::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey;
+use alloy::signers::utils::public_key_to_address;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use ethers::types::Signature as EthersSignature;
-use ethers::utils::hash_message;
-use ethers::{core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey, utils::public_key_to_address};
 use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
 use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
 use xmtp_cryptography::CredentialVerify;
 use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
-
-use crate::scw_verifier::SmartContractSignatureVerifier;
-
-use super::{
-    ident, to_lower_s, AccountId, InstallationKeyContext, MemberIdentifier, SignatureError,
-    SignatureKind, ValidatedLegacySignedPublicKey,
-};
 
 #[derive(Debug, Clone)]
 pub struct VerifiedSignature {
@@ -55,8 +53,9 @@ impl VerifiedSignature {
         signature_bytes: &[u8],
     ) -> Result<Self, SignatureError> {
         let normalized_signature_bytes = to_lower_s(signature_bytes)?;
-        let signature = EthersSignature::try_from(normalized_signature_bytes.as_slice())?;
-        let address = h160addr_to_string(signature.recover(signature_text.as_ref())?);
+        let signature = EtherSignature::try_from(normalized_signature_bytes.as_slice())?;
+        let address = signature.recover_address_from_msg(signature_text.as_ref())?;
+        let address = h160addr_to_string(address);
 
         Ok(Self::new(
             MemberIdentifier::eth(address)?,
@@ -195,9 +194,9 @@ impl VerifiedSignature {
         let response = signature_verifier
             .is_valid_signature(
                 account_id.clone(),
-                hash_message(signature_text.as_ref()).into(),
+                alloy::primitives::eip191_hash_message(signature_text.as_ref()).into(),
                 signature_bytes.to_vec().into(),
-                block_number.map(|n| n.into()),
+                *block_number,
             )
             .await?;
 
@@ -232,7 +231,8 @@ mod tests {
         verified_signature::VerifiedSignature,
         InstallationKeyContext, MemberIdentifier, SignatureKind,
     };
-    use ethers::signers::{LocalWallet, Signer};
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::signers::Signer;
     use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
@@ -240,10 +240,14 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_recoverable_ecdsa() {
-        let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let signature_text = "test signature body";
 
-        let sig_bytes: Vec<u8> = wallet.sign_message(signature_text).await.unwrap().to_vec();
+        let sig_bytes: Vec<u8> = wallet
+            .sign_message(signature_text.as_bytes())
+            .await
+            .unwrap()
+            .into();
         let verified_sig = VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig_bytes)
             .expect("should succeed");
 
@@ -255,10 +259,14 @@ mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn test_recoverable_ecdsa_incorrect() {
-        let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let signature_text = "test signature body";
 
-        let sig_bytes: Vec<u8> = wallet.sign_message(signature_text).await.unwrap().to_vec();
+        let sig_bytes: Vec<u8> = wallet
+            .sign_message(signature_text.as_bytes())
+            .await
+            .unwrap()
+            .into();
 
         let verified_sig =
             VerifiedSignature::from_recoverable_ecdsa("wrong text again", &sig_bytes).unwrap();

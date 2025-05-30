@@ -8,10 +8,10 @@ mod pretty;
 mod serializable;
 
 use crate::serializable::{SerializableGroup, SerializableMessage};
+use alloy::signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
 use debug::DebugCommands;
-use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use futures::future::join_all;
 use owo_colors::OwoColorize;
 use prost::Message;
@@ -37,7 +37,7 @@ use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_cryptography::{signature::SignatureError, utils::rng};
+use xmtp_cryptography::signature::SignatureError;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::NativeDb;
@@ -182,7 +182,7 @@ impl From<&str> for CliError {
 }
 /// This is an abstraction which allows the CLI to choose between different wallet types.
 enum Wallet {
-    LocalWallet(LocalWallet),
+    LocalWallet(PrivateKeySigner),
 }
 
 impl InboxOwner for Wallet {
@@ -557,7 +557,7 @@ where
                 .unwrap(),
         )
     } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        Wallet::LocalWallet(PrivateKeySigner::random())
     };
 
     let nonce = 0;

@@ -2907,7 +2907,7 @@ mod tests {
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
         GenericError,
     };
-    use ethers::utils::hex;
+    use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
     use log::{info_span, Instrument};
     use parking_lot::Mutex;
@@ -2931,7 +2931,7 @@ mod tests {
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
-    use xmtp_cryptography::utils::rng;
+    use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
@@ -2948,11 +2948,11 @@ mod tests {
 
     #[derive(Clone)]
     pub struct FfiWalletInboxOwner {
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
     }
 
     impl FfiWalletInboxOwner {
-        pub fn with_wallet(wallet: xmtp_cryptography::utils::LocalWallet) -> Self {
+        pub fn with_wallet(wallet: PrivateKeySigner) -> Self {
             Self { wallet }
         }
 
@@ -2962,7 +2962,7 @@ mod tests {
 
         pub fn new() -> Self {
             Self {
-                wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
+                wallet: PrivateKeySigner::random(),
             }
         }
     }
@@ -3127,9 +3127,7 @@ mod tests {
     }
 
     /// Create a new test client with a given wallet.
-    async fn new_test_client_with_wallet(
-        wallet: xmtp_cryptography::utils::LocalWallet,
-    ) -> Arc<FfiXmtpClient> {
+    async fn new_test_client_with_wallet(wallet: PrivateKeySigner) -> Arc<FfiXmtpClient> {
         new_test_client_with_wallet_and_history_sync_url(
             wallet,
             None,
@@ -3139,7 +3137,7 @@ mod tests {
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
         history_sync_url: Option<String>,
         sync_worker_mode: Option<FfiSyncWorkerMode>,
     ) -> Arc<FfiXmtpClient> {
@@ -3174,7 +3172,7 @@ mod tests {
     }
 
     async fn new_test_client_no_panic(
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
         sync_server_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
@@ -3206,7 +3204,7 @@ mod tests {
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         new_test_client_with_wallet(wallet).await
     }
 
@@ -3373,12 +3371,12 @@ mod tests {
     }
 
     trait SignWithWallet {
-        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet);
+        async fn add_wallet_signature(&self, wallet: &PrivateKeySigner);
     }
 
     use super::FfiSignatureRequest;
     impl SignWithWallet for FfiSignatureRequest {
-        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
+        async fn add_wallet_signature(&self, wallet: &PrivateKeySigner) {
             let signature_text = self.inner.lock().await.signature_text();
 
             self.inner
@@ -3389,8 +3387,6 @@ mod tests {
                 .unwrap();
         }
     }
-
-    use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
@@ -3888,8 +3884,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installation_for_two_users_and_group_modification() {
         // Step 1: Create two installations
-        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_wallet = PrivateKeySigner::random();
+        let bola_wallet = PrivateKeySigner::random();
         let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let bola_client_1 = new_test_client_with_wallet(bola_wallet.clone()).await;
@@ -3980,7 +3976,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installation_for_one_user_and_group_modification() {
         // Step 1: Create two installations
-        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_wallet = PrivateKeySigner::random();
         let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
 
@@ -4724,10 +4720,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installation_without_breaking_group() {
-        let wallet1_key = &mut rng();
-        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
-        let wallet2_key = &mut rng();
-        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+        let wallet1 = PrivateKeySigner::random();
+        let wallet2 = PrivateKeySigner::random();
 
         // Create clients
         let client1 = new_test_client_with_wallet(wallet1).await;
@@ -4791,10 +4785,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installation_can_see_dm() {
         // Create two wallets
-        let wallet1_key = &mut rng();
-        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
-        let wallet2_key = &mut rng();
-        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+        let wallet1 = PrivateKeySigner::random();
+        let wallet2 = PrivateKeySigner::random();
 
         // Create initial clients
         let client1 = new_test_client_with_wallet(wallet1.clone()).await;
@@ -4875,8 +4867,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installations_does_not_fork_group() {
-        let bo_wallet_key = &mut rng();
-        let bo_wallet = xmtp_cryptography::utils::LocalWallet::new(bo_wallet_key);
+        let bo_wallet = PrivateKeySigner::random();
 
         // Create clients
         let alix = new_test_client().await;
@@ -6242,7 +6233,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_all_installations() {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
 
@@ -6282,7 +6273,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installations() {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
 

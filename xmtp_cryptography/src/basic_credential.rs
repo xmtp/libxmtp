@@ -1,5 +1,4 @@
 use ed25519_dalek::SigningKey;
-use k256::schnorr::CryptoRngCore;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
@@ -85,11 +84,6 @@ impl XmtpInstallationCredential {
     /// Create a new [`XmtpInstallationCredential`] with [`rand_chacha::ChaCha20Rng`]
     pub fn new() -> Self {
         Self(Box::new(SigningKey::generate(&mut crate::utils::rng())))
-    }
-
-    /// Create a new [`XmtpInstallationCredential`] with custom RNG
-    pub fn with_rng<R: CryptoRngCore + ?Sized>(rng: &mut R) -> Self {
-        Self(Box::new(SigningKey::generate(rng)))
     }
 
     /// Get a reference to the public [`ed25519_dalek::VerifyingKey`]

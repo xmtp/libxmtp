@@ -618,7 +618,7 @@ pub(crate) mod tests {
         utils::{FullXmtpClient, Tester},
         Client, XmtpApi,
     };
-    use ethers::signers::{LocalWallet, Signer};
+    use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
@@ -1134,7 +1134,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     pub async fn change_recovery_address() {
-        let original_wallet: LocalWallet = generate_local_wallet();
+        let original_wallet = generate_local_wallet();
         let new_recovery_wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&original_wallet).await;
 
@@ -1236,9 +1236,10 @@ pub(crate) mod tests {
         // add_wallet_signature(&mut revoke_installation_request, &original_wallet).await;
         let signature_text = revoke_installation_request.signature_text();
         let sig = original_wallet
-            .sign_message(signature_text)
+            .sign_message(signature_text.as_bytes())
             .await
             .unwrap()
+            .as_bytes()
             .to_vec();
         let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig);
         let scw_verifier = MockSmartContractSignatureVerifier::new(false);

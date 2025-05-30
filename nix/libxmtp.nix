@@ -61,7 +61,7 @@ mkShell {
   hardeningDisable = [ "zerocallusedregs" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
-  
+
     nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
