@@ -876,4 +876,55 @@ class ClientTests: XCTestCase {
 		let uploadKey = try await alix.debugInformation.uploadDebugInformation()
 		XCTAssertFalse(uploadKey.isEmpty)
 	}
+	
+	func testCanSeeKeyPackageStatus() async throws {
+		let fixtures = try await fixtures()
+		let api = ClientOptions.Api(env: .local, isSecure: true)
+		
+		try await Client.connectToApiBackend(api: api)
+
+		guard let inboxState = try await Client.inboxStatesForInboxIds(
+			inboxIds: [fixtures.alixClient.inboxID],
+			api: api
+		).first else {
+			XCTFail("No inbox state found")
+			return
+		}
+
+		let installationIds = inboxState.installations.map { $0.id }
+
+		let keyPackageStatus = try await Client.keyPackageStatusesForInstallationIds(
+			installationIds: installationIds,
+			api: api
+		)
+
+		for installationId in keyPackageStatus.keys {
+			guard let thisKPStatus = keyPackageStatus[installationId] else {
+				XCTFail("Missing key package status for installationId: \(installationId)")
+				continue
+			}
+
+			let notBeforeDate: String
+			if let notBefore = thisKPStatus.lifetime?.notBefore {
+				notBeforeDate = Date(timeIntervalSince1970: TimeInterval(notBefore)).description
+			} else {
+				notBeforeDate = "null"
+			}
+
+			let notAfterDate: String
+			if let notAfter = thisKPStatus.lifetime?.notAfter {
+				notAfterDate = Date(timeIntervalSince1970: TimeInterval(notAfter)).description
+			} else {
+				notAfterDate = "null"
+			}
+			print("inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)")
+			print("error code: \(thisKPStatus.validationError ?? "none")")
+
+			if let notBefore = thisKPStatus.lifetime?.notBefore,
+			   let notAfter = thisKPStatus.lifetime?.notAfter {
+				let expectedDuration: UInt64 = UInt64(3600 * 24 * 28 * 3 + 3600)
+				XCTAssertEqual(notAfter - notBefore, expectedDuration)
+			}
+		}
+	}
 }

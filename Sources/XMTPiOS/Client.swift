@@ -396,6 +396,22 @@ public final class Client {
 			refreshFromNetwork: true, inboxIds: inboxIds)
 		return result.map { InboxState(ffiInboxState: $0) }
 	}
+	
+	public static func keyPackageStatusesForInstallationIds(
+		installationIds: [String],
+		api: ClientOptions.Api
+	) async throws -> [String: FfiKeyPackageStatus] {
+		let ffiClient = try await prepareClient(api: api)
+
+		let byteArrays = installationIds.map { $0.hexToData }
+		let result = try await ffiClient.getKeyPackageStatusesForInstallationIds(installationIds: byteArrays)
+		var statusMap: [String: FfiKeyPackageStatus] = [:]
+		for (keyBytes, status) in result {
+			let keyHex = keyBytes.toHex
+			statusMap[keyHex] = status
+		}
+		return statusMap
+	}
 
 	init(
 		ffiClient: LibXMTP.FfiXmtpClient, dbPath: String,
