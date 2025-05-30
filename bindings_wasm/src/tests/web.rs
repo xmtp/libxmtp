@@ -4,7 +4,6 @@ use crate::opfs::Opfs;
 // Only run these tests in a browser.
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-#[wasm_bindgen_test]
 pub async fn test_create_client() {
   create_test_client().await;
 }
@@ -24,4 +23,15 @@ pub async fn wipe_client_files() {
     Opfs::rm(file).unwrap();
   }
   assert_eq!(Opfs::get_file_count(), 0);
+}
+
+#[wasm_bindgen_test]
+pub async fn can_stream_conversations() {
+  let alix = create_test_client().await;
+  let bo = create_test_client().await;
+  let group = alix
+    .conversations()
+    .create_group_by_inbox_ids(vec![bo.inbox_id()], None)
+    .await
+    .unwrap();
 }

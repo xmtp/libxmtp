@@ -17,9 +17,14 @@ let
     (commonCargoSources ./../common)
     (commonCargoSources ./../xmtp_content_types)
     (commonCargoSources ./../xmtp_macro)
+    (commonCargoSources ./../xmtp_db)
+    (commonCargoSources ./../xmtp_db_test)
+    (commonCargoSources ./../xmtp_archive)
+    (commonCargoSources ./../xmtp_mls_common)
     ./../xmtp_id/src/scw_verifier/chain_urls_default.json
     ./../xmtp_id/artifact
-    ./../xmtp_mls/migrations
+    ./../xmtp_id/src/scw_verifier/signature_validation.hex
+    ./../xmtp_db/migrations
   ];
   binaries = lib.fileset.unions [
     (commonCargoSources ./../examples/cli)

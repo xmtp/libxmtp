@@ -46,7 +46,7 @@ pub enum WelcomeOrGroup {
 impl std::fmt::Debug for WelcomeOrGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(&arg0)).finish(),
+            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(arg0)).finish(),
             Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
         }
     }
@@ -427,7 +427,6 @@ mod test {
         #[future] bo: FullXmtpClient,
         #[case] group_size: usize,
     ) {
-        xmtp_common::logger("xmtp_mls::subscriptions::stream_conversations=debug");
         let (alix, bo) = (alix.await, bo.await);
 
         let mut groups = vec![];

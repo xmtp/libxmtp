@@ -133,7 +133,7 @@ pub fn logger(_filter: &str) {
 #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-utils"))]
 fn ctor_logging_setup() {
-    crate::logger();
+    crate::logger("");
     let _ = fdlimit::raise_fd_limit();
 }
 
