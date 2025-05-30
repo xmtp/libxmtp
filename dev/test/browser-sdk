@@ -28,7 +28,7 @@ function ctrl_c() {
 
 function run() {
   cd $WORKSPACE_PATH
-  nix build .#bindings_wasm --no-substitute --refresh
+  nix build .#bindings_wasm --refresh
 
   if [ ! -d $DIR/xmtp-js ]; then
     git clone git@github.com:xmtp/xmtp-js.git $DIR/xmtp-js
@@ -43,13 +43,16 @@ function run() {
   rm -rf $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/dist
   cp --no-preserve=mode,ownership -r $WORKSPACE_PATH/result/dist $DIR/xmtp-js/node_modules/@xmtp/wasm-bindings/
 
-  $YARN build
+  # $YARN build
+
+  # set playwright version if version between nixpkgs and npm is different
   # set playwright to same version as nix (otherwise will not work)
-  $YARN set resolution "playwright@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
-  $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
+  # $YARN set resolution "playwright@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
+  # $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
 
   cd $WORKSPACE_PATH
-  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk test test/Conversations.test.ts
+  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk
+  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk test
 
   return 0
 }

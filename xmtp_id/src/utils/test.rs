@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-
+#![cfg_attr(all(target_family = "wasm", target_os = "unknown"), allow(unused))]
 use alloy::network::{Ethereum, EthereumWallet};
 use alloy::primitives::{Address, Bytes};
 use alloy::providers::DynProvider;

@@ -3,6 +3,9 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester_utils;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod fixtures;
+
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     context::XmtpContextProvider,

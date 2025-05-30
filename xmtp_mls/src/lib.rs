@@ -88,9 +88,12 @@ pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
+#[cfg(all(test, target_arch = "wasm32"))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
 #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn test_setup() {
-    xmtp_common::logger();
+    xmtp_common::logger("");
     let _ = fdlimit::raise_fd_limit();
 }
