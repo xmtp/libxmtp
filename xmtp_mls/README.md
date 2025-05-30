@@ -261,6 +261,8 @@ This section defines the threat model XMTP has for libxmtp.
 
 The security of XMTP rests on that of MLS. The chosen configuration of MLS provides privacy and authenticity of all messages. It also provides both Forward Secrecy and Post-Compromise Security. Since no ciphersuite has been standardized that provides protection against Quantum Adversaries (even HNDL attacks), XMTP also does not provide security against such attackers.
 
+With [#1851](https://github.com/xmtp/libxmtp/pull/1851) libxmtp provides [Harvest Now Decrypt Later (NHDL) forward security](./hndl_security.md).
+
 #### Endpoint security
 
 In the XMTP messaging app, private key material is stored in the secure key storage of the mobile operating systems. XMTP encourages app developers using the SDK to do the same, but ultimately it is their decision.
