@@ -283,12 +283,12 @@ where
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
-            consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+            consent_states: Some(vec![ConsentState::Allowed]),
             ..Default::default()
         })?;
 
         // Add the new installation to groups in batches
-        for chunk in groups.chunks(20) {
+        for chunk in groups.chunks(10) {
             let mut add_futs = vec![];
             for group in chunk {
                 add_futs.push(group.add_missing_installations());

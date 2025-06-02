@@ -143,7 +143,6 @@ async fn test_only_added_to_correct_groups() {
     let bo_group_unknown = bo
         .create_group_with_inbox_ids(&[alix1.inbox_id()], None, None)
         .await?;
-    bo_group_unknown.send_message(b"hi").await?;
     let bo_dm = bo
         .find_or_create_dm_by_inbox_id(alix1.inbox_id(), None)
         .await?;
@@ -177,9 +176,9 @@ async fn test_only_added_to_correct_groups() {
     let alix2_old_group = alix2.group(&old_group.group_id);
     assert!(alix2_old_group.is_err());
 
-    // Added to group with unknown consent state
+    // Not added to group with unknown consent state
     let alix2_bo_group_unknown = alix2.group(&alix_bo_group_unknown.group_id);
-    assert!(alix2_bo_group_unknown.is_ok());
+    assert!(alix2_bo_group_unknown.is_err());
 
     // Added to consented DM
     let alix2_bo_dm = alix2.group(&alix_bo_dm.group_id);
