@@ -4,6 +4,7 @@ use crate::{
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
+    utils::worker::NeedsDbReconnect,
     Client,
 };
 use futures::future::join_all;
@@ -107,8 +108,8 @@ impl From<SyncSummary> for DeviceSyncError {
     }
 }
 
-impl DeviceSyncError {
-    pub fn db_needs_connection(&self) -> bool {
+impl NeedsDbReconnect for DeviceSyncError {
+    fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(s) => s.db_needs_connection(),
             _ => false,
@@ -149,7 +150,7 @@ where
 
         let worker = SyncWorker::new(client.context.clone());
         *self.context.device_sync.worker_handle.lock() = Some(worker.handle().clone());
-        worker.spawn_worker();
+        worker.spawn();
     }
 }
 

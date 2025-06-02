@@ -13,6 +13,7 @@ use crate::{
         GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
+    utils::worker::WorkerCore,
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
@@ -20,6 +21,7 @@ use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::{info_span, instrument, Instrument};
+use xmtp_api::test_utils::ApiClient;
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -52,64 +54,16 @@ pub struct SyncWorker<ApiClient, Db> {
     handle: Arc<WorkerHandle<SyncMetric>>,
 }
 
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
-{
-    pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let receiver = context.local_events.subscribe();
-        let stream = Box::pin(receiver.stream_sync_messages());
-        let client = DeviceSyncClient::new(context.clone());
-        Self {
-            client,
-            stream,
-            init: OnceCell::new(),
-            handle: Arc::new(WorkerHandle::new()),
-        }
-    }
-
-    pub(super) fn spawn_worker(mut self) {
-        let span = info_span!("\x1b[34mDEVICE SYNC");
-
-        xmtp_common::spawn(
-            None,
-            async move {
-                let inbox_id = self.client.context.identity.inbox_id().to_string();
-                let installation_id = hex::encode(self.client.context.installation_id());
-
-                while let Err(err) = self.run().await {
-                    tracing::info!("Running worker..");
-                    if err.db_needs_connection() {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
-                    } else {
-                        tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
-                        // Wait before restarting.
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting sync worker...");
-                    }
-                }
-            }
-            .instrument(span),
-        );
-    }
-}
-
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+#[async_trait::async_trait]
+impl<ApiClient, Db> WorkerCore for SyncWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub(super) fn handle(&self) -> &Arc<WorkerHandle<SyncMetric>> {
-        &self.handle
-    }
+    const NAME: &str = "Device Sync";
+    type Error = DeviceSyncError;
 
-    async fn run(&mut self) -> Result<(), DeviceSyncError> {
+    async fn run(&mut self) -> Result<(), Self::Error> {
         // Wait for the identity to be ready & verified before doing anything
         while !self.client.context.identity().is_ready() {
             xmtp_common::yield_().await
@@ -145,6 +99,34 @@ where
             };
         }
         Ok(())
+    }
+}
+
+impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
+{
+    pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        let receiver = context.local_events.subscribe();
+        let stream = Box::pin(receiver.stream_sync_messages());
+        let client = DeviceSyncClient::new(context.clone());
+        Self {
+            client,
+            stream,
+            init: OnceCell::new(),
+            handle: Arc::new(WorkerHandle::new()),
+        }
+    }
+}
+
+impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    pub(super) fn handle(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+        &self.handle
     }
 
     //// Ideally called when the client is registered.
