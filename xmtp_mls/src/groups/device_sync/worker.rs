@@ -1,11 +1,9 @@
 use super::{
-    handle::{SyncMetric, WorkerHandle},
     preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncClient, DeviceSyncError, IterWithContent,
 };
 use crate::{
     client::ClientError,
-    configuration::WORKER_RESTART_DELAY,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
@@ -13,15 +11,14 @@ use crate::{
         GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
-    utils::worker::WorkerCore,
+    worker::{metrics::WorkerMetrics, WorkerCore},
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use tracing::{info_span, instrument, Instrument};
-use xmtp_api::test_utils::ApiClient;
+use tracing::instrument;
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -51,7 +48,7 @@ pub struct SyncWorker<ApiClient, Db> {
     stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
     init: OnceCell<()>,
 
-    handle: Arc<WorkerHandle<SyncMetric>>,
+    handle: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 #[async_trait::async_trait]
@@ -115,7 +112,7 @@ where
             client,
             stream,
             init: OnceCell::new(),
-            handle: Arc::new(WorkerHandle::new()),
+            handle: Arc::new(WorkerMetrics::new()),
         }
     }
 }
@@ -125,7 +122,7 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub(super) fn handle(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+    pub(super) fn handle(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         &self.handle
     }
 
@@ -238,7 +235,7 @@ where
 {
     async fn process_new_sync_group_messages(
         &self,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
         <Db as xmtp_db::XmtpDb>::Connection: 'static,
@@ -271,7 +268,7 @@ where
 
     async fn process_message(
         &self,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
         msg: &StoredGroupMessage,
         content: ContentProto,
     ) -> Result<(), DeviceSyncError>
@@ -371,7 +368,7 @@ where
         &self,
         request: Option<DeviceSyncRequestProto>,
         acknowledge: F,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
         F: Fn() -> Fut,
@@ -583,5 +580,33 @@ where
         insert_importer(&mut importer, &self.context).await?;
 
         Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub enum SyncMetric {
+    Init,
+    SyncGroupCreated,
+    SyncGroupWelcomesProcessed,
+    RequestReceived,
+    PayloadSent,
+    PayloadProcessed,
+    HmacSent,
+    HmacReceived,
+    ConsentSent,
+    ConsentReceived,
+
+    V1ConsentSent,
+    V1HmacSent,
+    V1PayloadSent,
+    V1PayloadProcessed,
+    V1ConsentReceived,
+    V1HmacReceived,
+    V1RequestSent,
+}
+
+impl WorkerMetrics<SyncMetric> {
+    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
+        self.wait(SyncMetric::SyncGroupCreated, 1).await
     }
 }

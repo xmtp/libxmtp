@@ -1,9 +1,9 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
-use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::subscriptions::SyncWorkerEvent;
+use crate::worker::metrics::WorkerMetrics;
 use crate::{subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -108,7 +108,7 @@ where
     pub(super) async fn v1_reply_to_sync_request(
         &self,
         request: DeviceSyncRequestProto,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let records = match request.kind() {
             BackupElementSelection::Consent => vec![self.v1_syncable_consent_records()?],
@@ -595,7 +595,7 @@ mod tests {
     use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 
     use crate::{
-        groups::device_sync::handle::SyncMetric,
+        groups::device_sync::worker::SyncMetric,
         tester,
         utils::{LocalTesterBuilder, Tester},
     };

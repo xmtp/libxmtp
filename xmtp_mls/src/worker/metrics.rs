@@ -14,7 +14,7 @@ use std::{
 use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 
-pub struct WorkerHandle<Metric>
+pub struct WorkerMetrics<Metric>
 where
     Metric: PartialEq + Hash,
 {
@@ -22,33 +22,11 @@ where
     notify: Notify,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum SyncMetric {
-    Init,
-    SyncGroupCreated,
-    SyncGroupWelcomesProcessed,
-    RequestReceived,
-    PayloadSent,
-    PayloadProcessed,
-    HmacSent,
-    HmacReceived,
-    ConsentSent,
-    ConsentReceived,
-
-    V1ConsentSent,
-    V1HmacSent,
-    V1PayloadSent,
-    V1PayloadProcessed,
-    V1ConsentReceived,
-    V1HmacReceived,
-    V1RequestSent,
-}
-
-impl<Metric> WorkerHandle<Metric>
+impl<Metric> WorkerMetrics<Metric>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
 {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             metrics: Mutex::default(),
             notify: Notify::new(),
@@ -136,7 +114,7 @@ pub trait WorkHandleCollection<Metric> {
 }
 
 #[async_trait::async_trait(?Send)]
-impl<Metric> WorkHandleCollection<Metric> for Vec<&WorkerHandle<Metric>>
+impl<Metric> WorkHandleCollection<Metric> for Vec<&WorkerMetrics<Metric>>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy,
 {
@@ -151,11 +129,5 @@ where
                 self.iter().map(|h| h.notify.notified()).collect();
             notify.next().await;
         }
-    }
-}
-
-impl WorkerHandle<SyncMetric> {
-    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::SyncGroupCreated, 1).await
     }
 }

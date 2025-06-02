@@ -4,17 +4,16 @@ use crate::{
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
-    utils::worker::NeedsDbReconnect,
+    worker::{metrics::WorkerMetrics, NeedsDbReconnect},
     Client,
 };
 use futures::future::join_all;
-use handle::{SyncMetric, WorkerHandle};
 use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
-use worker::SyncWorker;
+use worker::{SyncMetric, SyncWorker};
 use xmtp_archive::ArchiveError;
 use xmtp_common::{types::InstallationId, RetryableError};
 use xmtp_content_types::encoded_content_to_bytes;
@@ -39,7 +38,6 @@ use xmtp_proto::{
 };
 
 pub mod archive;
-pub mod handle;
 pub mod preference_sync;
 pub mod worker;
 
@@ -172,7 +170,7 @@ impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
         }
     }
 
-    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
+    pub fn worker_handle(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.context.device_sync.worker_handle.lock().clone()
     }
 }

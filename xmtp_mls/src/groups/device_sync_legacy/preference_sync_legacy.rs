@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::client::ClientError;
 use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
-use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
+use crate::groups::device_sync::worker::SyncMetric;
 use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;
 use serde::{Deserialize, Serialize};
@@ -186,10 +186,7 @@ impl TryFrom<NewUserPreferenceUpdateProto> for LegacyUserPreferenceUpdate {
 mod tests {
 
     use crate::{
-        groups::{
-            device_sync::handle::SyncMetric,
-            device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate,
-        },
+        groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate,
         utils::{LocalTesterBuilder, Tester},
     };
     use serde::{Deserialize, Serialize};

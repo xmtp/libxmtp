@@ -9,7 +9,6 @@ pub mod test;
 pub use self::test::*;
 
 pub mod events;
-pub mod worker;
 
 pub mod hash {
     pub use xmtp_cryptography::hash::sha256_bytes as sha256;

@@ -76,7 +76,7 @@ where
 pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
     provider: impl MlsProviderExt,
-    handle: &WorkerHandle<SyncMetric>,
+    handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];
     for update in updates.into_iter().filter_map(|u| u.update) {
@@ -149,7 +149,7 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 mod tests {
     use crate::{
         context::XmtpContextProvider,
-        groups::device_sync::handle::SyncMetric,
+        groups::device_sync::worker::SyncMetric,
         utils::{LocalTesterBuilder, Tester},
     };
     use xmtp_db::user_preferences::StoredUserPreferences;

@@ -1,6 +1,9 @@
 use crate::{configuration::WORKER_RESTART_DELAY, groups::device_sync::DeviceSyncError};
-use std::fmt::Debug;
+use metrics::WorkerMetrics;
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 use thiserror::Error;
+
+pub mod metrics;
 
 #[derive(Error, Debug)]
 pub enum WorkerError {
@@ -8,14 +11,23 @@ pub enum WorkerError {
     DeviceSync(#[from] DeviceSyncError),
 }
 
-pub struct Worker<Ctx, Core> {
-    ctx: Ctx,
-    core: Core,
+pub enum WorkerKind {
+    DeviceSync,
+    MessageDeletion,
 }
 
-impl<Ctx, Core> Worker<Ctx, Core>
+pub struct Worker<Core, Metric>
+where
+    Metric: PartialEq + Hash,
+{
+    core: Core,
+    metrics: Arc<WorkerMetrics<Metric>>,
+}
+
+impl<Core, Metric> Worker<Core, Metric>
 where
     Core: WorkerCore + 'static,
+    Metric: PartialEq + Hash,
 {
     pub fn spawn(mut self) {
         xmtp_common::spawn(None, async move {
