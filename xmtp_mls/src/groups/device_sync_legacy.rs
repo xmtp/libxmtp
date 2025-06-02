@@ -1,6 +1,7 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
 use super::device_sync::preference_sync::PreferenceUpdate;
+use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;

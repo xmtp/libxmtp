@@ -45,7 +45,7 @@ where
             }))
             .await?;
 
-        if let Some(handle) = self.context.device_sync.worker_handle() {
+        if let Some(handle) = self.context.worker_metrics() {
             updates.iter().for_each(|update| match update {
                 PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::ConsentSent),
                 PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),

@@ -1,7 +1,16 @@
-use crate::{configuration::WORKER_RESTART_DELAY, groups::device_sync::DeviceSyncError};
+use crate::{
+    configuration::WORKER_RESTART_DELAY,
+    context::XmtpMlsLocalContext,
+    groups::device_sync::{
+        worker::{SyncMetric, SyncWorker},
+        DeviceSyncError,
+    },
+};
 use metrics::WorkerMetrics;
-use std::{fmt::Debug, hash::Hash, sync::Arc};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 use thiserror::Error;
+use xmtp_api::XmtpApi;
+use xmtp_db::XmtpDb;
 
 pub mod metrics;
 
@@ -11,28 +20,36 @@ pub enum WorkerError {
     DeviceSync(#[from] DeviceSyncError),
 }
 
+#[derive(PartialEq, Eq, Hash)]
 pub enum WorkerKind {
     DeviceSync,
-    MessageDeletion,
 }
 
-pub struct Worker<Core, Metric>
+pub enum WorkerRunners<ApiClient, Db> {
+    DeviceSync(WorkerRunner<SyncWorker<ApiClient, Db>, SyncMetric>),
+}
+
+pub struct WorkerRunner<Core, Metric> {
+    pub metrics: Arc<WorkerMetrics<Metric>>,
+    pub core: Core,
+}
+
+impl<Core, Metric> WorkerRunner<Core, Metric>
 where
     Metric: PartialEq + Hash,
 {
-    core: Core,
-    metrics: Arc<WorkerMetrics<Metric>>,
-}
+    fn spawn<ApiClient, Db, F>(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>, core_provider: F)
+    where
+        ApiClient: XmtpApi + Send + Sync + 'static,
+        Db: XmtpDb + Send + Sync + 'static,
+        Core: Worker<ApiClient, Db> + 'static,
+        F: Fn(&Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Core + Send + 'static,
+    {
+        let mut core = core_provider(context);
 
-impl<Core, Metric> Worker<Core, Metric>
-where
-    Core: WorkerCore + 'static,
-    Metric: PartialEq + Hash,
-{
-    pub fn spawn(mut self) {
         xmtp_common::spawn(None, async move {
             loop {
-                if let Err(err) = self.core.run().await {
+                if let Err(err) = core.run_tasks().await {
                     if err.needs_db_reconnect() {
                         tracing::warn!("Pool disconnected. task will restart on reconnect");
                         break;
@@ -48,14 +65,17 @@ where
 }
 
 #[async_trait::async_trait]
-pub trait WorkerCore
+pub trait Worker<ApiClient, Db>
 where
     Self: Send,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
-    const NAME: &str;
     type Error: NeedsDbReconnect + Debug + Send;
 
-    async fn run(&mut self) -> Result<(), Self::Error>;
+    fn init(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self;
+
+    async fn run_tasks(&mut self) -> Result<(), Self::Error>;
 }
 
 pub trait NeedsDbReconnect {

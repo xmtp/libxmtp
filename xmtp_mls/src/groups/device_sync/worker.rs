@@ -11,7 +11,7 @@ use crate::{
         GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
-    worker::{metrics::WorkerMetrics, WorkerCore},
+    worker::{metrics::WorkerMetrics, Worker},
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
@@ -52,15 +52,27 @@ pub struct SyncWorker<ApiClient, Db> {
 }
 
 #[async_trait::async_trait]
-impl<ApiClient, Db> WorkerCore for SyncWorker<ApiClient, Db>
+impl<ApiClient, Db> Worker<ApiClient, Db> for SyncWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Self: Send,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
-    const NAME: &str = "Device Sync";
     type Error = DeviceSyncError;
 
-    async fn run(&mut self) -> Result<(), Self::Error> {
+    fn init(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        let receiver = context.local_events.subscribe();
+        let stream = Box::pin(receiver.stream_sync_messages());
+        let client = DeviceSyncClient::new(context.clone());
+        Self {
+            client,
+            stream,
+            init: OnceCell::new(),
+            handle: Arc::new(WorkerMetrics::new()),
+        }
+    }
+
+    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
         // Wait for the identity to be ready & verified before doing anything
         while !self.client.context.identity().is_ready() {
             xmtp_common::yield_().await
@@ -96,24 +108,6 @@ where
             };
         }
         Ok(())
-    }
-}
-
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
-{
-    pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let receiver = context.local_events.subscribe();
-        let stream = Box::pin(receiver.stream_sync_messages());
-        let client = DeviceSyncClient::new(context.clone());
-        Self {
-            client,
-            stream,
-            init: OnceCell::new(),
-            handle: Arc::new(WorkerMetrics::new()),
-        }
     }
 }
 

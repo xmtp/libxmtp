@@ -133,7 +133,7 @@ where
     Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
     #[instrument(level = "trace", skip_all)]
-    pub fn start_sync_worker(&self) {
+    pub fn startt_sync_worker(&self) {
         if !self.device_sync_worker_enabled() {
             tracing::info!("Sync worker is disabled.");
             return;

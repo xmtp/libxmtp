@@ -136,7 +136,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.context.device_sync.worker_handle();
+        let worker = client.context.worker_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();

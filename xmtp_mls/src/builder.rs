@@ -184,15 +184,15 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             store,
             api_client,
             version_info,
-            device_sync: DeviceSync {
-                server_url: device_sync_server_url,
-                mode: device_sync_worker_mode,
-                worker_handle: Arc::new(parking_lot::Mutex::default()),
-            },
             scw_verifier,
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: tx.clone(),
+            device_sync: DeviceSync {
+                server_url: device_sync_server_url,
+                mode: device_sync_worker_mode,
+            },
+            workers: Arc::new(parking_lot::Mutex::default()),
         });
 
         let client = Client {

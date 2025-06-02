@@ -14,10 +14,8 @@ use std::{
 use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 
-pub struct WorkerMetrics<Metric>
-where
-    Metric: PartialEq + Hash,
-{
+#[derive(Debug)]
+pub struct WorkerMetrics<Metric> {
     metrics: Mutex<HashMap<Metric, Arc<AtomicUsize>>>,
     notify: Notify,
 }

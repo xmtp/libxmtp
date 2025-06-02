@@ -17,7 +17,7 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    worker::metrics::WorkerMetrics,
+    worker::{metrics::WorkerMetrics, WorkerKind, WorkerRunners},
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
@@ -186,13 +186,6 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
     pub(crate) mode: SyncWorkerMode,
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerMetrics<SyncMetric>>>>>,
-}
-
-impl DeviceSync {
-    pub fn worker_handle(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.worker_handle.lock().as_ref().cloned()
-    }
 }
 
 // most of these things are `Arc`'s
@@ -225,15 +218,6 @@ where
 
     pub fn mls_store(&self) -> MlsStore<ApiClient, Db> {
         MlsStore::new(self.context.clone())
-    }
-
-    pub fn worker_handle(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.context
-            .device_sync
-            .worker_handle
-            .lock()
-            .as_ref()
-            .cloned()
     }
 
     pub fn api_stats(&self) -> ApiStats {
