@@ -244,7 +244,7 @@ where
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
 
-        for (_kind, manager) in &*self.context.workers.lock() {
+        for manager in self.context.workers.lock().values() {
             manager.spawn();
         }
 

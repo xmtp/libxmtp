@@ -20,6 +20,15 @@ pub struct WorkerMetrics<Metric> {
     notify: Notify,
 }
 
+impl<Metric> Default for WorkerMetrics<Metric>
+where
+    Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Metric> WorkerMetrics<Metric>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
