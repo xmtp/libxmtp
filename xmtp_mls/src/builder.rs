@@ -9,8 +9,7 @@ use crate::{
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
     groups::{
-        device_sync::worker::{SyncMetric, SyncWorker},
-        disappearing_messages::DisappearingMessagesWorker,
+        device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
     },
     identity::{Identity, IdentityStrategy},
@@ -208,10 +207,28 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
         // register workers
         if client.device_sync_worker_enabled() {
-            WorkerRunner::<SyncWorker<ApiClient, Db>, SyncMetric>::register_new_worker(&client);
+            WorkerRunner::register_new_worker(
+                &client.context,
+                Box::new({
+                    let context = client.context.clone();
+                    move || SyncWorker::new(&context)
+                }),
+            );
         }
-        WorkerRunner::<DisappearingMessagesWorker<ApiClient, Db>>::register_new_worker(&client);
-        WorkerRunner::<KeyPackagesCleanerWorker<ApiClient, Db>>::register_new_worker(&client);
+        WorkerRunner::register_new_worker(
+            &client.context,
+            Box::new({
+                let client = client.clone();
+                move || KeyPackagesCleanerWorker::new(client.clone())
+            }),
+        );
+        WorkerRunner::register_new_worker(
+            &client.context,
+            Box::new({
+                let client = client.clone();
+                move || DisappearingMessagesWorker::new(client.clone())
+            }),
+        );
 
         Events::track(provider.db(), None, Event::ClientBuild, ());
 
