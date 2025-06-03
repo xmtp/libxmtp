@@ -4,7 +4,6 @@ use crate::{
     groups::{
         device_sync::{
             preference_sync::{PreferenceSyncService, PreferenceUpdate},
-            worker::SyncMetric,
             DeviceSyncClient,
         },
         group_permissions::PolicySet,
@@ -17,7 +16,6 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    worker::{metrics::WorkerMetrics, WorkerKind, WorkerRunners},
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;

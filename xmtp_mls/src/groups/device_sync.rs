@@ -170,8 +170,8 @@ impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
         }
     }
 
-    pub fn worker_handle(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.context.device_sync.worker_handle.lock().clone()
+    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.context.worker_metrics()
     }
 }
 
@@ -194,7 +194,7 @@ where
 
     /// Blocks until the sync worker notifies that it is initialized and running.
     pub async fn wait_for_sync_worker_init(&self) {
-        if let Some(handle) = self.worker_handle() {
+        if let Some(handle) = self.worker_metrics() {
             let _ = handle.wait_for_init().await;
         }
     }
@@ -264,7 +264,7 @@ where
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
-                if let Some(handle) = self.worker_handle() {
+                if let Some(handle) = self.worker_metrics() {
                     handle.increment_metric(SyncMetric::SyncGroupCreated);
                 }
                 sync_group

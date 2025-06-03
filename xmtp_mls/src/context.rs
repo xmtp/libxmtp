@@ -4,13 +4,13 @@ use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::LocalEvents;
 use crate::utils::VersionInfo;
 use crate::worker::metrics::WorkerMetrics;
-use crate::worker::{Worker, WorkerKind, WorkerRunner, WorkerRunners};
+use crate::worker::{WorkerKind, WorkerManager};
 use crate::GroupCommitLock;
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
@@ -161,7 +161,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
-    pub(crate) workers: Arc<parking_lot::Mutex<HashMap<WorkerKind, WorkerRunners<ApiClient, Db>>>>,
+    pub(crate) workers: Arc<parking_lot::Mutex<HashMap<WorkerKind, Box<dyn WorkerManager>>>>,
     pub(crate) device_sync: DeviceSync,
 }
 
@@ -243,14 +243,9 @@ impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db> {
     }
 
     pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        let lock = self.workers.lock();
-        let worker = lock.get(&WorkerKind::DeviceSync)?;
-
-        #[allow(irrefutable_let_patterns)] // TODO: remove
-        let WorkerRunners::DeviceSync(runner) = worker
-        else {
-            return None;
-        };
-        Some(runner.metrics.clone())
+        self.workers
+            .lock()
+            .get(&WorkerKind::DeviceSync)?
+            .sync_metrics()
     }
 }

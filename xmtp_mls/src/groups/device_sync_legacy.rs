@@ -268,7 +268,7 @@ where
             Box::pin(group.sync_with_conn()).await?;
         }
 
-        if let Some(handle) = self.worker_handle() {
+        if let Some(handle) = self.worker_metrics() {
             handle.increment_metric(SyncMetric::V1PayloadProcessed);
         }
 
