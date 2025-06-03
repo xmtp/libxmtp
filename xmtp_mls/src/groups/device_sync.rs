@@ -5,7 +5,6 @@ use crate::{
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
-    Client,
 };
 use futures::future::join_all;
 use preference_sync::PreferenceSyncService;

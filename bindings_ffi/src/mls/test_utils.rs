@@ -48,7 +48,7 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
         client.register_identity(signature_request).await?;
 
         let provider = client.inner_client.mls_provider();
-        let worker = client.inner_client.worker_metrics();
+        let worker = client.inner_client.context.worker_metrics();
 
         if let Some(worker) = &worker {
             if self.wait_for_init {
@@ -102,7 +102,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         client.register_identity(signature_request).await?;
 
         let provider = client.inner_client.mls_provider();
-        let worker = client.inner_client.worker_metrics();
+        let worker = client.inner_client.context.worker_metrics();
 
         if let Some(worker) = &worker {
             if self.wait_for_init {
