@@ -518,7 +518,7 @@ where
 
     pub async fn create_group_with_inbox_ids(
         &self,
-        inbox_ids: &[InboxId],
+        inbox_ids: &[impl AsIdRef],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
