@@ -20,22 +20,22 @@ pub(crate) trait WorkerManager: Send + Sync {
     fn spawn(&self) -> WorkerKind;
 }
 
-impl<Core> WorkerManager for WorkerRunner<Core>
+impl<W> WorkerManager for WorkerRunner<W>
 where
-    Core: Worker + Send + Sync + 'static,
+    W: Worker + Send + Sync + 'static,
 {
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.metrics.lock().clone().and_then(|m| m.downcast().ok())
     }
 
     fn spawn(&self) -> WorkerKind {
-        let mut core = (self.create_fn)();
-        *self.metrics.lock() = core.metrics().map(|a| a as Arc<_>);
-        let kind = core.kind();
+        let mut worker = (self.create_fn)();
+        *self.metrics.lock() = worker.metrics().map(|a| a as Arc<_>);
+        let kind = worker.kind();
 
         xmtp_common::spawn(None, async move {
             loop {
-                if let Err(err) = core.run_tasks().await {
+                if let Err(err) = worker.run_tasks().await {
                     if err.needs_db_reconnect() {
                         tracing::warn!("Pool disconnected. task will restart on reconnect");
                         break;
@@ -52,19 +52,19 @@ where
     }
 }
 
-pub struct WorkerRunner<Core> {
+pub struct WorkerRunner<W> {
     pub metrics: Arc<Mutex<Option<Arc<dyn Any + Send + Sync>>>>,
-    create_fn: Box<dyn Fn() -> Core + Send + Sync>,
-    _core: PhantomData<Core>,
+    create_fn: Box<dyn Fn() -> W + Send + Sync>,
+    _worker: PhantomData<W>,
 }
 
-impl<Core> WorkerRunner<Core> {
+impl<W> WorkerRunner<W> {
     pub fn register_new_worker<ApiClient, Db, F>(
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         create_fn: F,
     ) where
-        F: Fn() -> Core + Send + Sync + 'static,
-        Core: Worker + 'static,
+        F: Fn() -> W + Send + Sync + 'static,
+        W: Worker + 'static,
     {
         let create_fn = Box::new(create_fn);
 
@@ -72,7 +72,7 @@ impl<Core> WorkerRunner<Core> {
         let runner = Box::new(WorkerRunner {
             metrics: metrics.clone(),
             create_fn,
-            _core: PhantomData::<Core>,
+            _worker: PhantomData::<W>,
         });
 
         let kind = runner.spawn();
