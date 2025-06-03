@@ -22,6 +22,7 @@ pub enum WorkerError {
 pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
+    KeyPackageCleaner,
 }
 
 pub(crate) trait WorkerManager: Send + Sync {

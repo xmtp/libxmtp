@@ -108,6 +108,7 @@ where
 pub trait WorkHandleCollection<Metric> {
     /// Blocks until a metrics specified count is met in at least one handle.
     /// Useful when testing several clients, and you need at least one of them to do a job.
+    #[allow(unused)]
     async fn wait_one(&self, metric: Metric, count: usize);
 }
 

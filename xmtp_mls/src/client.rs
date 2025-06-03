@@ -244,13 +244,9 @@ where
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
 
-        for (kind, manager) in &*self.context.workers.lock() {
+        for (_kind, manager) in &*self.context.workers.lock() {
             manager.spawn();
         }
-
-        // self.start_sync_worker();
-        // self.start_disappearing_messages_cleaner_worker();
-        // self.start_key_packages_cleaner_worker();
 
         Ok(())
     }

@@ -11,6 +11,7 @@ use crate::{
     groups::{
         device_sync::worker::{SyncMetric, SyncWorker},
         disappearing_messages::DisappearingMessagesWorker,
+        key_package_cleaner_worker::KeyPackagesCleanerWorker,
     },
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
@@ -210,8 +211,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             WorkerRunner::<SyncWorker<ApiClient, Db>, SyncMetric>::register_new_worker(&client);
         }
         WorkerRunner::<DisappearingMessagesWorker<ApiClient, Db>>::register_new_worker(&client);
+        WorkerRunner::<KeyPackagesCleanerWorker<ApiClient, Db>>::register_new_worker(&client);
 
-        client.start_key_packages_cleaner_worker();
         Events::track(provider.db(), None, Event::ClientBuild, ());
 
         Ok(client)

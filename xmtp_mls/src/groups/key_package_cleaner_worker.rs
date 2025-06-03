@@ -1,13 +1,12 @@
-use crate::client::ClientError;
-use crate::configuration::WORKER_RESTART_DELAY;
 use crate::identity::IdentityError;
+use crate::worker::{Worker, WorkerKind};
 use crate::Client;
+use crate::{client::ClientError, worker::NeedsDbReconnect};
 use futures::StreamExt;
 use openmls_traits::storage::StorageProvider;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use tracing::instrument;
 use xmtp_db::{MlsProviderExt, StorageError, XmtpDb};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
@@ -22,8 +21,8 @@ pub enum KeyPackagesCleanerError {
     Client(#[from] ClientError),
 }
 
-impl KeyPackagesCleanerError {
-    fn db_needs_connection(&self) -> bool {
+impl NeedsDbReconnect for KeyPackagesCleanerError {
+    fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Client(s) => s.db_needs_connection(),
@@ -31,22 +30,30 @@ impl KeyPackagesCleanerError {
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+#[async_trait::async_trait]
+impl<ApiClient, Db> Worker<ApiClient, Db> for KeyPackagesCleanerWorker<ApiClient, Db>
 where
+    Self: Send + Sync,
     ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + 'static,
+    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
-    #[instrument(level = "trace", skip_all)]
-    pub fn start_key_packages_cleaner_worker(&self) {
-        let client = self.clone();
-        tracing::trace!(
-            inbox_id = client.inbox_id(),
-            installation_id = hex::encode(client.installation_public_key()),
-            "starting key package cleaner worker"
-        );
+    type Error = KeyPackagesCleanerError;
 
-        let worker = KeyPackagesCleanerWorker::new(client);
-        worker.spawn_worker();
+    fn kind() -> WorkerKind {
+        WorkerKind::KeyPackageCleaner
+    }
+
+    fn init(client: &Client<ApiClient, Db>) -> Self {
+        KeyPackagesCleanerWorker::new(client.clone())
+    }
+
+    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
+        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        while (intervals.next().await).is_some() {
+            self.delete_expired_key_packages().await?;
+            self.rotate_last_key_package_if_needed().await?;
+        }
+        Ok(())
     }
 }
 
@@ -66,27 +73,6 @@ where
             client,
             init: OnceCell::new(),
         }
-    }
-    pub(crate) fn spawn_worker(mut self) {
-        xmtp_common::spawn(None, async move {
-            let inbox_id = self.client.inbox_id().to_string();
-            let installation_id = hex::encode(self.client.installation_public_key());
-            while let Err(err) = self.run().await {
-                tracing::info!("Running worker..");
-                if err.db_needs_connection() {
-                    tracing::warn!(
-                        inbox_id,
-                        installation_id,
-                        "Pool disconnected. task will restart on reconnect"
-                    );
-                    break;
-                } else {
-                    tracing::error!(inbox_id, installation_id, "sync worker error {err}");
-                    // Wait 2 seconds before restarting.
-                    xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                }
-            }
-        });
     }
 }
 
@@ -151,15 +137,6 @@ where
             return Ok(());
         }
 
-        Ok(())
-    }
-
-    async fn run(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
-        while (intervals.next().await).is_some() {
-            self.delete_expired_key_packages().await?;
-            self.rotate_last_key_package_if_needed().await?;
-        }
         Ok(())
     }
 }

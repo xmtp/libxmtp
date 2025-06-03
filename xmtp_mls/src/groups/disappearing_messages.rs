@@ -1,4 +1,4 @@
-use crate::worker::{NeedsDbReconnect, NoMetric, Worker};
+use crate::worker::{NeedsDbReconnect, Worker};
 use crate::Client;
 use crate::{client::ClientError, worker::WorkerKind};
 use futures::StreamExt;
@@ -35,7 +35,7 @@ pub struct DisappearingMessagesWorker<ApiClient, Db> {
 }
 
 #[async_trait::async_trait]
-impl<ApiClient, Db> Worker<ApiClient, Db, NoMetric> for DisappearingMessagesWorker<ApiClient, Db>
+impl<ApiClient, Db> Worker<ApiClient, Db> for DisappearingMessagesWorker<ApiClient, Db>
 where
     Self: Send + Sync,
     ApiClient: XmtpApi + Send + Sync + 'static,
