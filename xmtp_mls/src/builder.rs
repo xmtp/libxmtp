@@ -8,10 +8,12 @@ use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
 use crate::{
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
+    groups::device_sync::worker::{SyncMetric, SyncWorker},
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     utils::VersionInfo,
+    worker::{metrics::WorkerMetrics, WorkerRunner},
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
@@ -201,7 +203,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         };
 
         // start workers
-        client.start_sync_worker();
+        if client.device_sync_worker_enabled() {
+            WorkerRunner::<SyncWorker<ApiClient, Db>>::register_new_worker(&client.context);
+        }
+
         client.start_disappearing_messages_cleaner_worker();
         client.start_key_packages_cleaner_worker();
         Events::track(provider.db(), None, Event::ClientBuild, ());

@@ -11,7 +11,7 @@ use crate::{
         GroupError,
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
-    worker::{metrics::WorkerMetrics, Worker},
+    worker::{metrics::WorkerMetrics, Worker, WorkerKind},
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
@@ -48,11 +48,11 @@ pub struct SyncWorker<ApiClient, Db> {
     stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
     init: OnceCell<()>,
 
-    handle: Arc<WorkerMetrics<SyncMetric>>,
+    metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 #[async_trait::async_trait]
-impl<ApiClient, Db> Worker<ApiClient, Db> for SyncWorker<ApiClient, Db>
+impl<ApiClient, Db> Worker<ApiClient, Db, SyncMetric> for SyncWorker<ApiClient, Db>
 where
     Self: Send,
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -60,7 +60,15 @@ where
 {
     type Error = DeviceSyncError;
 
-    fn init(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    fn kind() -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+
+    fn metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        Some(self.metrics.clone())
+    }
+
+    fn init(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         let receiver = context.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
         let client = DeviceSyncClient::new(context.clone());
@@ -68,7 +76,7 @@ where
             client,
             stream,
             init: OnceCell::new(),
-            handle: Arc::new(WorkerMetrics::new()),
+            metrics: Arc::new(WorkerMetrics::new()),
         }
     }
 
@@ -78,7 +86,7 @@ where
             xmtp_common::yield_().await
         }
         self.sync_init().await?;
-        self.handle.increment_metric(SyncMetric::Init);
+        self.metrics.increment_metric(SyncMetric::Init);
 
         while let Some(event) = self.stream.next().await {
             let event = event?;
@@ -116,10 +124,6 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub(super) fn handle(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
-        &self.handle
-    }
-
     //// Ideally called when the client is registered.
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
@@ -168,7 +172,7 @@ where
         // We need to add that installation to the groups.
         self.client.add_new_installation_to_groups().await?;
 
-        self.handle
+        self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
         // Cycle the HMAC
@@ -179,7 +183,7 @@ where
 
     async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
         self.client
-            .process_new_sync_group_messages(&self.handle)
+            .process_new_sync_group_messages(&self.metrics)
             .await?;
         Ok(())
     }
@@ -214,7 +218,7 @@ where
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
                 self.client
-                    .v1_reply_to_sync_request(request, &self.handle)
+                    .v1_reply_to_sync_request(request, &self.metrics)
                     .await?;
             }
         }

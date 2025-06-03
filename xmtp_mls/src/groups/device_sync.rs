@@ -13,7 +13,7 @@ use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
-use worker::{SyncMetric, SyncWorker};
+use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
 use xmtp_common::{types::InstallationId, RetryableError};
 use xmtp_content_types::encoded_content_to_bytes;
@@ -132,24 +132,24 @@ where
     ApiClient: XmtpApi + Send + Sync + 'static,
     Db: xmtp_db::XmtpDb + Send + Sync + 'static,
 {
-    #[instrument(level = "trace", skip_all)]
-    pub fn startt_sync_worker(&self) {
-        if !self.device_sync_worker_enabled() {
-            tracing::info!("Sync worker is disabled.");
-            return;
-        }
-        let client = self.clone();
+    //#[instrument(level = "trace", skip_all)]
+    //pub fn startt_sync_worker(&self) {
+    //    if !self.device_sync_worker_enabled() {
+    //        tracing::info!("Sync worker is disabled.");
+    //        return;
+    //    }
+    //    let client = self.clone();
 
-        tracing::debug!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = hex::encode(self.context.installation_public_key()),
-            "starting sync worker"
-        );
+    //    tracing::debug!(
+    //        inbox_id = self.context.inbox_id(),
+    //        installation_id = hex::encode(self.context.installation_public_key()),
+    //        "starting sync worker"
+    //    );
 
-        let worker = SyncWorker::new(client.context.clone());
-        *self.context.device_sync.worker_handle.lock() = Some(worker.handle().clone());
-        worker.spawn();
-    }
+    //    let worker = SyncWorker::new(client.context.clone());
+    //    *self.context.worker_metrics().lock() = Some(worker.handle().clone());
+    //    worker.spawn();
+    //}
 }
 
 #[derive(Clone)]

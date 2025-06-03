@@ -243,14 +243,14 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
-        // restart all the workers
-        // TODO: The only worker we have right now are the
-        // sync workers. if we have other workers we
-        // should create a better way to track them.
 
-        self.start_sync_worker();
-        self.start_disappearing_messages_cleaner_worker();
-        self.start_key_packages_cleaner_worker();
+        for (kind, manager) in &*self.context.workers.lock() {
+            manager.spawn();
+        }
+
+        // self.start_sync_worker();
+        // self.start_disappearing_messages_cleaner_worker();
+        // self.start_key_packages_cleaner_worker();
 
         Ok(())
     }
