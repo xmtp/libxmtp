@@ -6,6 +6,7 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+mod identity_lock;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network

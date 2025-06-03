@@ -1,4 +1,5 @@
 //! Group Generation
+use crate::app::identity_lock::get_identity_lock;
 use crate::app::{
     store::{Database, GroupStore, IdentityStore, RandomDatabase},
     types::*,
@@ -61,6 +62,9 @@ impl GenerateGroups {
             let semaphore = semaphore.clone();
             handles.push(set.spawn(async move {
                 let _permit = semaphore.acquire().await?;
+                let identity_lock = get_identity_lock(&identity.inbox_id)?;
+                let _lock_guard = identity_lock.lock().await;
+
                 debug!(address = identity.address(), "group owner");
                 let client = app::client_from_identity(&identity, &network).await?;
                 let ids = invitees
