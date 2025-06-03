@@ -14,41 +14,26 @@ use std::{
 use tokio::sync::Notify;
 use tokio_stream::StreamExt;
 
-pub struct WorkerHandle<Metric>
-where
-    Metric: PartialEq + Hash,
-{
+#[derive(Debug)]
+pub struct WorkerMetrics<Metric> {
     metrics: Mutex<HashMap<Metric, Arc<AtomicUsize>>>,
     notify: Notify,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
-pub enum SyncMetric {
-    Init,
-    SyncGroupCreated,
-    SyncGroupWelcomesProcessed,
-    RequestReceived,
-    PayloadSent,
-    PayloadProcessed,
-    HmacSent,
-    HmacReceived,
-    ConsentSent,
-    ConsentReceived,
-
-    V1ConsentSent,
-    V1HmacSent,
-    V1PayloadSent,
-    V1PayloadProcessed,
-    V1ConsentReceived,
-    V1HmacReceived,
-    V1RequestSent,
-}
-
-impl<Metric> WorkerHandle<Metric>
+impl<Metric> Default for WorkerMetrics<Metric>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
 {
-    pub(super) fn new() -> Self {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Metric> WorkerMetrics<Metric>
+where
+    Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
+{
+    pub fn new() -> Self {
         Self {
             metrics: Mutex::default(),
             notify: Notify::new(),
@@ -132,11 +117,12 @@ where
 pub trait WorkHandleCollection<Metric> {
     /// Blocks until a metrics specified count is met in at least one handle.
     /// Useful when testing several clients, and you need at least one of them to do a job.
+    #[allow(unused)]
     async fn wait_one(&self, metric: Metric, count: usize);
 }
 
 #[async_trait::async_trait(?Send)]
-impl<Metric> WorkHandleCollection<Metric> for Vec<&WorkerHandle<Metric>>
+impl<Metric> WorkHandleCollection<Metric> for Vec<&WorkerMetrics<Metric>>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy,
 {
@@ -151,11 +137,5 @@ where
                 self.iter().map(|h| h.notify.notified()).collect();
             notify.next().await;
         }
-    }
-}
-
-impl WorkerHandle<SyncMetric> {
-    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::SyncGroupCreated, 1).await
     }
 }

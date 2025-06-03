@@ -5,8 +5,9 @@ use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     configuration::DeviceSyncUrls,
-    groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
+    worker::metrics::WorkerMetrics,
     Client,
 };
 use alloy::signers::local::PrivateKeySigner;
@@ -47,7 +48,7 @@ where
     pub builder: TesterBuilder<Owner>,
     pub client: Arc<Client>,
     pub provider: Arc<XmtpOpenMlsProvider>,
-    pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
@@ -135,7 +136,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.context.device_sync.worker_handle();
+        let worker = client.context.worker_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
@@ -188,7 +189,7 @@ where
     pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
         TesterBuilder::new().owner(owner)
     }
-    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+    pub fn worker(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         self.worker.as_ref().unwrap()
     }
 }

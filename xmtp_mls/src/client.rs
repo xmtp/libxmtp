@@ -3,7 +3,6 @@ use crate::{
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{
-            handle::{SyncMetric, WorkerHandle},
             preference_sync::{PreferenceSyncService, PreferenceUpdate},
             DeviceSyncClient,
         },
@@ -185,13 +184,6 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
     pub(crate) mode: SyncWorkerMode,
-    pub(crate) worker_handle: Arc<parking_lot::Mutex<Option<Arc<WorkerHandle<SyncMetric>>>>>,
-}
-
-impl DeviceSync {
-    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
-        self.worker_handle.lock().as_ref().cloned()
-    }
 }
 
 // most of these things are `Arc`'s
@@ -226,15 +218,6 @@ where
         MlsStore::new(self.context.clone())
     }
 
-    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
-        self.context
-            .device_sync
-            .worker_handle
-            .lock()
-            .as_ref()
-            .cloned()
-    }
-
     pub fn api_stats(&self) -> ApiStats {
         self.context.api().api_client.stats()
     }
@@ -260,14 +243,10 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
-        // restart all the workers
-        // TODO: The only worker we have right now are the
-        // sync workers. if we have other workers we
-        // should create a better way to track them.
 
-        self.start_sync_worker();
-        self.start_disappearing_messages_cleaner_worker();
-        self.start_key_packages_cleaner_worker();
+        for manager in self.context.workers.lock().values() {
+            manager.spawn();
+        }
 
         Ok(())
     }
@@ -518,7 +497,7 @@ where
 
     pub async fn create_group_with_inbox_ids(
         &self,
-        inbox_ids: &[InboxId],
+        inbox_ids: &[impl AsIdRef],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
