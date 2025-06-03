@@ -64,7 +64,7 @@ where
     pub fn register_new_worker<ApiClient, Db>(client: &Client<ApiClient, Db>)
     where
         ApiClient: XmtpApi + Send + Sync + 'static,
-        Db: XmtpDb + Send + Sync + 'static,
+        Db: XmtpDb + 'static,
         Core: Worker<ApiClient, Db, Metric> + 'static,
     {
         let metrics = Arc::new(Mutex::default());
@@ -90,7 +90,7 @@ where
         client: &Client<ApiClient, Db>,
         metrics: &Arc<Mutex<Option<Arc<WorkerMetrics<Metric>>>>>,
     ) where
-        ApiClient: XmtpApi + Send + Sync + 'static,
+        ApiClient: XmtpApi + 'static,
         Db: XmtpDb + Send + Sync + 'static,
         Core: Worker<ApiClient, Db, Metric> + 'static,
     {
@@ -118,8 +118,8 @@ where
 pub trait Worker<ApiClient, Db, Metric = NoMetric>
 where
     Self: Send + Sync,
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi,
+    Db: xmtp_db::XmtpDb,
     Metric: PartialEq + Hash + Send + Sync + 'static,
 {
     type Error: NeedsDbReconnect + Debug + Send;

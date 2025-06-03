@@ -55,9 +55,8 @@ pub struct SyncWorker<ApiClient, Db> {
 #[async_trait::async_trait]
 impl<ApiClient, Db> Worker<ApiClient, Db, SyncMetric> for SyncWorker<ApiClient, Db>
 where
-    Self: Send,
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
 {
     type Error = DeviceSyncError;
 

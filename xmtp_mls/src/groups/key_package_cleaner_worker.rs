@@ -33,9 +33,8 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
 #[async_trait::async_trait]
 impl<ApiClient, Db> Worker<ApiClient, Db> for KeyPackagesCleanerWorker<ApiClient, Db>
 where
-    Self: Send + Sync,
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
 {
     type Error = KeyPackagesCleanerError;
 
