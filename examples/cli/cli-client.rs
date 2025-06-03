@@ -138,7 +138,6 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    RequestHistorySync {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
@@ -461,12 +460,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 "Group {}",
                 group_id
             );
-        }
-        Commands::RequestHistorySync {} => {
-            client.sync_welcomes().await.unwrap();
-            client.start_sync_worker();
-            client.device_sync().send_sync_request().await.unwrap();
-            info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
             client.sync_welcomes().await?;

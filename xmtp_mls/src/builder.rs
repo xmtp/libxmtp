@@ -8,10 +8,16 @@ use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
 use crate::{
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
+    groups::{
+        device_sync::worker::{SyncMetric, SyncWorker},
+        disappearing_messages::DisappearingMessagesWorker,
+        key_package_cleaner_worker::KeyPackagesCleanerWorker,
+    },
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     utils::VersionInfo,
+    worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
@@ -184,15 +190,15 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             store,
             api_client,
             version_info,
-            device_sync: DeviceSync {
-                server_url: device_sync_server_url,
-                mode: device_sync_worker_mode,
-                worker_handle: Arc::new(parking_lot::Mutex::default()),
-            },
             scw_verifier,
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: tx.clone(),
+            device_sync: DeviceSync {
+                server_url: device_sync_server_url,
+                mode: device_sync_worker_mode,
+            },
+            workers: Arc::new(parking_lot::Mutex::default()),
         });
 
         let client = Client {
@@ -200,10 +206,13 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             local_events: tx,
         };
 
-        // start workers
-        client.start_sync_worker();
-        client.start_disappearing_messages_cleaner_worker();
-        client.start_key_packages_cleaner_worker();
+        // register workers
+        if client.device_sync_worker_enabled() {
+            WorkerRunner::<SyncWorker<ApiClient, Db>, SyncMetric>::register_new_worker(&client);
+        }
+        WorkerRunner::<DisappearingMessagesWorker<ApiClient, Db>>::register_new_worker(&client);
+        WorkerRunner::<KeyPackagesCleanerWorker<ApiClient, Db>>::register_new_worker(&client);
+
         Events::track(provider.db(), None, Event::ClientBuild, ());
 
         Ok(client)
