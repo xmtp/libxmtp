@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     client::ClientError,
-    context::XmtpContextProvider,
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::DeviceSyncContent,
@@ -12,10 +12,9 @@ use crate::{
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, Worker, WorkerKind},
-    Client,
 };
 use futures::{Stream, StreamExt};
-use std::{pin::Pin, sync::Arc};
+use std::{any::Any, pin::Pin, sync::Arc};
 use tokio::sync::OnceCell;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -52,24 +51,12 @@ pub struct SyncWorker<ApiClient, Db> {
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-#[async_trait::async_trait]
-impl<ApiClient, Db> Worker<ApiClient, Db, SyncMetric> for SyncWorker<ApiClient, Db>
+impl<ApiClient, Db> SyncWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    type Error = DeviceSyncError;
-
-    fn kind() -> WorkerKind {
-        WorkerKind::DeviceSync
-    }
-
-    fn metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        Some(self.metrics.clone())
-    }
-
-    fn init(client: &Client<ApiClient, Db>) -> Self {
-        let context = &client.context;
+    pub fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         let receiver = context.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
         let client = DeviceSyncClient::new(context.clone());
@@ -79,6 +66,23 @@ where
             init: OnceCell::new(),
             metrics: Arc::new(WorkerMetrics::new()),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl<ApiClient, Db> Worker for SyncWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    type Error = DeviceSyncError;
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+
+    fn metrics(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        Some(self.metrics.clone())
     }
 
     async fn run_tasks(&mut self) -> Result<(), Self::Error> {

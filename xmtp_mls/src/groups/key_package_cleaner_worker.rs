@@ -31,19 +31,15 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
 }
 
 #[async_trait::async_trait]
-impl<ApiClient, Db> Worker<ApiClient, Db> for KeyPackagesCleanerWorker<ApiClient, Db>
+impl<ApiClient, Db> Worker for KeyPackagesCleanerWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
     type Error = KeyPackagesCleanerError;
 
-    fn kind() -> WorkerKind {
+    fn kind(&self) -> WorkerKind {
         WorkerKind::KeyPackageCleaner
-    }
-
-    fn init(client: &Client<ApiClient, Db>) -> Self {
-        KeyPackagesCleanerWorker::new(client.clone())
     }
 
     async fn run_tasks(&mut self) -> Result<(), Self::Error> {

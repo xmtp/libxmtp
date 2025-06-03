@@ -35,20 +35,15 @@ pub struct DisappearingMessagesWorker<ApiClient, Db> {
 }
 
 #[async_trait::async_trait]
-impl<ApiClient, Db> Worker<ApiClient, Db> for DisappearingMessagesWorker<ApiClient, Db>
+impl<ApiClient, Db> Worker for DisappearingMessagesWorker<ApiClient, Db>
 where
-    Self: Send + Sync,
     ApiClient: XmtpApi + 'static,
     Db: xmtp_db::XmtpDb + 'static,
 {
     type Error = DisappearingMessagesCleanerError;
 
-    fn kind() -> WorkerKind {
+    fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
-    }
-
-    fn init(client: &Client<ApiClient, Db>) -> Self {
-        DisappearingMessagesWorker::new(client.clone())
     }
 
     async fn run_tasks(&mut self) -> Result<(), Self::Error> {
