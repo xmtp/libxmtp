@@ -7,7 +7,7 @@ pub mod intents;
 pub mod members;
 pub mod welcome_sync;
 
-mod disappearing_messages;
+pub mod disappearing_messages;
 mod key_package_cleaner_worker;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;

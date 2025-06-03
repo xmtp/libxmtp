@@ -2935,7 +2935,7 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{device_sync::handle::SyncMetric, GroupError},
+        groups::GroupError,
         utils::{PasskeyUser, Tester},
         InboxOwner,
     };

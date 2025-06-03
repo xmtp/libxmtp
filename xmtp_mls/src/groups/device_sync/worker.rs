@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     client::ClientError,
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::XmtpContextProvider,
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::DeviceSyncContent,
@@ -12,6 +12,7 @@ use crate::{
     },
     subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, Worker, WorkerKind},
+    Client,
 };
 use futures::{Stream, StreamExt};
 use std::{pin::Pin, sync::Arc};
@@ -68,7 +69,8 @@ where
         Some(self.metrics.clone())
     }
 
-    fn init(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    fn init(client: &Client<ApiClient, Db>) -> Self {
+        let context = &client.context;
         let receiver = context.local_events.subscribe();
         let stream = Box::pin(receiver.stream_sync_messages());
         let client = DeviceSyncClient::new(context.clone());

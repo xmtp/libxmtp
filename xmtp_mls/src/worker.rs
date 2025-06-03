@@ -1,7 +1,7 @@
 use crate::{
     configuration::WORKER_RESTART_DELAY,
-    context::XmtpMlsLocalContext,
     groups::device_sync::{worker::SyncMetric, DeviceSyncError},
+    Client,
 };
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
@@ -21,6 +21,7 @@ pub enum WorkerError {
 #[derive(PartialEq, Eq, Hash)]
 pub enum WorkerKind {
     DeviceSync,
+    DisappearingMessages,
 }
 
 pub(crate) trait WorkerManager: Send + Sync {
@@ -49,7 +50,7 @@ where
     }
 }
 
-pub struct WorkerRunner<Core, Metric = SyncMetric> {
+pub struct WorkerRunner<Core, Metric = NoMetric> {
     pub metrics: Arc<Mutex<Option<Arc<WorkerMetrics<Metric>>>>>,
     spawn_fn: Box<dyn Fn() + Send + Sync>,
     _core: PhantomData<Core>,
@@ -59,7 +60,7 @@ impl<Core, Metric> WorkerRunner<Core, Metric>
 where
     Metric: PartialEq + Hash + Send + Sync + 'static,
 {
-    pub fn register_new_worker<ApiClient, Db>(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>)
+    pub fn register_new_worker<ApiClient, Db>(client: &Client<ApiClient, Db>)
     where
         ApiClient: XmtpApi + Send + Sync + 'static,
         Db: XmtpDb + Send + Sync + 'static,
@@ -69,10 +70,10 @@ where
         let runner = WorkerRunner {
             metrics: metrics.clone(),
             spawn_fn: Box::new({
-                let context = context.clone();
+                let client = client.clone();
                 let metrics = metrics.clone();
                 move || {
-                    Self::spawn_worker_internal(&context, &metrics);
+                    Self::spawn_worker_internal(&client, &metrics);
                 }
             }),
             _core: PhantomData::<Core>,
@@ -81,18 +82,18 @@ where
         runner.spawn();
         let kind = Core::kind();
         let runner = Box::new(runner);
-        context.workers.lock().insert(kind, runner as Box<_>);
+        client.context.workers.lock().insert(kind, runner as Box<_>);
     }
 
     pub(crate) fn spawn_worker_internal<ApiClient, Db>(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        client: &Client<ApiClient, Db>,
         metrics: &Arc<Mutex<Option<Arc<WorkerMetrics<Metric>>>>>,
     ) where
         ApiClient: XmtpApi + Send + Sync + 'static,
         Db: XmtpDb + Send + Sync + 'static,
         Core: Worker<ApiClient, Db, Metric> + 'static,
     {
-        let mut core = Core::init(context);
+        let mut core = Core::init(client);
         *metrics.lock() = core.metrics();
 
         xmtp_common::spawn(None, async move {
@@ -113,7 +114,7 @@ where
 }
 
 #[async_trait::async_trait]
-pub trait Worker<ApiClient, Db, Metric>
+pub trait Worker<ApiClient, Db, Metric = NoMetric>
 where
     Self: Send + Sync,
     ApiClient: XmtpApi + Send + Sync + 'static,
@@ -123,11 +124,17 @@ where
     type Error: NeedsDbReconnect + Debug + Send;
 
     fn kind() -> WorkerKind;
-    fn init(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self;
-    fn metrics(&self) -> Option<Arc<WorkerMetrics<Metric>>>;
+    fn init(client: &Client<ApiClient, Db>) -> Self;
     async fn run_tasks(&mut self) -> Result<(), Self::Error>;
+
+    fn metrics(&self) -> Option<Arc<WorkerMetrics<Metric>>> {
+        None
+    }
 }
 
 pub trait NeedsDbReconnect {
     fn needs_db_reconnect(&self) -> bool;
 }
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub enum NoMetric {}
