@@ -207,28 +207,19 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
         // register workers
         if client.device_sync_worker_enabled() {
-            WorkerRunner::register_new_worker(
-                &client.context,
-                Box::new({
-                    let context = client.context.clone();
-                    move || SyncWorker::new(&context)
-                }),
-            );
+            WorkerRunner::register_new_worker(&client.context, {
+                let context = client.context.clone();
+                move || SyncWorker::new(&context)
+            });
         }
-        WorkerRunner::register_new_worker(
-            &client.context,
-            Box::new({
-                let client = client.clone();
-                move || KeyPackagesCleanerWorker::new(client.clone())
-            }),
-        );
-        WorkerRunner::register_new_worker(
-            &client.context,
-            Box::new({
-                let client = client.clone();
-                move || DisappearingMessagesWorker::new(client.clone())
-            }),
-        );
+        WorkerRunner::register_new_worker(&client.context, {
+            let client = client.clone();
+            move || KeyPackagesCleanerWorker::new(client.clone())
+        });
+        WorkerRunner::register_new_worker(&client.context, {
+            let client = client.clone();
+            move || DisappearingMessagesWorker::new(client.clone())
+        });
 
         Events::track(provider.db(), None, Event::ClientBuild, ());
 
