@@ -10,7 +10,7 @@ on:
 jobs:
   push_to_registry:
     name: Push Docker Image to GitHub Packages
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
