@@ -1,22 +1,11 @@
-use crate::{
-    configuration::WORKER_RESTART_DELAY,
-    groups::device_sync::{worker::SyncMetric, DeviceSyncError},
-    Client,
-};
+use crate::{configuration::WORKER_RESTART_DELAY, groups::device_sync::worker::SyncMetric, Client};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
-use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_db::XmtpDb;
 
 pub mod metrics;
-
-#[derive(Error, Debug)]
-pub enum WorkerError {
-    #[error(transparent)]
-    DeviceSync(#[from] DeviceSyncError),
-}
 
 #[derive(PartialEq, Eq, Hash)]
 pub enum WorkerKind {
