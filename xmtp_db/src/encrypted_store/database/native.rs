@@ -104,6 +104,8 @@ pub enum PlatformStorageError {
     SqlCipherNotLoaded,
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
+    #[error("Database is locked")]
+    DatabaseLocked,
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
     #[error(transparent)]
@@ -125,6 +127,7 @@ impl RetryableError for PlatformStorageError {
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
+            Self::DatabaseLocked => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Io(_) => true,
             Self::DieselConnect(_) => true,

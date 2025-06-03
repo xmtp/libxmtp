@@ -14,9 +14,12 @@ use thiserror::Error;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{types::InstallationId, RetryableError};
+use xmtp_common::{time::now_ns, types::InstallationId, RetryableError, NS_IN_DAY};
 use xmtp_content_types::encoded_content_to_bytes;
-use xmtp_db::{group::GroupQueryArgs, group_message::StoredGroupMessage, NotFound, StorageError};
+use xmtp_db::{
+    consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
+    NotFound, StorageError,
+};
 use xmtp_db::{DbConnection, XmtpDb};
 use xmtp_id::{associations::DeserializationError, InboxIdRef};
 use xmtp_proto::{
@@ -251,10 +254,14 @@ where
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let groups = self.mls_store.find_groups(GroupQueryArgs::default())?;
+        let groups = self.mls_store.find_groups(GroupQueryArgs {
+            activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+            consent_states: Some(vec![ConsentState::Allowed]),
+            ..Default::default()
+        })?;
 
         // Add the new installation to groups in batches
-        for chunk in groups.chunks(20) {
+        for chunk in groups.chunks(10) {
             let mut add_futs = vec![];
             for group in chunk {
                 add_futs.push(group.add_missing_installations());
