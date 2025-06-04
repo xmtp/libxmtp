@@ -1,18 +1,19 @@
 [package]
 edition = "2021"
-name = "bindings_wasm"
+name = "bindings-wasm"
 version.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook.workspace = true
 futures.workspace = true
 hex.workspace = true
 js-sys.workspace = true
+pin-project-lite = { workspace = true }
 prost.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 serde_bytes = "0.11"
 tracing.workspace = true
@@ -21,6 +22,13 @@ tracing-web = "0.1"
 tsify-next = { version = "0.5", default-features = false, features = ["js"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
+wasm-streams = { version = "0.4" }
+web-sys = { workspace = true, features = [
+  "Window",
+  "Worker",
+  "MessageEvent",
+  "DedicatedWorkerGlobalScope",
+] }
 xmtp_api.workspace = true
 xmtp_api_http = { path = "../xmtp_api_http" }
 xmtp_common = { workspace = true, features = ["logging"] }
@@ -31,8 +39,24 @@ xmtp_id.workspace = true
 xmtp_mls = { workspace = true, features = ["http-api"] }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
+alloy = { workspace = true, optional = true }
+wasm-bindgen-test = { workspace = true, optional = true }
+
+
 [dev-dependencies]
+alloy.workspace = true
 chrono = { workspace = true }
+tokio.workspace = true
 wasm-bindgen-test.workspace = true
+web-sys = { workspace = true, features = [
+  "Window",
+  "Worker",
+  "MessageEvent",
+  "DedicatedWorkerGlobalScope",
+] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_mls = { workspace = true, features = ["http-api", "test-utils"] }
+
+
+[features]
+test-utils = ["dep:alloy", "dep:wasm-bindgen-test", "xmtp_common/test-utils"]

@@ -27,19 +27,19 @@ pub struct TestLogReplace {
 }
 
 impl TestLogReplace {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn add(&mut self, id: &str, name: &str) {
         self.ids.insert(id.to_string(), name.to_string());
         let mut ids = REPLACE_IDS.lock();
         ids.insert(id.to_string(), name.to_string());
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     pub fn add(&mut self, _id: &str, _name: &str) {}
 }
 
 // remove ids for replacement from map on drop
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 impl Drop for TestLogReplace {
     fn drop(&mut self) {
         let mut ids = REPLACE_IDS.lock();
@@ -119,7 +119,7 @@ where
 
 /// A simple test logger that defaults to the INFO level
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-pub fn logger() {
+pub fn logger(_filter: &str) {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
     INIT.get_or_init(|| {
@@ -133,7 +133,7 @@ pub fn logger() {
 #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-utils"))]
 fn ctor_logging_setup() {
-    crate::logger();
+    crate::logger("");
     let _ = fdlimit::raise_fd_limit();
 }
 
@@ -157,13 +157,13 @@ pub fn subscriber() -> impl tracing::Subscriber {
 
 /// A simple test logger that defaults to the INFO level
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-pub fn logger() {
+pub fn logger(filter: &str) {
     use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("off").unwrap();
+        let filter = EnvFilter::builder().parse(filter).unwrap();
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())

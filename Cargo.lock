@@ -103,9 +103,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-chains"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "517e5acbd38b6d4c59da380e8bbadc6d365bf001903ce46cf5521c53c647e07b"
+checksum = "d6967ca1ed656766e471bc323da42fb0db320ca5e1418b408650e98e4757b3d2"
 dependencies = [
  "alloy-primitives",
  "num_enum",
@@ -424,7 +424,7 @@ dependencies = [
  "futures",
  "futures-utils-wasm",
  "lru 0.13.0",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project",
  "reqwest",
  "serde",
@@ -668,7 +668,7 @@ dependencies = [
  "derive_more",
  "futures",
  "futures-utils-wasm",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -1195,6 +1195,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindings-wasm"
+version = "1.3.0-dev"
+dependencies = [
+ "alloy",
+ "chrono",
+ "console_error_panic_hook",
+ "const-hex",
+ "futures",
+ "js-sys",
+ "pin-project-lite",
+ "prost",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_bytes",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "tracing-web",
+ "tsify-next",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "wasm-streams",
+ "web-sys",
+ "xmtp_api",
+ "xmtp_api_http",
+ "xmtp_common",
+ "xmtp_content_types",
+ "xmtp_cryptography",
+ "xmtp_db",
+ "xmtp_id",
+ "xmtp_mls",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "bindings_node"
 version = "1.3.0-dev"
 dependencies = [
@@ -1211,37 +1247,6 @@ dependencies = [
  "tracing-subscriber",
  "xmtp_api",
  "xmtp_api_grpc",
- "xmtp_common",
- "xmtp_content_types",
- "xmtp_cryptography",
- "xmtp_db",
- "xmtp_id",
- "xmtp_mls",
- "xmtp_proto",
-]
-
-[[package]]
-name = "bindings_wasm"
-version = "1.3.0-dev"
-dependencies = [
- "chrono",
- "console_error_panic_hook",
- "const-hex",
- "futures",
- "js-sys",
- "prost",
- "serde",
- "serde-wasm-bindgen",
- "serde_bytes",
- "tracing",
- "tracing-subscriber",
- "tracing-web",
- "tsify-next",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "xmtp_api",
- "xmtp_api_http",
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
@@ -1381,9 +1386,9 @@ dependencies = [
 
 [[package]]
 name = "camino"
-version = "1.1.9"
+version = "1.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b96ec4966b5813e2c0507c1f86115c8c5abaadc3980879c3424042a02fd1ad3"
+checksum = "0da45bc31171d8d6960122e222a67740df867c1dd53b4d51caa297084c185cab"
 dependencies = [
  "serde",
 ]
@@ -1419,9 +1424,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.24"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16595d3be041c03b09d08d0858631facccee9221e579704070e6e9e4915d3bc7"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "jobserver",
  "libc",
@@ -1634,9 +1639,9 @@ dependencies = [
 
 [[package]]
 name = "color-eyre"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e1761c0e16f8883bbbb8ce5990867f4f06bf11a0253da6495a04ce4b6ef0ec"
+checksum = "e5920befb47832a6d61ee3a3a846565cfa39b331331e68a3b1d1116630f2f26d"
 dependencies = [
  "backtrace",
  "color-spantrace",
@@ -1649,9 +1654,9 @@ dependencies = [
 
 [[package]]
 name = "color-spantrace"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ddd8d5bfda1e11a501d0a7303f3bfed9aa632ebdb859be40d0fd70478ed70d5"
+checksum = "b8b88ea9df13354b55bc7234ebcce36e6ef896aca2e42a15de9e10edce01b427"
 dependencies = [
  "once_cell",
  "owo-colors",
@@ -2010,7 +2015,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core 0.9.10",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -2120,7 +2125,7 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.4"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
@@ -2134,8 +2139,9 @@ dependencies = [
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
+ "darling",
  "diesel_table_macro_syntax",
  "dsl_auto_type",
  "proc-macro2",
@@ -2146,7 +2152,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -2156,7 +2162,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "syn 2.0.101",
 ]
@@ -2229,7 +2235,7 @@ checksum = "ea8a8b81cacc08888170eef4d13b775126db426d0b348bee9d18c2c1eaf123cf"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "darling",
  "either",
@@ -2769,7 +2775,7 @@ dependencies = [
  "getrandom 0.3.3",
  "hashbrown 0.15.3",
  "nonzero_ext",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "portable-atomic",
  "quanta",
  "rand 0.9.1",
@@ -2899,9 +2905,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.9"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d231dfb89cfffdbc30e7fc41579ed6066ad03abda9e567ccafae602b97ec5024"
+checksum = "f154ce46856750ed433c8649605bf7ed2de3bc35fd9d2a9f30cddd873c80cb08"
 
 [[package]]
 name = "hex"
@@ -3649,9 +3655,9 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "lock_api"
-version = "0.4.12"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07af8b9cdd281b7915f413fa73f29ebd5d55d0d3f0155584dade1ff18cea1b17"
+checksum = "96936507f153605bddfcda068dd804796c84324ed2510809e5b2a624c81da765"
 dependencies = [
  "autocfg",
  "scopeguard",
@@ -3773,7 +3779,7 @@ dependencies = [
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "serde",
  "toml 0.8.22",
@@ -3782,7 +3788,7 @@ dependencies = [
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#efcb1e7e6cc921dbb92edd5fb5a6829c9625da51"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#611e949f197260720ac53e71863a854fd0cae55f"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -3875,7 +3881,7 @@ dependencies = [
  "lru 0.14.0",
  "openmls",
  "openmls_rust_crypto",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "rand 0.8.5",
  "rstest",
  "thiserror 2.0.12",
@@ -3984,9 +3990,9 @@ dependencies = [
 
 [[package]]
 name = "napi-build"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03acbfa4f156a32188bfa09b86dc11a431b5725253fc1fc6f6df5bed273382c4"
+checksum = "44e0e3177307063d3e7e55b7dd7b648cca9d7f46daa35422c0d98cc2bf48c2c1"
 
 [[package]]
 name = "napi-derive"
@@ -4115,9 +4121,9 @@ dependencies = [
 
 [[package]]
 name = "num_cpus"
-version = "1.16.0"
+version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
+checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
@@ -4426,12 +4432,12 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
+checksum = "70d58bf43669b5795d1576d0641cfb6fbb2057bf629506267a92807158584a13"
 dependencies = [
  "lock_api",
- "parking_lot_core 0.9.10",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -4450,9 +4456,9 @@ dependencies = [
 
 [[package]]
 name = "parking_lot_core"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
+checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
 dependencies = [
  "cfg-if",
  "libc",
@@ -4803,9 +4809,9 @@ dependencies = [
 
 [[package]]
 name = "prettyplease"
-version = "0.2.32"
+version = "0.2.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "664ec5419c51e34154eec046ebcba56312d5a2fc3b09a06da188e1ad21afadf6"
+checksum = "9dee91521343f4c5c6a63edd65e54f31f5c92fe8978c40a4282f8372194c6a7d"
 dependencies = [
  "proc-macro2",
  "syn 2.0.101",
@@ -4992,7 +4998,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51de85fb3fb6524929c8a2eb85e6b6d363de4e8c48f9e2c2eac4944abc181c93"
 dependencies = [
  "log",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "scheduled-thread-pool",
 ]
 
@@ -5192,9 +5198,9 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "reqwest"
-version = "0.12.18"
+version = "0.12.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e98ff6b0dbbe4d5a37318f433d4fc82babd21631f194d370409ceb2e40b2f0b5"
+checksum = "a2f8e5513d63f2e5b386eb5106dc67eaf3f84e95258e210489136b8b92ad6119"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -5514,7 +5520,7 @@ version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
 ]
 
 [[package]]
@@ -5968,7 +5974,7 @@ dependencies = [
  "indexed_db_futures",
  "js-sys",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "thiserror 2.0.12",
  "tokio",
  "wasm-bindgen",
@@ -6331,7 +6337,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -6530,9 +6536,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.4"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdb0c213ca27a9f57ab69ddb290fd80d970922355b83ae380b395d3986b8a2e"
+checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
 dependencies = [
  "bitflags 2.9.1",
  "bytes",
@@ -6681,7 +6687,7 @@ dependencies = [
  "cc",
  "cfg-if",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "tracing-core",
  "tracing-subscriber",
 ]
@@ -7365,7 +7371,7 @@ checksum = "0048ad49a55b9deb3953841fa1fc5858f0efbcb7a18868c899a360269fac1b23"
 dependencies = [
  "futures",
  "js-sys",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "pin-utils",
  "slab",
  "wasm-bindgen",
@@ -7799,7 +7805,7 @@ dependencies = [
  "once_cell",
  "openmls",
  "openmls_rust_crypto",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "prost",
  "prost-types",
  "thiserror 2.0.12",
@@ -7867,13 +7873,13 @@ dependencies = [
  "openmls_traits",
  "prost",
  "reqwest",
- "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "tracing",
+ "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_db",
  "xmtp_mls_common",
@@ -7929,7 +7935,7 @@ dependencies = [
  "js-sys",
  "once_cell",
  "owo-colors",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "thiserror 2.0.12",
@@ -7958,6 +7964,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tonic",
  "tracing",
+ "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_proto",
 ]
@@ -8001,7 +8008,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
  "serde",
@@ -8027,7 +8034,7 @@ version = "1.3.0-dev"
 dependencies = [
  "derive_builder",
  "diesel",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "rand 0.8.5",
  "tracing",
  "xmtp_common",
@@ -8103,7 +8110,6 @@ dependencies = [
  "futures-test",
  "futures-util",
  "getrandom 0.2.16",
- "gloo-timers",
  "hkdf",
  "hmac",
  "indicatif",
@@ -8114,9 +8120,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
- "openssl",
- "openssl-sys",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "passkey",
  "pin-project-lite",
  "prost",
@@ -8163,6 +8167,7 @@ dependencies = [
  "prost",
  "serde",
  "thiserror 2.0.12",
+ "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_db",
  "xmtp_id",
@@ -8206,7 +8211,7 @@ dependencies = [
  "fdlimit",
  "futures",
  "paranoid-android",
- "parking_lot 0.12.3",
+ "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
  "thiserror 2.0.12",
