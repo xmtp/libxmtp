@@ -28,7 +28,7 @@ function ctrl_c() {
 
 function run() {
   cd $WORKSPACE_PATH
-  nix build .#bindings_wasm --refresh
+  nix build .#bindings_wasm
 
   if [ ! -d $DIR/xmtp-js ]; then
     git clone git@github.com:xmtp/xmtp-js.git $DIR/xmtp-js
@@ -51,8 +51,8 @@ function run() {
   # $YARN set resolution "playwright-core@npm:^1.49.1" npm:$PLAYWRIGHT_VERSION
 
   cd $WORKSPACE_PATH
-  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk
-  $YARN --cwd $DIR/xmtp-js/sdks/browser-sdk test
+  $YARN --silent --cwd $DIR/xmtp-js/sdks/browser-sdk
+  $YARN --silent --cwd $DIR/xmtp-js/sdks/browser-sdk test
 
   return 0
 }
