@@ -221,6 +221,8 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error("Cannot register a new installation because the InboxID {0} has already registered {1}/ installations. Please revoke existing installations first.")]
+    TooManyInstallations(String),
 }
 
 impl RetryableError for IdentityError {
@@ -313,6 +315,8 @@ impl Identity {
             if *associated_inbox_id != inbox_id {
                 return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
             }
+            // TODO(rich) Fetch existing installation count here
+
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder
                 .add_association(

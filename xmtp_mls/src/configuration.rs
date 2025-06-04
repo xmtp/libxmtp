@@ -31,6 +31,8 @@ pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
 pub const MAX_GROUP_SIZE: usize = 220;
 
+pub const MAX_INSTALLATIONS_PER_INBOX: usize = 25;
+
 pub const MAX_PAST_EPOCHS: usize = 3;
 
 /// the max amount of data that can be sent in one gRPC call
