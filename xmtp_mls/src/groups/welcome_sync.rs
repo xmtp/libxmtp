@@ -52,7 +52,11 @@ where
                         err
                     );
                 } else {
-                    tracing::error!("failed to create group from welcome: {}", err);
+                    tracing::error!(
+                        "failed to create group from welcome created at {}: {}",
+                        welcome.created_ns,
+                        err
+                    );
                 }
 
                 Err(err)
