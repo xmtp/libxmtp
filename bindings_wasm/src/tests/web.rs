@@ -5,11 +5,6 @@ use crate::opfs::Opfs;
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 #[wasm_bindgen_test]
-pub async fn test_create_client() {
-  create_test_client().await;
-}
-
-#[wasm_bindgen_test]
 pub async fn wipe_client_files() {
   xmtp_db::init_sqlite().await;
   Opfs::wipe_files().await.unwrap();

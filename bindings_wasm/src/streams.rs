@@ -1,6 +1,12 @@
+use crate::client::RustMlsGroup;
 use crate::conversation::Conversation;
 use crate::messages::Message;
 use crate::user_preferences::UserPreference;
+use futures::Stream;
+use futures::{stream::LocalBoxStream, StreamExt};
+use pin_project_lite::pin_project;
+use std::task::ready;
+use std::task::Poll;
 use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsError;
@@ -103,5 +109,42 @@ impl StreamCloser {
   #[wasm_bindgen(js_name = "isClosed")]
   pub fn is_closed(&self) -> bool {
     self.abort.is_finished()
+  }
+}
+
+// JS-Compatible Conversation stream
+pin_project! {
+    pub struct ConversationStream<'a> {
+      #[pin] stream: LocalBoxStream<'a, Result<RustMlsGroup, XmtpSubscribeError>>,
+    }
+}
+
+impl<'a> ConversationStream<'a> {
+  pub fn new(stream: impl Stream<Item = Result<RustMlsGroup, XmtpSubscribeError>> + 'a) -> Self {
+    Self {
+      stream: stream.boxed_local(),
+    }
+  }
+}
+
+// the type signature must match Result<JsValue, JsValue> so that we can use
+// ReadableStream from the 'wasm-streams' crate
+// https://docs.rs/wasm-streams/latest/wasm_streams/readable/struct.ReadableStream.html#method.from_stream
+impl<'a> Stream for ConversationStream<'a> {
+  type Item = Result<JsValue, JsValue>;
+
+  fn poll_next(
+    self: std::pin::Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Option<Self::Item>> {
+    let this = self.project();
+    if let Some(item) = ready!(this.stream.poll_next(cx)) {
+      match item {
+        Ok(group) => Poll::Ready(Some(Ok(JsValue::from(Conversation::from(group))))),
+        Err(e) => Poll::Ready(Some(Err(JsValue::from(JsError::new(&e.to_string()))))),
+      }
+    } else {
+      Poll::Ready(None)
+    }
   }
 }
