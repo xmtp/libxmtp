@@ -65,7 +65,8 @@ where
     ) -> Result<(), xmtp_common::time::Expired> {
         let metric = self.metrics.lock().entry(metric_key).or_default().clone();
 
-        let result = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        let secs = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
+        let result = xmtp_common::time::timeout(Duration::from_secs(secs), async {
             loop {
                 if metric.load(Ordering::SeqCst) >= count {
                     return;

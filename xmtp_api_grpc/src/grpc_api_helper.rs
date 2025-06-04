@@ -278,13 +278,13 @@ impl Stream for WelcomeMessageStream {
 #[async_trait::async_trait]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::GrpcError>;
-    type GroupMessageStream<'a> = GroupMessageStream;
-    type WelcomeMessageStream<'a> = WelcomeMessageStream;
+    type GroupMessageStream = GroupMessageStream;
+    type WelcomeMessageStream = WelcomeMessageStream;
 
     async fn subscribe_group_messages(
         &self,
         req: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
         self.stats.subscribe_messages.count_request();
         let client = &mut self.mls_client.clone();
         let res = client
@@ -299,7 +299,7 @@ impl XmtpMlsStreams for Client {
     async fn subscribe_welcome_messages(
         &self,
         req: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         self.stats.subscribe_welcomes.count_request();
         let client = &mut self.mls_client.clone();
         let res = client

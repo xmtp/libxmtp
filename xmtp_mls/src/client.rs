@@ -1086,11 +1086,8 @@ pub(crate) mod tests {
         assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 2)
-    )]
+    #[rstest::rstest]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_welcomes() {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1112,11 +1109,8 @@ pub(crate) mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 2)
-    )]
+    #[rstest::rstest]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1264,11 +1258,8 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     async fn test_welcome_encryption() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let provider = client.mls_provider();
@@ -1285,11 +1276,8 @@ pub(crate) mod tests {
         assert_eq!(decrypted, to_encrypt);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     async fn test_add_remove_then_add_again() {
         let amal = Tester::new().await;
         let bola = Tester::new().await;

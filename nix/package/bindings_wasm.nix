@@ -3,7 +3,6 @@
 , filesets
 , lib
 , pkg-config
-, darwin
 , fenix
 , wasm-bindgen-cli_0_2_100
 , wasm-pack
@@ -12,11 +11,8 @@
 , craneLib
 , lld
 , mkShell
-, fetchFromGitHub
-, llvmPackages_20
 }:
 let
-  inherit (stdenv) hostPlatform;
   # Pinned Rust Version
   rust-toolchain = fenix.combine [
     fenix.stable.cargo
@@ -29,24 +25,6 @@ let
     root = ./../..;
     fileset = filesets.workspace;
   };
-
-  # Emscripten 3 causes a weird import issue with wasm,
-  # and nixpkgs hasn't updated to emscripten 4 yet
-  # emscripten4 = (emscripten.overrideAttrs {
-  #   version = "4.0.4";
-  #   src = fetchFromGitHub {
-  #     owner = "emscripten-core";
-  #     repo = "emscripten";
-  #     hash = "sha256-4qxx+iQ51KMWr26fbf6NpuWOn788TqS6RX6gJPkCxVI=";
-  #     rev = "4.0.4";
-  #   };
-  #
-  #   nodeModules = emscripten.nodeModules.overrideAttrs {
-  #     name = "emscripten-node-modules-4.0.4";
-  #     version = "4.0.4";
-  #     npmDepsHash = "sha256-0000000000000000000000000000000000000000000=";
-  #   };
-  # }).override { llvmPackages = llvmPackages_20; };
 
   commonArgs = {
     src = rust.cleanCargoSource ./../..;
@@ -63,14 +41,10 @@ let
     '';
 
     nativeBuildInputs = [ pkg-config wasm-pack emscripten lld binaryen wasm-bindgen-cli_0_2_100 ];
-    buildInputs = [ zstd ] ++ lib.optionals hostPlatform.isDarwin
-      [
-        darwin.apple_sdk.frameworks.Security
-        darwin.apple_sdk.frameworks.SystemConfiguration
-      ];
+    buildInputs = [ zstd ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
-    RUSTFLAGS = [ "--cfg" "tracing_unstable" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
+    RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
   };
 

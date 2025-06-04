@@ -4,15 +4,16 @@ name = "bindings_wasm"
 version.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 console_error_panic_hook.workspace = true
 futures.workspace = true
 hex.workspace = true
 js-sys.workspace = true
+pin-project-lite = { workspace = true }
 prost.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 serde_bytes = "0.11"
 tracing.workspace = true

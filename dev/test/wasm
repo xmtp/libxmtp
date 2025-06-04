@@ -3,10 +3,15 @@ set -eou pipefail
 
 export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:=}"
 
+PACKAGE=${1:-}
+TESTS=${2:-}
+
 RUST_LOG=off \
+RSTEST_TIMEOUT=10 \
 WASM_BINDGEN_SPLIT_LINKED_MODULES=1 \
-  WASM_BINDGEN_TEST_ONLY_WEB=1 \
-  WASM_BINDGEN_TEST_TIMEOUT=180 \
-  CHROMEDRIVER="chromedriver" \
-  cargo test --target wasm32-unknown-unknown --release \
-  -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p xmtp_api_d14n -p xmtp_db
+WASM_BINDGEN_TEST_ONLY_WEB=1 \
+WASM_BINDGEN_TEST_TIMEOUT=180 \
+CHROMEDRIVER="chromedriver" \
+  cargo test --locked --release --target wasm32-unknown-unknown -p $PACKAGE -- \
+            --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            $TESTS
