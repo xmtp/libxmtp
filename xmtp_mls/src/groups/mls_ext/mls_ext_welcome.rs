@@ -1,13 +1,12 @@
+use crate::{
+    client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError, hpke::decrypt_welcome,
+    identity::parse_credential,
+};
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{BasicCredential, MlsMessageBodyIn, MlsMessageIn, Welcome},
 };
 use tls_codec::Deserialize;
-
-use crate::{
-    client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError, hpke::decrypt_welcome,
-    identity::parse_credential,
-};
 use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, ConnectionExt};
 
 pub(crate) struct DecryptedWelcome {

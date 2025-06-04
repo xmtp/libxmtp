@@ -1,12 +1,9 @@
-use std::sync::Arc;
-
-use xmtp_mls::groups::device_sync::handle::{SyncMetric, WorkerHandle};
-
 use crate::GenericError;
+use std::sync::Arc;
 
 #[derive(uniffi::Object)]
 pub struct FfiSyncWorker {
-    pub handle: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub handle: Option<Arc<WorkerMetrics<SyncMetric>>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -62,7 +59,10 @@ impl From<FfiSyncMetric> for SyncMetric {
         }
     }
 }
-use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::{
+    builder::SyncWorkerMode, groups::device_sync::worker::SyncMetric,
+    worker::metrics::WorkerMetrics,
+};
 
 #[derive(uniffi::Enum)]
 pub enum FfiSyncWorkerMode {

@@ -23,8 +23,8 @@ pub fn context() -> MockContext {
         device_sync: DeviceSync {
             server_url: None,
             mode: SyncWorkerMode::Disabled,
-            worker_handle: Default::default(),
         },
+        workers: Arc::new(parking_lot::Mutex::default()),
     }
 }
 

@@ -16,6 +16,7 @@ pub mod subscriptions;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package_v2;
+pub mod worker;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
