@@ -14,6 +14,16 @@ pub enum WorkerKind {
     KeyPackageCleaner,
 }
 
+impl Debug for WorkerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkerKind::DeviceSync => write!(f, "DeviceSync"),
+            WorkerKind::DisappearingMessages => write!(f, "DisappearingMessages"),
+            WorkerKind::KeyPackageCleaner => write!(f, "KeyPackageCleaner"),
+        }
+    }
+}
+
 pub(crate) trait WorkerManager: Send + Sync {
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
     fn spawn(&self);
@@ -93,7 +103,7 @@ where
                         tracing::warn!("Pool disconnected. task will restart on reconnect");
                         break;
                     } else {
-                        tracing::error!("Worker error: {err:?}");
+                        tracing::error!("{:?} worker error: {:?}", &Core::kind(), err);
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting sync worker...");
                     }

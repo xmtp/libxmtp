@@ -95,8 +95,8 @@ pub enum NotFound {
     CipherSalt(String),
     #[error("Sync Group for installation {0} not found")]
     SyncGroup(InstallationId),
-    #[error("Key Package Reference not found")]
-    KeyPackageReference,
+    #[error("Key Package Reference {handle} not found", handle = hex::encode(_0))]
+    KeyPackageReference(Vec<u8>),
     #[error("MLS Group Not Found")]
     MlsGroup,
     #[error("Post Quantum Key Pair not found")]
