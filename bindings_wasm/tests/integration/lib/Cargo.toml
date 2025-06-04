@@ -1,0 +1,29 @@
+[package]
+name = "bindings_wasm_integration"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bindings-wasm = { workspace = true, features = ["test-utils"] }
+console_error_panic_hook.workspace = true
+js-sys.workspace = true
+speedy = "0.8"
+tokio.workspace = true
+tokio-stream = { workspace = true, default-features = false }
+tracing.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = { workspace = true }
+wasm-streams = { version = "0.4" }
+web-sys = { workspace = true, features = [
+  "WorkerType",
+  "WorkerOptions",
+  "Window",
+  "Location",
+] }
+xmtp_common.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+split-linked-modules = true

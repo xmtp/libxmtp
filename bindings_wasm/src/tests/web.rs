@@ -21,3 +21,14 @@ pub async fn wipe_client_files() {
   }
   assert_eq!(Opfs::get_file_count(), 0);
 }
+
+#[wasm_bindgen_test]
+pub async fn can_stream_conversations() {
+  let alix = create_test_client().await;
+  let bo = create_test_client().await;
+  let _ = alix
+    .conversations()
+    .create_group_by_inbox_ids(vec![bo.inbox_id()], None)
+    .await
+    .unwrap();
+}
