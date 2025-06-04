@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eou pipefail
 
-export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:=}"
+export RUSTFLAGS="-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\"wasm_js\"${RUSTFLAGS:=}"
 
 WASM_BINDGEN_TEST_ONLY_WEB=1 \
   WASM_BINDGEN_TEST_TIMEOUT=180 \
