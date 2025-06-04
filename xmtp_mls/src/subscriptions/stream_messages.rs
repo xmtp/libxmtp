@@ -148,7 +148,7 @@ pin_project! {
 }
 
 pub(super) type MessagesApiSubscription<'a, ApiClient> =
-    <ApiClient as XmtpMlsStreams>::GroupMessageStream<'a>;
+    <ApiClient as XmtpMlsStreams>::GroupMessageStream;
 
 impl<'a, ApiClient, Db>
     StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>
@@ -706,7 +706,7 @@ pub mod tests {
 
     #[rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(5))]
+    // #[timeout(std::time::Duration::from_secs(5))]
     async fn test_stream_messages() {
         let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;

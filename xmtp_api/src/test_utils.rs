@@ -149,8 +149,8 @@ mod not_wasm {
         #[async_trait::async_trait]
         impl XmtpMlsStreams for ApiClient {
             type Error = MockError;
-            type GroupMessageStream<'a> = MockGroupStream;
-            type WelcomeMessageStream<'a> = MockWelcomeStream;
+            type GroupMessageStream = MockGroupStream;
+            type WelcomeMessageStream = MockWelcomeStream;
 
             async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
             async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;
@@ -207,8 +207,8 @@ mod wasm {
         #[async_trait::async_trait(?Send)]
         impl XmtpMlsStreams for ApiClient {
             type Error = MockError;
-            type GroupMessageStream<'a> = MockGroupStream;
-            type WelcomeMessageStream<'a> = MockWelcomeStream;
+            type GroupMessageStream = MockGroupStream;
+            type WelcomeMessageStream = MockWelcomeStream;
 
             async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<MockGroupStream, MockError>;
             async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<MockWelcomeStream, MockError>;

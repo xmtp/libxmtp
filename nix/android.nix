@@ -19,7 +19,7 @@ let
 
   android = {
     platforms = [ "33" "34" ];
-    platformTools = "33.0.3";
+    platformTools = "34.0.4";
     buildTools = [ "30.0.3" ];
   };
 
