@@ -1704,17 +1704,21 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let bundle = openmls_group.self_update(
-                    &provider,
-                    &self.context().identity.installation_keys,
-                    LeafNodeParameters::default(),
-                )?;
+                let provider = self.mls_provider();
+                let (bundle, staged_commit) = provider.transaction(|provider| {
+                    let bundle = openmls_group.self_update(
+                        &provider,
+                        &self.context().identity.installation_keys,
+                        LeafNodeParameters::default(),
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
-                let commit = bundle.commit();
+                    Ok::<_, GroupError>((bundle, staged_commit))
+                })?;
 
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: commit.tls_serialize_detached()?,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    payload_to_publish: bundle.commit().tls_serialize_detached()?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1727,17 +1731,23 @@ where
                     metadata_intent.field_value,
                 )?;
 
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    &provider,
-                    mutable_metadata_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
+                let provider = self.mls_provider();
+                let (commit, staged_commit) = provider.transaction(|provider| {
+                    let (commit, _, _) = openmls_group.update_group_context_extensions(
+                        &provider,
+                        mutable_metadata_extensions,
+                        &self.context().identity.installation_keys,
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+
+                    Ok::<_, GroupError>((commit, staged_commit))
+                })?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1750,16 +1760,23 @@ where
                     admin_list_update_intent,
                 )?;
 
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    &provider,
-                    mutable_metadata_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
+                let provider = self.mls_provider();
+                let (commit, staged_commit) = provider.transaction(|provider| {
+                    let (commit, _, _) = openmls_group.update_group_context_extensions(
+                        &provider,
+                        mutable_metadata_extensions,
+                        &self.context().identity.installation_keys,
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+
+                    Ok::<_, GroupError>((commit, staged_commit))
+                })?;
+
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -1771,15 +1788,23 @@ where
                     openmls_group,
                     update_permissions_intent,
                 )?;
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    &provider,
-                    group_permissions_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
+
+                let provider = self.mls_provider();
+                let (commit, staged_commit) = provider.transaction(|provider| {
+                    let (commit, _, _) = openmls_group.update_group_context_extensions(
+                        &provider,
+                        group_permissions_extensions,
+                        &self.context().identity.installation_keys,
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+
+                    Ok::<_, GroupError>((commit, staged_commit))
+                })?;
+
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
@@ -2168,18 +2193,15 @@ where
         }
     }
 
-    let mut failed_installations: Vec<Vec<u8>> = old_group_membership
+    let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
         .failed_installations
         .clone()
         .into_iter()
         .chain(new_failed_installations)
-        .collect::<HashSet<_>>()
-        .into_iter()
         .collect();
 
     let common: HashSet<_> = failed_installations
-        .iter()
-        .filter(|item| installation_diff.removed_installations.contains(*item))
+        .intersection(&installation_diff.removed_installations)
         .cloned()
         .collect();
 
@@ -2193,7 +2215,7 @@ where
         new_installations,
         new_key_packages,
         installation_diff.removed_installations,
-        failed_installations,
+        failed_installations.into_iter().collect(),
     ))
 }
 #[allow(dead_code)]
@@ -2303,25 +2325,29 @@ where
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    // Create the commit
-    let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-        &provider,
-        &signer,
-        &changes_with_kps.new_key_packages,
-        &leaf_nodes_to_remove,
-        new_extensions,
-    )?;
+    let (commit, post_commit_action, staged_commit) = provider.transaction(|provider| {
+        // Create the commit
+        let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
+            &provider,
+            &signer,
+            &changes_with_kps.new_key_packages,
+            &leaf_nodes_to_remove,
+            new_extensions,
+        )?;
 
-    let post_commit_action = match maybe_welcome_message {
-        Some(welcome_message) => Some(PostCommitAction::from_welcome(
-            welcome_message,
-            changes_with_kps.new_installations,
-        )?),
-        None => None,
-    };
+        let post_commit_action = match maybe_welcome_message {
+            Some(welcome_message) => Some(PostCommitAction::from_welcome(
+                welcome_message,
+                changes_with_kps.new_installations,
+            )?),
+            None => None,
+        };
 
-    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
-        .ok_or_else(|| GroupError::MissingPendingCommit)?;
+        let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
+            .ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+        Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
+    })?;
 
     Ok(Some(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,
