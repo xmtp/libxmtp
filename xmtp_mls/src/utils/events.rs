@@ -1,9 +1,56 @@
-use std::sync::Arc;
-
-use crate::groups::device_sync::DeviceSyncError;
+use crate::{
+    client::ClientError,
+    context::XmtpMlsLocalContext,
+    groups::device_sync::DeviceSyncError,
+    worker::{NeedsDbReconnect, Worker, WorkerKind},
+};
+use parking_lot::Mutex;
+use std::sync::{mpsc::Sender, Arc, LazyLock};
+use thiserror::Error;
+use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
-use xmtp_db::XmtpOpenMlsProvider;
+use xmtp_db::{events::Events, StorageError, XmtpDb, XmtpOpenMlsProvider};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
+
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    #[error("client error: {0}")]
+    Client(#[from] ClientError),
+}
+impl NeedsDbReconnect for EventError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(s) => s.db_needs_connection(),
+        }
+    }
+}
+
+static EVENT_TX: LazyLock<Mutex<Option<Sender<Events>>>> = LazyLock::new(|| Mutex::default());
+
+pub struct EventWorker<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<ApiClient, Db> Worker for EventWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    Db: XmtpDb + 'static + Send + Sync,
+{
+    type Error = EventError;
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::Event
+    }
+
+    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
 
 pub async fn upload_debug_archive(
     provider: &Arc<XmtpOpenMlsProvider>,

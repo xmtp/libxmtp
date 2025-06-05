@@ -13,6 +13,7 @@ pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
     KeyPackageCleaner,
+    Event,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
