@@ -226,7 +226,7 @@ where
         self.context.api().api_client.identity_stats()
     }
 
-    pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
+    pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier + Send + Sync>> {
         &self.context.scw_verifier
     }
 
@@ -262,7 +262,7 @@ impl<ApiClient, Db> Client<ApiClient, Db> {
 impl<ApiClient, Db> Client<ApiClient, Db>
 where
     ApiClient: XmtpApi,
-    Db: XmtpDb + Send + Sync,
+    Db: XmtpDb,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {

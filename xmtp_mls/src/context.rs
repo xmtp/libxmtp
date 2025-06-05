@@ -160,7 +160,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
-    pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
+    pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier + Send + Sync>>,
     pub(crate) workers: Arc<parking_lot::Mutex<HashMap<WorkerKind, Box<dyn WorkerManager>>>>,
     pub(crate) device_sync: DeviceSync,
 }
@@ -185,7 +185,7 @@ where
         &self.store
     }
 
-    pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
+    pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier + Send + Sync>> {
         &self.scw_verifier
     }
 

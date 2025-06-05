@@ -1,3 +1,7 @@
+use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
+use crate::{
+    StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
+};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -5,11 +9,6 @@ use diesel::{
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
-};
-
-use super::{ConnectionExt, Sqlite, db_connection::DbConnection, schema::refresh_state};
-use crate::{
-    StoreOrIgnore, impl_store, impl_store_or_ignore, {NotFound, StorageError},
 };
 
 #[repr(i32)]

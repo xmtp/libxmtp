@@ -28,7 +28,7 @@ impl DecryptedWelcome {
         let join_config = build_group_join_config();
 
         let processed_welcome =
-            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome.clone())?;
+            ProcessedWelcome::new_from_welcome(provider, &join_config, welcome)?;
 
         let psks = processed_welcome.psks();
         if !psks.is_empty() {

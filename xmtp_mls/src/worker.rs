@@ -22,7 +22,8 @@ pub(crate) trait WorkerManager: Send + Sync {
 
 impl<W> WorkerManager for WorkerRunner<W>
 where
-    W: Worker + Send + Sync + 'static,
+    W: Worker + Send + Sync,
+    <W as Worker>::Error: Send,
 {
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.metrics.lock().clone().and_then(|m| m.downcast().ok())
@@ -30,12 +31,12 @@ where
 
     fn spawn(&self) -> WorkerKind {
         let mut worker = (self.create_fn)();
-        *self.metrics.lock() = worker.metrics().map(|a| a as Arc<_>);
+        *self.metrics.lock() = worker.metrics();
         let kind = worker.kind();
 
-        xmtp_common::spawn(None, async move {
-            loop {
-                if let Err(err) = worker.run_tasks().await {
+        tokio::task::spawn_local({
+            async move {
+                while let Err(err) = worker.run_tasks().await {
                     if err.needs_db_reconnect() {
                         tracing::warn!("Pool disconnected. task will restart on reconnect");
                         break;
@@ -58,20 +59,22 @@ pub struct WorkerRunner<W> {
     _worker: PhantomData<W>,
 }
 
-impl<W> WorkerRunner<W> {
+impl<W> WorkerRunner<W>
+where
+    W: Worker + Send + Sync,
+    <W as Worker>::Error: Send,
+{
     pub fn register_new_worker<ApiClient, Db, F>(
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         create_fn: F,
     ) where
         F: Fn() -> W + Send + Sync + 'static,
-        W: Worker + 'static,
+        W: Worker + Send + Sync,
     {
-        let create_fn = Box::new(create_fn);
-
         let metrics = Arc::new(Mutex::default());
         let runner = Box::new(WorkerRunner {
             metrics: metrics.clone(),
-            create_fn,
+            create_fn: Box::new(create_fn),
             _worker: PhantomData::<W>,
         });
 
@@ -82,11 +85,8 @@ impl<W> WorkerRunner<W> {
 }
 
 #[async_trait::async_trait]
-pub trait Worker
-where
-    Self: Send + Sync,
-{
-    type Error: NeedsDbReconnect + Debug + Send;
+pub trait Worker: 'static {
+    type Error: NeedsDbReconnect + Debug;
 
     fn kind(&self) -> WorkerKind;
     async fn run_tasks(&mut self) -> Result<(), Self::Error>;

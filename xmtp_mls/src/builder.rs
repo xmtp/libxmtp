@@ -62,7 +62,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     identity: Option<Identity>,
     store: Option<Db>,
     identity_strategy: IdentityStrategy,
-    scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier>>>,
+    scw_verifier: Option<Arc<Box<dyn SmartContractSignatureVerifier + Send + Sync>>>,
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
@@ -322,7 +322,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
     pub fn with_scw_verifier(
         self,
-        verifier: impl SmartContractSignatureVerifier + 'static,
+        verifier: impl SmartContractSignatureVerifier + Send + Sync + 'static,
     ) -> ClientBuilder<ApiClient, Db> {
         ClientBuilder {
             api_client: self.api_client,
@@ -357,7 +357,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Arc::new(Box::new(RemoteSignatureVerifier::new(api))
-                as Box<dyn SmartContractSignatureVerifier>)),
+                as Box<dyn SmartContractSignatureVerifier + Send + Sync>)),
             store: self.store,
 
             device_sync_server_url: self.device_sync_server_url,

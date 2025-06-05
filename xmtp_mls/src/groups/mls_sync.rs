@@ -9,6 +9,7 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
@@ -42,20 +43,6 @@ use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
 };
-use xmtp_api::XmtpApi;
-use xmtp_db::{
-    events::{Details, Event, Events},
-    group::{ConversationType, StoredGroup},
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    sql_key_store::{self, SqlKeyStore},
-    user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
-};
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
-
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -85,10 +72,22 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
+use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::{
+    events::{Details, Event, Events},
+    group::{ConversationType, StoredGroup},
+    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    refresh_state::EntityKind,
+    sql_key_store::{self, SqlKeyStore},
+    user_preferences::StoredUserPreferences,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
+};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
@@ -1983,6 +1982,11 @@ where
      */
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
+        let cursor = self
+            .mls_provider()
+            .db()
+            .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+
         let welcomes = action
             .installations
             .into_iter()
@@ -1998,6 +2002,7 @@ where
                         data: encrypted,
                         hpke_public_key: installation.hpke_public_key,
                         wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
+                        group_refresh_state_cursor: cursor as u64,
                     })),
                 })
             })
