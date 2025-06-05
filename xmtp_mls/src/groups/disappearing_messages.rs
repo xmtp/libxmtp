@@ -34,7 +34,8 @@ pub struct DisappearingMessagesWorker<ApiClient, Db> {
     init: OnceCell<()>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<ApiClient, Db> Worker for DisappearingMessagesWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,

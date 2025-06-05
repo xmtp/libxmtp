@@ -23,6 +23,7 @@ pub(crate) trait WorkerManager: Send + Sync {
 impl<W> WorkerManager for WorkerRunner<W>
 where
     W: Worker + Send + Sync + 'static,
+    <W as Worker>::Error: Send,
 {
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.metrics.lock().clone().and_then(|m| m.downcast().ok())
@@ -58,7 +59,11 @@ pub struct WorkerRunner<W> {
     _worker: PhantomData<W>,
 }
 
-impl<W> WorkerRunner<W> {
+impl<W> WorkerRunner<W>
+where
+    W: Worker + Send + Sync + 'static,
+    <W as Worker>::Error: Send,
+{
     pub fn register_new_worker<ApiClient, Db, F>(
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         create_fn: F,
@@ -81,12 +86,10 @@ impl<W> WorkerRunner<W> {
     }
 }
 
-#[async_trait::async_trait]
-pub trait Worker
-where
-    Self: Send + Sync,
-{
-    type Error: NeedsDbReconnect + Debug + Send;
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+pub trait Worker {
+    type Error: NeedsDbReconnect + Debug;
 
     fn kind(&self) -> WorkerKind;
     async fn run_tasks(&mut self) -> Result<(), Self::Error>;
