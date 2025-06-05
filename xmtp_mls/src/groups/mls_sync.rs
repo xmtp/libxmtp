@@ -1788,15 +1788,23 @@ where
                     openmls_group,
                     update_permissions_intent,
                 )?;
-                let (commit, _, _) = openmls_group.update_group_context_extensions(
-                    &provider,
-                    group_permissions_extensions,
-                    &self.context().identity.installation_keys,
-                )?;
+
+                let provider = self.mls_provider();
+                let (commit, staged_commit) = provider.transaction(|provider| {
+                    let (commit, _, _) = openmls_group.update_group_context_extensions(
+                        &provider,
+                        group_permissions_extensions,
+                        &self.context().identity.installation_keys,
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+
+                    Ok::<_, GroupError>((commit, staged_commit))
+                })?;
+
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
                     payload_to_publish: commit_bytes,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
