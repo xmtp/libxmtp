@@ -2168,18 +2168,15 @@ where
         }
     }
 
-    let mut failed_installations: Vec<Vec<u8>> = old_group_membership
+    let mut failed_installations: HashSet<Vec<u8>> = old_group_membership
         .failed_installations
         .clone()
         .into_iter()
         .chain(new_failed_installations)
-        .collect::<HashSet<_>>()
-        .into_iter()
         .collect();
 
     let common: HashSet<_> = failed_installations
-        .iter()
-        .filter(|item| installation_diff.removed_installations.contains(*item))
+        .intersection(&installation_diff.removed_installations)
         .cloned()
         .collect();
 
@@ -2193,7 +2190,7 @@ where
         new_installations,
         new_key_packages,
         installation_diff.removed_installations,
-        failed_installations,
+        failed_installations.into_iter().collect(),
     ))
 }
 #[allow(dead_code)]
@@ -2303,25 +2300,29 @@ where
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    // Create the commit
-    let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-        &provider,
-        &signer,
-        &changes_with_kps.new_key_packages,
-        &leaf_nodes_to_remove,
-        new_extensions,
-    )?;
+    let (commit, post_commit_action, staged_commit) = provider.transaction(|provider| {
+        // Create the commit
+        let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
+            &provider,
+            &signer,
+            &changes_with_kps.new_key_packages,
+            &leaf_nodes_to_remove,
+            new_extensions,
+        )?;
 
-    let post_commit_action = match maybe_welcome_message {
-        Some(welcome_message) => Some(PostCommitAction::from_welcome(
-            welcome_message,
-            changes_with_kps.new_installations,
-        )?),
-        None => None,
-    };
+        let post_commit_action = match maybe_welcome_message {
+            Some(welcome_message) => Some(PostCommitAction::from_welcome(
+                welcome_message,
+                changes_with_kps.new_installations,
+            )?),
+            None => None,
+        };
 
-    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
-        .ok_or_else(|| GroupError::MissingPendingCommit)?;
+        let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
+            .ok_or_else(|| GroupError::MissingPendingCommit)?;
+
+        Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
+    })?;
 
     Ok(Some(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,
