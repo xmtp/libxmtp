@@ -690,6 +690,7 @@ where
 
             let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+
             Events::track(
                 db,
                 Some(stored_group.id.clone()),
@@ -700,12 +701,19 @@ where
                 })
             );
 
-            Ok(Self::new(
-                context,
+            let group = Self::new(
+                context.clone(),
                 stored_group.id,
                 stored_group.dm_id,
                 stored_group.created_at_ns,
-            ))
+            );
+
+            // If this group is from our own inbox - auto-consent to it.
+            if context.inbox_id() == stored_group.added_by_inbox_id {
+                group.update_consent_state(ConsentState::Allowed)?;
+            }
+
+            Ok(group)
         })
     }
 
