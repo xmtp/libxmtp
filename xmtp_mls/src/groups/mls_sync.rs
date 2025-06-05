@@ -1704,17 +1704,21 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let bundle = openmls_group.self_update(
-                    &provider,
-                    &self.context().identity.installation_keys,
-                    LeafNodeParameters::default(),
-                )?;
+                let provider = self.mls_provider();
+                let (bundle, staged_commit) = provider.transaction(|provider| {
+                    let bundle = openmls_group.self_update(
+                        &provider,
+                        &self.context().identity.installation_keys,
+                        LeafNodeParameters::default(),
+                    )?;
+                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
-                let commit = bundle.commit();
+                    Ok::<_, GroupError>((bundle, staged_commit))
+                })?;
 
                 Ok(Some(PublishIntentData {
-                    payload_to_publish: commit.tls_serialize_detached()?,
-                    staged_commit: get_and_clear_pending_commit(openmls_group, provider)?,
+                    payload_to_publish: bundle.commit().tls_serialize_detached()?,
+                    staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
                 }))
