@@ -337,12 +337,11 @@ where
             None,
         )?;
 
-        if intents.is_empty() {
+        let Some(intent) = intents.last() else {
             return Ok(Default::default());
-        }
+        };
 
-        self.sync_until_intent_resolved(intents[intents.len() - 1].id)
-            .await
+        self.sync_until_intent_resolved(intent.id).await
     }
 
     /**
