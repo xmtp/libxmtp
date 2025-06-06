@@ -86,6 +86,85 @@ where
     }
 }
 
+/// A convenient macro for tracking events in the XMTP system.
+///
+/// This macro provides a flexible way to create and track events with details and optional metadata
+/// such as group association and event level. Events are automatically timestamped and
+/// serialized before being sent to the event processing worker.
+///
+/// # Basic Usage
+///
+/// The macro requires an event name and details object as the first two arguments:
+///
+/// ```rust
+/// track!("user_login", {
+///     "timestamp": "2024-01-01T12:00:00Z",
+///     "method": "oauth"
+/// });
+/// ```
+///
+/// Track a message event with details:
+/// ```rust
+/// track!("message_sent", {
+///     "recipient": "alice@example.com",
+///     "message_type": "text",
+///     "size_bytes": 1024
+/// });
+/// ```
+///
+/// # Required Arguments
+///
+/// 1. **Event name** - A string literal or expression identifying the event type
+/// 2. **Details** - A JSON object containing event-specific data
+///
+/// # Optional Parameters
+///
+/// The macro supports several optional parameters that can be specified in any order:
+///
+/// - `group_id: <expr>` - Associates the event with a specific group ID
+/// - `group: <expr>` - Alias for `group_id` for convenience
+/// - `level: <expr>` - Sets the event level (see `EventLevel` enum)
+///
+/// # Examples
+///
+/// Track an event with group association:
+/// ```rust
+/// track!("group_created", {
+///     "name": "Team Chat",
+///     "member_count": 5
+/// }, group_id: group.id());
+/// ```
+///
+/// Track an event with custom level:
+/// ```rust
+/// track!("error_occurred", {
+///     "error_type": "network_timeout",
+///     "retry_count": 3
+/// }, level: EventLevel::Error);
+/// ```
+///
+/// Track an event with both group and level:
+/// ```rust
+/// track!("message_delivery_failed", {
+///     "reason": "recipient_offline",
+///     "will_retry": true
+/// }, group: group_id, level: EventLevel::Warning);
+/// ```
+///
+/// # Implementation Details
+///
+/// - Events are automatically timestamped with nanosecond precision
+/// - Details are serialized to JSON using `serde_json`
+/// - Events are sent asynchronously to an event worker for processing
+/// - If event tracking fails (e.g., serialization error), a warning is logged but execution continues
+/// - The macro is designed to be non-blocking and failure-safe
+///
+/// # Error Handling
+///
+/// The macro handles errors gracefully:
+/// - Serialization errors are logged as warnings
+/// - Channel send errors (if the event worker is unavailable) are logged as warnings
+/// - The calling code continues execution regardless of tracking success/failure
 #[macro_export]
 macro_rules! track {
     ($event:literal $(, $k:ident $(: $v:expr)?)*) => {
