@@ -3,6 +3,9 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester_utils;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod fixtures;
+
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     context::XmtpContextProvider,
@@ -75,6 +78,23 @@ impl ClientBuilder<TestClient> {
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
             None,
+            true,
+        )
+        .await
+    }
+
+    /// Test client without anything extra
+    pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = Self::new_api_client().await;
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+            Some(SyncWorkerMode::Disabled),
+            None,
+            false,
         )
         .await
     }
@@ -92,6 +112,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             None,
+            true,
         )
         .await
     }
@@ -112,6 +133,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             Some(version),
+            true,
         )
         .await
     }
@@ -129,6 +151,7 @@ impl ClientBuilder<TestClient> {
             None,
             None,
             None,
+            true,
         )
         .await
     }
@@ -149,6 +172,7 @@ impl ClientBuilder<TestClient> {
             Some(history_sync_url),
             None,
             None,
+            true,
         )
         .await
     }
@@ -167,6 +191,7 @@ impl ClientBuilder<TestClient> {
             None,
             None,
             None,
+            true,
         )
         .await
     }
@@ -245,6 +270,7 @@ async fn build_with_verifier<A, V>(
     sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
     version: Option<VersionInfo>,
+    telemetry: bool,
 ) -> Client<A>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -270,6 +296,10 @@ where
 
     if let Some(sync_worker_mode) = sync_worker_mode {
         builder = builder.device_sync_worker_mode(sync_worker_mode);
+    }
+
+    if !telemetry {
+        builder = builder.disable_local_telemetry();
     }
 
     let client = builder.build().await.unwrap();

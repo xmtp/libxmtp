@@ -21,9 +21,7 @@
 , corepack
 , lnav
 , zstd
-, llvmPackages_19
 , google-chrome
-, wasm-bindgen-cli
 , foundry-bin
 , graphite-cli
 , ...
@@ -65,7 +63,6 @@ mkShell {
     nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
-      wasm-bindgen-cli
       rust-toolchain
       fenix.rust-analyzer
       zstd
@@ -75,6 +72,7 @@ mkShell {
       openssl
       sqlite
       sqlcipher
+      # emscripten
 
       mktemp
       jdk21

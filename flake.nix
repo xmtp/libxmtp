@@ -9,7 +9,7 @@
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
     mkshell-util.url = "github:insipx/mkShell-util.nix";
-    foundry.url = "github:shazow/foundry.nix/monthly";
+    foundry.url = "github:shazow/foundry.nix/stable";
     crane = {
       url = "github:ipetkov/crane";
     };
@@ -45,7 +45,7 @@
           mkToolchain = targets: components: pkgs.fenix.combine [
             toolchain
             (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${c}"))
+            (pkgs.lib.forEach components (component: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${component}"))
           ];
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };

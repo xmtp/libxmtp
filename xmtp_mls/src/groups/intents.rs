@@ -24,22 +24,27 @@ use xmtp_db::{
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
 };
-use xmtp_proto::xmtp::mls::database::{
-    addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
-    post_commit_action::{
-        Installation as InstallationProto, Kind as PostCommitActionKind,
-        SendWelcomes as SendWelcomesProto,
+use xmtp_proto::xmtp::mls::{
+    database::{
+        addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
+        post_commit_action::{
+            Installation as InstallationProto, Kind as PostCommitActionKind,
+            SendWelcomes as SendWelcomesProto,
+        },
+        send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+        update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+        update_group_membership_data::{
+            Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+        },
+        update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
+        update_permission_data::{
+            self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1,
+        },
+        AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+        InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+        UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
     },
-    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
-    update_group_membership_data::{
-        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
-    },
-    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+    message_contents::WelcomeWrapperAlgorithm,
 };
 
 #[derive(Debug, Error)]
@@ -715,6 +720,7 @@ impl From<Installation> for InstallationProto {
         Self {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
+            welcome_wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
         }
     }
 }

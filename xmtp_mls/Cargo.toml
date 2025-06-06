@@ -31,6 +31,7 @@ test-utils = [
   "dep:public-suffix",
   "dep:futures-executor",
   "dep:mockall",
+  "dep:rstest",
 ]
 bench = [
   "test-utils",
@@ -106,6 +107,7 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
+rstest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -113,6 +115,7 @@ tracing-subscriber = { workspace = true, features = [
   "json",
   "registry",
 ], optional = true }
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = [
@@ -124,14 +127,11 @@ tokio = { workspace = true, features = [
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 openmls.workspace = true
-openssl.workspace = true
-openssl-sys.workspace = true
 xmtp_api_grpc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
 getrandom = { workspace = true }
-gloo-timers = { workspace = true, features = ["futures"] }
 openmls = { workspace = true, features = ["js"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 wasm-bindgen-futures.workspace = true
@@ -166,21 +166,37 @@ ethers = { workspace = true, features = ["openssl"] }
 mockito = "1.6.1"
 openmls = { workspace = true }
 tempfile = "3.15.0"
-tracing-subscriber = { workspace = true, features = [
-  "env-filter",
-  "fmt",
-  "ansi",
-  "json",
-] }
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
 ] }
+fdlimit = { workspace = true }
+futures-executor = { version = "0.3" }
+futures-test = "0.3.31"
+mockall.workspace = true
+once_cell.workspace = true
+openmls_basic_credential.workspace = true
+passkey = { version = "0.4" }
+public-suffix = { version = "0.1.2" }
+rstest = { workspace = true }
+rstest_reuse = { workspace = true }
+url = { workspace = true }
+wasm-bindgen-test.workspace = true
+xmtp_api = { workspace = true, features = ["test-utils"] }
+xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_db_test.workspace = true
+xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
+# Required for traced_test! macro
+tracing-subscriber = { workspace = true }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+futures-timer.workspace = true
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
@@ -194,6 +210,8 @@ diesel = { workspace = true, features = [
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
   "bundled",
 ] }
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
 
 [[bench]]
 harness = false
@@ -219,6 +237,3 @@ required-features = ["test-utils"]
 #harness = false
 #name = "sync"
 #required-features = ["bench"]
-
-[package.metadata.wasm-pack.profile.dev.wasm-bindgen]
-split-linked-modules = true

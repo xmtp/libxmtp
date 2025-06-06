@@ -6,7 +6,9 @@ use xmtp_db::{
     group_message::MsgQueryArgs,
 };
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
     tester!(alix1, sync_server, sync_worker, stream);
     tester!(bo);
@@ -25,6 +27,7 @@ async fn basic_sync() {
     assert_eq!(alix2_dm_msgs[0].decrypted_message_bytes, dm_msg.as_bytes());
 }
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
@@ -47,6 +50,7 @@ async fn only_one_payload_sent() {
     assert_ne!(timeout1.is_ok(), timeout2.is_ok());
 }
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
 async fn test_double_sync_works_fine() {
     tester!(alix1, sync_worker, sync_server);
@@ -74,7 +78,9 @@ async fn test_double_sync_works_fine() {
     alix2.test_talk_in_dm_with(&bo).await?;
 }
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_prefrence_sync() {
     tester!(alix1, sync_worker, sync_server, stream);
     tester!(bo);
@@ -106,7 +112,10 @@ async fn test_hmac_and_consent_prefrence_sync() {
     assert_eq!(alix2_dm.consent_state()?, ConsentState::Denied);
 }
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
+#[timeout(std::time::Duration::from_secs(15))]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_devices_not_added_to_old_sync_groups() {
     use diesel::prelude::*;
     use xmtp_db::schema::groups::dsl;
