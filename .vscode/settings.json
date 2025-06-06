@@ -1,16 +1,11 @@
 {
   "rust-analyzer.cargo.sysroot": "discover",
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": [
-    "--all-features",
-    "--all-targets",
-    "--no-deps",
-    "--exclude bindings_wasm"
-  ],
   "rust-analyzer.linkedProjects": ["Cargo.toml"],
   "rust-analyzer.cargo.allTargets": true,
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.diagnostics.enable": true,
+  "rust-analyzer.check.extraArgs": ["--exclude bindings_wasm"],
   "rust-analyzer.diagnostics.disabled": [
     "unlinked-file",
     "unresolved-macro-call",
@@ -18,9 +13,7 @@
     "macro-error"
   ],
   "rust-analyzer.cargo.buildScripts.enable": false,
-  "rust-analyzer.files.exclude": [
-    "bindings_wasm/**"
-  ],
+  "rust-analyzer.files.exclude": ["bindings_wasm/**"],
   "rust-analyzer.procMacro.attributes.enable": true,
   "rust-analyzer.procMacro.ignored": {
     "tracing": ["instrument"],

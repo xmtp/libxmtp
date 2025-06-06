@@ -1,7 +1,7 @@
 use openmls::versions::ProtocolVersion;
 
 use xmtp_common::{NS_IN_30_DAYS, NS_IN_HOUR, NS_IN_SEC};
-pub use xmtp_cryptography::configuration::CIPHERSUITE;
+pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 pub struct DeviceSyncUrls;
 

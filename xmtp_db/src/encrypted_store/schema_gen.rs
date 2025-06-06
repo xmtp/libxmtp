@@ -130,6 +130,7 @@ diesel::table! {
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
         delete_at_ns -> Nullable<BigInt>,
+        post_quantum_public_key -> Nullable<Binary>,
     }
 }
 
