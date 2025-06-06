@@ -3,7 +3,17 @@ use super::{
     group_intent::IntentKind, schema::events::dsl,
 };
 use crate::{Store, impl_store, schema::events};
-use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
+use diesel::{
+    Insertable, Queryable,
+    associations::HasTable,
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
+    prelude::*,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Integer,
+    sqlite::Sqlite,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
@@ -16,6 +26,50 @@ pub struct Events {
     pub group_id: Option<Vec<u8>>,
     pub event: String,
     pub details: serde_json::Value,
+    pub level: EventLevel,
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+/// The state of the consent
+pub enum EventLevel {
+    // Just run-of-the-mill info (no border on dashboard)
+    None = 0,
+    // green border on dashboard
+    Success = 1,
+    // orange border on dashboard
+    Warn = 2,
+    // red border on dashboard
+    Error = 3,
+    // Irrecoverable error - purple border on dashboard
+    Fault = 4,
+}
+
+impl ToSql<Integer, Sqlite> for EventLevel
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for EventLevel
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            0 => Ok(EventLevel::None),
+            1 => Ok(EventLevel::Success),
+            2 => Ok(EventLevel::Warn),
+            3 => Ok(EventLevel::Error),
+            4 => Ok(EventLevel::Fault),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
 }
 
 impl_store!(Events, events);
@@ -57,6 +111,7 @@ impl Events {
             group_id,
             event,
             details: serialized_details,
+            level: EventLevel::None,
         }
         .store(db);
         if let Err(err) = result {
@@ -161,7 +216,7 @@ mod tests {
 
     use crate::{
         Store,
-        events::{Details, Event, Events},
+        events::{Details, Event, EventLevel, Events},
         group_intent::IntentKind,
         with_connection,
     };
@@ -176,6 +231,7 @@ mod tests {
                 group_id: None,
                 event: serde_json::to_string(&Event::ClientBuild)?,
                 details: serde_json::to_value(details.clone())?,
+                level: EventLevel::None,
             }
             .store(conn)?;
             Events {
@@ -185,6 +241,7 @@ mod tests {
                 details: serde_json::to_value(Details::QueueIntent {
                     intent_kind: IntentKind::KeyUpdate,
                 })?,
+                level: EventLevel::None,
             }
             .store(conn)?;
 

@@ -14,11 +14,13 @@ use crate::{
     identity_updates::{load_identity_updates, IdentityUpdateError, IdentityUpdates},
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEventError, LocalEvents},
+    track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
+use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -29,7 +31,7 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    events::{Details, Event, Events},
+    events::{Details, Event, EventLevel, Events},
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -468,13 +470,13 @@ where
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
-        Events::track(
-            self.mls_provider().db(),
-            Some(group.group_id.clone()),
-            Event::GroupCreate,
-            Details::GroupCreate {
-                conversation_type: ConversationType::Group,
+        track!(
+            "Group Create",
+            {
+                "conversation_type": ConversationType::Group
             },
+            group: &group.group_id,
+            level: EventLevel::None
         );
 
         Ok(group)
