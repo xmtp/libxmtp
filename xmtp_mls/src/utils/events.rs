@@ -5,11 +5,17 @@ use crate::{
     worker::{NeedsDbReconnect, Worker, WorkerKind},
 };
 use parking_lot::Mutex;
-use std::sync::{mpsc::Sender, Arc, LazyLock};
+use serde::Serialize;
+use std::sync::{Arc, LazyLock};
 use thiserror::Error;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
-use xmtp_db::{events::Events, StorageError, XmtpDb, XmtpOpenMlsProvider};
+use xmtp_common::time::now_ns;
+use xmtp_db::{
+    events::{Event, Events},
+    StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
 #[derive(Debug, Error)]
@@ -28,10 +34,65 @@ impl NeedsDbReconnect for EventError {
     }
 }
 
-static EVENT_TX: LazyLock<Mutex<Option<Sender<Events>>>> = LazyLock::new(|| Mutex::default());
+static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> =
+    LazyLock::new(|| Mutex::default());
+
+struct EventBuilder<E: AsRef<Event>, D: Serialize> {
+    event: E,
+    details: D,
+    group_id: Option<Vec<u8>>,
+}
+
+impl<E, D> EventBuilder<E, D>
+where
+    E: AsRef<Event>,
+    D: Serialize,
+{
+    fn build(self) -> Result<Events, serde_json::Error> {
+        Ok(Events {
+            created_at_ns: now_ns(),
+            details: serde_json::to_value(&self.details)?,
+            event: serde_json::to_string(self.event.as_ref())?,
+            group_id: self.group_id,
+        })
+    }
+
+    fn track(self) {
+        let event = match self.build() {
+            Ok(event) => event,
+            Err(err) => {
+                tracing::warn!("Unable to track event: {err:?}");
+                return;
+            }
+        };
+
+        if let Some(tx) = &*EVENT_TX.lock() {
+            if let Err(err) = tx.send(event) {
+                tracing::warn!("Unable to send event to writing worker: {err:?}");
+            }
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! track {
+    ($event:ident, ) => {};
+}
 
 pub struct EventWorker<ApiClient, Db> {
+    rx: UnboundedReceiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> EventWorker<ApiClient, Db> {
+    pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *EVENT_TX.lock() = Some(tx);
+        Self {
+            rx,
+            context: context.clone(),
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -48,6 +109,9 @@ where
     }
 
     async fn run_tasks(&mut self) -> Result<(), Self::Error> {
+        while let Some(event) = self.rx.recv().await {
+            event.store(&self.context.db())?;
+        }
         Ok(())
     }
 }
