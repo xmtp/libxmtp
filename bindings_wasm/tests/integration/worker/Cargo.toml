@@ -1,0 +1,22 @@
+[package]
+name = "bindings_wasm_integration_worker"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bindings-wasm = { workspace = true, features = ["test-utils"] }
+console_error_panic_hook.workspace = true
+futures.workspace = true
+js-sys.workspace = true
+speedy = "0.8"
+tracing.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = { workspace = true }
+web-sys.workspace = true
+xmtp_common.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+split-linked-modules = true

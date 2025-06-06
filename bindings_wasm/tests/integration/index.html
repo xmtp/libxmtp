@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+  </head>
+  <body>
+    open browser console to see some output
+    <script type="module">
+      import init, { start_app, XmtpClient } from "./lib/dist/bindings_wasm_integration.js";
+      console.log("starting");
+      async function main() {
+          const wasm = await init();
+          await start_app();
+          var c = await new XmtpClient();
+          console.log('Client has Installation ID:' + await c.info());
+          console.log('its the same client ' + await c.info());
+          var stream = await c.stream_conversations();
+         // stream.then((group) => {
+         //   console.log("GROUP " + group);
+         // });
+         var g = await c.create_group_by_inbox_ids(new Array());
+        console.log("created group ", g.group_id());
+        for await (const item of stream) {
+          console.log(JSON.stringify(item));
+        }
+      }
+      main();
+    </script>
+  </body>
+</html>

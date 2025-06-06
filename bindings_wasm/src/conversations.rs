@@ -22,6 +22,10 @@ use xmtp_mls::groups::PreconfiguredPolicies;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
+#[cfg_attr(
+  any(test, feature = "test-utils"),
+  derive(speedy::Writable, speedy::Readable)
+)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
