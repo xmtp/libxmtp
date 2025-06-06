@@ -4,6 +4,7 @@ use crate::{
     groups::{
         device_sync::{
             preference_sync::{PreferenceSyncService, PreferenceUpdate},
+            worker::SyncMetric,
             DeviceSyncClient,
         },
         group_permissions::PolicySet,
@@ -16,6 +17,7 @@ use crate::{
     subscriptions::{LocalEventError, LocalEvents},
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    worker::{metrics::WorkerMetrics, WorkerRunner},
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
@@ -148,6 +150,7 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
     pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) workers: WorkerRunner,
 }
 
 impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient, XDb> {
@@ -192,6 +195,7 @@ impl<ApiClient, Db> Clone for Client<ApiClient, Db> {
         Self {
             context: self.context.clone(),
             local_events: self.local_events.clone(),
+            workers: self.workers.clone(),
         }
     }
 }
@@ -248,12 +252,17 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
-
-        for manager in self.context.workers.lock().values() {
-            manager.spawn();
-        }
-
+        self.workers.spawn();
         Ok(())
+    }
+
+    /// yields until the sync worker notifies that it is initialized and running.
+    pub async fn wait_for_sync_worker_init(&self) {
+        self.workers.wait_for_sync_worker_init().await;
+    }
+
+    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.workers.sync_metrics()
     }
 }
 
@@ -298,7 +307,7 @@ where
     }
 
     pub fn device_sync(&self) -> DeviceSyncClient<ApiClient, Db> {
-        DeviceSyncClient::new(self.context.clone())
+        DeviceSyncClient::new(self.context.clone(), self.workers.sync_metrics())
     }
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
@@ -413,8 +422,8 @@ where
             let _ = self
                 .local_events
                 .send(LocalEvents::PreferencesChanged(updates.clone()));
-            PreferenceSyncService::new(self.context.clone())
-                .sync_preferences(updates)
+            PreferenceSyncService::<ApiClient, Db>::new()
+                .sync_preferences(updates, &self.device_sync())
                 .await?;
         }
 

@@ -135,20 +135,21 @@ pub struct DeviceSyncClient<ApiClient, Db> {
     pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
     pub(crate) mls_store: MlsStore<ApiClient, Db>,
     pub(crate) preference_sync: PreferenceSyncService<ApiClient, Db>,
+    pub(crate) sync_metrics: Option<Arc<WorkerMetrics<SyncMetric>>>,
 }
 
 impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    pub fn new(
+        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        sync_metrics: Option<Arc<WorkerMetrics<SyncMetric>>>,
+    ) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
             mls_store: MlsStore::new(context.clone()),
-            preference_sync: PreferenceSyncService::new(context),
+            preference_sync: PreferenceSyncService::<ApiClient, Db>::new(),
+            sync_metrics,
         }
-    }
-
-    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.context.worker_metrics()
     }
 }
 
@@ -167,13 +168,6 @@ where
 
     pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
         self.context.db()
-    }
-
-    /// Blocks until the sync worker notifies that it is initialized and running.
-    pub async fn wait_for_sync_worker_init(&self) {
-        if let Some(handle) = self.worker_metrics() {
-            let _ = handle.wait_for_init().await;
-        }
     }
 
     /// Sends a device sync message.
@@ -241,7 +235,7 @@ where
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
-                if let Some(handle) = self.worker_metrics() {
+                if let Some(handle) = &self.sync_metrics {
                     handle.increment_metric(SyncMetric::SyncGroupCreated);
                 }
                 sync_group

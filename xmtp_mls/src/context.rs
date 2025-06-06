@@ -1,16 +1,13 @@
 use crate::builder::SyncWorkerMode;
 use crate::client::DeviceSync;
-use crate::groups::device_sync::worker::SyncMetric;
 use crate::subscriptions::LocalEvents;
 use crate::utils::VersionInfo;
-use crate::worker::metrics::WorkerMetrics;
-use crate::worker::{WorkerKind, WorkerManager};
+use crate::worker::WorkerRunner;
 use crate::GroupCommitLock;
 use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
@@ -19,6 +16,40 @@ use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
+
+pub trait XmtpSharedContext: Sized {
+    type Db: XmtpDb;
+    type ApiClient: XmtpApi;
+    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>>;
+}
+
+impl<XApiClient, XDb> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb>>
+where
+    XApiClient: XmtpApi,
+    XDb: XmtpDb,
+{
+    type Db = XDb;
+
+    type ApiClient = XApiClient;
+
+    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>> {
+        &self
+    }
+}
+
+impl<XApiClient, XDb> XmtpSharedContext for &Arc<XmtpMlsLocalContext<XApiClient, XDb>>
+where
+    XApiClient: XmtpApi,
+    XDb: XmtpDb,
+{
+    type Db = XDb;
+
+    type ApiClient = XApiClient;
+
+    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>> {
+        &self
+    }
+}
 
 pub trait XmtpContextProvider: Sized {
     type Db: XmtpDb;
@@ -161,8 +192,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
-    pub(crate) workers: Arc<parking_lot::Mutex<HashMap<WorkerKind, Box<dyn WorkerManager>>>>,
     pub(crate) device_sync: DeviceSync,
+    pub(crate) workers: WorkerRunner,
 }
 
 impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db>
@@ -240,12 +271,5 @@ impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db> {
 
     pub fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
-    }
-
-    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.workers
-            .lock()
-            .get(&WorkerKind::DeviceSync)?
-            .sync_metrics()
     }
 }
