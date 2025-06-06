@@ -2272,7 +2272,7 @@ impl FfiConversation {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
-    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
+    pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
         let metadata = self.inner.metadata()?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),

@@ -17,7 +17,7 @@ async fn test_auto_consent_to_own_group() {
     assert_eq!(unwanted.consent_state()?, ConsentState::Unknown);
 
     tester!(alix2, from: alix1);
-    unwanted.send_message(b"hi unwanted group").await?;
+    unwanted_bo.send_message(b"hi unwanted group").await?;
 
     alix2.sync_welcomes().await?;
     let unwanted2 = alix2.group(&unwanted.group_id)?;
