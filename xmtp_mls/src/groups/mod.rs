@@ -709,8 +709,9 @@ where
             );
 
             // If this group is from our own inbox - auto-consent to it.
+
             if context.inbox_id() == stored_group.added_by_inbox_id {
-                group.update_consent_state(ConsentState::Allowed)?;
+                group.quietly_update_consent_state(ConsentState::Allowed)?;
             }
 
             Ok(group)
@@ -1409,16 +1410,24 @@ where
         }
     }
 
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    // Returns new consent records. Does not broadcast changes.
+    pub fn quietly_update_consent_state(
+        &self,
+        state: ConsentState,
+    ) -> Result<Vec<StoredConsentRecord>, GroupError> {
         let conn = self.context().db();
-
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        let new_records: Vec<_> = conn
-            .insert_or_replace_consent_records(&[consent_record.clone()])?
+
+        Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let new_records: Vec<PreferenceUpdate> = self
+            .quietly_update_consent_state(state)?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();

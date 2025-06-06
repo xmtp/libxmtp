@@ -1075,7 +1075,7 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        assert_eq!(messages.len(), 4);
+        assert_eq!(messages.len(), 3);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
         let new_alice_dm = alice.stitched_group(&alice_dm.group_id).unwrap();
