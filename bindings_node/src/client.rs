@@ -369,6 +369,11 @@ impl Client {
   }
 
   #[napi]
+  pub fn clear_all_statistics(&self) {
+    self.inner_client.clear_stats()
+  }
+
+  #[napi]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
     let provider = Arc::new(self.inner_client().mls_provider());
     Ok(

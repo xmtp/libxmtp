@@ -380,6 +380,11 @@ impl Client {
     format!("{:?}", aggregate)
   }
 
+  #[wasm_bindgen(js_name = clearAllStatistics)]
+  pub fn clear_all_statistics(&self) {
+    self.inner_client.clear_stats()
+  }
+
   #[wasm_bindgen(js_name = uploadDebugArchive)]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
     let provider = Arc::new(self.inner_client().mls_provider());

@@ -226,6 +226,11 @@ where
         self.context.api().api_client.identity_stats()
     }
 
+    pub fn clear_stats(&self) {
+        self.context.api().api_client.stats().clear();
+        self.context.api().api_client.identity_stats().clear();
+    }
+
     pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
         &self.context.scw_verifier
     }
