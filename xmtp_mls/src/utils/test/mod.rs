@@ -78,7 +78,7 @@ impl ClientBuilder<TestClient> {
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
             None,
-            false,
+            true,
         )
         .await
     }

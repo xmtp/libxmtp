@@ -443,8 +443,7 @@ mod test {
     #[case::two_conversations(2)]
     #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(10))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[timeout(std::time::Duration::from_secs(5))]
     #[awt]
     async fn stream_welcomes(
         #[future] alix: FullXmtpClient,
@@ -470,7 +469,7 @@ mod test {
             groups.remove(index);
         }
 
-        assert!(groups.is_empty());
+        assert!(groups.is_empty(), "Groups must have all been received");
     }
 
     #[rstest::rstest]
