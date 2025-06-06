@@ -256,7 +256,7 @@ async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
     )
 ])]
 #[xmtp_common::test]
-fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) {
+async fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) {
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {

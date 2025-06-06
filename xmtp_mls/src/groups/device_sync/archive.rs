@@ -106,6 +106,7 @@ mod tests {
     };
     use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
         use futures::io::BufReader;

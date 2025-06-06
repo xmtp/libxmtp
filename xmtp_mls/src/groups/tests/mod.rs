@@ -478,12 +478,12 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // 4) Sync from Alix's side
     group.sync().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // 5) Bola_1 syncs welcomes and checks for groups
     bola_1.sync_welcomes().await.unwrap();
     bola_2.sync_welcomes().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
 
     let bola_1_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
     let bola_2_groups = bola_2.find_groups(GroupQueryArgs::default()).unwrap();
@@ -631,7 +631,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     // 5) Bola_1 syncs and confirms it has the DM
     bola_1.sync_welcomes().await.unwrap();
-    // tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    // xmtp_common::time::sleep(std::time::Duration::from_secs(4)).await;
 
     let bola_groups = bola_1.find_groups(GroupQueryArgs::default()).unwrap();
 
@@ -2501,7 +2501,9 @@ async fn create_membership_update_no_sync(group: &ConcreteMlsGroup) {
  * We need to be safe even in situations where there are multiple
  * intents that do the same thing, leading to conflicts
  */
+#[rstest::rstest]
 #[xmtp_common::test(flavor = "multi_thread")]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn add_missing_installs_reentrancy() {
     let wallet = generate_local_wallet();
     let alix1 = ClientBuilder::new_test_client(&wallet).await;

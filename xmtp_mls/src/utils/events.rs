@@ -35,6 +35,7 @@ mod tests {
 
     use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
 
+    #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_debug_pkg() {
         tester!(alix, stream);
@@ -45,7 +46,7 @@ mod tests {
 
         let alix_dm = alix.group(&bo_dm.group_id)?;
         alix_dm.send_message(b"Hello there").await?;
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        xmtp_common::time::sleep(Duration::from_millis(1000)).await;
         alix_dm.send_message(b"Hello there").await?;
 
         caro.test_talk_in_dm_with(&alix).await?;

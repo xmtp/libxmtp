@@ -395,7 +395,7 @@ impl ConnectionExt for NativeDbConnection {
     {
         if self.in_transaction.load(Ordering::SeqCst) {
             let mut conn = self.write.lock();
-            return fun(&mut conn).map_err(ConnectionError::from);
+            fun(&mut conn).map_err(ConnectionError::from)
         } else if let Some(pool) = &*self.read.read() {
             tracing::trace!(
                 "pulling connection from pool, idle={}, total={}",
@@ -404,12 +404,12 @@ impl ConnectionExt for NativeDbConnection {
             );
             let mut conn = pool.get().map_err(PlatformStorageError::from)?;
 
-            return fun(&mut conn).map_err(ConnectionError::from);
+            fun(&mut conn).map_err(ConnectionError::from)
         } else {
-            return Err(ConnectionError::from(
+            Err(ConnectionError::from(
                 PlatformStorageError::PoolNeedsConnection,
-            ));
-        };
+            ))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
