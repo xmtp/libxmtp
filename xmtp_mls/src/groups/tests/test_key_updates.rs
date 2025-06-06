@@ -4,7 +4,9 @@ use std::{future::Future, pin::Pin, time::Duration};
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::events::Events;
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_key_rotation_with_optimistic_send() {
     tester!(alix, stream);
     tester!(bo, stream);
@@ -37,7 +39,7 @@ async fn test_key_rotation_with_optimistic_send() {
     join_all(futs).await;
 
     // Wait for the streams to finish.
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    xmtp_common::time::sleep(Duration::from_secs(5)).await;
 
     retry_async!(
         Retry::default(),
@@ -48,7 +50,9 @@ async fn test_key_rotation_with_optimistic_send() {
     assert_eq!(key_updates.len(), 1);
 }
 
+#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn key_update_out_of_epoch() {
     // Have bo join a group and immediately send several optimistic messages.
     // Add enough people to move the epoch ahead 5, then sync to ensure proper delivery.

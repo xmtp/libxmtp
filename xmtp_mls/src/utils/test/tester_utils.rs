@@ -124,6 +124,7 @@ where
             self.sync_url.as_deref(),
             Some(self.sync_mode),
             None,
+            true,
         )
         .await;
         let client = Arc::new(client);

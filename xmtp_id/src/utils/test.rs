@@ -1,5 +1,4 @@
 #![allow(clippy::unwrap_used)]
-
 use ethers::{
     contract::abigen,
     core::k256::{elliptic_curve::SecretKey, Secp256k1},
@@ -8,7 +7,6 @@ use ethers::{
     signers::LocalWallet,
 };
 use std::sync::LazyLock;
-
 abigen!(
     CoinbaseSmartWallet,
     "artifact/CoinbaseSmartWallet.json",
