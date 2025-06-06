@@ -174,7 +174,6 @@ diesel = { workspace = true, features = [
 fdlimit = { workspace = true }
 futures-executor = { version = "0.3" }
 futures-test = "0.3.31"
-futures-timer.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
 openmls_basic_credential.workspace = true
@@ -197,6 +196,7 @@ xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+futures-timer.workspace = true
 ethers = { workspace = true, features = ["rustls"] }
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
@@ -210,6 +210,8 @@ diesel = { workspace = true, features = [
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
   "bundled",
 ] }
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
 
 [[bench]]
 harness = false

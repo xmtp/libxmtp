@@ -2,7 +2,7 @@ use crate::consent_state::{Consent, ConsentState};
 use crate::identity::Identifier;
 use crate::messages::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
-use crate::streams::{StreamCallback, StreamCloser};
+use crate::streams::{ConversationStream, StreamCallback, StreamCloser};
 use crate::user_preferences::UserPreference;
 use crate::{client::RustXmtpClient, conversation::Conversation};
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::UnwrapThrowExt;
 use wasm_bindgen::{JsError, JsValue};
+use wasm_streams::ReadableStream;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
@@ -535,6 +536,20 @@ impl Conversations {
     }
 
     Ok(crate::to_value(&hmac_map)?)
+  }
+
+  /// Returns a 'ReadableStream' of Conversations
+  #[wasm_bindgen(js_name = streamLocal)]
+  pub async fn stream_conversations_local(
+    &self,
+    conversation_type: Option<ConversationType>,
+  ) -> Result<web_sys::ReadableStream, JsError> {
+    let stream = self
+      .inner_client
+      .stream_conversations_owned(conversation_type.map(Into::into))
+      .await?;
+    let stream = ConversationStream::new(stream);
+    Ok(ReadableStream::from_stream(stream).into_raw())
   }
 
   #[wasm_bindgen(js_name = stream)]

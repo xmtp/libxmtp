@@ -444,14 +444,29 @@ mod test {
     #[case::two_conversations(2)]
     #[case::five_conversations(5)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(10))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
+    #[timeout(std::time::Duration::from_secs(45))]
     #[awt]
     async fn stream_welcomes(
         #[future] alix: FullXmtpClient,
         #[future] bo: FullXmtpClient,
         #[case] group_size: usize,
     ) {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+
+        let filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .parse("debug")
+            .unwrap();
+
+        tracing_subscriber::registry()
+            .with(tracing_wasm::WASMLayer::default())
+            .with(filter)
+            .init();
+
+        console_error_panic_hook::set_once();
+        tracing::info!("RUNNING TEST");
         let mut groups = vec![];
         let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
         for _ in 0..group_size {
@@ -471,7 +486,7 @@ mod test {
             groups.remove(index);
         }
 
-        assert!(groups.is_empty());
+        assert!(groups.is_empty(), "Groups must have all been received");
     }
 
     #[rstest::rstest]

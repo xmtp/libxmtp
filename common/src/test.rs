@@ -158,12 +158,15 @@ pub fn subscriber() -> impl tracing::Subscriber {
 /// A simple test logger that defaults to the INFO level
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub fn logger() {
-    use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
     INIT.get_or_init(|| {
-        let filter = EnvFilter::builder().parse("info").unwrap();
+        let filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .parse("xmtp_mls=debug")
+            .unwrap();
 
         tracing_subscriber::registry()
             .with(tracing_wasm::WASMLayer::default())

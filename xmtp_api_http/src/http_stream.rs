@@ -10,6 +10,7 @@ use reqwest::Response;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Deserializer;
 use std::{
+    collections::VecDeque,
     marker::PhantomData,
     pin::Pin,
     task::{ready, Context, Poll},
@@ -60,6 +61,7 @@ pin_project! {
     struct HttpPostStream<'a, R> {
         #[pin] http: StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>,
         remaining: Vec<u8>,
+        items: VecDeque<R>,
         _marker: PhantomData<&'a R>,
     }
 }
@@ -76,17 +78,16 @@ where
     ) -> Poll<Option<Self::Item>> {
         use Poll::*;
         let mut this = self.as_mut().project();
+        if let Some(item) = this.items.pop_front() {
+            return Ready(Some(Ok(item)));
+        }
         let item = ready!(this.http.as_mut().poll_next(cx));
         match item {
             Some(bytes) => {
                 let bytes = bytes.map_err(HttpClientError::from)?;
-                let mut items = Self::on_bytes(bytes, this.remaining)?;
-                let item = items.pop();
-                if let Some(item) = item {
-                    Ready(Some(Ok(item)))
-                } else {
-                    self.poll_next(cx)
-                }
+                self.on_bytes(bytes)?;
+                cx.waker().wake_by_ref();
+                Pending
             }
             None => Ready(None),
         }
@@ -101,6 +102,7 @@ where
         Self {
             http: establish,
             remaining: Vec::new(),
+            items: VecDeque::new(),
             _marker: PhantomData,
         }
     }
@@ -110,22 +112,21 @@ impl<R> HttpPostStream<'_, R>
 where
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
 {
-    fn on_bytes(bytes: bytes::Bytes, remaining: &mut Vec<u8>) -> Result<Vec<R>, HttpClientError> {
-        let bytes = &[remaining.as_ref(), bytes.as_ref()].concat();
-        remaining.clear();
+    fn on_bytes(&mut self, bytes: bytes::Bytes) -> Result<(), HttpClientError> {
+        let bytes = &[self.remaining.as_ref(), bytes.as_ref()].concat();
+        self.remaining.clear();
         let de = Deserializer::from_slice(bytes);
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
-        let mut items = Vec::new();
         while let Some(item) = deser_stream.next() {
             match item {
-                Ok(GrpcResponse::Ok(response)) => items.push(response),
-                Ok(GrpcResponse::SubscriptionItem(item)) => items.push(item.result),
+                Ok(GrpcResponse::Ok(response)) => self.items.push_back(response),
+                Ok(GrpcResponse::SubscriptionItem(item)) => self.items.push_back(item.result),
                 Ok(GrpcResponse::Err(e)) => {
                     return Err(HttpClientError::Grpc(e));
                 }
                 Err(e) => {
                     if e.is_eof() {
-                        *remaining = bytes[deser_stream.byte_offset()..].to_vec();
+                        self.remaining = bytes[deser_stream.byte_offset()..].to_vec();
                     } else {
                         return Err(HttpClientError::from(e));
                     }
@@ -133,11 +134,7 @@ where
                 Ok(GrpcResponse::Empty {}) => continue,
             }
         }
-
-        if items.len() > 1 {
-            tracing::warn!("more than one item deserialized from http stream");
-        }
-        Ok(items)
+        Ok(())
     }
 }
 

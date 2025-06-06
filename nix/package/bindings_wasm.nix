@@ -11,6 +11,7 @@
 , craneLib
 , lld
 , mkShell
+, sqlite
 }:
 let
   # Pinned Rust Version
@@ -41,7 +42,7 @@ let
     '';
 
     nativeBuildInputs = [ pkg-config wasm-pack emscripten lld binaryen wasm-bindgen-cli_0_2_100 ];
-    buildInputs = [ zstd ];
+    buildInputs = [ zstd sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
     RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
