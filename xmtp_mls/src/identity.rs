@@ -1,4 +1,5 @@
 use crate::configuration::CIPHERSUITE;
+use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::OpenMlsCrypto;
@@ -221,6 +222,15 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+}
+
+impl NeedsDbReconnect for IdentityError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::StorageError(s) => s.db_needs_connection(),
+            _ => false,
+        }
+    }
 }
 
 impl RetryableError for IdentityError {

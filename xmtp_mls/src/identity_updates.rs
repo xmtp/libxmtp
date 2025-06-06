@@ -2,7 +2,7 @@ use crate::{
     client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::preference_sync::PreferenceSyncService,
+        device_sync::{preference_sync::PreferenceSyncService, DeviceSyncClient},
         group_membership::{GroupMembership, MembershipDiff},
     },
     XmtpApi,
@@ -355,8 +355,8 @@ where
             )
         }
 
-        PreferenceSyncService::new(self.context.clone())
-            .cycle_hmac()
+        PreferenceSyncService::<ApiClient, Db>::new()
+            .cycle_hmac(&DeviceSyncClient::new(self.context.clone(), None))
             .await?;
         Ok(builder.build())
     }

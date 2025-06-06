@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use super::*;
 use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
 use xmtp_common::time::now_ns;
@@ -20,12 +22,14 @@ pub enum PreferenceUpdate {
 
 #[derive(Clone)]
 pub struct PreferenceSyncService<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    _marker: PhantomData<(ApiClient, Db)>,
 }
 
 impl<ApiClient, Db> PreferenceSyncService<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        Self { context }
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -37,36 +41,35 @@ where
     pub(crate) async fn sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
-    ) -> Result<(), ClientError> {
-        let device_sync = DeviceSyncClient::new(self.context.clone());
+        device_sync: &DeviceSyncClient<ApiClient, Db>,
+    ) -> Result<(Vec<PreferenceUpdate>, Vec<LegacyUserPreferenceUpdate>), ClientError> {
         device_sync
             .send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
                 updates: updates.clone().into_iter().map(From::from).collect(),
             }))
             .await?;
 
-        if let Some(handle) = self.context.worker_metrics() {
-            updates.iter().for_each(|update| match update {
-                PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::ConsentSent),
-                PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::HmacSent),
-            });
-        }
-
         // TODO: v1 support - remove this on next hammer
-        let legacy_updates = updates.into_iter().map(Into::into).collect();
-        LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self.context.clone())
-            .await?;
+        let legacy_updates = updates.clone().into_iter().map(Into::into).collect();
+        let legacy_updates =
+            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, device_sync).await?;
 
-        Ok(())
+        Ok((updates, legacy_updates))
     }
 
-    pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
+    pub(crate) async fn cycle_hmac(
+        &self,
+        device_sync: &DeviceSyncClient<ApiClient, Db>,
+    ) -> Result<(), ClientError> {
         tracing::info!("Sending new HMAC key to sync group.");
 
-        self.sync_preferences(vec![PreferenceUpdate::Hmac {
-            key: HmacKey::random_key(),
-            cycled_at_ns: now_ns(),
-        }])
+        self.sync_preferences(
+            vec![PreferenceUpdate::Hmac {
+                key: HmacKey::random_key(),
+                cycled_at_ns: now_ns(),
+            }],
+            device_sync,
+        )
         .await?;
 
         Ok(())
