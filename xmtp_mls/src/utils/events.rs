@@ -6,7 +6,10 @@ use crate::{
 };
 use parking_lot::Mutex;
 use serde::Serialize;
-use std::sync::{Arc, LazyLock};
+use std::{
+    fmt::Debug,
+    sync::{Arc, LazyLock},
+};
 use thiserror::Error;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use xmtp_api::XmtpApi;
@@ -14,7 +17,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events},
-    StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+    ConnectionExt, DbConnection, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -37,18 +40,17 @@ impl NeedsDbReconnect for EventError {
 static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> =
     LazyLock::new(|| Mutex::default());
 
-pub(crate) struct EventBuilder<E, D, G> {
+pub(crate) struct EventBuilder<'a, E, D> {
     pub event: E,
     pub details: D,
-    pub group_id: Option<G>,
+    pub group_id: Option<&'a [u8]>,
     pub level: Option<EventLevel>,
 }
 
-impl<E, D, G> EventBuilder<E, D, G>
+impl<'a, E, D> EventBuilder<'a, E, D>
 where
     E: AsRef<str>,
     D: Serialize,
-    G: AsRef<Vec<u8>>,
 {
     pub fn new(event: E, details: D) -> Self {
         Self {
@@ -64,7 +66,7 @@ where
             created_at_ns: now_ns(),
             details: serde_json::to_value(&self.details)?,
             event: self.event.as_ref().to_string(),
-            group_id: self.group_id.map(|g| g.as_ref().clone()),
+            group_id: self.group_id.map(|g| g.to_vec()),
             level: self.level.unwrap_or(EventLevel::None),
         })
     }
@@ -167,12 +169,12 @@ where
 /// - The calling code continues execution regardless of tracking success/failure
 #[macro_export]
 macro_rules! track {
-    ($event:literal $(, $k:ident $(: $v:expr)?)*) => {
-        track!(($event.to_string()) $(, $k $(: $v)?)*)
+    ($label:literal $(, $k:ident $(: $v:expr)?)*) => {
+        track!(($label.to_string()) $(, $k $(: $v)?)*)
     };
-    ($event:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+    ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
         let details = serde_json::json!($details);
-        let mut builder = $crate::utils::events::EventBuilder::new($event, details);
+        let mut builder = $crate::utils::events::EventBuilder::new($label, details);
         track!(@process builder $(, $k $(: $v)?)*)
     };
 
@@ -180,17 +182,40 @@ macro_rules! track {
         $builder.track();
     };
 
-    (@process $builder:expr, group: $group: expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $builder:expr, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
         track!(@process $builder, group_id: $group $(, $k $(: $v)?)*)
     };
-    (@process $builder:expr, group_id: $group_id: expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $builder:expr, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
         $builder.group_id = Some($group_id);
         track!(@process $builder $(, $k $(: $v)?)*)
     };
+    (@process $builder:expr, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+        $builder.group_id = $maybe_group_id;
+        track!(@process $builder $(, $k $(: $v)?)*)
+    };
 
-    (@process $builder:expr, level: $level: expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $builder:expr, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {
         $builder.level = Some($level);
         track!(@process $builder $(, $k $(: $v)?)*)
+    };
+}
+
+#[macro_export]
+macro_rules! track_err {
+    ($result:expr, label: $label:expr, $(, $k:ident $(: $v:expr)?)*) => {
+        if let Err(err) = &$result {
+            track!(
+                $label,
+                {
+                    "error": format!("{err:?}")
+                }
+                $(, $k $(: $v)?)*
+            )
+        }
+        $result
+    };
+    ($result:expr, $(, $k:ident $(: $v:expr)?)*) => {
+        track_err!($result, label: "Error" $(, $k $(: $v)?)*)
     };
 }
 
