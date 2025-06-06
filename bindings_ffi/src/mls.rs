@@ -348,6 +348,10 @@ impl FfiXmtpClient {
         format!("{:?}", aggregate)
     }
 
+    pub fn clear_all_statistics(&self) {
+        self.inner_client.clear_stats()
+    }
+
     pub fn inbox_id(&self) -> InboxId {
         self.inner_client.inbox_id().to_string()
     }
@@ -3394,7 +3398,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
-        let tester = Tester::builder().sync_worker().sync_server().build().await;
+        let tester = Tester::new().await;
         let client: &FfiXmtpClient = &tester.client;
 
         let bo = Tester::new().await;
@@ -3412,36 +3416,51 @@ mod tests {
             .list(FfiListConversationsOptions::default());
 
         let api_stats = client.api_statistics();
-        assert!(
-            api_stats.send_group_messages >= 1,
-            "Expected at least one group message send"
-        );
-        assert!(
-            api_stats.send_welcome_messages >= 1,
-            "Expected at least one welcome message"
-        );
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
 
         let identity_stats = client.api_identity_statistics();
-        assert_eq!(
-            identity_stats.publish_identity_update, 1,
-            "Expected one identity update published"
-        );
-        assert!(
-            identity_stats.get_inbox_ids >= 1,
-            "Expected get_inbox_ids to be called"
-        );
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert!(identity_stats.get_inbox_ids >= 1);
 
         let aggregate_str = client.api_aggregate_statistics();
         println!("Aggregate Stats:\n{}", aggregate_str);
 
-        assert!(
-            aggregate_str.contains("UploadKeyPackage"),
-            "Aggregate string should contain API stats"
-        );
-        assert!(
-            aggregate_str.contains("PublishIdentityUpdate"),
-            "Aggregate string should contain identity stats"
-        );
+        assert!(aggregate_str.contains("UploadKeyPackage"));
+        assert!(aggregate_str.contains("PublishIdentityUpdate"));
+
+        client.clear_all_statistics();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 0);
+        assert!(api_stats.send_welcome_messages == 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 0);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+
+        let _conversation2 = client
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 1);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
