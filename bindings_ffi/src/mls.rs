@@ -2273,7 +2273,7 @@ impl FfiConversation {
     }
 
     pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
-        let metadata = self.inner.metadata().await?;
+        let metadata = self.inner.metadata()?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
