@@ -470,7 +470,7 @@ mod test {
             .unwrap();
 
         let group = stream.next().await.unwrap();
-        let metadata = group.unwrap().metadata().await.unwrap();
+        let metadata = group.unwrap().metadata().unwrap();
 
         assert_eq!(
             metadata.conversation_type, conversation_type,

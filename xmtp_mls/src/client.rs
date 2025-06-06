@@ -1492,7 +1492,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Verify DM was created with correct properties
-        let metadata = dm1.metadata().await.unwrap();
+        let metadata = dm1.metadata().unwrap();
         assert_eq!(
             metadata.dm_members.clone().unwrap().member_one_inbox_id,
             client1.inbox_id()
