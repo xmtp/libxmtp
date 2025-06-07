@@ -15,7 +15,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
-    utils::VersionInfo,
+    utils::{events::EventWorker, VersionInfo},
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
@@ -212,6 +212,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
                 move || SyncWorker::new(&context)
             });
         }
+        WorkerRunner::register_new_worker(&client.context, {
+            let context = client.context.clone();
+            move || EventWorker::new(&context)
+        });
         WorkerRunner::register_new_worker(&client.context, {
             let client = client.clone();
             move || KeyPackagesCleanerWorker::new(client.clone())

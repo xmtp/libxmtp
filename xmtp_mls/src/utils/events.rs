@@ -1,9 +1,260 @@
-use std::sync::Arc;
-
-use crate::groups::device_sync::DeviceSyncError;
+use crate::{
+    client::ClientError,
+    context::XmtpMlsLocalContext,
+    groups::device_sync::DeviceSyncError,
+    worker::{NeedsDbReconnect, Worker, WorkerKind},
+};
+use parking_lot::Mutex;
+use serde::Serialize;
+use std::{
+    fmt::Debug,
+    sync::{Arc, LazyLock},
+};
+use thiserror::Error;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
-use xmtp_db::XmtpOpenMlsProvider;
+use xmtp_common::time::now_ns;
+use xmtp_db::{
+    events::{EventLevel, Events},
+    ConnectionExt, DbConnection, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+};
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
+
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    #[error("client error: {0}")]
+    Client(#[from] ClientError),
+}
+impl NeedsDbReconnect for EventError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Client(s) => s.db_needs_connection(),
+        }
+    }
+}
+
+static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> =
+    LazyLock::new(|| Mutex::default());
+
+pub(crate) struct EventBuilder<'a, E, D> {
+    pub event: E,
+    pub details: D,
+    pub group_id: Option<&'a [u8]>,
+    pub level: Option<EventLevel>,
+}
+
+impl<'a, E, D> EventBuilder<'a, E, D>
+where
+    E: AsRef<str>,
+    D: Serialize,
+{
+    pub fn new(event: E, details: D) -> Self {
+        Self {
+            event,
+            details,
+            group_id: None,
+            level: None,
+        }
+    }
+
+    fn build(self) -> Result<Events, serde_json::Error> {
+        Ok(Events {
+            created_at_ns: now_ns(),
+            details: serde_json::to_value(&self.details)?,
+            event: self.event.as_ref().to_string(),
+            group_id: self.group_id.map(|g| g.to_vec()),
+            level: self.level.unwrap_or(EventLevel::None),
+        })
+    }
+
+    pub(crate) fn track(self) {
+        let event = match self.build() {
+            Ok(event) => event,
+            Err(err) => {
+                tracing::warn!("Unable to track event: {err:?}");
+                return;
+            }
+        };
+
+        if let Some(tx) = &*EVENT_TX.lock() {
+            if let Err(err) = tx.send(event) {
+                tracing::warn!("Unable to send event to writing worker: {err:?}");
+            }
+        }
+    }
+}
+
+/// A convenient macro for tracking events in the XMTP system.
+///
+/// This macro provides a flexible way to create and track events with details and optional metadata
+/// such as group association and event level. Events are automatically timestamped and
+/// serialized before being sent to the event processing worker.
+///
+/// # Basic Usage
+///
+/// The macro requires an event name and details object as the first two arguments:
+///
+/// ```rust
+/// track!("user_login", {
+///     "timestamp": "2024-01-01T12:00:00Z",
+///     "method": "oauth"
+/// });
+/// ```
+///
+/// Track a message event with details:
+/// ```rust
+/// track!("message_sent", {
+///     "recipient": "alice@example.com",
+///     "message_type": "text",
+///     "size_bytes": 1024
+/// });
+/// ```
+///
+/// # Required Arguments
+///
+/// 1. **Event name** - A string literal or expression identifying the event type
+/// 2. **Details** - A JSON object containing event-specific data
+///
+/// # Optional Parameters
+///
+/// The macro supports several optional parameters that can be specified in any order:
+///
+/// - `group_id: <expr>` - Associates the event with a specific group ID
+/// - `group: <expr>` - Alias for `group_id` for convenience
+/// - `level: <expr>` - Sets the event level (see `EventLevel` enum)
+///
+/// # Examples
+///
+/// Track an event with group association:
+/// ```rust
+/// track!("group_created", {
+///     "name": "Team Chat",
+///     "member_count": 5
+/// }, group_id: group.id());
+/// ```
+///
+/// Track an event with custom level:
+/// ```rust
+/// track!("error_occurred", {
+///     "error_type": "network_timeout",
+///     "retry_count": 3
+/// }, level: EventLevel::Error);
+/// ```
+///
+/// Track an event with both group and level:
+/// ```rust
+/// track!("message_delivery_failed", {
+///     "reason": "recipient_offline",
+///     "will_retry": true
+/// }, group: group_id, level: EventLevel::Warning);
+/// ```
+///
+/// # Implementation Details
+///
+/// - Events are automatically timestamped with nanosecond precision
+/// - Details are serialized to JSON using `serde_json`
+/// - Events are sent asynchronously to an event worker for processing
+/// - If event tracking fails (e.g., serialization error), a warning is logged but execution continues
+/// - The macro is designed to be non-blocking and failure-safe
+///
+/// # Error Handling
+///
+/// The macro handles errors gracefully:
+/// - Serialization errors are logged as warnings
+/// - Channel send errors (if the event worker is unavailable) are logged as warnings
+/// - The calling code continues execution regardless of tracking success/failure
+#[macro_export]
+macro_rules! track {
+    ($label:literal $(, $k:ident $(: $v:expr)?)*) => {
+        track!(($label.to_string()) $(, $k $(: $v)?)*)
+    };
+    ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+        let details = serde_json::json!($details);
+        let mut builder = $crate::utils::events::EventBuilder::new($label, details);
+        track!(@process builder $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr) => {
+        $builder.track();
+    };
+
+    (@process $builder:expr, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
+        track!(@process $builder, group_id: $group $(, $k $(: $v)?)*)
+    };
+    (@process $builder:expr, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+        $builder.group_id = Some($group_id);
+        track!(@process $builder $(, $k $(: $v)?)*)
+    };
+    (@process $builder:expr, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+        $builder.group_id = $maybe_group_id;
+        track!(@process $builder $(, $k $(: $v)?)*)
+    };
+
+    (@process $builder:expr, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {
+        $builder.level = Some($level);
+        track!(@process $builder $(, $k $(: $v)?)*)
+    };
+}
+
+#[macro_export]
+macro_rules! track_err {
+    ($result:expr, label: $label:expr, $(, $k:ident $(: $v:expr)?)*) => {
+        if let Err(err) = &$result {
+            track!(
+                $label,
+                {
+                    "error": format!("{err:?}")
+                }
+                $(, $k $(: $v)?)*
+            )
+        }
+        $result
+    };
+    ($result:expr, $(, $k:ident $(: $v:expr)?)*) => {
+        track_err!($result, label: "Error" $(, $k $(: $v)?)*)
+    };
+}
+
+pub struct EventWorker<ApiClient, Db> {
+    rx: UnboundedReceiver<Events>,
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> EventWorker<ApiClient, Db> {
+    pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *EVENT_TX.lock() = Some(tx);
+        Self {
+            rx,
+            context: context.clone(),
+        }
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl<ApiClient, Db> Worker for EventWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static + Send + Sync,
+    Db: XmtpDb + 'static + Send + Sync,
+{
+    type Error = EventError;
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::Event
+    }
+
+    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
+        while let Some(event) = self.rx.recv().await {
+            event.store(&self.context.db())?;
+        }
+        Ok(())
+    }
+}
 
 pub async fn upload_debug_archive(
     provider: &Arc<XmtpOpenMlsProvider>,
