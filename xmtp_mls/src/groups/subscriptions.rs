@@ -4,7 +4,7 @@ use super::MlsGroup;
 use crate::{
     context::XmtpMlsLocalContext,
     subscriptions::{
-        process_message::ProcessMessageFuture,
+        process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::{MessageStreamError, StreamGroupMessages},
         Result, SubscribeError,
     },
@@ -35,8 +35,8 @@ where
         use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
         let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
-        ProcessMessageFuture::new(self.context.clone(), msg)?
-            .process()
+        ProcessMessageFuture::new(self.context.clone())
+            .create(msg)
             .await?
             .message
             .ok_or(SubscribeError::GroupMessageNotFound)
@@ -109,7 +109,7 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::{builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::builder::ClientBuilder;
     use xmtp_db::group_message::GroupMessageKind;
 
     use std::time::Duration;
@@ -124,9 +124,7 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])
@@ -161,9 +159,7 @@ pub(crate) mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
         // Add bola
         amal_group
             .add_members_by_inbox_id(&[bola.inbox_id()])
@@ -193,9 +189,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_subscribe_multiple() {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = amal.create_group(None, None).unwrap();
 
         let stream = group.stream().await.unwrap();
         futures::pin_mut!(stream);
@@ -226,9 +220,7 @@ pub(crate) mod tests {
         let amal = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let amal_group = amal.create_group(None, None).unwrap();
 
         let stream = amal_group.stream().await.unwrap();
         futures::pin_mut!(stream);

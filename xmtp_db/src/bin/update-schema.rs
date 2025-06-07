@@ -92,7 +92,7 @@ fn get_schema_path() -> Result<PathBuf, std::io::Error> {
 
 fn exec_diesel(db: &str) -> Result<Vec<u8>, String> {
     let schema_defs = Command::new("diesel")
-        .args(["print-schema", "--database-url", db])
+        .args(["print-schema", "--database-url", db, "-e", "client_events"])
         .output()
         .expect("failed to execute process");
 

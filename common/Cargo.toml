@@ -30,8 +30,9 @@ tracing-subscriber = { workspace = true, features = [
 ], optional = true }
 xmtp_macro = { workspace = true, optional = true }
 
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 tracing-wasm = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
@@ -44,8 +45,13 @@ wasm-bindgen-test = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio-stream = { workspace = true, features = ["time"] }
+fdlimit.workspace = true
+ctor.workspace = true
 
 [dev-dependencies]
+once_cell.workspace = true
+owo-colors = { version = "4.1" }
+parking_lot.workspace = true
 thiserror.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "fmt",
@@ -53,10 +59,7 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ] }
-parking_lot.workspace = true
-once_cell.workspace = true
 xmtp_macro.workspace = true
-owo-colors = { version = "4.1" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 tokio = { workspace = true, features = ["time", "macros", "rt", "sync"] }

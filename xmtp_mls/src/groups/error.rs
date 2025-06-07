@@ -1,13 +1,7 @@
+use super::group_permissions::GroupMutablePermissionsError;
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
-use super::{
-    group_metadata::GroupMetadataError, intents::IntentError,
-    validated_commit::CommitValidationError,
-};
-use super::{
-    group_mutable_metadata::GroupMutableMetadataError,
-    group_permissions::GroupMutablePermissionsError,
-};
+use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
 use crate::{
@@ -25,6 +19,8 @@ use xmtp_common::retry::RetryableError;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::sql_key_store;
 use xmtp_db::NotFound;
+use xmtp_mls_common::group_metadata::GroupMetadataError;
+use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 
 #[derive(Error, Debug)]
 pub struct ReceiveErrors {

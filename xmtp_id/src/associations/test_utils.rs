@@ -10,10 +10,9 @@ use crate::{
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
     InboxOwner,
 };
-use ethers::{
-    core::types::BlockNumber,
-    signers::{LocalWallet, Signer},
-    types::Bytes,
+use alloy::{
+    primitives::{BlockNumber, Bytes},
+    signers::{local::PrivateKeySigner, Signer},
 };
 use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 use xmtp_cryptography::CredentialSign;
@@ -35,7 +34,7 @@ pub trait WalletTestExt {
     fn identifier(&self) -> Identifier;
 }
 
-impl WalletTestExt for LocalWallet {
+impl WalletTestExt for PrivateKeySigner {
     fn get_inbox_id(&self, nonce: u64) -> String {
         self.identifier().inbox_id(nonce).unwrap()
     }
@@ -65,10 +64,16 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
     }
 }
 
-pub async fn add_wallet_signature(signature_request: &mut SignatureRequest, wallet: &LocalWallet) {
+pub async fn add_wallet_signature(
+    signature_request: &mut SignatureRequest,
+    wallet: &PrivateKeySigner,
+) {
     let signature_text = signature_request.signature_text();
-    let sig = wallet.sign_message(signature_text).await.unwrap().to_vec();
-    let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig);
+    let sig = wallet
+        .sign_message(signature_text.as_bytes())
+        .await
+        .unwrap();
+    let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig.into());
     let scw_verifier = MockSmartContractSignatureVerifier::new(false);
 
     signature_request

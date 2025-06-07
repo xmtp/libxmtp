@@ -69,6 +69,15 @@ where
     }
 }
 
+impl<A> HasStats for ApiDebugWrapper<A>
+where
+    A: HasStats,
+{
+    fn aggregate_stats(&self) -> AggregateStats {
+        self.inner.aggregate_stats()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<A, E> XmtpMlsClient for ApiDebugWrapper<A>
@@ -158,16 +167,16 @@ where
     E: std::error::Error + RetryableError + Send + Sync + 'static,
     A: HasStats,
 {
-    type GroupMessageStream<'a> = <A as XmtpMlsStreams>::GroupMessageStream<'a>;
+    type GroupMessageStream = <A as XmtpMlsStreams>::GroupMessageStream;
 
-    type WelcomeMessageStream<'a> = <A as XmtpMlsStreams>::WelcomeMessageStream<'a>;
+    type WelcomeMessageStream = <A as XmtpMlsStreams>::WelcomeMessageStream;
 
     type Error = ApiClientError<E>;
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::GroupMessageStream, Self::Error> {
         wrap_err(
             || self.inner.subscribe_group_messages(request),
             || self.inner.aggregate_stats(),
@@ -178,7 +187,7 @@ where
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream<'_>, Self::Error> {
+    ) -> Result<Self::WelcomeMessageStream, Self::Error> {
         wrap_err(
             || self.inner.subscribe_welcome_messages(request),
             || self.inner.aggregate_stats(),

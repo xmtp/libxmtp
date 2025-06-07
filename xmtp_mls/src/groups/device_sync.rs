@@ -4,20 +4,22 @@ use crate::{
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
-    Client,
+    worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
-use archive::ArchiveError;
 use futures::future::join_all;
-use handle::{SyncMetric, WorkerHandle};
 use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tracing::instrument;
-use worker::SyncWorker;
-use xmtp_common::{types::InstallationId, RetryableError};
+use worker::SyncMetric;
+use xmtp_archive::ArchiveError;
+use xmtp_common::{time::now_ns, types::InstallationId, RetryableError, NS_IN_DAY};
 use xmtp_content_types::encoded_content_to_bytes;
-use xmtp_db::{group::GroupQueryArgs, group_message::StoredGroupMessage, NotFound, StorageError};
+use xmtp_db::{
+    consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
+    NotFound, StorageError,
+};
 use xmtp_db::{DbConnection, XmtpDb};
 use xmtp_id::{associations::DeserializationError, InboxIdRef};
 use xmtp_proto::{
@@ -38,15 +40,11 @@ use xmtp_proto::{
 };
 
 pub mod archive;
-pub mod handle;
 pub mod preference_sync;
 pub mod worker;
 
 #[cfg(test)]
 mod tests;
-
-pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
-pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 
 #[derive(Debug, Error)]
 pub enum DeviceSyncError {
@@ -58,10 +56,10 @@ pub enum DeviceSyncError {
     ProtoConversion(#[from] xmtp_proto::ConversionError),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
-    #[error("reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
     #[error("type conversion error")]
     Conversion,
     #[error("utf-8 error: {0}")]
@@ -83,7 +81,7 @@ pub enum DeviceSyncError {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    Backup(#[from] ArchiveError),
+    Archive(#[from] ArchiveError),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
@@ -110,8 +108,8 @@ impl From<SyncSummary> for DeviceSyncError {
     }
 }
 
-impl DeviceSyncError {
-    pub fn db_needs_connection(&self) -> bool {
+impl NeedsDbReconnect for DeviceSyncError {
+    fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(s) => s.db_needs_connection(),
             _ => false,
@@ -128,31 +126,6 @@ impl RetryableError for DeviceSyncError {
 impl From<NotFound> for DeviceSyncError {
     fn from(value: NotFound) -> Self {
         DeviceSyncError::Storage(StorageError::NotFound(value))
-    }
-}
-
-impl<ApiClient, Db> Client<ApiClient, Db>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
-{
-    #[instrument(level = "trace", skip_all)]
-    pub fn start_sync_worker(&self) {
-        if !self.device_sync_worker_enabled() {
-            tracing::info!("Sync worker is disabled.");
-            return;
-        }
-        let client = self.clone();
-
-        tracing::debug!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = hex::encode(self.context.installation_public_key()),
-            "starting sync worker"
-        );
-
-        let worker = SyncWorker::new(client.context.clone());
-        *self.context.device_sync.worker_handle.lock() = Some(worker.handle().clone());
-        worker.spawn_worker();
     }
 }
 
@@ -174,8 +147,8 @@ impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
         }
     }
 
-    pub fn worker_handle(&self) -> Option<Arc<WorkerHandle<SyncMetric>>> {
-        self.context.device_sync.worker_handle.lock().clone()
+    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.context.worker_metrics()
     }
 }
 
@@ -198,7 +171,7 @@ where
 
     /// Blocks until the sync worker notifies that it is initialized and running.
     pub async fn wait_for_sync_worker_init(&self) {
-        if let Some(handle) = self.worker_handle() {
+        if let Some(handle) = self.worker_metrics() {
             let _ = handle.wait_for_init().await;
         }
     }
@@ -268,7 +241,7 @@ where
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
-                if let Some(handle) = self.worker_handle() {
+                if let Some(handle) = self.worker_metrics() {
                     handle.increment_metric(SyncMetric::SyncGroupCreated);
                 }
                 sync_group
@@ -281,10 +254,14 @@ where
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
     pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
-        let groups = self.mls_store.find_groups(GroupQueryArgs::default())?;
+        let groups = self.mls_store.find_groups(GroupQueryArgs {
+            activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
+            consent_states: Some(vec![ConsentState::Allowed]),
+            ..Default::default()
+        })?;
 
         // Add the new installation to groups in batches
-        for chunk in groups.chunks(20) {
+        for chunk in groups.chunks(10) {
             let mut add_futs = vec![];
             for group in chunk {
                 add_futs.push(group.add_missing_installations());

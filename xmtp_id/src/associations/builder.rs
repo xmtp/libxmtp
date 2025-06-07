@@ -411,7 +411,7 @@ fn get_signature_text(
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-    use ethers::signers::{LocalWallet, Signer};
+    use alloy::signers::{local::PrivateKeySigner, Signer};
     use xmtp_cryptography::XmtpInstallationCredential;
 
     use crate::{
@@ -437,10 +437,9 @@ pub(crate) mod tests {
             .expect("should be valid")
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[xmtp_common::test]
     async fn create_inbox() {
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let account_ident = wallet.get_identifier().unwrap();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
@@ -461,7 +460,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_add_identity() {
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let installation_key = XmtpInstallationCredential::new();
         let account_address = wallet.get_identifier().unwrap();
         let nonce = 0;
@@ -490,7 +489,7 @@ pub(crate) mod tests {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
     async fn create_and_revoke() {
-        let wallet = LocalWallet::new(&mut rand::thread_rng());
+        let wallet = PrivateKeySigner::random();
         let nonce = 0;
         let inbox_id = wallet.get_inbox_id(nonce);
         let existing_member_identifier = wallet.identifier();
@@ -527,16 +526,16 @@ pub(crate) mod tests {
             .create_inbox(ident, nonce)
             .build();
 
-        let rand_wallet = LocalWallet::new(&mut rand::thread_rng());
+        let rand_wallet = PrivateKeySigner::random();
 
         let signature_text = signature_request.signature_text();
         let sig = rand_wallet
-            .sign_message(signature_text)
+            .sign_message(signature_text.as_bytes())
             .await
-            .unwrap()
-            .to_vec();
-        let unverified_sig =
-            UnverifiedSignature::RecoverableEcdsa(UnverifiedRecoverableEcdsaSignature::new(sig));
+            .unwrap();
+        let unverified_sig = UnverifiedSignature::RecoverableEcdsa(
+            UnverifiedRecoverableEcdsaSignature::new(sig.into()),
+        );
         let scw_verifier = MockSmartContractSignatureVerifier::new(false);
 
         let attempt_to_add_random_member = signature_request

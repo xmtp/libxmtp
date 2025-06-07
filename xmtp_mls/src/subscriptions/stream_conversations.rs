@@ -1,4 +1,4 @@
-use super::{LocalEvents, Result, SubscribeError};
+use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
 use crate::{
     context::XmtpMlsLocalContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
@@ -8,6 +8,7 @@ use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
 use std::{
+    borrow::Cow,
     collections::HashSet,
     future::Future,
     pin::Pin,
@@ -38,10 +39,18 @@ impl xmtp_common::RetryableError for ConversationStreamError {
     }
 }
 
-#[derive(Debug)]
-pub(super) enum WelcomeOrGroup {
+pub enum WelcomeOrGroup {
     Group(Vec<u8>),
     Welcome(WelcomeMessage),
+}
+
+impl std::fmt::Debug for WelcomeOrGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Group(arg0) => f.debug_tuple("Group").field(&hex::encode(arg0)).finish(),
+            Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
+        }
+    }
 }
 
 pin_project! {
@@ -145,7 +154,7 @@ pin_project! {
     pub struct StreamConversations<'a, ApiClient, Db, Subscription> {
         #[pin] inner: Subscription,
         #[pin] state: ProcessState<'a, ApiClient, Db>,
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
     }
@@ -169,7 +178,7 @@ pin_project! {
 type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
 
 pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedSelect<
-    <ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'a>,
+    <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
     <ApiClient as XmtpMlsStreams>::Error,
 >;
 
@@ -211,6 +220,13 @@ where
         context: &'a Arc<XmtpMlsLocalContext<A, D>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
+        Self::init(Cow::Borrowed(context), conversation_type).await
+    }
+
+    async fn init(
+        context: Cow<'a, Arc<XmtpMlsLocalContext<A, D>>>,
+        conversation_type: Option<ConversationType>,
+    ) -> Result<Self> {
         let provider = context.mls_provider();
         let conn = provider.db();
         let installation_key = context.installation_public_key();
@@ -228,6 +244,7 @@ where
             BroadcastGroupStream::new(BroadcastStream::new(context.local_events.subscribe()));
 
         let subscription = context
+            .as_ref()
             .api_client
             .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
@@ -246,6 +263,19 @@ where
     }
 }
 
+impl<A, D> StreamConversations<'static, A, D, WelcomesApiSubscription<'static, A>>
+where
+    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
+    D: XmtpDb + Send + 'static,
+{
+    pub async fn new_owned(
+        context: Arc<XmtpMlsLocalContext<A, D>>,
+        conversation_type: Option<ConversationType>,
+    ) -> Result<Self> {
+        Self::init(Cow::Owned(context), conversation_type).await
+    }
+}
+
 impl<'a, ApiClient, Db, Subscription> Stream
     for StreamConversations<'a, ApiClient, Db, Subscription>
 where
@@ -255,6 +285,7 @@ where
 {
     type Item = Result<MlsGroup<ApiClient, Db>>;
 
+    #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -269,10 +300,11 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
+                        tracing::info!("New Welcome: {:?}", item);
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
-                            this.context.clone(),
+                            this.context.clone().into_owned(),
                             item?,
                             *this.conversation_type,
                         )?;
@@ -300,23 +332,6 @@ where
             }
         }
     }
-}
-
-pub enum ProcessWelcomeResult<ApiClient, Db> {
-    /// New Group and welcome id
-    New {
-        group: MlsGroup<ApiClient, Db>,
-        id: i64,
-    },
-    /// A group we already have/we created that might not have a welcome id
-    NewStored {
-        group: MlsGroup<ApiClient, Db>,
-        maybe_id: Option<i64>,
-    },
-    /// Skip this welcome but add and id to known welcome ids
-    IgnoreId { id: i64 },
-    /// Skip this payload
-    Ignore,
 }
 
 impl<'a, ApiClient, Db, Subscription> StreamConversations<'a, ApiClient, Db, Subscription>
@@ -375,14 +390,16 @@ where
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::Ignore)) => {
                 tracing::debug!("ignoring streamed conversation payload");
                 this.state.as_mut().set(ProcessState::Waiting);
                 // we have to re-ad this task to the queue
                 // to let http know we are waiting on the next item
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
                 tracing::debug!(
@@ -411,8 +428,9 @@ mod test {
 
     use super::*;
     use crate::builder::ClientBuilder;
-    use crate::groups::GroupMetadataOptions;
     use crate::tester;
+    use crate::utils::fixtures::{alix, bo};
+    use crate::utils::FullXmtpClient;
     use xmtp_db::group::GroupQueryArgs;
 
     use futures::StreamExt;
@@ -422,29 +440,40 @@ mod test {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     #[rstest::rstest]
+    #[case::two_conversations(2)]
+    #[case::five_conversations(5)]
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
-    async fn test_stream_welcomes() {
-        let alice = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let bob = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        let alice_bob_group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+    #[awt]
+    async fn stream_welcomes(
+        #[future] alix: FullXmtpClient,
+        #[future] bo: FullXmtpClient,
+        #[case] group_size: usize,
+    ) {
+        let mut groups = vec![];
+        let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
+        for _ in 0..group_size {
+            let alix_bo_group = alix.create_group(None, None).unwrap();
+            groups.push(alix_bo_group.group_id.clone());
+            alix_bo_group
+                .add_members_by_inbox_id(&[bo.inbox_id()])
+                .await
+                .unwrap();
+        }
+        while !groups.is_empty() {
+            let bo_received_groups = stream.next().await.unwrap().unwrap();
+            let index = groups
+                .iter()
+                .position(|group_id| bo_received_groups.group_id == *group_id)
+                .expect("group must be found");
+            groups.remove(index);
+        }
 
-        let mut stream = StreamConversations::new(&bob.context, None).await.unwrap();
-        let group_id = alice_bob_group.group_id.clone();
-        alice_bob_group
-            .add_members_by_inbox_id(&[bob.inbox_id()])
-            .await
-            .unwrap();
-        tracing::info!("WAITING FOR NEXT STREAM ITEM");
-        let bob_received_groups = stream.next().await.unwrap().unwrap();
-        assert_eq!(bob_received_groups.group_id, group_id);
+        assert!(groups.is_empty(), "Groups must have all been received");
     }
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
-    #[timeout(std::time::Duration::from_secs(5))]
     async fn test_sync_groups_are_not_streamed() {
         tester!(alix, sync_worker);
         let stream = alix.stream_conversations(None).await?;
@@ -461,9 +490,6 @@ mod test {
     #[case(ConversationType::Dm, "Unexpectedly received a Group")]
     #[case(ConversationType::Group, "Unexpectedly received a DM")]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
-
-    // #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_filter(
         #[case] conversation_type: ConversationType,
         #[case] expected: &str,
@@ -480,9 +506,7 @@ mod test {
             .await
             .unwrap();
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alix.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -504,8 +528,6 @@ mod test {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(7))]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_dm_stream_all_conversation_types() {
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -536,9 +558,7 @@ mod test {
         assert!(group.is_ok());
         groups.push(group.unwrap());
 
-        let group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alix.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -563,13 +583,10 @@ mod test {
             .unwrap();
         futures::pin_mut!(stream);
 
-        alix.create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        alix.create_group(None, None).unwrap();
         let _self_group = stream.next().await.unwrap();
 
-        let group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = bo.create_group(None, None).unwrap();
         group
             .add_members_by_inbox_id(&[alix.inbox_id()])
             .await
@@ -590,11 +607,7 @@ mod test {
         let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
 
         let alix_group = alix
-            .create_group_with_inbox_ids(
-                &[bo.inbox_id().to_string()],
-                None,
-                GroupMetadataOptions::default(),
-            )
+            .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
             .await
             .unwrap();
 

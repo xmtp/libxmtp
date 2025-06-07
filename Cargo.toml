@@ -19,6 +19,8 @@ members = [
   "xmtp_macro",
   "xmtp_db",
   "xmtp_db_test",
+  "xmtp_archive",
+  "xmtp_mls_common",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
@@ -52,6 +54,8 @@ license = "MIT"
 version = "1.3.0-dev"
 
 [workspace.dependencies]
+alloy = { version = "1.0", default-features = false }
+aes-gcm = { version = "0.10.3", features = ["std"] }
 anyhow = "1.0"
 async-compression = { default-features = false, version = "0.4", features = [
   "futures-io",
@@ -64,32 +68,33 @@ bincode = "1.3"
 chrono = "0.4.38"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+criterion = { version = "0.6", features = ["html_reports", "async_tokio"] }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
-ctor = "0.2"
+ctor = "0.4"
 diesel = { version = "2.2", default-features = false }
 diesel_migrations = { version = "2.2", default-features = false }
 dyn-clone = "1"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
-ethers = { version = "2.0", default-features = false }
 fdlimit = "0.3"
 rstest = "0.25"
+rstest_reuse = "0.7.0"
 futures = { version = "0.3.30", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.2", default-features = false }
 derive_builder = "0.20"
 arc-swap = "1.7"
 gloo-timers = "0.3"
-hex = "0.4.3"
+hex = { package = "const-hex", version = "1.14" }
 hkdf = "0.12.3"
 js-sys = "0.3"
-mockall = "0.13"
+mockall = { version = "0.13" }
 color-eyre = "0.6"
 once_cell = "1.2"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8", default-features = false }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "082cab5f17a54796e87bc1762a64496c86cb9bf8" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60", default-features = false }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60" }
 openssl = { version = "0.10", features = ["vendored"] }
 openssl-sys = { version = "0.9", features = ["vendored"] }
 parking_lot = "0.12.3"
@@ -97,10 +102,10 @@ pbjson = "0.7.0"
 pbjson-types = "0.7.0"
 prost = { version = "^0.13", default-features = false }
 prost-types = { version = "^0.13", default-features = false }
+# updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 regex = "1.10.4"
-rustc-hex = "2.1.0"
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0", default-features = false }
 sha2 = "0.10.8"
@@ -109,6 +114,9 @@ thiserror = "2.0"
 tls_codec = "0.4.1"
 tokio = { version = "1.43.0", default-features = false }
 tokio-stream = { version = "0.1", default-features = false }
+tokio-util = { version = "0.7", default-features = false, features = [
+  "compat",
+] }
 uuid = "1.12"
 vergen-git2 = "1.0.2"
 web-time = "1.1"
@@ -116,7 +124,7 @@ bytes = "1.9"
 pin-project-lite = "0.2"
 reqwest = { version = "0.12.12", features = ["json", "stream"] }
 itertools = "0.14"
-tonic = { version = "0.12", default-features = false }
+tonic = { version = "0.12.0", default-features = false }
 tracing = { version = "0.1", features = ["log"] }
 tracing-logfmt = "0.3"
 tracing-subscriber = { version = "0.3", default-features = false }
@@ -127,13 +135,16 @@ wasm-bindgen-futures = "0.4.50"
 wasm-bindgen-test = "0.3.50"
 web-sys = "0.3"
 zeroize = "1.8"
+futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 
 # Internal Crate Dependencies
 xmtp_api = { path = "xmtp_api" }
 xmtp_api_d14n = { path = "xmtp_api_d14n" }
 xmtp_api_grpc = { path = "xmtp_api_grpc" }
 xmtp_api_http = { path = "xmtp_api_http" }
+xmtp_archive = { path = "xmtp_archive" }
 xmtp_common = { path = "common" }
+xmtp_mls_common = { path = "xmtp_mls_common" }
 xmtp_content_types = { path = "xmtp_content_types" }
 xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_id = { path = "xmtp_id" }
@@ -142,7 +153,17 @@ xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
 xmtp_db_test = { path = "xmtp_db_test" }
+bindings-wasm = { path = "bindings_wasm" }
 
+[profile.dbg]
+inherits = "dev"
+debug = true
+opt-level = 0
+incremental = true
+debug-assertions = true
+overflow-checks = true
+panic = "unwind"
+strip = "none"
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,

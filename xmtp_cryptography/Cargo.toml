@@ -13,38 +13,35 @@ targets = [
 ]
 
 [dependencies]
-curve25519-dalek = "4"
-ecdsa = "0.16.9"
+alloy = { workspace = true, features = [
+  "signers",
+  "providers",
+  "signer-local",
+] }
 ed25519-dalek = { workspace = true, features = ["digest"] }
-ethers = { workspace = true }
-hex = { workspace = true }
-k256 = { version = "0.13.3", features = ["ecdh"] }
+hex.workspace = true
 openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
 rand = { workspace = true }
 rand_chacha.workspace = true
-rustc-hex.workspace = true
 serde = { workspace = true }
 sha2.workspace = true
-sha3.workspace = true
 thiserror = { workspace = true }
 tls_codec.workspace = true
-tracing.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true }
 wasm-bindgen-test.workspace = true
 wasm-bindgen-futures.workspace = true
 
 [features]
-ws = ["ethers/ws"]
 # Expose private keys in addition to public
 exposed-keys = []
 
 [dev-dependencies]
-openmls_basic_credential = { workspace = true, features = ["test-utils"] }
 bincode.workspace = true
+openmls_basic_credential = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true

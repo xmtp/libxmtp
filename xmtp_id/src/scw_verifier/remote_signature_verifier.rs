@@ -1,6 +1,6 @@
 use super::{SmartContractSignatureVerifier, ValidationResponse, VerifierError};
 use crate::associations::AccountId;
-use ethers::types::{BlockNumber, Bytes};
+use alloy::primitives::{BlockNumber, Bytes};
 use xmtp_api::ApiClientWrapper;
 
 use xmtp_proto::{
@@ -34,8 +34,6 @@ where
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        let block_number = block_number.and_then(|bn| bn.as_number()).map(|bn| bn.0[0]);
-
         let result = self
             .api
             .verify_smart_contract_wallet_signatures(VerifySmartContractWalletSignaturesRequest {

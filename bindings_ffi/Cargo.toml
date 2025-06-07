@@ -55,20 +55,20 @@ path = "bindgen/bin.rs"
 required-features = ["uniffi/cli"]
 
 [dev-dependencies]
-ethers = { workspace = true, features = ["rustls"] }
+alloy.workspace = true
+async-trait.workspace = true
+chrono = { workspace = true }
+ctor.workspace = true
+fdlimit = { workspace = true }
 rand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { version = "0.29.0", features = ["bindgen-tests"] }
 uuid = { workspace = true, features = ["v4", "fast-rng"] }
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
-xmtp_mls = { workspace = true, features = ["test-utils"] }
-xmtp_db = { workspace = true, features = ["test-utils"] }
-xmtp_proto = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
-chrono = { workspace = true }
-async-trait.workspace = true
-fdlimit = { workspace = true }
-ctor.workspace = true
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [features]
 bench = ["xmtp_mls/bench", "xmtp_common/bench", "dep:criterion", "dep:fdlimit"]

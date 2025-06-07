@@ -7,19 +7,18 @@ mod debug;
 mod pretty;
 mod serializable;
 
-use std::iter::Iterator;
-use std::{fs, path::PathBuf, time::Duration};
-
 use crate::serializable::{SerializableGroup, SerializableMessage};
+use alloy::signers::local::{coins_bip39::English, MnemonicBuilder, PrivateKeySigner};
 use clap::{Parser, Subcommand, ValueEnum};
 use color_eyre::eyre::eyre;
 use debug::DebugCommands;
-use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use futures::future::join_all;
 use owo_colors::OwoColorize;
 use prost::Message;
 use serializable::maybe_get_text;
+use std::iter::Iterator;
 use std::sync::Arc;
+use std::{fs, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::Dispatch;
 use tracing_subscriber::field::MakeExt;
@@ -38,7 +37,7 @@ use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_cryptography::{signature::SignatureError, utils::rng};
+use xmtp_cryptography::signature::SignatureError;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::NativeDb;
@@ -52,7 +51,6 @@ use xmtp_mls::configuration::DeviceSyncUrls;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::GroupError;
-use xmtp_mls::groups::GroupMetadataOptions;
 use xmtp_mls::XmtpApi;
 use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
@@ -140,7 +138,6 @@ enum Commands {
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
     },
-    RequestHistorySync {},
     ListHistorySyncMessages {},
     /// Information about the account that owns the DB
     Info {},
@@ -184,7 +181,7 @@ impl From<&str> for CliError {
 }
 /// This is an abstraction which allows the CLI to choose between different wallet types.
 enum Wallet {
-    LocalWallet(LocalWallet),
+    LocalWallet(PrivateKeySigner),
 }
 
 impl InboxOwner for Wallet {
@@ -440,10 +437,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 }
             };
             let group = client
-                .create_group(
-                    Some(group_permissions.to_policy_set()),
-                    GroupMetadataOptions::default(),
-                )
+                .create_group(Some(group_permissions.to_policy_set()), None)
                 .expect("failed to create group");
             let group_id = hex::encode(group.group_id);
             info!(
@@ -466,12 +460,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 "Group {}",
                 group_id
             );
-        }
-        Commands::RequestHistorySync {} => {
-            client.sync_welcomes().await.unwrap();
-            client.start_sync_worker();
-            client.device_sync().send_sync_request().await.unwrap();
-            info!("Sent history sync request in sync group.")
         }
         Commands::ListHistorySyncMessages {} => {
             client.sync_welcomes().await?;
@@ -562,7 +550,7 @@ where
                 .unwrap(),
         )
     } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        Wallet::LocalWallet(PrivateKeySigner::random())
     };
 
     let nonce = 0;

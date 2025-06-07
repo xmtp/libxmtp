@@ -1,8 +1,10 @@
 use crate::encrypted_store::schema::identity;
+use crate::schema::identity::dsl;
+use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
-
-use crate::{impl_fetch, impl_store};
+use xmtp_common::NS_IN_SEC;
+use xmtp_common::time::now_ns;
 
 /// Identity of this installation
 /// There can only be one.
@@ -15,6 +17,8 @@ pub struct StoredIdentity {
     pub credential_bytes: Vec<u8>,
     #[builder(setter(skip))]
     rowid: Option<i32>,
+    #[builder(setter(skip))]
+    pub next_key_package_rotation_ns: Option<i64>,
 }
 
 impl_fetch!(StoredIdentity, identity);
@@ -31,7 +35,52 @@ impl StoredIdentity {
             installation_keys,
             credential_bytes,
             rowid: None,
+            next_key_package_rotation_ns: None,
         }
+    }
+}
+impl<C: ConnectionExt> DbConnection<C> {
+    pub fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+        let rotate_at_ns = now_ns() + 5 * NS_IN_SEC;
+
+        self.raw_query_write(|conn| {
+            // Fetch the identity row (assuming a single row exists)
+            let identity = dsl::identity.first::<StoredIdentity>(conn)?;
+            if identity.next_key_package_rotation_ns.is_none() {
+                diesel::update(dsl::identity)
+                    .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn clear_key_package_rotation_queue(&self) -> Result<(), StorageError> {
+        use crate::schema::identity::dsl;
+
+        self.raw_query_write(|conn| {
+            diesel::update(dsl::identity)
+                .set(dsl::next_key_package_rotation_ns.eq::<Option<i64>>(None))
+                .execute(conn)?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+        use crate::schema::identity::dsl;
+
+        let next_rotation_opt: Option<i64> = self.raw_query_read(|conn| {
+            dsl::identity
+                .select(dsl::next_key_package_rotation_ns)
+                .first::<Option<i64>>(conn)
+        })?;
+
+        Ok(matches!(next_rotation_opt, Some(rotate_at) if now_ns() >= rotate_at))
     }
 }
 

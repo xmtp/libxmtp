@@ -39,21 +39,25 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::common::group::DMMetadataOptions;
+use xmtp_mls::common::group::GroupMetadataOptions;
+use xmtp_mls::common::group_metadata::GroupMetadata;
+use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_mls::common::group_mutable_metadata::MetadataField;
 use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
-use xmtp_mls::groups::{ConversationDebugInfo, DMMetadataOptions};
+use xmtp_mls::groups::device_sync::archive::insert_importer;
+use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
+use xmtp_mls::groups::device_sync::archive::BackupMetadata;
+use xmtp_mls::groups::device_sync::DeviceSyncError;
+use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
+use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
-        device_sync::{
-            archive::{ArchiveImporter, BackupMetadata},
-            preference_sync::PreferenceUpdate,
-            ENC_KEY_SIZE,
-        },
-        group_metadata::GroupMetadata,
-        group_mutable_metadata::MessageDisappearingSettings,
-        group_mutable_metadata::MetadataField,
+        device_sync::preference_sync::PreferenceUpdate,
         group_permissions::{
             BasePolicies, GroupMutablePermissions, GroupMutablePermissionsError,
             MembershipPolicies, MetadataBasePolicies, MetadataPolicies, PermissionsBasePolicies,
@@ -61,7 +65,7 @@ use xmtp_mls::{
         },
         intents::{PermissionPolicyOption, PermissionUpdateType, UpdateGroupMembershipResult},
         members::PermissionLevel,
-        GroupMetadataOptions, MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
+        MlsGroup, PreconfiguredPolicies, UpdateAdminListType,
     },
     identity::IdentityStrategy,
     subscriptions::SubscribeError,
@@ -199,7 +203,7 @@ pub async fn create_client(
         xmtp_client.inbox_id()
     );
     let worker = FfiSyncWorker {
-        handle: xmtp_client.worker_handle(),
+        handle: xmtp_client.context.worker_metrics(),
     };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -344,6 +348,10 @@ impl FfiXmtpClient {
         let identity = self.inner_client.identity_api_stats();
         let aggregate = AggregateStats { mls: api, identity };
         format!("{:?}", aggregate)
+    }
+
+    pub fn clear_all_statistics(&self) {
+        self.inner_client.clear_stats()
     }
 
     pub fn inbox_id(&self) -> InboxId {
@@ -738,14 +746,19 @@ impl FfiXmtpClient {
     ) -> Result<(), GenericError> {
         let provider = self.inner_client.mls_provider();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?).await?;
+        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
         Ok(())
     }
 
     /// Import a previous archive
     pub async fn import_archive(&self, path: String, key: Vec<u8>) -> Result<(), GenericError> {
-        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
-        importer.run(&self.inner_client.context).await?;
+        let mut importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
+        insert_importer(&mut importer, &self.inner_client.context).await?;
+
         Ok(())
     }
 
@@ -756,8 +769,16 @@ impl FfiXmtpClient {
         path: String,
         key: Vec<u8>,
     ) -> Result<FfiBackupMetadata, GenericError> {
-        let importer = ArchiveImporter::from_file(path, &check_key(key)?).await?;
+        let importer = ArchiveImporter::from_file(path, &check_key(key)?)
+            .await
+            .map_err(DeviceSyncError::Archive)?;
         Ok(importer.metadata.into())
+    }
+
+    /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
+    pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
+        let provider = Arc::new(self.inner_client.mls_provider());
+        Ok(upload_debug_archive(&provider, server_url).await?)
     }
 }
 
@@ -839,13 +860,13 @@ impl TryFrom<BackupElementSelection> for FfiBackupElementSelection {
     type Error = DeserializationError;
     fn try_from(value: BackupElementSelection) -> Result<Self, Self::Error> {
         let v = match value {
-            BackupElementSelection::Unspecified => {
+            BackupElementSelection::Consent => Self::Consent,
+            BackupElementSelection::Messages => Self::Messages,
+            _ => {
                 return Err(DeserializationError::Unspecified(
                     "Backup Element Selection",
                 ))
             }
-            BackupElementSelection::Consent => Self::Consent,
-            BackupElementSelection::Messages => Self::Messages,
         };
         Ok(v)
     }
@@ -1225,7 +1246,7 @@ impl FfiConversations {
 
         let convo = self
             .inner_client
-            .create_group(group_permissions, metadata_options)?;
+            .create_group(group_permissions, Some(metadata_options))?;
 
         Ok(Arc::new(convo.into()))
     }
@@ -2627,6 +2648,7 @@ pub struct FfiMessage {
     pub content: Vec<u8>,
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
+    pub sequence_id: Option<u64>,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -2639,6 +2661,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
+            sequence_id: msg.sequence_id.map(|s| s as u64),
         }
     }
 }
@@ -2890,7 +2913,7 @@ mod tests {
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
         GenericError,
     };
-    use ethers::utils::hex;
+    use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
     use log::{info_span, Instrument};
     use parking_lot::Mutex;
@@ -2914,11 +2937,11 @@ mod tests {
         remote_attachment::RemoteAttachmentCodec, reply::ReplyCodec, text::TextCodec,
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
-    use xmtp_cryptography::utils::rng;
+    use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{device_sync::handle::SyncMetric, GroupError},
+        groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
     };
@@ -2931,11 +2954,11 @@ mod tests {
 
     #[derive(Clone)]
     pub struct FfiWalletInboxOwner {
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
     }
 
     impl FfiWalletInboxOwner {
-        pub fn with_wallet(wallet: xmtp_cryptography::utils::LocalWallet) -> Self {
+        pub fn with_wallet(wallet: PrivateKeySigner) -> Self {
             Self { wallet }
         }
 
@@ -2945,7 +2968,7 @@ mod tests {
 
         pub fn new() -> Self {
             Self {
-                wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
+                wallet: PrivateKeySigner::random(),
             }
         }
     }
@@ -3110,9 +3133,7 @@ mod tests {
     }
 
     /// Create a new test client with a given wallet.
-    async fn new_test_client_with_wallet(
-        wallet: xmtp_cryptography::utils::LocalWallet,
-    ) -> Arc<FfiXmtpClient> {
+    async fn new_test_client_with_wallet(wallet: PrivateKeySigner) -> Arc<FfiXmtpClient> {
         new_test_client_with_wallet_and_history_sync_url(
             wallet,
             None,
@@ -3122,7 +3143,7 @@ mod tests {
     }
 
     async fn new_test_client_with_wallet_and_history_sync_url(
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
         history_sync_url: Option<String>,
         sync_worker_mode: Option<FfiSyncWorkerMode>,
     ) -> Arc<FfiXmtpClient> {
@@ -3137,7 +3158,7 @@ mod tests {
                 .await
                 .unwrap(),
             Some(tmp_path()),
-            Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
+            Some([0u8; 32].to_vec()),
             &inbox_id,
             ident,
             nonce,
@@ -3158,7 +3179,7 @@ mod tests {
     }
 
     async fn new_test_client_no_panic(
-        wallet: xmtp_cryptography::utils::LocalWallet,
+        wallet: PrivateKeySigner,
         sync_server_url: Option<String>,
     ) -> Result<Arc<FfiXmtpClient>, GenericError> {
         let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
@@ -3191,7 +3212,7 @@ mod tests {
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         new_test_client_with_wallet(wallet).await
     }
 
@@ -3363,12 +3384,12 @@ mod tests {
     }
 
     trait SignWithWallet {
-        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet);
+        async fn add_wallet_signature(&self, wallet: &PrivateKeySigner);
     }
 
     use super::FfiSignatureRequest;
     impl SignWithWallet for FfiSignatureRequest {
-        async fn add_wallet_signature(&self, wallet: &xmtp_cryptography::utils::LocalWallet) {
+        async fn add_wallet_signature(&self, wallet: &PrivateKeySigner) {
             let signature_text = self.inner.lock().await.signature_text();
 
             self.inner
@@ -3379,8 +3400,6 @@ mod tests {
                 .unwrap();
         }
     }
-
-    use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn create_client_does_not_hit_network() {
@@ -3463,7 +3482,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
-        let tester = Tester::builder().sync_worker().sync_server().build().await;
+        let tester = Tester::new().await;
         let client: &FfiXmtpClient = &tester.client;
 
         let bo = Tester::new().await;
@@ -3481,42 +3500,66 @@ mod tests {
             .list(FfiListConversationsOptions::default());
 
         let api_stats = client.api_statistics();
-        assert!(
-            api_stats.send_group_messages >= 1,
-            "Expected at least one group message send"
-        );
-        assert!(
-            api_stats.send_welcome_messages >= 1,
-            "Expected at least one welcome message"
-        );
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
 
         let identity_stats = client.api_identity_statistics();
-        assert_eq!(
-            identity_stats.publish_identity_update, 1,
-            "Expected one identity update published"
-        );
-        assert!(
-            identity_stats.get_inbox_ids >= 1,
-            "Expected get_inbox_ids to be called"
-        );
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert!(identity_stats.get_inbox_ids >= 1);
 
         let aggregate_str = client.api_aggregate_statistics();
         println!("Aggregate Stats:\n{}", aggregate_str);
 
-        assert!(
-            aggregate_str.contains("UploadKeyPackage"),
-            "Aggregate string should contain API stats"
-        );
-        assert!(
-            aggregate_str.contains("PublishIdentityUpdate"),
-            "Aggregate string should contain identity stats"
-        );
+        assert!(aggregate_str.contains("UploadKeyPackage"));
+        assert!(aggregate_str.contains("PublishIdentityUpdate"));
+
+        client.clear_all_statistics();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 0);
+        assert!(api_stats.send_welcome_messages == 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 0);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+
+        let _conversation2 = client
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 1);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn radio_silence() {
-        let alex = Tester::builder().sync_worker().sync_server().build().await;
-        let worker = alex.client.inner_client.worker_handle().unwrap();
+        let alex = Tester::builder()
+            .sync_worker()
+            .sync_server()
+            .stream()
+            .build()
+            .await;
+
+        let convo_callback = Arc::new(RustStreamCallback::default());
+        let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
+
+        let worker = alex.client.inner_client.context.worker_metrics().unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3545,7 +3588,7 @@ mod tests {
         let group_message_count = stats.send_group_messages.get_count();
 
         // Sleep for 2 seconds and make sure nothing else has sent
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
@@ -3953,8 +3996,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installation_for_two_users_and_group_modification() {
         // Step 1: Create two installations
-        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
-        let bola_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_wallet = PrivateKeySigner::random();
+        let bola_wallet = PrivateKeySigner::random();
         let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let bola_client_1 = new_test_client_with_wallet(bola_wallet.clone()).await;
@@ -4045,7 +4088,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installation_for_one_user_and_group_modification() {
         // Step 1: Create two installations
-        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let alix_wallet = PrivateKeySigner::random();
         let alix_client_1 = new_test_client_with_wallet(alix_wallet.clone()).await;
         let alix_client_2 = new_test_client_with_wallet(alix_wallet.clone()).await;
 
@@ -4198,7 +4241,7 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 5);
+        assert_eq!(message_callbacks.message_count(), 6);
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
@@ -4789,10 +4832,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installation_without_breaking_group() {
-        let wallet1_key = &mut rng();
-        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
-        let wallet2_key = &mut rng();
-        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+        let wallet1 = PrivateKeySigner::random();
+        let wallet2 = PrivateKeySigner::random();
 
         // Create clients
         let client1 = new_test_client_with_wallet(wallet1).await;
@@ -4856,10 +4897,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installation_can_see_dm() {
         // Create two wallets
-        let wallet1_key = &mut rng();
-        let wallet1 = xmtp_cryptography::utils::LocalWallet::new(wallet1_key);
-        let wallet2_key = &mut rng();
-        let wallet2 = xmtp_cryptography::utils::LocalWallet::new(wallet2_key);
+        let wallet1 = PrivateKeySigner::random();
+        let wallet2 = PrivateKeySigner::random();
 
         // Create initial clients
         let client1 = new_test_client_with_wallet(wallet1.clone()).await;
@@ -4940,8 +4979,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_create_new_installations_does_not_fork_group() {
-        let bo_wallet_key = &mut rng();
-        let bo_wallet = xmtp_cryptography::utils::LocalWallet::new(bo_wallet_key);
+        let bo_wallet = PrivateKeySigner::random();
 
         // Create clients
         let alix = new_test_client().await;
@@ -6307,7 +6345,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_all_installations() {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
 
@@ -6347,7 +6385,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_revoke_installations() {
-        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet = PrivateKeySigner::random();
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ethers::signers::LocalWallet;
+use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::{tmp_path, TestLogReplace};
 use xmtp_id::InboxOwner;
 use xmtp_mls::utils::test::tester_utils::*;
@@ -16,13 +16,15 @@ where
     async fn build(&self) -> Tester<Owner, FfiXmtpClient>;
     async fn build_no_panic(&self) -> Result<Tester<Owner, FfiXmtpClient>, GenericError>;
 }
-impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
-    async fn build(&self) -> Tester<LocalWallet, FfiXmtpClient> {
+impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
+    async fn build(&self) -> Tester<PrivateKeySigner, FfiXmtpClient> {
         self.build_no_panic().await.unwrap()
     }
 
     // Will not panic on registering identity. Will still panic on just about everything else.
-    async fn build_no_panic(&self) -> Result<Tester<LocalWallet, FfiXmtpClient>, GenericError> {
+    async fn build_no_panic(
+        &self,
+    ) -> Result<Tester<PrivateKeySigner, FfiXmtpClient>, GenericError> {
         let client = create_raw_client(self).await;
         let mut replace = TestLogReplace::default();
         if let Some(name) = &self.name {
@@ -46,7 +48,7 @@ impl LocalBuilder<LocalWallet> for TesterBuilder<LocalWallet> {
         client.register_identity(signature_request).await?;
 
         let provider = client.inner_client.mls_provider();
-        let worker = client.inner_client.worker_handle();
+        let worker = client.inner_client.context.worker_metrics();
 
         if let Some(worker) = &worker {
             if self.wait_for_init {
@@ -100,7 +102,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         client.register_identity(signature_request).await?;
 
         let provider = client.inner_client.mls_provider();
-        let worker = client.inner_client.worker_handle();
+        let worker = client.inner_client.context.worker_metrics();
 
         if let Some(worker) = &worker {
             if self.wait_for_init {
@@ -120,21 +122,21 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
 }
 
 pub trait LocalTester {
-    async fn new() -> Tester<LocalWallet, FfiXmtpClient>;
+    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient>;
     #[allow(unused)]
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient>;
 
-    fn builder() -> TesterBuilder<LocalWallet>;
+    fn builder() -> TesterBuilder<PrivateKeySigner>;
 }
-impl LocalTester for Tester<LocalWallet, FfiXmtpClient> {
-    async fn new() -> Tester<LocalWallet, FfiXmtpClient> {
+impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
+    async fn new() -> Tester<PrivateKeySigner, FfiXmtpClient> {
         TesterBuilder::new().build().await
     }
     async fn new_passkey() -> Tester<PasskeyUser, FfiXmtpClient> {
         TesterBuilder::new().passkey().build().await
     }
 
-    fn builder() -> TesterBuilder<LocalWallet> {
+    fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
 }

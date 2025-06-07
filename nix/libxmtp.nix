@@ -21,10 +21,10 @@
 , corepack
 , lnav
 , zstd
-, llvmPackages_19
-, wasm-bindgen-cli
+, google-chrome
 , foundry-bin
 , graphite-cli
+, jq
 , ...
 }:
 
@@ -46,7 +46,7 @@ let
             ];
           extraInputs = top;
         });
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
 in
 mkShell {
   OPENSSL_DIR = "${openssl.dev}";
@@ -60,11 +60,9 @@ mkShell {
   hardeningDisable = [ "zerocallusedregs" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
-
   nativeBuildInputs = [ pkg-config ];
   buildInputs =
     [
-      wasm-bindgen-cli
       rust-toolchain
       fenix.rust-analyzer
       zstd
@@ -74,6 +72,7 @@ mkShell {
       openssl
       sqlite
       sqlcipher
+      # emscripten
 
       mktemp
       jdk21
@@ -90,6 +89,8 @@ mkShell {
       cargo-expand
       inferno
       lnav
+      google-chrome
+      jq
 
       # make sure to use nodePackages! or it will install yarn irrespective of environmental node.
       corepack
@@ -101,6 +102,6 @@ mkShell {
       frameworks.AppKit
       darwin.cctools
     ] ++ lib.optionals stdenv.isLinux [
-      
+
     ];
 }

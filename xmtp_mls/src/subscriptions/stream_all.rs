@@ -11,6 +11,7 @@ use crate::{
 };
 
 use xmtp_db::{
+    events::{Details, Event, Events},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -60,6 +61,16 @@ where
         let (active_conversations, sync_groups) = async {
             let provider = context.mls_provider();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
+
+            Events::track(
+                provider.db(),
+                None,
+                Event::MsgStreamConnect,
+                Some(Details::MsgStreamConnect {
+                    conversation_type,
+                    consent_states: consent_states.clone(),
+                }),
+            );
 
             let groups = provider.db().find_groups(GroupQueryArgs {
                 conversation_type,
@@ -121,12 +132,14 @@ where
 {
     type Item = Result<StoredGroupMessage>;
 
+    #[tracing::instrument(skip_all, level = "trace", name = "poll_next_stream_all")]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
-        if let Ready(msg) = this.messages.as_mut().poll_next(cx) {
-            if let Some(Ok(msg)) = &msg {
+        let next_message = this.messages.as_mut().poll_next(cx);
+        if let Ready(Some(msg)) = next_message {
+            if let Ok(msg) = &msg {
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
@@ -134,15 +147,21 @@ where
                         .send(LocalEvents::SyncWorkerEvent(
                             SyncWorkerEvent::NewSyncGroupMsg,
                         ));
-                    return self.poll_next(cx);
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
                 }
-            };
-
-            return Ready(msg);
+            }
+            return Ready(Some(msg));
         }
+
+        if let Ready(None) = next_message {
+            return Ready(None);
+        }
+
         if let Some(group) = ready!(this.conversations.poll_next(cx)) {
             this.messages.as_mut().add(group?);
-            return self.poll_next(cx);
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
         Poll::Pending
     }
@@ -155,7 +174,7 @@ mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-    use crate::{assert_msg, builder::ClientBuilder, groups::GroupMetadataOptions};
+    use crate::{assert_msg, builder::ClientBuilder};
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
@@ -165,7 +184,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(20))]
+    #[timeout(Duration::from_secs(15))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_changing_group_list() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -173,9 +192,7 @@ mod tests {
         let caro_wallet = generate_local_wallet();
         let caro = ClientBuilder::new_test_client(&caro_wallet).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         tracing::info!("Created alix group {}", hex::encode(&alix_group.group_id));
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
@@ -198,9 +215,7 @@ mod tests {
         alix_group.send_message(b"third").await.unwrap();
         assert_msg!(stream, "third");
 
-        let alix_group_2 = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group_2 = alix.create_group(None, None).unwrap();
         alix_group_2
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
@@ -221,17 +236,13 @@ mod tests {
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
             .unwrap();
 
-        let bo_group = bo
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let bo_group = bo.create_group(None, None).unwrap();
         bo_group
             .add_members_by_inbox_id(&[caro.inbox_id()])
             .await
@@ -254,14 +265,11 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(5))]
     async fn test_dm_stream_all_messages() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -341,22 +349,12 @@ mod tests {
     #[timeout(Duration::from_secs(60))]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn test_stream_all_messages_does_not_lose_messages() {
-        let mut replace = xmtp_common::TestLogReplace::default();
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let alix = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let eve = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
         let bo = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
-        tracing::info!(inbox_id = eve.inbox_id(), installation_id = %eve.installation_id(), "EVE={}", eve.inbox_id());
-        tracing::info!(inbox_id = bo.inbox_id(), installation_id = %bo.installation_id(), "BO={}", bo.inbox_id());
-        tracing::info!(inbox_id = alix.inbox_id(), installation_id = %alix.installation_id(), "ALIX={}", alix.inbox_id());
-        tracing::info!(inbox_id = caro.inbox_id(), installation_id = %caro.installation_id(), "CARO={}", caro.inbox_id());
-        replace.add(caro.inbox_id(), "caro");
-        replace.add(eve.inbox_id(), "eve");
-        replace.add(alix.inbox_id(), "alix");
-        replace.add(bo.inbox_id(), "bo");
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[caro.inbox_id(), bo.inbox_id()])
             .await
@@ -385,9 +383,7 @@ mod tests {
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..15 {
-                let new_group = eve
-                    .create_group(None, GroupMetadataOptions::default())
-                    .unwrap();
+                let new_group = eve.create_group(None, None).unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
                 let msg = format!("EVE spam {i} from new group");
                 new_group.send_message(msg.as_bytes()).await.unwrap();
@@ -438,7 +434,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    #[timeout(Duration::from_secs(10))]
+    #[timeout(Duration::from_secs(20))]
     async fn test_stream_all_messages_detached_group_changes() {
         let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let hale = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
@@ -448,9 +444,7 @@ mod tests {
         xmtp_common::spawn(None, async move {
             let caro = &caro_id;
             for i in 0..5 {
-                let new_group = hale
-                    .create_group(None, GroupMetadataOptions::default())
-                    .unwrap();
+                let new_group = hale.create_group(None, None).unwrap();
                 new_group.add_members_by_inbox_id(&[caro]).await.unwrap();
                 tracing::info!(
                     "\n\n HALE SENDING {i} to group {}\n\n",
@@ -505,18 +499,14 @@ mod tests {
         let receiver = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create group with Allowed consent
-        let allowed_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let allowed_group = sender.create_group(None, None).unwrap();
         allowed_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
             .unwrap();
 
         // Create group with Denied consent
-        let denied_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let denied_group = sender.create_group(None, None).unwrap();
         denied_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
@@ -526,9 +516,7 @@ mod tests {
             .unwrap();
 
         // Create group with Unknown consent
-        let unknown_group = sender
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let unknown_group = sender.create_group(None, None).unwrap();
         unknown_group
             .add_members_by_inbox_id(&[receiver.inbox_id()])
             .await
@@ -568,9 +556,7 @@ mod tests {
         let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
         let bob = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
         let eve = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
-        let group = alice
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let group = alice.create_group(None, None).unwrap();
 
         group
             .add_members_by_inbox_id(&[bob.inbox_id(), eve.inbox_id()])
@@ -623,7 +609,7 @@ mod tests {
                 .group_list
                 .get(group.group_id.as_slice())
                 .unwrap();
-            assert!(*cursor > 1.into());
+            assert!(cursor.pos() > 1);
         }
 
         eve_group

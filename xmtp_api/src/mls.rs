@@ -22,6 +22,15 @@ pub struct GroupFilter {
     pub id_cursor: Option<u64>,
 }
 
+impl std::fmt::Debug for GroupFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupFilter")
+            .field("group_id", &xmtp_common::fmt::debug_hex(&self.group_id))
+            .field("id_cursor", &self.id_cursor)
+            .finish()
+    }
+}
+
 impl GroupFilter {
     pub fn new(group_id: Vec<u8>, id_cursor: Option<u64>) -> Self {
         Self {
@@ -316,7 +325,7 @@ where
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream<'_>>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::GroupMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {
@@ -333,7 +342,7 @@ where
         &self,
         installation_key: &[u8],
         id_cursor: Option<u64>,
-    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream<'_>>
+    ) -> Result<<ApiClient as XmtpMlsStreams>::WelcomeMessageStream>
     where
         ApiClient: XmtpMlsStreams,
     {

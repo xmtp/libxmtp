@@ -1,3 +1,4 @@
+use crate::app::identity_lock::get_identity_lock;
 use crate::{
     app::{
         self,
@@ -6,6 +7,7 @@ use crate::{
     args,
 };
 use color_eyre::eyre::{self, Result, eyre};
+use indicatif::{ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use std::sync::Arc;
 use xmtp_mls::groups::summary::SyncSummary;
@@ -43,39 +45,61 @@ impl GenerateMessages {
         Self { db, network, opts }
     }
 
-    pub async fn run(self, n: usize) -> Result<()> {
+    pub async fn run(self, n: usize, concurrency: usize) -> Result<()> {
         info!(fdlimit = app::get_fdlimit(), "generating messages");
         let args::MessageGenerateOpts {
             r#loop, interval, ..
         } = self.opts;
 
-        self.send_many_messages(self.db.clone(), n).await?;
+        self.send_many_messages(self.db.clone(), n, concurrency)
+            .await?;
 
         if r#loop {
             loop {
                 info!(time = ?std::time::Instant::now(), amount = n, "sending messages");
                 tokio::time::sleep(*interval).await;
-                self.send_many_messages(self.db.clone(), n).await?;
+                self.send_many_messages(self.db.clone(), n, concurrency)
+                    .await?;
             }
         }
         Ok(())
     }
 
-    async fn send_many_messages(&self, db: Arc<redb::Database>, n: usize) -> Result<usize> {
+    async fn send_many_messages(
+        &self,
+        db: Arc<redb::Database>,
+        n: usize,
+        concurrency: usize,
+    ) -> Result<usize> {
         let Self { network, opts, .. } = self;
+
+        let style = ProgressStyle::with_template(
+            "{bar} {pos}/{len} elapsed {elapsed} remaining {eta_precise}",
+        );
+        let bar = ProgressBar::new(n as u64).with_style(style.unwrap());
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
         let mut set: tokio::task::JoinSet<Result<(), eyre::Error>> = tokio::task::JoinSet::new();
         for _ in 0..n {
+            let bar_pointer = bar.clone();
             let d = db.clone();
             let n = network.clone();
             let opts = opts.clone();
+            let semaphore = semaphore.clone();
             set.spawn(async move {
+                let _permit = semaphore.acquire().await?;
                 Self::send_message(&d.clone().into(), &d.clone().into(), n, opts).await?;
+                bar_pointer.inc(1);
                 Ok(())
             });
         }
 
         let res = set.join_all().await;
+
+        bar.finish();
+        bar.reset();
+
         let errors: Vec<_> = res
             .iter()
             .filter(|r| r.is_err())
@@ -115,6 +139,11 @@ impl GenerateMessages {
             .ok_or(eyre!("no group in local store"))?;
         if let Some(inbox_id) = group.members.choose(rng) {
             let key = (u64::from(&network), *inbox_id);
+
+            // each identity can only be used by one worker thread
+            let identity_lock = get_identity_lock(inbox_id)?;
+            let _lock_guard = identity_lock.lock().await;
+
             let identity = identity_store.get(key.into())?.ok_or(eyre!(
                 "No identity with inbox id [{}] in local store",
                 hex::encode(inbox_id)

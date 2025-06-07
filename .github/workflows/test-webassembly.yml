@@ -22,9 +22,10 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  WASM_BINDGEN_TEST_TIMEOUT: 480
+  WASM_BINDGEN_TEST_TIMEOUT: 256
   WASM_BINDGEN_TEST_ONLY_WEB: 1
   WASM_BINDGEN_SPLIT_LINKED_MODULES: 1
+  RSTEST_TIMEOUT: 30
 jobs:
   test:
     name: Test
@@ -39,7 +40,9 @@ jobs:
           workspaces: |
             .
       - name: Start Docker containers
-        run: dev/docker/up-v3
+        run: |
+          dev/build_validation_service_local
+          dev/docker/up
       - name: Install emscripten toolchains
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -52,12 +55,27 @@ jobs:
         run: |
           source ./emsdk/emsdk_env.sh
           cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
-      - name: test with chrome
+      - name: test libraries
         env:
           RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          CHROMEDRIVER: "chromedriver"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
             --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
         working-directory: ./
+      - name: test xmtp_mls client
         env:
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
           CHROMEDRIVER: "chromedriver"
+        run: |
+          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- \
+            --skip encrypted_store::group_message::tests::it_cannot_insert_message_without_group \
+            --skip subscriptions::
+        working-directory: ./
+      - name: test xmtp_mls subscriptions
+        env:
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          CHROMEDRIVER: "chromedriver"
+        run: |
+          cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- subscriptions::
+        working-directory: ./

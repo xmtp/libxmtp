@@ -1,0 +1,16 @@
+{
+  "name": "browser",
+  "packageManager": "yarn@4.5.1",
+  "devDependencies": {
+    "@xmtp/wasm-bindings": "workspace:^",
+    "vitest": "^3.2.1"
+  },
+  "scripts": {
+    "rollup": "rollup -c",
+    "test": "yarn build:test && vitest"
+  },
+  "dependencies": {
+    "@vitest/browser": "^3.2.1",
+    "playwright": "^1.52.0"
+  }
+}

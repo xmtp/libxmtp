@@ -1,31 +1,30 @@
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::vec;
-
-use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{
-  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
-};
-use napi::JsFunction;
-use napi_derive::napi;
-use xmtp_db::consent_record::ConsentState as XmtpConsentState;
-use xmtp_db::group::ConversationType as XmtpConversationType;
-use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
-use xmtp_db::group::GroupQueryArgs;
-use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
-use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
-use xmtp_mls::groups::{DMMetadataOptions, GroupMetadataOptions, PreconfiguredPolicies};
-
 use crate::consent_state::{Consent, ConsentState};
 use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
 use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
+use napi::threadsafe_function::{
+  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+};
+use napi::JsFunction;
+use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use xmtp_mls::groups::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
+use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Arc;
+use std::vec;
+use xmtp_db::consent_record::ConsentState as XmtpConsentState;
+use xmtp_db::group::ConversationType as XmtpConversationType;
+use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
+use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::user_preferences::HmacKey as XmtpHmacKey;
+use xmtp_mls::common::group::{DMMetadataOptions, GroupMetadataOptions};
+use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings as XmtpMessageDisappearingSettings;
+use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate as XmtpUserPreferenceUpdate;
 use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
+use xmtp_mls::groups::PreconfiguredPolicies;
 
 #[napi]
 #[derive(Debug)]
@@ -320,7 +319,7 @@ impl Conversations {
 
     let group = self
       .inner_client
-      .create_group(group_permissions, metadata_options)
+      .create_group(group_permissions, Some(metadata_options))
       .map_err(|e| Error::from_reason(format!("ClientError: {}", e)))?;
 
     Ok(group.into())

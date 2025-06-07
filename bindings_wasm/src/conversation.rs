@@ -11,11 +11,15 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError};
 use xmtp_db::group::{ConversationType, DmIdExt};
 use xmtp_db::group_message::MsgQueryArgs;
-use xmtp_mls::groups::{
-  group_metadata::GroupMetadata as XmtpGroupMetadata,
-  group_mutable_metadata::MetadataField as XmtpMetadataField,
-  intents::PermissionUpdateType as XmtpPermissionUpdateType,
-  members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+use xmtp_mls::{
+  common::{
+    group_metadata::GroupMetadata as XmtpGroupMetadata,
+    group_mutable_metadata::MetadataField as XmtpMetadataField,
+  },
+  groups::{
+    intents::PermissionUpdateType as XmtpPermissionUpdateType,
+    members::PermissionLevel as XmtpPermissionLevel, MlsGroup, UpdateAdminListType,
+  },
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 

@@ -17,6 +17,7 @@ ctor.workspace = true
 derive_builder.workspace = true
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
+mockall.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
@@ -25,14 +26,13 @@ parking_lot.workspace = true
 prost.workspace = true
 rand.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
-
-anyhow = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",
   "tracing",
@@ -52,6 +52,7 @@ diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
+  "serde_json",
 ] }
 dyn-clone.workspace = true
 
@@ -60,6 +61,7 @@ diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
   "sqlite",
   "32-column-tables",
+  "serde_json",
 ] }
 sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
   "bundled",
@@ -70,6 +72,7 @@ wasm-bindgen = { workspace = true }
 
 
 [dev-dependencies]
+futures-timer.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
 
@@ -85,5 +88,5 @@ tokio = { workspace = true, features = [
 wasm-bindgen-test.workspace = true
 
 [features]
-update-schema = ["dep:toml", "dep:anyhow"]
+update-schema = ["dep:toml"]
 test-utils = ["xmtp_common/test-utils"]

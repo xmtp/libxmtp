@@ -1,4 +1,4 @@
-FROM debian:stable-slim
+FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y sqlite3 libssl-dev patchelf
 COPY .cache/mls-validation-service /usr/local/bin/mls-validation-service
 # in case the binary was created in a nix environment, does not effect non-nix builds (just replaces file paths)

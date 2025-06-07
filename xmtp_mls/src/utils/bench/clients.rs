@@ -1,6 +1,6 @@
 use crate::utils::test::TestClient as TestApiClient;
 use crate::{client::Client, configuration::DeviceSyncUrls, identity::IdentityStrategy};
-use ethers::signers::LocalWallet;
+use alloy::signers::local::PrivateKeySigner;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
@@ -8,7 +8,7 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 pub type BenchClient = Client<TestApiClient>;
 
 /// Create a new, yet-unregistered client
-pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, LocalWallet) {
+pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, PrivateKeySigner) {
     let _ = fdlimit::raise_fd_limit();
 
     let nonce = 1;

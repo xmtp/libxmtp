@@ -38,7 +38,7 @@ where
         &self,
         welcome: &welcome_message::V1,
     ) -> Result<MlsGroup<Api, Db>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome, true).await;
+        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
@@ -69,6 +69,7 @@ where
         let envelopes = store.query_welcome_messages(provider.db()).await?;
         let num_envelopes = envelopes.len();
 
+        // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
         let groups: Vec<MlsGroup<Api, Db>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match envelope.version {
@@ -89,13 +90,12 @@ where
             .collect()
             .await;
 
-        // If processed groups equal to the number of envelopes we received, then delete old kps and rotate the keys
-        if num_envelopes > 0 && num_envelopes == groups.len() {
+        // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
+        // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
+        // rotation interval.
+        if num_envelopes > 0 {
             let provider = self.context.mls_provider();
-            self.context
-                .identity
-                .rotate_and_upload_key_package(&provider, self.context.api())
-                .await?;
+            self.context.identity.queue_key_rotation(&provider).await?;
         }
 
         Ok(groups)

@@ -1,10 +1,11 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
-use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::PreferenceUpdate;
+use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::subscriptions::SyncWorkerEvent;
-use crate::{configuration::NS_IN_HOUR, subscriptions::LocalEvents, Client};
+use crate::worker::metrics::WorkerMetrics;
+use crate::{subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -14,6 +15,7 @@ use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
+use xmtp_common::NS_IN_HOUR;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
@@ -107,16 +109,14 @@ where
     pub(super) async fn v1_reply_to_sync_request(
         &self,
         request: DeviceSyncRequestProto,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let records = match request.kind() {
             BackupElementSelection::Consent => vec![self.v1_syncable_consent_records()?],
             BackupElementSelection::Messages => {
                 vec![self.v1_syncable_groups()?, self.v1_syncable_messages()?]
             }
-            BackupElementSelection::Unspecified => {
-                return Err(DeviceSyncError::UnspecifiedDeviceSyncKind)
-            }
+            _ => return Err(DeviceSyncError::UnspecifiedDeviceSyncKind),
         };
 
         let reply = self
@@ -268,7 +268,7 @@ where
             Box::pin(group.sync_with_conn()).await?;
         }
 
-        if let Some(handle) = self.worker_handle() {
+        if let Some(handle) = self.worker_metrics() {
             handle.increment_metric(SyncMetric::V1PayloadProcessed);
         }
 
@@ -592,16 +592,17 @@ fn encrypt_syncables_with_key(
 
 #[cfg(test)]
 mod tests {
-
     use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 
     use crate::{
-        groups::device_sync::handle::SyncMetric,
+        groups::device_sync::worker::SyncMetric,
         tester,
         utils::{LocalTesterBuilder, Tester},
     };
 
+    #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn v1_sync_still_works() {
         tester!(alix1, sync_worker, sync_server);
         tester!(alix2, from: alix1);

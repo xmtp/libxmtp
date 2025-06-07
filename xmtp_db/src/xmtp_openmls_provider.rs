@@ -27,6 +27,7 @@ where
         self.key_store.db()
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<C>) -> Result<T, E>,

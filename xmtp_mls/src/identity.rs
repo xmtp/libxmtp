@@ -1,12 +1,7 @@
-use crate::configuration::GROUP_PERMISSIONS_EXTENSION_ID;
-use crate::configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-};
+use crate::configuration::CIPHERSUITE;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use openmls::prelude::OpenMlsCrypto;
-use xmtp_db::{Fetch, StorageError, Store};
-
 use openmls::prelude::hash_ref::HashReference;
+use openmls::prelude::OpenMlsCrypto;
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -16,7 +11,6 @@ use openmls::{
     messages::proposals::ProposalType,
     prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
 };
-use openmls_traits::storage::StorageProvider;
 use openmls_traits::types::CryptoError;
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,6 +25,7 @@ use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{SqlKeyStoreError, KEY_PACKAGE_REFERENCES};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
+use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -40,6 +35,9 @@ use xmtp_id::{
         sign_with_legacy_key, MemberIdentifier,
     },
     InboxId, InboxIdRef,
+};
+use xmtp_mls_common::config::{
+    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -381,13 +379,10 @@ impl Identity {
                 .await?;
             signature_request
                 .add_signature(
-                    UnverifiedSignature::LegacyDelegated(
-                        sign_with_legacy_key(
-                            signature_request.signature_text(),
-                            legacy_signed_private_key,
-                        )
-                        .await?,
-                    ),
+                    UnverifiedSignature::LegacyDelegated(sign_with_legacy_key(
+                        signature_request.signature_text(),
+                        legacy_signed_private_key,
+                    )?),
                     scw_signature_verifier,
                 )
                 .await?;
@@ -569,57 +564,44 @@ impl Identity {
         Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
     }
 
+    /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
+    pub(crate) async fn queue_key_rotation(
+        &self,
+        provider: impl MlsProviderExt + Copy,
+    ) -> Result<(), IdentityError> {
+        provider.db().queue_key_package_rotation()?;
+        tracing::info!("Last key package not ready for rotation, queued for rotation");
+        Ok(())
+    }
+
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: impl MlsProviderExt + Copy,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
+        tracing::info!("Start rotating keys and uploading the new key package");
         let conn = provider.db();
-
         let kp = self.new_key_package(provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, provider.crypto())?;
         let history_id = conn.store_key_package_history_entry(hash_ref.clone())?.id;
+
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                let old_id = history_id - 1;
-                provider.transaction(|provider| {
-                    let old_key_packages = provider
-                        .db()
-                        .find_key_package_history_entries_before_id(old_id)?;
-                    for kp in old_key_packages {
-                        self.delete_key_package(provider, kp.key_package_hash_ref)?;
-                    }
-                    conn.delete_key_package_history_entries_before_id(old_id)?;
+                provider.transaction(|_provider| {
+                    conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<_, IdentityError>(())
                 })?;
-
+                conn.clear_key_package_rotation_queue()?;
                 Ok(())
             }
             Err(err) => {
                 tracing::info!("Kp err");
-                // Did not upload. Delete the newly created KP.
-                self.delete_key_package(provider, hash_ref)?;
-                conn.delete_key_package_entry_with_id(history_id)?;
-
                 Err(IdentityError::ApiClient(err))
             }
         }
-    }
-
-    /// Delete a key package from the local database.
-    pub(crate) fn delete_key_package(
-        &self,
-        provider: impl MlsProviderExt + Copy,
-        hash_ref: Vec<u8>,
-    ) -> Result<(), IdentityError> {
-        let openmls_hash_ref = deserialize_key_package_hash_ref(&hash_ref)?;
-        tracing::info!("key store");
-        provider.key_store().delete_key_package(&openmls_hash_ref)?;
-
-        Ok(())
     }
 }
 
@@ -636,14 +618,16 @@ pub(crate) fn serialize_key_package_hash_ref(
     Ok(serialized)
 }
 
-fn deserialize_key_package_hash_ref(hash_ref: &[u8]) -> Result<HashReference, IdentityError> {
+pub(crate) fn deserialize_key_package_hash_ref(
+    hash_ref: &[u8],
+) -> Result<HashReference, IdentityError> {
     let key_package_hash_ref: HashReference =
         bincode::deserialize(hash_ref).map_err(|_| IdentityError::UninitializedIdentity)?;
 
     Ok(key_package_hash_ref)
 }
 
-fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
+pub(crate) fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
     let cred = MlsCredential { inbox_id };
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);

@@ -17,6 +17,7 @@ use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
@@ -368,5 +369,20 @@ impl Client {
     let identity = self.inner_client.identity_api_stats();
     let aggregate = AggregateStats { mls: api, identity };
     format!("{:?}", aggregate)
+  }
+
+  #[napi]
+  pub fn clear_all_statistics(&self) {
+    self.inner_client.clear_stats()
+  }
+
+  #[napi]
+  pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
+    let provider = Arc::new(self.inner_client().mls_provider());
+    Ok(
+      upload_debug_archive(&provider, server_url)
+        .await
+        .map_err(ErrorWrapper::from)?,
+    )
   }
 }

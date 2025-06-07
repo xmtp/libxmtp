@@ -2,14 +2,13 @@ pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;
 pub mod group_membership;
-pub mod group_metadata;
-pub mod group_mutable_metadata;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
 pub mod welcome_sync;
 
-mod disappearing_messages;
+pub mod disappearing_messages;
+pub mod key_package_cleaner_worker;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
@@ -21,8 +20,7 @@ pub mod validated_commit;
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::{
     group_membership::GroupMembership,
-    group_metadata::{extract_group_metadata, DmMembers},
-    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
+    group_permissions::PolicySet,
     group_permissions::{extract_group_permissions, GroupMutablePermissions},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
@@ -30,22 +28,12 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
-use self::{
-    group_metadata::{GroupMetadata, GroupMetadataError},
-    group_permissions::PolicySet,
-};
-use crate::groups::group_mutable_metadata::{
-    extract_group_mutable_metadata, MessageDisappearingSettings,
-};
-use crate::groups::intents::UpdateGroupMembershipResult;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
     configuration::{
-        CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_GROUP_SIZE,
-        MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
-        SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+        CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     context::XmtpMlsLocalContext,
     identity_updates::load_identity_updates,
@@ -56,7 +44,7 @@ use crate::{
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
-use intents::SendMessageIntentData;
+use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
 use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
@@ -83,6 +71,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
+use xmtp_db::events::{Details, Event, Events};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -101,6 +90,18 @@ use xmtp_db::{
 use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
+use xmtp_mls_common::{
+    config::{
+        GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
+        MUTABLE_METADATA_EXTENSION_ID,
+    },
+    group::{DMMetadataOptions, GroupMetadataOptions},
+    group_metadata::{extract_group_metadata, DmMembers, GroupMetadata, GroupMetadataError},
+    group_mutable_metadata::{
+        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+        MessageDisappearingSettings, MetadataField,
+    },
+};
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
@@ -147,19 +148,6 @@ where
 pub struct ConversationListItem<ApiClient, Db> {
     pub group: MlsGroup<ApiClient, Db>,
     pub last_message: Option<StoredGroupMessage>,
-}
-
-#[derive(Default, Clone)]
-pub struct GroupMetadataOptions {
-    pub name: Option<String>,
-    pub image_url_square: Option<String>,
-    pub description: Option<String>,
-    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
-}
-
-#[derive(Default, Clone)]
-pub struct DMMetadataOptions {
-    pub message_disappearing_settings: Option<MessageDisappearingSettings>,
 }
 
 impl<ApiClient, Db> Clone for MlsGroup<ApiClient, Db> {
@@ -271,7 +259,7 @@ where
     pub fn new_cached(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: &[u8],
-    ) -> Result<(Self, StoredGroup), GroupError> {
+    ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
         if let Some(group) = conn.find_group(group_id)? {
             Ok((
@@ -324,7 +312,7 @@ where
         operation: F,
     ) -> Result<R, GroupError>
     where
-        F: FnOnce(OpenMlsGroup) -> Result<R, GroupError>,
+        F: Fn(OpenMlsGroup) -> Result<R, GroupError>,
     {
         // Get the group ID for locking
         let group_id = self.group_id.clone();
@@ -521,12 +509,21 @@ where
         stored_group.store(provider.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id,
+            group_id.clone(),
             stored_group.dm_id.clone(),
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
+
+        Events::track(
+            provider.db(),
+            Some(group_id),
+            Event::GroupCreate,
+            Details::GroupCreate {
+                conversation_type: ConversationType::Dm,
+            },
+        );
         Ok(new_group)
     }
 
@@ -544,7 +541,6 @@ where
     pub(super) async fn create_from_welcome(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
-        allow_cursor_increment: bool,
     ) -> Result<Self, GroupError> {
         let provider = context.mls_provider();
         // Check if this welcome was already processed. Return the existing group if so.
@@ -556,6 +552,7 @@ where
             let group = provider
                 .db()
                 .find_group_by_welcome_id(welcome.id as i64)?
+                // The welcome previously errored out, e.g. HPKE error, so it's not in the DB
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
                 )))?;
@@ -564,7 +561,7 @@ where
             return Ok(group);
         };
 
-        let mut decrypted_welcome = None;
+        let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
         let result = provider.transaction(|provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
@@ -574,6 +571,8 @@ where
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
         });
+
+        // TODO: Move cursor forward on non-retriable errors, but not on retriable errors
         let Err(StorageError::IntentionalRollback) = result else {
             return Err(result?);
         };
@@ -596,28 +595,19 @@ where
                 ..
             } = decrypted_welcome;
 
-            let requires_processing = if allow_cursor_increment {
-                tracing::info!(
-                    "calling update cursor for welcome {}, allow_cursor_increment is true",
-                    welcome.id
-                );
-                provider.db().update_cursor(
-                    context.installation_id(),
-                    EntityKind::Welcome,
-                    welcome.id as i64,
-                )?
-            } else {
-                tracing::info!(
-                    "will not call update cursor for welcome {}, allow_cursor_increment is false",
-                    welcome.id
-                );
-                let current_cursor = provider
-                    .db()
-                    .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?;
-                current_cursor < welcome.id as i64
-            };
+            tracing::debug!(
+                "calling update cursor for welcome {}",
+                welcome.id
+            );
+            // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
+            // failed due to retriable errors, this will permanently skip them.
+            let requires_processing = provider.db().update_cursor(
+                context.installation_id(),
+                EntityKind::Welcome,
+                welcome.id as i64,
+            )?;
             if !requires_processing {
-                return Err(ProcessIntentError::AlreadyProcessed(welcome.id).into());
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
@@ -665,6 +655,8 @@ where
                 .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
                 .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
 
+
+
             let to_store = match conversation_type {
                 ConversationType::Group => {
                     group
@@ -691,11 +683,22 @@ where
                 },
             };
 
+            tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
+            let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            Events::track(
+                db,
+                Some(stored_group.id.clone()),
+                Event::GroupWelcome,
+                Some(Details::GroupWelcome  {
+                    conversation_type: stored_group.conversation_type,
+                    added_by_inbox_id: stored_group.added_by_inbox_id.clone()
+                })
+            );
 
             Ok(Self::new(
                 context,
@@ -980,6 +983,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
+
+        Events::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            Event::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: ids.into_iter().map(String::from).collect(),
+                removed: vec![],
+            },
+        );
         ok_result
     }
 
@@ -1029,6 +1042,16 @@ where
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
+
+        Events::track(
+            self.mls_provider().db(),
+            Some(self.group_id.clone()),
+            Event::GroupMembershipChange,
+            Details::GroupMembershipChange {
+                added: vec![],
+                removed: inbox_ids.iter().map(|&id| String::from(id)).collect(),
+            },
+        );
         Ok(())
     }
 

@@ -102,6 +102,7 @@ impl EncryptedConnection {
                         Self::create(db_path, key, &mut salt)?;
                     }
                 }
+                tracing::info!("db_path=[{}]", db_path);
                 Some(salt)
             }
         };
@@ -269,7 +270,16 @@ impl super::ValidatedConnection for EncryptedConnection {
             SELECT count(*) FROM sqlite_master;",
             self.pragmas()
         ))
-        .map_err(|_| PlatformStorageError::SqlCipherKeyIncorrect)?;
+        .map_err(|e| {
+            let err_msg = e.to_string();
+            if err_msg.contains("database is locked") {
+                tracing::debug!("Database is locked; retryable error");
+                PlatformStorageError::DatabaseLocked
+            } else {
+                tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
+                PlatformStorageError::SqlCipherKeyIncorrect
+            }
+        })?;
 
         let CipherProviderVersion {
             cipher_provider_version,

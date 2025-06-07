@@ -35,24 +35,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Update rust toolchains
-        run: rustup update
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: WarpBuilds/rust-cache@v2
         with:
           workspaces: |
             .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=host
       - name: Start Docker containers
         run: |
           dev/build_validation_service_local
           dev/docker/up
+      - name: Dump docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: build tests
-        run: cargo nextest --config-file ".cargo/nextest.toml" run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --all-features
+        run: cargo nextest --profile ci run --no-run --workspace --tests --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --all-features
       - name: test workspace with grpc
-        run: cargo nextest --config-file ".cargo/nextest.toml" run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
+        run: cargo nextest --profile ci run --workspace --test-threads 2 --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm
       - name: test workspace with http
-        run: cargo nextest run --config-file ".cargo/nextest.toml" --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2
+        run: cargo nextest --profile ci run  --workspace --exclude xmtp_api_grpc --exclude xmtpv3 --exclude bindings_node --exclude bindings_wasm --exclude xmtp_api_d14n --features http-api --test-threads 2

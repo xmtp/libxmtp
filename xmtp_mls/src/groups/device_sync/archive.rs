@@ -1,54 +1,87 @@
-pub use importer::ArchiveImporter;
-use thiserror::Error;
-use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupMetadataSave, BackupOptions};
+use super::DeviceSyncError;
+use crate::{
+    context::XmtpMlsLocalContext,
+    groups::{group_permissions::PolicySet, MlsGroup},
+};
+use futures::StreamExt;
+use std::sync::Arc;
+use xmtp_api::XmtpApi;
+pub use xmtp_archive::*;
+use xmtp_db::{
+    consent_record::StoredConsentRecord, group::GroupMembershipState,
+    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
+};
+use xmtp_mls_common::group::GroupMetadataOptions;
+use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
-// Increment on breaking changes
-const BACKUP_VERSION: u16 = 0;
-
-mod export_stream;
-pub mod exporter;
-pub mod importer;
-
-#[derive(Debug, Error)]
-pub enum ArchiveError {
-    #[error("Missing metadata")]
-    MissingMetadata,
-}
-
-#[derive(Default)]
-pub struct BackupMetadata {
-    pub backup_version: u16,
-    pub elements: Vec<BackupElementSelection>,
-    pub exported_at_ns: i64,
-    pub start_ns: Option<i64>,
-    pub end_ns: Option<i64>,
-}
-
-impl BackupMetadata {
-    fn from_metadata_save(save: BackupMetadataSave, backup_version: u16) -> Self {
-        Self {
-            elements: save.elements().collect(),
-            end_ns: save.end_ns,
-            start_ns: save.start_ns,
-            exported_at_ns: save.exported_at_ns,
-            backup_version,
-        }
+pub async fn insert_importer<ApiClient, Db>(
+    importer: &mut ArchiveImporter,
+    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+) -> Result<(), DeviceSyncError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    while let Some(element) = importer.next().await {
+        let element = element?;
+        if let Err(err) = insert(element, context, context.mls_provider()) {
+            tracing::warn!("Unable to insert record: {err:?}");
+        };
     }
+
+    Ok(())
 }
 
-pub(crate) trait OptionsToSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave;
-}
-impl OptionsToSave for BackupMetadataSave {
-    fn from_options(options: BackupOptions) -> BackupMetadataSave {
-        Self {
-            end_ns: options.end_ns,
-            start_ns: options.start_ns,
-            elements: options.elements,
-            exported_at_ns: now_ns(),
+fn insert<ApiClient, Db>(
+    element: BackupElement,
+    context: &XmtpMlsLocalContext<ApiClient, Db>,
+    provider: impl MlsProviderExt,
+) -> Result<(), DeviceSyncError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let Some(element) = element.element else {
+        return Ok(());
+    };
+
+    match element {
+        Element::Consent(consent) => {
+            let consent: StoredConsentRecord = consent.try_into()?;
+            provider.db().insert_newer_consent_record(consent)?;
         }
+        Element::Group(save) => {
+            if let Ok(Some(_)) = provider.db().find_group(&save.id) {
+                // Do not restore groups that already exist.
+                return Ok(());
+            }
+
+            let attributes = save
+                .mutable_metadata
+                .map(|m| m.attributes)
+                .unwrap_or_default();
+
+            MlsGroup::insert(
+                context,
+                Some(&save.id),
+                GroupMembershipState::Restored,
+                PolicySet::default(),
+                GroupMetadataOptions {
+                    name: attributes.get("group_name").cloned(),
+                    image_url_square: attributes.get("group_image_url_square").cloned(),
+                    description: attributes.get("description").cloned(),
+                    ..Default::default()
+                },
+            )?;
+        }
+        Element::GroupMessage(message) => {
+            let message: StoredGroupMessage = message.try_into()?;
+            message.store_or_ignore(provider.db())?;
+        }
+        _ => {}
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -60,20 +93,20 @@ mod tests {
         builder::ClientBuilder, groups::GroupMetadataOptions, utils::test::wait_for_min_intents,
     };
     use diesel::prelude::*;
-    use exporter::ArchiveExporter;
     use futures::io::Cursor;
-    use importer::ArchiveImporter;
     use std::{path::Path, sync::Arc};
+    use xmtp_archive::exporter::ArchiveExporter;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
-
     use xmtp_db::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
+    use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
         use futures::io::BufReader;
@@ -82,9 +115,7 @@ mod tests {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
 
-        let alix_group = alix
-            .create_group(None, GroupMetadataOptions::default())
-            .unwrap();
+        let alix_group = alix.create_group(None, None).unwrap();
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id()])
             .await
@@ -123,7 +154,9 @@ mod tests {
         let reader = BufReader::new(Cursor::new(file));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
-        importer.run(&alix2.context).await.unwrap();
+        insert_importer(&mut importer, &alix2.context)
+            .await
+            .unwrap();
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2_provider
@@ -143,7 +176,7 @@ mod tests {
         tester!(alix, sync_worker, sync_server);
         tester!(bo);
 
-        let alix_group = alix.create_group(None, GroupMetadataOptions::default())?;
+        let alix_group = alix.create_group(None, None)?;
 
         // wait for user preference update
         wait_for_min_intents(alix.provider.db(), 2).await?;
@@ -209,7 +242,9 @@ mod tests {
         assert_eq!(consent_records.len(), 0);
 
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
-        importer.run(&alix2.context).await?;
+        insert_importer(&mut importer, &alix2.context)
+            .await
+            .unwrap();
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2

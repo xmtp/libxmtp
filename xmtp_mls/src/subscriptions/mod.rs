@@ -4,16 +4,17 @@ use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::instrument;
 
+use tracing::instrument;
 use xmtp_db::XmtpDb;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
+use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
-use stream_conversations::{ProcessWelcomeResult, StreamConversations, WelcomeOrGroup};
+use stream_conversations::{StreamConversations, WelcomeOrGroup};
 
-pub mod process_message;
-pub mod process_welcome;
+pub(super) mod process_message;
+pub(super) mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
@@ -161,14 +162,14 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
 #[derive(thiserror::Error, Debug)]
 pub enum SubscribeError {
     #[error(transparent)]
-    Group(#[from] GroupError),
+    Group(#[from] Box<GroupError>),
     #[error(transparent)]
     NotFound(#[from] NotFound),
     // TODO: Add this to `NotFound`
     #[error("group message expected in database but is missing")]
     GroupMessageNotFound,
     #[error("processing group message in stream: {0}")]
-    ReceiveGroup(#[from] GroupMessageProcessingError),
+    ReceiveGroup(#[from] Box<GroupMessageProcessingError>),
     #[error(transparent)]
     Storage(#[from] StorageError),
     #[error(transparent)]
@@ -183,6 +184,18 @@ pub enum SubscribeError {
     BoxError(Box<dyn RetryableError + Send + Sync>),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+}
+
+impl From<GroupError> for SubscribeError {
+    fn from(value: GroupError) -> Self {
+        SubscribeError::Group(Box::new(value))
+    }
+}
+
+impl From<GroupMessageProcessingError> for SubscribeError {
+    fn from(value: GroupMessageProcessingError) -> Self {
+        SubscribeError::ReceiveGroup(Box::new(value))
+    }
 }
 
 impl RetryableError for SubscribeError {
@@ -245,6 +258,18 @@ where
         ApiClient: XmtpMlsStreams,
     {
         StreamConversations::new(&self.context, conversation_type).await
+    }
+
+    /// Stream conversations but decouple the lifetime of 'self' from the stream.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn stream_conversations_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + 'static>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
+        StreamConversations::new_owned(self.context.clone(), conversation_type).await
     }
 }
 

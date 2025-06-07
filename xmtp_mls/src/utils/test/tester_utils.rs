@@ -5,11 +5,12 @@ use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     configuration::DeviceSyncUrls,
-    groups::device_sync::handle::{SyncMetric, WorkerHandle},
+    groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
+    worker::metrics::WorkerMetrics,
     Client,
 };
-use ethers::signers::LocalWallet;
+use alloy::signers::local::PrivateKeySigner;
 use futures::Stream;
 use futures_executor::block_on;
 use parking_lot::Mutex;
@@ -47,7 +48,7 @@ where
     pub builder: TesterBuilder<Owner>,
     pub client: Arc<Client>,
     pub provider: Arc<XmtpOpenMlsProvider>,
-    pub worker: Option<Arc<WorkerHandle<SyncMetric>>>,
+    pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
@@ -83,8 +84,8 @@ macro_rules! tester {
     };
 }
 
-impl Tester<LocalWallet, FullXmtpClient> {
-    pub(crate) async fn new() -> Tester<LocalWallet, FullXmtpClient> {
+impl Tester<PrivateKeySigner, FullXmtpClient> {
+    pub(crate) async fn new() -> Tester<PrivateKeySigner, FullXmtpClient> {
         let wallet = generate_local_wallet();
         Tester::new_with_owner(wallet).await
     }
@@ -94,7 +95,7 @@ impl Tester<LocalWallet, FullXmtpClient> {
         Tester::new_with_owner(passkey_user).await
     }
 
-    pub(crate) fn builder() -> TesterBuilder<LocalWallet> {
+    pub(crate) fn builder() -> TesterBuilder<PrivateKeySigner> {
         TesterBuilder::new()
     }
 }
@@ -124,6 +125,7 @@ where
             self.sync_url.as_deref(),
             Some(self.sync_mode),
             None,
+            true,
         )
         .await;
         let client = Arc::new(client);
@@ -135,7 +137,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.context.device_sync.worker_handle();
+        let worker = client.context.worker_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
@@ -188,7 +190,7 @@ where
     pub fn builder_from(owner: Owner) -> TesterBuilder<Owner> {
         TesterBuilder::new().owner(owner)
     }
-    pub fn worker(&self) -> &Arc<WorkerHandle<SyncMetric>> {
+    pub fn worker(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         self.worker.as_ref().unwrap()
     }
 }
@@ -217,13 +219,13 @@ where
     pub name: Option<String>,
 }
 
-impl TesterBuilder<LocalWallet> {
+impl TesterBuilder<PrivateKeySigner> {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl Default for TesterBuilder<LocalWallet> {
+impl Default for TesterBuilder<PrivateKeySigner> {
     fn default() -> Self {
         Self {
             owner: generate_local_wallet(),

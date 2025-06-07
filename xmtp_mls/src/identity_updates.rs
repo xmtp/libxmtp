@@ -618,7 +618,7 @@ pub(crate) mod tests {
         utils::{FullXmtpClient, Tester},
         Client, XmtpApi,
     };
-    use ethers::signers::{LocalWallet, Signer};
+    use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::associations::{
@@ -665,8 +665,8 @@ pub(crate) mod tests {
             .expect("insert should succeed");
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     async fn test_is_member_of_association_state() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -708,6 +708,7 @@ pub(crate) mod tests {
         assert!(is_member);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
@@ -736,6 +737,7 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_ident.into()).is_some())
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn add_association() {
         let wallet = generate_local_wallet();
@@ -841,6 +843,7 @@ pub(crate) mod tests {
         });
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
@@ -858,6 +861,7 @@ pub(crate) mod tests {
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn get_installation_diff() {
         let wallet_1 = generate_local_wallet();
@@ -970,6 +974,7 @@ pub(crate) mod tests {
             .contains(&client_2_installation_key.to_vec()));
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     pub async fn revoke_wallet() {
         let recovery_wallet = generate_local_wallet();
@@ -1030,6 +1035,7 @@ pub(crate) mod tests {
         assert_eq!(inbox_ids.len(), 0);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
@@ -1131,10 +1137,10 @@ pub(crate) mod tests {
         assert_eq!(association_state.installation_ids().len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     pub async fn change_recovery_address() {
-        let original_wallet: LocalWallet = generate_local_wallet();
+        let original_wallet = generate_local_wallet();
         let new_recovery_wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&original_wallet).await;
 
@@ -1236,9 +1242,10 @@ pub(crate) mod tests {
         // add_wallet_signature(&mut revoke_installation_request, &original_wallet).await;
         let signature_text = revoke_installation_request.signature_text();
         let sig = original_wallet
-            .sign_message(signature_text)
+            .sign_message(signature_text.as_bytes())
             .await
             .unwrap()
+            .as_bytes()
             .to_vec();
         let unverified_sig = UnverifiedSignature::new_recoverable_ecdsa(sig);
         let scw_verifier = MockSmartContractSignatureVerifier::new(false);
