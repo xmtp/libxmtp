@@ -690,6 +690,7 @@ where
 
             let db = provider.db();
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+
             Events::track(
                 db,
                 Some(stored_group.id.clone()),
@@ -700,12 +701,19 @@ where
                 })
             );
 
-            Ok(Self::new(
-                context,
+            let group = Self::new(
+                context.clone(),
                 stored_group.id,
                 stored_group.dm_id,
                 stored_group.created_at_ns,
-            ))
+            );
+
+            // If this group is created by us - auto-consent to it.
+            if context.inbox_id() == group.metadata()?.creator_inbox_id {
+                group.quietly_update_consent_state(ConsentState::Allowed)?;
+            }
+
+            Ok(group)
         })
     }
 
@@ -1065,7 +1073,7 @@ where
                 length: MAX_GROUP_NAME_LENGTH,
             });
         }
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
+        if self.metadata()?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
@@ -1109,7 +1117,7 @@ where
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
+        if self.metadata()?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         if permission_update_type == PermissionUpdateType::UpdateMetadata
@@ -1159,7 +1167,7 @@ where
             });
         }
 
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
+        if self.metadata()?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
@@ -1196,7 +1204,7 @@ where
             });
         }
 
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
+        if self.metadata()?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_data: Vec<u8> =
@@ -1351,7 +1359,7 @@ where
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
-        let metadata = self.metadata().await?;
+        let metadata = self.metadata()?;
         Ok(metadata.conversation_type)
     }
 
@@ -1361,7 +1369,7 @@ where
         action_type: UpdateAdminListType,
         inbox_id: String,
     ) -> Result<(), GroupError> {
-        if self.metadata().await?.conversation_type == ConversationType::Dm {
+        if self.metadata()?.conversation_type == ConversationType::Dm {
             return Err(MetadataPermissionsError::DmGroupMetadataForbidden.into());
         }
         let intent_action_type = match action_type {
@@ -1401,16 +1409,24 @@ where
         }
     }
 
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    // Returns new consent records. Does not broadcast changes.
+    pub fn quietly_update_consent_state(
+        &self,
+        state: ConsentState,
+    ) -> Result<Vec<StoredConsentRecord>, GroupError> {
         let conn = self.context().db();
-
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        let new_records: Vec<_> = conn
-            .insert_or_replace_consent_records(&[consent_record.clone()])?
+
+        Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let new_records: Vec<PreferenceUpdate> = self
+            .quietly_update_consent_state(state)?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();
@@ -1491,15 +1507,13 @@ where
     }
 
     /// Get the `GroupMetadata` of the group.
-    pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            futures::future::ready(
-                extract_group_metadata(&mls_group)
-                    .map_err(MetadataPermissionsError::from)
-                    .map_err(Into::into),
-            )
+    pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
+        let provider = self.context.mls_provider();
+        self.load_mls_group_with_lock(&provider, |mls_group| {
+            extract_group_metadata(&mls_group)
+                .map_err(MetadataPermissionsError::from)
+                .map_err(Into::into)
         })
-        .await
     }
 
     /// Get the `GroupMutableMetadata` of the group.
