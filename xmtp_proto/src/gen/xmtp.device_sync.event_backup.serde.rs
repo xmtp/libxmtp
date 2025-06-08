@@ -6,12 +6,12 @@ impl serde::Serialize for EventLevelSave {
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::EventLevelUnspecified => "EVENT_LEVEL_UNSPECIFIED",
-            Self::EventLevelNone => "EVENT_LEVEL_NONE",
-            Self::EventLevelSuccess => "EVENT_LEVEL_SUCCESS",
-            Self::EventLevelWarn => "EVENT_LEVEL_WARN",
-            Self::EventLevelError => "EVENT_LEVEL_ERROR",
-            Self::EventLevelFault => "EVENT_LEVEL_FAULT",
+            Self::Unspecified => "EVENT_LEVEL_SAVE_UNSPECIFIED",
+            Self::None => "EVENT_LEVEL_SAVE_NONE",
+            Self::Success => "EVENT_LEVEL_SAVE_SUCCESS",
+            Self::Warn => "EVENT_LEVEL_SAVE_WARN",
+            Self::Error => "EVENT_LEVEL_SAVE_ERROR",
+            Self::Fault => "EVENT_LEVEL_SAVE_FAULT",
         };
         serializer.serialize_str(variant)
     }
@@ -23,12 +23,12 @@ impl<'de> serde::Deserialize<'de> for EventLevelSave {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "EVENT_LEVEL_UNSPECIFIED",
-            "EVENT_LEVEL_NONE",
-            "EVENT_LEVEL_SUCCESS",
-            "EVENT_LEVEL_WARN",
-            "EVENT_LEVEL_ERROR",
-            "EVENT_LEVEL_FAULT",
+            "EVENT_LEVEL_SAVE_UNSPECIFIED",
+            "EVENT_LEVEL_SAVE_NONE",
+            "EVENT_LEVEL_SAVE_SUCCESS",
+            "EVENT_LEVEL_SAVE_WARN",
+            "EVENT_LEVEL_SAVE_ERROR",
+            "EVENT_LEVEL_SAVE_FAULT",
         ];
 
         struct GeneratedVisitor;
@@ -69,12 +69,12 @@ impl<'de> serde::Deserialize<'de> for EventLevelSave {
                 E: serde::de::Error,
             {
                 match value {
-                    "EVENT_LEVEL_UNSPECIFIED" => Ok(EventLevelSave::EventLevelUnspecified),
-                    "EVENT_LEVEL_NONE" => Ok(EventLevelSave::EventLevelNone),
-                    "EVENT_LEVEL_SUCCESS" => Ok(EventLevelSave::EventLevelSuccess),
-                    "EVENT_LEVEL_WARN" => Ok(EventLevelSave::EventLevelWarn),
-                    "EVENT_LEVEL_ERROR" => Ok(EventLevelSave::EventLevelError),
-                    "EVENT_LEVEL_FAULT" => Ok(EventLevelSave::EventLevelFault),
+                    "EVENT_LEVEL_SAVE_UNSPECIFIED" => Ok(EventLevelSave::Unspecified),
+                    "EVENT_LEVEL_SAVE_NONE" => Ok(EventLevelSave::None),
+                    "EVENT_LEVEL_SAVE_SUCCESS" => Ok(EventLevelSave::Success),
+                    "EVENT_LEVEL_SAVE_WARN" => Ok(EventLevelSave::Warn),
+                    "EVENT_LEVEL_SAVE_ERROR" => Ok(EventLevelSave::Error),
+                    "EVENT_LEVEL_SAVE_FAULT" => Ok(EventLevelSave::Fault),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
