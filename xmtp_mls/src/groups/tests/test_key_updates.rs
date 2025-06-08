@@ -49,12 +49,12 @@ async fn key_update_out_of_epoch() {
     // Have bo join a group and immediately send several optimistic messages.
     // Add enough people to move the epoch ahead 5, then sync to ensure proper delivery.
     tester!(alix);
-    tester!(bo);
     tester!(carl);
     tester!(dre);
     tester!(ed);
     tester!(fester);
     tester!(greg);
+    tester!(bo);
 
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
