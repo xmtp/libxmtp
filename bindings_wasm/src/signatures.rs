@@ -40,7 +40,7 @@ pub struct PasskeySignature {
 }
 
 #[wasm_bindgen]
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SignatureRequestType {
   AddWallet,
   CreateInbox,

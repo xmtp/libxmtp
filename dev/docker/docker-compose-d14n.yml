@@ -11,10 +11,10 @@ services:
       retries: 5
   chain:
     platform: linux/amd64
-    image: ghcr.io/xmtp/contracts:sha-85dc71a
+    image: ghcr.io/xmtp/contracts:v0.4.3
   register-node:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd-cli:sha-7f034a1
+    image: ghcr.io/xmtp/xmtpd-cli:sha-f8358a1
     env_file:
       - local.env
     command: ["register-node", "--http-address=${REGISTER_NODE_HTTP_ADDRESS}", "--node-owner-address=${REGISTER_NODE_OWNER_ADDRESS}", "--admin.private-key=${REGISTER_NODE_ADMIN_KEY}", "--node-signing-key-pub=${REGISTER_NODE_PUBKEY}"]
@@ -24,7 +24,7 @@ services:
     restart: on-failure
   enable-node:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd-cli:sha-7f034a1
+    image: ghcr.io/xmtp/xmtpd-cli:sha-f8358a1
     env_file:
       - local.env
     command: ["add-node-to-network", "--admin.private-key=${REGISTER_NODE_ADMIN_KEY}", "--node-id=100"]
@@ -36,7 +36,7 @@ services:
     restart: on-failure
   repnode:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd:sha-7f034a1
+    image: ghcr.io/xmtp/xmtpd:sha-f8358a1
     env_file:
       - local.env
     depends_on:

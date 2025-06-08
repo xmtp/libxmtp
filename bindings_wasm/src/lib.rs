@@ -27,5 +27,5 @@ pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(
   value.serialize(&Serializer::new().serialize_large_number_types_as_bigints(true))
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests;

@@ -67,6 +67,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     device_sync_server_url: Option<String>,
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
+    allow_offline: bool,
     disable_local_telemetry: bool,
 }
 
@@ -95,6 +96,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: None,
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
+            allow_offline: false,
             disable_local_telemetry: false,
         }
     }
@@ -117,6 +119,7 @@ where
             device_sync_server_url: client.context.device_sync.server_url.clone(),
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
+            allow_offline: false,
             disable_local_telemetry: false,
         }
     }
@@ -138,6 +141,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url,
             device_sync_worker_mode,
             version_info,
+            allow_offline,
             disable_local_telemetry: disable_events,
         } = self;
 
@@ -176,13 +180,15 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             installation_id = hex::encode(identity.installation_keys.public_bytes()),
             "Initialized identity"
         );
-        // get sequence_id from identity updates and loaded into the DB
-        load_identity_updates(
-            &api_client,
-            provider.db(),
-            vec![identity.inbox_id.as_str()].as_slice(),
-        )
-        .await?;
+        if !allow_offline {
+            // get sequence_id from identity updates and loaded into the DB
+            load_identity_updates(
+                &api_client,
+                provider.db(),
+                vec![identity.inbox_id.as_str()].as_slice(),
+            )
+            .await?;
+        }
 
         let (tx, _) = broadcast::channel(32);
         let context = Arc::new(XmtpMlsLocalContext {
@@ -248,6 +254,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
             disable_local_telemetry: self.disable_local_telemetry,
         }
     }
@@ -285,6 +292,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
             disable_local_telemetry: self.disable_local_telemetry,
         }
     }
@@ -292,6 +300,14 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, Db> {
         ClientBuilder {
             version_info,
+            ..self
+        }
+    }
+
+    /// Skip network calls when building a client
+    pub fn with_allow_offline(self, allow_offline: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+        ClientBuilder {
+            allow_offline: allow_offline.unwrap_or(false),
             ..self
         }
     }
@@ -321,6 +337,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
             disable_local_telemetry: self.disable_local_telemetry,
         })
     }
@@ -339,6 +356,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
             disable_local_telemetry: self.disable_local_telemetry,
         }
     }
@@ -368,6 +386,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_server_url: self.device_sync_server_url,
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
+            allow_offline: self.allow_offline,
             disable_local_telemetry: self.disable_local_telemetry,
         })
     }
