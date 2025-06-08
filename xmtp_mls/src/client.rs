@@ -20,7 +20,6 @@ use crate::{
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
-use serde_json::json;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -31,7 +30,7 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    events::{Details, Event, EventLevel, Events},
+    events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,

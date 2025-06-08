@@ -3,7 +3,7 @@ use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
-use xmtp_db::events::{Event, Events, EVENTS_ENABLED};
+use xmtp_db::events::EVENTS_ENABLED;
 
 use crate::{
     client::{Client, DeviceSync},
@@ -15,6 +15,7 @@ use crate::{
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
+    track,
     utils::{events::EventWorker, VersionInfo},
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
@@ -225,7 +226,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             move || DisappearingMessagesWorker::new(client.clone())
         });
 
-        Events::track(provider.db(), None, Event::ClientBuild, ());
+        track!("Client Build");
 
         Ok(client)
     }

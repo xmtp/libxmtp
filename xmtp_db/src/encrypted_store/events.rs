@@ -27,6 +27,7 @@ pub struct Events {
     pub event: String,
     pub details: serde_json::Value,
     pub level: EventLevel,
+    pub icon: Option<String>,
 }
 
 #[repr(i32)]
@@ -81,8 +82,9 @@ impl Events {
     pub fn track<C: ConnectionExt>(
         db: &DbConnection<C>,
         group_id: Option<Vec<u8>>,
-        event: impl AsRef<Event>,
+        event: impl AsRef<str>,
         details: impl Serialize,
+        icon: Option<String>,
     ) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
             return;
@@ -112,6 +114,7 @@ impl Events {
             event,
             details: serialized_details,
             level: EventLevel::None,
+            icon,
         }
         .store(db);
         if let Err(err) = result {
@@ -120,7 +123,7 @@ impl Events {
         }
 
         // Clear old events on build.
-        if matches!(client_event, Event::ClientBuild) {
+        if client_event == "Client Build" {
             if let Err(err) = Self::clear_old_events(db) {
                 tracing::warn!("ClientEvents clear old events: {err:?}");
             }
@@ -164,17 +167,6 @@ impl Events {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub enum Event {
-    ClientBuild,
-    QueueIntent,
-    EpochChange,
-    GroupWelcome,
-    GroupCreate,
-    GroupMembershipChange,
-    MsgStreamConnect,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Details {
     MsgStreamConnect {
@@ -203,12 +195,6 @@ pub enum Details {
     },
 }
 
-impl AsRef<Event> for Event {
-    fn as_ref(&self) -> &Event {
-        self
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -216,7 +202,7 @@ mod tests {
 
     use crate::{
         Store,
-        events::{Details, Event, EventLevel, Events},
+        events::{Details, EventLevel, Events},
         group_intent::IntentKind,
         with_connection,
     };
@@ -229,26 +215,28 @@ mod tests {
             Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&Event::ClientBuild)?,
+                event: "Queue Intent".to_string(),
                 details: serde_json::to_value(details.clone())?,
                 level: EventLevel::None,
+                icon: None,
             }
             .store(conn)?;
             Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&Event::QueueIntent)?,
+                event: "Queue Intent".to_string(),
                 details: serde_json::to_value(Details::QueueIntent {
                     intent_kind: IntentKind::KeyUpdate,
                 })?,
                 level: EventLevel::None,
+                icon: None,
             }
             .store(conn)?;
 
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            Events::track(conn, None, Event::ClientBuild, Some(details));
+            Events::track(conn, None, "Client Build", Some(details), None);
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 1);
         })

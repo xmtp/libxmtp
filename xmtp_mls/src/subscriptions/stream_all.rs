@@ -4,14 +4,13 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use crate::groups::welcome_sync::WelcomeService;
 use crate::{
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     subscriptions::stream_messages::MessagesApiSubscription,
 };
+use crate::{groups::welcome_sync::WelcomeService, track};
 
 use xmtp_db::{
-    events::{Details, Event, Events},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -62,14 +61,13 @@ where
             let provider = context.mls_provider();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
 
-            Events::track(
-                provider.db(),
-                None,
-                Event::MsgStreamConnect,
-                Some(Details::MsgStreamConnect {
-                    conversation_type,
-                    consent_states: consent_states.clone(),
-                }),
+            track!(
+                "Message Stream Connect",
+                {
+                    "conversation_type": conversation_type,
+                    "consent_states": &consent_states,
+                },
+                icon: "🚣"
             );
 
             let groups = provider.db().find_groups(GroupQueryArgs {

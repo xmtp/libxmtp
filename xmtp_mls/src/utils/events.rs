@@ -17,7 +17,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events},
-    ConnectionExt, DbConnection, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+    StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -45,6 +45,7 @@ pub(crate) struct EventBuilder<'a, E, D> {
     pub details: D,
     pub group_id: Option<&'a [u8]>,
     pub level: Option<EventLevel>,
+    pub icon: Option<String>,
 }
 
 impl<'a, E, D> EventBuilder<'a, E, D>
@@ -58,6 +59,7 @@ where
             details,
             group_id: None,
             level: None,
+            icon: None,
         }
     }
 
@@ -68,6 +70,7 @@ where
             event: self.event.as_ref().to_string(),
             group_id: self.group_id.map(|g| g.to_vec()),
             level: self.level.unwrap_or(EventLevel::None),
+            icon: self.icon,
         })
     }
 
@@ -169,11 +172,15 @@ where
 /// - The calling code continues execution regardless of tracking success/failure
 #[macro_export]
 macro_rules! track {
+    ($label:expr) => {
+        track!($label, (serde_json::json!(())))
+    };
     ($label:literal $(, $k:ident $(: $v:expr)?)*) => {
         track!(($label.to_string()) $(, $k $(: $v)?)*)
     };
     ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
         let details = serde_json::json!($details);
+        #[allow(unused_mut)]
         let mut builder = $crate::utils::events::EventBuilder::new($label, details);
         track!(@process builder $(, $k $(: $v)?)*)
     };
@@ -198,8 +205,35 @@ macro_rules! track {
         $builder.level = Some($level);
         track!(@process $builder $(, $k $(: $v)?)*)
     };
+
+    (@process $builder:expr, icon: $icon:literal $(, $k:ident $(: $v:expr)?)*) => {
+        $builder.icon = Some($icon.to_string());
+        track!(@process $builder $(, $k $(: $v)?)*)
+    };
 }
 
+/// This macro inspects a `Result` value and automatically tracks an error event if the result
+/// contains an `Err` variant, using the underlying `track!` macro. The original result is
+/// returned unchanged, making this completely transparent to control flow.
+///
+/// # Usage
+///
+/// ```rust
+/// // Track with default "Error" label
+/// let result = track_err!(some_operation());
+///
+/// // Track with custom label
+/// let result = track_err!(database_query(), label: "db_failed");
+///
+/// // With additional context (supports all track! macro parameters)
+/// let result = track_err!(api_call(),
+///     label: "api_timeout",
+///     group_id: &group_id
+/// );
+/// ```
+///
+/// The error is stored in the event details as `{"error": "Debug representation"}`.
+/// See the `track!` macro documentation for all available parameters and options.
 #[macro_export]
 macro_rules! track_err {
     ($result:expr, label: $label:expr, $(, $k:ident $(: $v:expr)?)*) => {
@@ -208,7 +242,8 @@ macro_rules! track_err {
                 $label,
                 {
                     "error": format!("{err:?}")
-                }
+                },
+                level: EventLevel::Error,
                 $(, $k $(: $v)?)*
             )
         }
