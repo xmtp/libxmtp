@@ -135,6 +135,7 @@ wasm-bindgen-futures = "0.4.50"
 wasm-bindgen-test = "0.3.50"
 web-sys = "0.3"
 zeroize = "1.8"
+futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 
 # Internal Crate Dependencies
 xmtp_api = { path = "xmtp_api" }
@@ -152,6 +153,7 @@ xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
 xmtp_db_test = { path = "xmtp_db_test" }
+bindings-wasm = { path = "bindings_wasm" }
 
 [profile.dbg]
 inherits = "dev"

@@ -592,7 +592,6 @@ fn encrypt_syncables_with_key(
 
 #[cfg(test)]
 mod tests {
-
     use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 
     use crate::{
@@ -601,7 +600,9 @@ mod tests {
         utils::{LocalTesterBuilder, Tester},
     };
 
+    #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn v1_sync_still_works() {
         tester!(alix1, sync_worker, sync_server);
         tester!(alix2, from: alix1);

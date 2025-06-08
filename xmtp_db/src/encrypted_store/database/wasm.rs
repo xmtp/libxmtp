@@ -123,11 +123,11 @@ impl std::fmt::Debug for WasmDb {
 impl WasmDb {
     pub async fn new(opts: &StorageOption) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
-        init_sqlite().await;
-        maybe_resize().await?;
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
+                init_sqlite().await;
+                maybe_resize().await?;
                 tracing::debug!("creating persistent opfs db @{}", db_path);
                 PersistentOrMem::Persistent(WasmDbConnection::new(db_path)?)
             }

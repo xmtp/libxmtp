@@ -259,6 +259,18 @@ where
     {
         StreamConversations::new(&self.context, conversation_type).await
     }
+
+    /// Stream conversations but decouple the lifetime of 'self' from the stream.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn stream_conversations_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + 'static>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
+        StreamConversations::new_owned(self.context.clone(), conversation_type).await
+    }
 }
 
 impl<ApiClient, Db> Client<ApiClient, Db>
