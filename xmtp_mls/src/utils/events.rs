@@ -37,8 +37,7 @@ impl NeedsDbReconnect for EventError {
     }
 }
 
-static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> =
-    LazyLock::new(|| Mutex::default());
+static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> = LazyLock::new(Mutex::default);
 
 pub(crate) struct EventBuilder<'a, E, D> {
     pub event: E,
