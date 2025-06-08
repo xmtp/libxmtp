@@ -174,8 +174,8 @@ macro_rules! track {
     ($label:expr) => {
         track!($label, (serde_json::json!(())))
     };
-    ($label:literal $(, $k:ident $(: $v:expr)?)*) => {
-        track!(($label.to_string()) $(, $k $(: $v)?)*)
+    ($label:literal, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+        track!(($label.to_string()), $details $(, $k $(: $v)?)*)
     };
     ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
         let details = serde_json::json!($details);
