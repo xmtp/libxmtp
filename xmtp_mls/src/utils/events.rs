@@ -236,7 +236,8 @@ macro_rules! track {
 #[macro_export]
 macro_rules! track_err {
     ($result:expr, label: $label:expr, $(, $k:ident $(: $v:expr)?)*) => {
-        if let Err(err) = &$result {
+        let result = $result;
+        if let Err(err) = &result {
             track!(
                 $label,
                 {
@@ -246,7 +247,7 @@ macro_rules! track_err {
                 $(, $k $(: $v)?)*
             )
         }
-        $result
+        result
     };
     ($result:expr, $(, $k:ident $(: $v:expr)?)*) => {
         track_err!($result, label: "Error" $(, $k $(: $v)?)*)
