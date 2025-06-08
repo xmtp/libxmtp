@@ -159,7 +159,7 @@ impl Events {
     pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
         db.raw_query_read(|db| {
             let query = dsl::events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
-                "jsonb_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
+                "jsonb_extract(details, '$.intent_kind') = 'KeyUpdate'",
             ));
 
             query.load::<Events>(db)
