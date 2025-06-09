@@ -145,10 +145,6 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             disable_local_telemetry: disable_events,
         } = self;
 
-        if disable_events {
-            EVENTS_ENABLED.store(false, Ordering::SeqCst);
-        }
-
         let api_client = api_client
             .take()
             .ok_or(ClientBuilderError::MissingParameter {
@@ -219,10 +215,13 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
                 move || SyncWorker::new(&context)
             });
         }
-        WorkerRunner::register_new_worker(&client.context, {
-            let context = client.context.clone();
-            move || EventWorker::new(&context)
-        });
+        if !disable_events {
+            EVENTS_ENABLED.store(true, Ordering::SeqCst);
+            WorkerRunner::register_new_worker(&client.context, {
+                let context = client.context.clone();
+                move || EventWorker::new(&context)
+            });
+        }
         WorkerRunner::register_new_worker(&client.context, {
             let client = client.clone();
             move || KeyPackagesCleanerWorker::new(client.clone())

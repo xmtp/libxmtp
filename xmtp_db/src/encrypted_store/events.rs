@@ -75,7 +75,7 @@ where
 
 impl_store!(Events, events);
 
-pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 impl Events {
     #[allow(invalid_type_param_default)]
