@@ -375,7 +375,7 @@ where
 
     /// Get the [`AssociationState`] for the client's `inbox_id`
     pub async fn inbox_state(
-        &self,
+        &self, // Move out of client? Replace with scw_verifier, inbox_id, DB, API?
         refresh_from_network: bool,
     ) -> Result<AssociationState, ClientError> {
         let conn = self.context.db();

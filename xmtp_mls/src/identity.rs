@@ -315,7 +315,23 @@ impl Identity {
             if *associated_inbox_id != inbox_id {
                 return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
             }
-            // TODO(rich) Fetch existing installation count here
+            // TODO(rich) Fetch existing installation count here - load identity updates and compute state.
+            // Can we construct context here? What do we have?
+            /*
+            DB
+            API
+            inbox_id
+            SCW verifier
+
+            How is context constructed?
+             */
+            // get sequence_id from identity updates and loaded into the DB
+            load_identity_updates(
+                &api_client,
+                provider.db(),
+                vec![identity.inbox_id.as_str()].as_slice(),
+            )
+            .await?;
 
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder

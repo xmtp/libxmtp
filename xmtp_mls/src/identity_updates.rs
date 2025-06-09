@@ -120,7 +120,7 @@ where
     /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
-        &self,
+        &self, // Remove and replace with scw_verifier?
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
