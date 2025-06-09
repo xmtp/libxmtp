@@ -217,6 +217,7 @@ where
     pub wait_for_init: bool,
     pub stream: bool,
     pub name: Option<String>,
+    pub events: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -234,6 +235,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             wait_for_init: true,
             stream: false,
             name: None,
+            events: false,
         }
     }
 }
@@ -253,6 +255,7 @@ where
             wait_for_init: self.wait_for_init,
             stream: self.stream,
             name: self.name,
+            events: self.events,
         }
     }
 
@@ -287,6 +290,13 @@ where
     pub fn stream(self) -> Self {
         Self {
             stream: true,
+            ..self
+        }
+    }
+
+    pub fn events(self) -> Self {
+        Self {
+            events: true,
             ..self
         }
     }

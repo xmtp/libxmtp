@@ -59,11 +59,7 @@ pub struct KeyPackagesCleanerWorker<ApiClient, Db> {
     init: OnceCell<()>,
 }
 
-impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db>
-where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
-{
+impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db> {
     pub fn new(client: Client<ApiClient, Db>) -> Self {
         Self {
             client,

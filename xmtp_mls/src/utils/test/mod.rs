@@ -78,7 +78,7 @@ impl ClientBuilder<TestClient> {
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
             None,
-            true,
+            false,
         )
         .await
     }
@@ -270,7 +270,7 @@ async fn build_with_verifier<A, V>(
     sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
     version: Option<VersionInfo>,
-    telemetry: bool,
+    events: bool,
 ) -> Client<A>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -298,8 +298,8 @@ where
         builder = builder.device_sync_worker_mode(sync_worker_mode);
     }
 
-    if !telemetry {
-        builder = builder.disable_local_telemetry();
+    if !events {
+        builder = builder.disable_events();
     }
 
     let client = builder.build().await.unwrap();

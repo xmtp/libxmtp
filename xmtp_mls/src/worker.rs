@@ -51,10 +51,10 @@ where
                         break;
                     } else {
                         tracing::error!("Worker error: {err:?}");
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting sync worker...");
                     }
                 }
+                xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
             }
         });
 

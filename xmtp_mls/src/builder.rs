@@ -269,7 +269,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    pub fn disable_local_telemetry(self) -> Self {
+    pub fn disable_events(self) -> Self {
         Self {
             disable_local_telemetry: true,
             ..self

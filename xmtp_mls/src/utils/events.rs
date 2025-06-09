@@ -4,6 +4,7 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     worker::{NeedsDbReconnect, Worker, WorkerKind},
 };
+use futures::{channel::mpsc, stream::StreamExt};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -11,7 +12,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use thiserror::Error;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::OnceCell;
 use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
@@ -37,7 +38,7 @@ impl NeedsDbReconnect for EventError {
     }
 }
 
-static EVENT_TX: LazyLock<Mutex<Option<UnboundedSender<Events>>>> = LazyLock::new(Mutex::default);
+static EVENT_TX: LazyLock<Mutex<Option<mpsc::Sender<Events>>>> = LazyLock::new(Mutex::default);
 
 pub(crate) struct EventBuilder<'a, E, D> {
     pub event: E,
@@ -82,8 +83,8 @@ where
             }
         };
 
-        if let Some(tx) = &*EVENT_TX.lock() {
-            if let Err(err) = tx.send(event) {
+        if let Some(tx) = &mut *EVENT_TX.lock() {
+            if let Err(err) = tx.try_send(event) {
                 tracing::warn!("Unable to send event to writing worker: {err:?}");
             }
         }
@@ -255,17 +256,20 @@ macro_rules! track_err {
 }
 
 pub struct EventWorker<ApiClient, Db> {
-    rx: UnboundedReceiver<Events>,
+    rx: mpsc::Receiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    #[allow(dead_code)]
+    init: OnceCell<()>,
 }
 
 impl<ApiClient, Db> EventWorker<ApiClient, Db> {
     pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(100);
         *EVENT_TX.lock() = Some(tx);
         Self {
             rx,
             context: context.clone(),
+            init: OnceCell::new(),
         }
     }
 }
@@ -284,7 +288,7 @@ where
     }
 
     async fn run_tasks(&mut self) -> Result<(), Self::Error> {
-        while let Some(event) = self.rx.recv().await {
+        while let Some(event) = self.rx.next().await {
             event.store(&self.context.db())?;
         }
         Ok(())
