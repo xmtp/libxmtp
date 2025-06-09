@@ -1,10 +1,3 @@
-use std::sync::{atomic::Ordering, Arc};
-
-use thiserror::Error;
-use tokio::sync::broadcast;
-use tracing::debug;
-use xmtp_db::events::{Events, EVENTS_ENABLED};
-
 use crate::{
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
@@ -20,9 +13,14 @@ use crate::{
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
+use std::sync::{atomic::Ordering, Arc};
+use thiserror::Error;
+use tokio::sync::broadcast;
+use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::events::{Events, EVENTS_ENABLED};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -68,7 +66,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     device_sync_worker_mode: SyncWorkerMode,
     version_info: VersionInfo,
     allow_offline: bool,
-    disable_local_telemetry: bool,
+    disable_events: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -97,7 +95,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
             allow_offline: false,
-            disable_local_telemetry: false,
+            disable_events: false,
         }
     }
 }
@@ -120,7 +118,7 @@ where
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
             allow_offline: false,
-            disable_local_telemetry: false,
+            disable_events: false,
         }
     }
 }
@@ -142,7 +140,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode,
             version_info,
             allow_offline,
-            disable_local_telemetry: disable_events,
+            disable_events,
         } = self;
 
         let api_client = api_client
@@ -211,14 +209,14 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         // register workers
         if client.device_sync_worker_enabled() {
             WorkerRunner::register_new_worker(&client.context, {
-                let context = client.context.clone();
+                let context = client.context().clone();
                 move || SyncWorker::new(&context)
             });
         }
         if !disable_events {
             EVENTS_ENABLED.store(true, Ordering::SeqCst);
             WorkerRunner::register_new_worker(&client.context, {
-                let context = client.context.clone();
+                let context = client.context().clone();
                 move || EventWorker::new(&context)
             });
         }
@@ -258,7 +256,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_local_telemetry: self.disable_local_telemetry,
+            disable_events: self.disable_events,
         }
     }
 
@@ -271,7 +269,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
     pub fn disable_events(self) -> Self {
         Self {
-            disable_local_telemetry: true,
+            disable_events: true,
             ..self
         }
     }
@@ -296,12 +294,12 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_local_telemetry: self.disable_local_telemetry,
+            disable_events: self.disable_events,
         }
     }
 
     pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, Db> {
-        ClientBuilder {
+        Self {
             version_info,
             ..self
         }
@@ -309,8 +307,24 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
     /// Skip network calls when building a client
     pub fn with_allow_offline(self, allow_offline: Option<bool>) -> ClientBuilder<ApiClient, Db> {
-        ClientBuilder {
+        Self {
             allow_offline: allow_offline.unwrap_or(false),
+            ..self
+        }
+    }
+
+    #[cfg(not(test))]
+    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+        Self {
+            disable_events: disable_events.unwrap_or(false),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+        Self {
+            disable_events: disable_events.unwrap_or(true),
             ..self
         }
     }
@@ -341,7 +355,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_local_telemetry: self.disable_local_telemetry,
+            disable_events: self.disable_events,
         })
     }
 
@@ -360,7 +374,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_local_telemetry: self.disable_local_telemetry,
+            disable_events: self.disable_events,
         }
     }
 
@@ -390,7 +404,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
-            disable_local_telemetry: self.disable_local_telemetry,
+            disable_events: self.disable_events,
         })
     }
 }

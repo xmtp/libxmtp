@@ -162,6 +162,7 @@ where
         builder.sync_url.clone(),
         Some(builder.sync_mode.into()),
         None,
+        None,
     )
     .await
     .unwrap();

@@ -292,7 +292,7 @@ describe.concurrent('Conversation', () => {
     const message2 = await conversation.send(encodeTextMessage('gm2'))
 
     // Add sleep to allow messages to be processed
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     expect(streamedMessages).toContain(message1)
     expect(streamedMessages).toContain(message2)
