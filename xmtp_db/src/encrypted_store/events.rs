@@ -121,16 +121,9 @@ impl Events {
             // We don't want ClientEvents causing any issues, so we just warn if something goes wrong.
             tracing::warn!("ClientEvents: {err:?}");
         }
-
-        // Clear old events on build.
-        if client_event == "Client Build" {
-            if let Err(err) = Self::clear_old_events(db) {
-                tracing::warn!("ClientEvents clear old events: {err:?}");
-            }
-        }
     }
 
-    fn clear_old_events<C: ConnectionExt>(
+    pub fn clear_old_events<C: ConnectionExt>(
         db: &DbConnection<C>,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
@@ -236,9 +229,9 @@ mod tests {
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            Events::track(conn, None, "Client Build", Some(details), None);
+            Events::clear_old_events(conn)?;
             let all = Events::all_events(conn)?;
-            assert_eq!(all.len(), 1);
+            assert_eq!(all.len(), 0);
         })
         .await;
     }

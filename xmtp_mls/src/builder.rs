@@ -3,7 +3,7 @@ use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
-use xmtp_db::events::EVENTS_ENABLED;
+use xmtp_db::events::{Events, EVENTS_ENABLED};
 
 use crate::{
     client::{Client, DeviceSync},
@@ -232,6 +232,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             move || DisappearingMessagesWorker::new(client.clone())
         });
 
+        // Clear old events
+        if let Err(err) = Events::clear_old_events(&client.db()) {
+            tracing::warn!("ClientEvents clear old events: {err:?}");
+        }
         track!("Client Build");
 
         Ok(client)
