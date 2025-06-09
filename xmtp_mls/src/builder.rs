@@ -267,13 +267,6 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    pub fn disable_events(self) -> Self {
-        Self {
-            disable_events: true,
-            ..self
-        }
-    }
-
     pub fn device_sync_worker_mode(self, mode: SyncWorkerMode) -> Self {
         Self {
             device_sync_worker_mode: mode,

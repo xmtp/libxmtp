@@ -4,7 +4,6 @@ use std::{future::Future, pin::Pin, time::Duration};
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::events::Events;
 
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_key_rotation_with_optimistic_send() {
@@ -46,7 +45,6 @@ async fn test_key_rotation_with_optimistic_send() {
     assert_eq!(key_updates.len(), 1);
 }
 
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn key_update_out_of_epoch() {

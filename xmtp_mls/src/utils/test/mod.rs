@@ -78,7 +78,7 @@ impl ClientBuilder<TestClient> {
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
             None,
-            false,
+            None,
         )
         .await
     }
@@ -94,7 +94,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             None,
-            false,
+            None,
         )
         .await
     }
@@ -112,7 +112,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             None,
-            true,
+            None,
         )
         .await
     }
@@ -133,7 +133,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             Some(version),
-            true,
+            None,
         )
         .await
     }
@@ -151,7 +151,7 @@ impl ClientBuilder<TestClient> {
             None,
             None,
             None,
-            true,
+            None,
         )
         .await
     }
@@ -172,7 +172,7 @@ impl ClientBuilder<TestClient> {
             Some(history_sync_url),
             None,
             None,
-            true,
+            None,
         )
         .await
     }
@@ -191,7 +191,7 @@ impl ClientBuilder<TestClient> {
             None,
             None,
             None,
-            true,
+            None,
         )
         .await
     }
@@ -270,7 +270,7 @@ async fn build_with_verifier<A, V>(
     sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
     version: Option<VersionInfo>,
-    events: bool,
+    disable_events: Option<bool>,
 ) -> Client<A>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -284,6 +284,8 @@ where
         .temp_store()
         .await
         .api_client(api_client)
+        // Anything that tests events should use the tester! macro.
+        .with_disable_events(disable_events)
         .with_scw_verifier(scw_verifier);
 
     if let Some(v) = version {
@@ -296,10 +298,6 @@ where
 
     if let Some(sync_worker_mode) = sync_worker_mode {
         builder = builder.device_sync_worker_mode(sync_worker_mode);
-    }
-
-    if !events {
-        builder = builder.disable_events();
     }
 
     let client = builder.build().await.unwrap();
