@@ -1,3 +1,8 @@
+import {
+  ContentTypeGroupUpdated,
+  GroupUpdatedCodec,
+} from '@xmtp/content-type-group-updated'
+import { ContentTypeText, TextCodec } from '@xmtp/content-type-text'
 import { v4 } from 'uuid'
 import { describe, expect, it } from 'vitest'
 import {
@@ -8,7 +13,6 @@ import {
 import {
   ConsentState,
   Conversation,
-  Conversations,
   ConversationType,
   GroupPermissionsOptions,
   IdentifierKind,
@@ -834,5 +838,60 @@ describe('Conversations', () => {
     const convos2Ids = convos2.map((c) => c.conversation.id())
     expect(convos2Ids).toContain(group2.id())
     expect(convos2Ids).toContain(group.id())
+  })
+
+  it('should create initial group updated messages for added members', async () => {
+    const groupUpdatedCodec = new GroupUpdatedCodec()
+    const textCodec = new TextCodec()
+    const user1 = createUser()
+    const user2 = createUser()
+    const user3 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    const client2 = await createRegisteredClient(user2)
+    user2.uuid = v4()
+    const client2_2 = await createRegisteredClient(user2)
+    const client3 = await createRegisteredClient(user3)
+
+    const group1 = await client1
+      .conversations()
+      .createGroupByInboxId([client2.inboxId(), client3.inboxId()])
+    await group1.send(encodeTextMessage('gm1'))
+    await group1.removeMembersByInboxId([client2.inboxId()])
+    await group1.send(encodeTextMessage('gm2'))
+    await group1.addMembersByInboxId([client2.inboxId()])
+    await group1.send(encodeTextMessage('gm3'))
+
+    const messages1 = await group1.findMessages()
+    expect(messages1.length).toBe(6)
+
+    await client2.conversations().sync()
+    const group2 = client2.conversations().findGroupById(group1.id())
+    await group2.sync()
+    const messages2 = await group2.findMessages()
+    expect(messages2.length).toBe(3)
+    expect(messages2[0].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages2[1].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages2[2].content.type).toEqual(ContentTypeText)
+
+    await client3.conversations().sync()
+    const group3 = client3.conversations().findGroupById(group1.id())
+    await group3.sync()
+    const messages3 = await group3.findMessages()
+    expect(messages3.length).toBe(6)
+    expect(messages3[0].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages3[1].content.type).toEqual(ContentTypeText)
+    expect(messages3[2].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages3[3].content.type).toEqual(ContentTypeText)
+    expect(messages3[4].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages3[5].content.type).toEqual(ContentTypeText)
+
+    await client2_2.conversations().sync()
+    const group4 = client2_2.conversations().findGroupById(group1.id())
+    await group4.sync()
+    const messages4 = await group4.findMessages()
+    expect(messages4.length).toBe(3)
+    expect(messages4[0].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages4[1].content.type).toEqual(ContentTypeGroupUpdated)
+    expect(messages4[2].content.type).toEqual(ContentTypeText)
   })
 })
