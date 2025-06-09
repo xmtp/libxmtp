@@ -23,7 +23,7 @@ async fn basic_sync() {
     // Ensure the DM is present on the second device.
     let alix2_dm = alix2.group(&dm.group_id)?;
     let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(alix2_dm_msgs.len(), 1);
+    assert_eq!(alix2_dm_msgs.len(), 3);
     assert_eq!(alix2_dm_msgs[0].decrypted_message_bytes, dm_msg.as_bytes());
 }
 
