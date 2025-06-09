@@ -9,7 +9,7 @@ use xmtp_db::events::Events;
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_key_rotation_with_optimistic_send() {
     tester!(alix, stream);
-    tester!(bo, stream);
+    tester!(bo, stream, events);
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
         .await?;
@@ -58,7 +58,7 @@ async fn key_update_out_of_epoch() {
     tester!(ed);
     tester!(fester);
     tester!(greg);
-    tester!(bo);
+    tester!(bo, events);
 
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
