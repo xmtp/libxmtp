@@ -30,7 +30,8 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<ApiClient, Db> Worker for KeyPackagesCleanerWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static + Send + Sync,
@@ -60,8 +61,8 @@ pub struct KeyPackagesCleanerWorker<ApiClient, Db> {
 
 impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + 'static + Send + Sync,
-    Db: XmtpDb + 'static + Send + Sync,
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
 {
     pub fn new(client: Client<ApiClient, Db>) -> Self {
         Self {
@@ -69,7 +70,13 @@ where
             init: OnceCell::new(),
         }
     }
+}
 
+impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + Send + Sync + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
+{
     /// Delete a key package from the local database.
     pub(crate) fn delete_key_package(&self, hash_ref: Vec<u8>) -> Result<(), IdentityError> {
         let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;

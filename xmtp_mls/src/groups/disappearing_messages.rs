@@ -34,11 +34,12 @@ pub struct DisappearingMessagesWorker<ApiClient, Db> {
     init: OnceCell<()>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<ApiClient, Db> Worker for DisappearingMessagesWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: xmtp_db::XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi + 'static,
+    Db: xmtp_db::XmtpDb + 'static,
 {
     type Error = DisappearingMessagesCleanerError;
 
@@ -57,8 +58,8 @@ where
 
 impl<ApiClient, Db> DisappearingMessagesWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
 {
     pub fn new(client: Client<ApiClient, Db>) -> Self {
         Self {
@@ -66,7 +67,13 @@ where
             init: OnceCell::new(),
         }
     }
+}
 
+impl<ApiClient, Db> DisappearingMessagesWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let provider = self.client.mls_provider();

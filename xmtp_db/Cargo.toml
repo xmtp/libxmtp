@@ -72,6 +72,7 @@ wasm-bindgen = { workspace = true }
 
 
 [dev-dependencies]
+futures-timer.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
 
