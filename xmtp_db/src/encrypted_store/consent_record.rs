@@ -1,5 +1,3 @@
-use crate::{StorageError, Store, impl_store};
-
 use super::{ConnectionExt, Sqlite, group::StoredGroup};
 use super::{
     db_connection::DbConnection,
@@ -8,6 +6,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
+use crate::{StorageError, Store, impl_store};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},

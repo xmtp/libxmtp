@@ -1,3 +1,4 @@
+mod test_consent;
 mod test_dm;
 mod test_key_updates;
 
