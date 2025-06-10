@@ -191,7 +191,7 @@ where
         use super::ProcessWelcomeResult::*;
         match processed {
             New { group, id } => {
-                let metadata = group.metadata()?;
+                let metadata = group.metadata().await?;
 
                 // Do not stream sync groups.
                 if metadata.conversation_type == ConversationType::Sync {
@@ -217,7 +217,7 @@ where
                 }
             }
             NewStored { group, maybe_id } => {
-                let metadata = group.metadata()?;
+                let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
                 if metadata.conversation_type == ConversationType::Dm
                     && self.context.db().has_duplicate_dm(&group.group_id)?

@@ -32,7 +32,7 @@ impl SerializableGroup {
             .map(|m| m.inbox_id)
             .collect::<Vec<String>>();
 
-        let metadata = group.metadata().unwrap();
+        let metadata = group.metadata().await.unwrap();
         let permissions = group.permissions().expect("could not load permissions");
 
         Self {

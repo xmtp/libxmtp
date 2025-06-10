@@ -523,7 +523,7 @@ impl Conversation {
   pub async fn group_metadata(&self) -> Result<GroupMetadata> {
     let group = self.create_mls_group();
 
-    let metadata = group.metadata().map_err(ErrorWrapper::from)?;
+    let metadata = group.metadata().await.map_err(ErrorWrapper::from)?;
 
     Ok(GroupMetadata { inner: metadata })
   }

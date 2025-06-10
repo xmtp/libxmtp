@@ -2015,7 +2015,7 @@ async fn test_can_read_group_creator_inbox_id() {
     assert_eq!(mutable_metadata.super_admin_list.len(), 1);
     assert_eq!(mutable_metadata.super_admin_list[0], amal.inbox_id());
 
-    let protected_metadata: GroupMetadata = amal_group.metadata().unwrap();
+    let protected_metadata: GroupMetadata = amal_group.metadata().await.unwrap();
     assert_eq!(
         protected_metadata.conversation_type,
         ConversationType::Group

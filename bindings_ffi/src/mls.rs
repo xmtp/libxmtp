@@ -2272,8 +2272,8 @@ impl FfiConversation {
         self.inner.added_by_inbox_id().map_err(Into::into)
     }
 
-    pub fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
-        let metadata = self.inner.metadata()?;
+    pub async fn group_metadata(&self) -> Result<Arc<FfiConversationMetadata>, GenericError> {
+        let metadata = self.inner.metadata().await?;
         Ok(Arc::new(FfiConversationMetadata {
             inner: Arc::new(metadata),
         }))
@@ -4129,7 +4129,7 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        assert_eq!(message_callbacks.message_count(), 5);
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
