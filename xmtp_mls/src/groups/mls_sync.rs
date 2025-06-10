@@ -2027,7 +2027,7 @@ where
                         data: encrypted,
                         hpke_public_key: installation.hpke_public_key,
                         wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
-                        group_refresh_state_cursor: cursor as u64,
+                        message_cursor: cursor as u64,
                     })),
                 })
             })
