@@ -185,6 +185,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
 
         let (tx, _) = broadcast::channel(32);
+        let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             store,
@@ -198,36 +199,21 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,
             },
-            workers: Arc::new(parking_lot::Mutex::default()),
+            workers: workers.clone(),
         });
 
+        // register workers
+        if context.device_sync_worker_enabled() {
+            workers.register_new_worker::<SyncWorker<ApiClient, Db>, _>(&context);
+        }
+        workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);
+        workers.register_new_worker::<DisappearingMessagesWorker<ApiClient, Db>, _>(&context);
+        workers.spawn();
         let client = Client {
             context,
             local_events: tx,
+            workers,
         };
-
-        // register workers
-        if client.device_sync_worker_enabled() {
-            WorkerRunner::register_new_worker(&client.context, {
-                let context = client.context().clone();
-                move || SyncWorker::new(&context)
-            });
-        }
-        if !disable_events {
-            EVENTS_ENABLED.store(true, Ordering::SeqCst);
-            WorkerRunner::register_new_worker(&client.context, {
-                let context = client.context().clone();
-                move || EventWorker::new(&context)
-            });
-        }
-        WorkerRunner::register_new_worker(&client.context, {
-            let client = client.clone();
-            move || KeyPackagesCleanerWorker::new(client.clone())
-        });
-        WorkerRunner::register_new_worker(&client.context, {
-            let client = client.clone();
-            move || DisappearingMessagesWorker::new(client.clone())
-        });
 
         // Clear old events
         if let Err(err) = Events::clear_old_events(&client.db()) {

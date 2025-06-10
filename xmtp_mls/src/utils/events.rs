@@ -1,8 +1,8 @@
 use crate::{
     client::ClientError,
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::device_sync::DeviceSyncError,
-    worker::{NeedsDbReconnect, Worker, WorkerKind},
+    worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 use futures::{channel::mpsc, stream::StreamExt};
 use parking_lot::Mutex;
@@ -255,12 +255,31 @@ macro_rules! track_err {
     };
 }
 
+#[derive(Clone)]
+pub struct Factory<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    fn create(&self) -> BoxedWorker {
+        Box::new(EventWorker::new(&self.context)) as Box<_>
+    }
+}
+
 pub struct EventWorker<ApiClient, Db> {
     rx: mpsc::UnboundedReceiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
 }
 
-impl<ApiClient, Db> EventWorker<ApiClient, Db> {
+impl<ApiClient, Db> EventWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static + Send,
+{
     pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         let (tx, rx) = mpsc::unbounded();
         *EVENT_TX.lock() = Some(tx);
@@ -268,6 +287,12 @@ impl<ApiClient, Db> EventWorker<ApiClient, Db> {
             rx,
             context: context.clone(),
         }
+    }
+    async fn run(&mut self) -> Result<(), EventError> {
+        while let Some(event) = self.rx.next().await {
+            event.store(&self.context.db())?;
+        }
+        Ok(())
     }
 }
 
@@ -278,17 +303,23 @@ where
     ApiClient: XmtpApi + 'static + Send + Sync,
     Db: XmtpDb + 'static + Send + Sync,
 {
-    type Error = EventError;
+    fn factory<C>(context: C) -> impl WorkerFactory + 'static
+    where
+        Self: Sized,
+        C: XmtpSharedContext,
+        <C as XmtpSharedContext>::Db: 'static,
+        <C as XmtpSharedContext>::ApiClient: 'static,
+    {
+        let context = context.context_ref().clone();
+        Factory { context }
+    }
 
     fn kind(&self) -> WorkerKind {
         WorkerKind::Event
     }
 
-    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
-        while let Some(event) = self.rx.next().await {
-            event.store(&self.context.db())?;
-        }
-        Ok(())
+    async fn run_tasks(&mut self) -> WorkerResult<()> {
+        self.run().await.map_err(|e| Box::new(e) as Box<_>)
     }
 }
 

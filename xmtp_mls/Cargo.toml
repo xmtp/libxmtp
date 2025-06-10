@@ -30,7 +30,6 @@ test-utils = [
   "dep:public-suffix",
   "dep:futures-executor",
   "dep:mockall",
-  "dep:rstest",
 ]
 bench = [
   "test-utils",
@@ -74,6 +73,7 @@ tokio-stream = { workspace = true, default-features = false, features = [
 ] }
 tokio-util.workspace = true
 tracing.workspace = true
+trait-variant.workspace = true
 xmtp_archive.workspace = true
 xmtp_common.workspace = true
 xmtp_mls_common.workspace = true
@@ -102,7 +102,6 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
-rstest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -110,7 +109,6 @@ tracing-subscriber = { workspace = true, features = [
   "json",
   "registry",
 ], optional = true }
-
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = [
@@ -149,7 +147,7 @@ once_cell.workspace = true
 openmls_basic_credential.workspace = true
 passkey = { version = "0.4" }
 public-suffix = { version = "0.1.2" }
-rstest = { workspace = true }
+rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse = { workspace = true }
 url = { workspace = true }
 wasm-bindgen-test.workspace = true

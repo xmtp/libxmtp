@@ -2,7 +2,7 @@ use crate::{
     client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::preference_sync::PreferenceSyncService,
+        device_sync::{preference_sync::PreferenceSyncService, DeviceSyncClient},
         group_membership::{GroupMembership, MembershipDiff},
     },
     XmtpApi,
@@ -355,8 +355,8 @@ where
             )
         }
 
-        PreferenceSyncService::new(self.context.clone())
-            .cycle_hmac()
+        PreferenceSyncService::<ApiClient, Db>::new()
+            .cycle_hmac(&DeviceSyncClient::new(self.context.clone(), None))
             .await?;
         Ok(builder.build())
     }
@@ -783,7 +783,7 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let device_sync = DeviceSyncClient::new(client.context.clone());
+            let device_sync = DeviceSyncClient::new(client.context.clone(), None);
             device_sync.wait_for_sync_worker_init().await;
 
             let wallet_2 = generate_local_wallet();
