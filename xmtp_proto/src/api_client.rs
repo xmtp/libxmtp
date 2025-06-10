@@ -358,29 +358,12 @@ where
         (**self).stats()
     }
 }
-#[cfg(not(target_arch = "wasm32"))]
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait XmtpMlsStreams {
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
-
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
-    type Error: RetryableError + Send + Sync + 'static;
-
-    async fn subscribe_group_messages(
-        &self,
-        request: SubscribeGroupMessagesRequest,
-    ) -> Result<Self::GroupMessageStream, Self::Error>;
-    async fn subscribe_welcome_messages(
-        &self,
-        request: SubscribeWelcomeMessagesRequest,
-    ) -> Result<Self::WelcomeMessageStream, Self::Error>;
-}
-
-#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait XmtpMlsStreams {
-    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>>;
-    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>>;
+    type GroupMessageStream: Stream<Item = Result<GroupMessage, Self::Error>> + Send;
+    type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + Send;
     type Error: RetryableError + Send + Sync + 'static;
 
     async fn subscribe_group_messages(

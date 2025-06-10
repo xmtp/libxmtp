@@ -47,10 +47,6 @@ let
 in
 mkShell ({
   OPENSSL_DIR = "${openssl.dev}";
-  # LLVM_PATH = "${llvmPackages_19.stdenv}";
-  # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
-  # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
-  # STRIP_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-strip";
   # disable -fzerocallusedregs in clang
   hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";

@@ -49,7 +49,7 @@ impl<'a, A, D>
         A,
         D,
         StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>,
-        StreamGroupMessages<'a, A, D, MessagesApiSubscription<'a, A>>,
+        StreamGroupMessages<'a, A, D, MessagesApiSubscription<A>>,
     >
 where
     A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
@@ -124,7 +124,7 @@ impl<'a, ApiClient, Db, Conversations> Stream
         ApiClient,
         Db,
         Conversations,
-        StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>,
+        StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<ApiClient>>,
     >
 where
     ApiClient: XmtpApi + XmtpMlsStreams + 'a,

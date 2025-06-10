@@ -321,7 +321,12 @@ where
 
         Ok(())
     }
+}
 
+impl<ApiClient> ApiClientWrapper<ApiClient>
+where
+    ApiClient: XmtpMlsStreams,
+{
     pub async fn subscribe_group_messages(
         &self,
         filters: Vec<GroupFilter>,

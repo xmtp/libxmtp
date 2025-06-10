@@ -2,6 +2,7 @@ use futures::{Stream, StreamExt};
 use process_welcome::ProcessWelcomeFuture;
 use prost::Message;
 use std::{collections::HashSet, sync::Arc};
+use stream_messages::StateError;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -165,6 +166,8 @@ pub enum SubscribeError {
     BoxError(Box<dyn RetryableError + Send + Sync>),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error(transparent)]
+    StateError(#[from] StateError),
 }
 
 impl From<GroupError> for SubscribeError {
@@ -194,6 +197,7 @@ impl RetryableError for SubscribeError {
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
+            StateError(s) => false,
         }
     }
 }
