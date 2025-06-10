@@ -51,13 +51,13 @@ jobs:
           ./emsdk activate latest
       - name: Build WebAssembly Packages
         env:
-          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
         run: |
           source ./emsdk/emsdk_env.sh
           cargo build --locked --tests --release --target wasm32-unknown-unknown -p xmtp_id -p xmtp_mls -p xmtp_api_http -p xmtp_cryptography -p xmtp_common -p bindings_wasm -p xmtp_api_d14n -p xmtp_db
       - name: test libraries
         env:
-          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
           CHROMEDRIVER: "chromedriver"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -p xmtp_id -p xmtp_api_http -p xmtp_cryptography -p xmtp_api -p bindings_wasm -p xmtp_api_d14n -p xmtp_db -- \
@@ -65,7 +65,7 @@ jobs:
         working-directory: ./
       - name: test xmtp_mls client
         env:
-          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
           CHROMEDRIVER: "chromedriver"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- \
@@ -74,7 +74,7 @@ jobs:
         working-directory: ./
       - name: test xmtp_mls subscriptions
         env:
-          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+          RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
           CHROMEDRIVER: "chromedriver"
         run: |
           cargo test --locked --release --target wasm32-unknown-unknown -p xmtp_mls -- subscriptions::

@@ -12,7 +12,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 use thiserror::Error;
-use tokio::sync::OnceCell;
 use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
@@ -259,8 +258,6 @@ macro_rules! track_err {
 pub struct EventWorker<ApiClient, Db> {
     rx: mpsc::UnboundedReceiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    #[allow(dead_code)]
-    init: OnceCell<()>,
 }
 
 impl<ApiClient, Db> EventWorker<ApiClient, Db> {
@@ -270,7 +267,6 @@ impl<ApiClient, Db> EventWorker<ApiClient, Db> {
         Self {
             rx,
             context: context.clone(),
-            init: OnceCell::new(),
         }
     }
 }
