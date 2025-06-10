@@ -38,7 +38,8 @@ impl NeedsDbReconnect for EventError {
     }
 }
 
-static EVENT_TX: LazyLock<Mutex<Option<mpsc::Sender<Events>>>> = LazyLock::new(Mutex::default);
+static EVENT_TX: LazyLock<Mutex<Option<mpsc::UnboundedSender<Events>>>> =
+    LazyLock::new(Mutex::default);
 
 pub(crate) struct EventBuilder<'a, E, D> {
     pub event: E,
@@ -84,7 +85,7 @@ where
         };
 
         if let Some(tx) = &mut *EVENT_TX.lock() {
-            if let Err(err) = tx.try_send(event) {
+            if let Err(err) = tx.unbounded_send(event) {
                 tracing::warn!("Unable to send event to writing worker: {err:?}");
             }
         }
@@ -256,7 +257,7 @@ macro_rules! track_err {
 }
 
 pub struct EventWorker<ApiClient, Db> {
-    rx: mpsc::Receiver<Events>,
+    rx: mpsc::UnboundedReceiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     #[allow(dead_code)]
     init: OnceCell<()>,
@@ -264,7 +265,7 @@ pub struct EventWorker<ApiClient, Db> {
 
 impl<ApiClient, Db> EventWorker<ApiClient, Db> {
     pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let (tx, rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::unbounded();
         *EVENT_TX.lock() = Some(tx);
         Self {
             rx,
