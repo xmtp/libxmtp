@@ -118,6 +118,9 @@ where
             device_sync_worker_mode: client.context.device_sync.mode,
             version_info: client.context.version_info.clone(),
             allow_offline: false,
+            #[cfg(test)]
+            disable_events: true,
+            #[cfg(not(test))]
             disable_events: false,
         }
     }
