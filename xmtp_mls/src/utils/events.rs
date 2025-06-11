@@ -269,7 +269,7 @@ where
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        let worker = Box::new(EventWorker::new(&self.context)) as Box<_>;
+        let worker = Box::new(EventWorker::new(self.context.clone())) as Box<_>;
         (worker, metrics)
     }
 
@@ -288,13 +288,10 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static + Send,
 {
-    pub(crate) fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    pub(crate) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         let (tx, rx) = mpsc::unbounded();
         *EVENT_TX.lock() = Some(tx);
-        Self {
-            rx,
-            context: context.clone(),
-        }
+        Self { rx, context }
     }
     async fn run(&mut self) -> Result<(), EventError> {
         while let Some(event) = self.rx.next().await {
@@ -308,8 +305,8 @@ where
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<ApiClient, Db> Worker for EventWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + 'static + Send + Sync,
-    Db: XmtpDb + 'static + Send + Sync,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
 {
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where

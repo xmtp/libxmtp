@@ -174,8 +174,8 @@ where
     }
 
     /// Blocks until the sync worker notifies that it is initialized and running.
-    pub async fn wait_for_sync_worker_init(&self) {
-        self.sync_metrics.wait_for_init().await;
+    pub async fn wait_for_sync_worker_init(&self) -> Result<(), xmtp_common::time::Expired> {
+        self.sync_metrics.wait_for_init().await
     }
 
     /// Sends a device sync message.

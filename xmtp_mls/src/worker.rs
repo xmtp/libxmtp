@@ -67,13 +67,13 @@ impl WorkerRunner {
     }
 
     pub async fn wait_for_sync_worker_init(&self) {
-        if let Some(handle) = self
+        let handle = self
             .metrics
             .lock()
             .get(&WorkerKind::DeviceSync)
             .cloned()
-            .and_then(|h| h.as_sync_metrics())
-        {
+            .and_then(|h| h.as_sync_metrics());
+        if let Some(handle) = handle {
             let _ = handle.wait_for_init().await;
         }
     }

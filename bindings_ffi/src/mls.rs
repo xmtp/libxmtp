@@ -205,7 +205,7 @@ pub async fn create_client(
         xmtp_client.inbox_id()
     );
     let worker = FfiSyncWorker {
-        handle: xmtp_client.context.worker_metrics(),
+        handle: xmtp_client.context.sync_metrics(),
     };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -3575,7 +3575,7 @@ mod tests {
         let convo_callback = Arc::new(RustStreamCallback::default());
         let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
 
-        let worker = alex.client.inner_client.context.worker_metrics().unwrap();
+        let worker = alex.client.inner_client.context.sync_metrics().unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
