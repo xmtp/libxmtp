@@ -4,13 +4,13 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
-use futures::{channel::mpsc, stream::StreamExt};
 use serde::Serialize;
 use std::{
     fmt::Debug,
-    sync::{atomic::Ordering, Arc, LazyLock, Mutex},
+    sync::{atomic::Ordering, Arc, LazyLock},
 };
 use thiserror::Error;
+use tokio::sync::broadcast;
 use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
@@ -36,8 +36,7 @@ impl NeedsDbReconnect for EventError {
     }
 }
 
-static EVENT_TX: LazyLock<Mutex<Option<mpsc::UnboundedSender<Events>>>> =
-    LazyLock::new(Mutex::default);
+static EVENT_TX: LazyLock<broadcast::Sender<Events>> = LazyLock::new(|| broadcast::channel(100).0);
 
 pub(crate) struct EventBuilder<'a, E, D> {
     pub event: E,
@@ -86,11 +85,7 @@ where
             }
         };
 
-        let Ok(Some(tx)) = EVENT_TX.lock().map(|l| (*l).clone()) else {
-            return;
-        };
-
-        if let Err(err) = tx.unbounded_send(event) {
+        if let Err(err) = EVENT_TX.send(event) {
             tracing::warn!("Unable to send event to writing worker: {err:?}");
         }
     }
@@ -284,7 +279,7 @@ where
 }
 
 pub struct EventWorker<ApiClient, Db> {
-    rx: mpsc::UnboundedReceiver<Events>,
+    rx: broadcast::Receiver<Events>,
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
 }
 
@@ -294,15 +289,11 @@ where
     Db: XmtpDb + 'static + Send,
 {
     pub(crate) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let (tx, rx) = mpsc::unbounded();
-        if let Ok(mut lock) = EVENT_TX.lock() {
-            *lock = Some(tx);
-            tracing::warn!("Unable to set EVENT_TX channel. Events will not be recorded.");
-        }
-        Self { rx, context }
+        let rx = EVENT_TX.subscribe();
+        Self { context, rx }
     }
     async fn run(&mut self) -> Result<(), EventError> {
-        while let Some(event) = self.rx.next().await {
+        while let Ok(event) = self.rx.recv().await {
             event.store(&self.context.db())?;
         }
         Ok(())
