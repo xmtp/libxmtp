@@ -9,18 +9,18 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     track,
-    utils::VersionInfo,
+    utils::{events::EventWorker, VersionInfo},
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::events::Events;
+use xmtp_db::events::{Events, EVENTS_ENABLED};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -209,7 +209,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             workers.register_new_worker::<SyncWorker<ApiClient, Db>, _>(&context);
         }
         if !disable_events {
-            // workers.register_new_worker::<EventWorker<ApiClient, Db>, _>(&context);
+            EVENTS_ENABLED.store(true, Ordering::SeqCst);
+            workers.register_new_worker::<EventWorker<ApiClient, Db>, _>(&context);
         }
         workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);
         workers.register_new_worker::<DisappearingMessagesWorker<ApiClient, Db>, _>(&context);
@@ -305,10 +306,18 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
         Self {
             disable_events: disable_events.unwrap_or(true),
+            ..self
+        }
+    }
+
+    #[cfg(all(test, target_arch = "wasm32"))]
+    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+        Self {
+            disable_events: true,
             ..self
         }
     }
