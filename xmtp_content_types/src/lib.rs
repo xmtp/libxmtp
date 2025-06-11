@@ -8,6 +8,7 @@ pub mod remote_attachment;
 pub mod reply;
 pub mod text;
 pub mod transaction_reference;
+pub mod wallet_send_calls;
 
 use prost::Message;
 use thiserror::Error;
