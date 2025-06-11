@@ -95,7 +95,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             device_sync_worker_mode: SyncWorkerMode::Enabled,
             version_info: VersionInfo::default(),
             allow_offline: false,
+            #[cfg(not(test))]
             disable_events: false,
+            #[cfg(test)]
+            disable_events: true,
         }
     }
 }

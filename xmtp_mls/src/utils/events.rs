@@ -5,11 +5,10 @@ use crate::{
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 use futures::{channel::mpsc, stream::StreamExt};
-use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
     fmt::Debug,
-    sync::{atomic::Ordering, Arc, LazyLock},
+    sync::{atomic::Ordering, Arc, LazyLock, Mutex},
 };
 use thiserror::Error;
 use xmtp_api::XmtpApi;
@@ -87,7 +86,7 @@ where
             }
         };
 
-        let Some(tx) = (*EVENT_TX.lock()).clone() else {
+        let Ok(Some(tx)) = EVENT_TX.lock().map(|l| (*l).clone()) else {
             return;
         };
 
@@ -296,7 +295,10 @@ where
 {
     pub(crate) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         let (tx, rx) = mpsc::unbounded();
-        *EVENT_TX.lock() = Some(tx);
+        if let Ok(mut lock) = EVENT_TX.lock() {
+            *lock = Some(tx);
+            tracing::warn!("Unable to set EVENT_TX channel. Events will not be recorded.");
+        }
         Self { rx, context }
     }
     async fn run(&mut self) -> Result<(), EventError> {
