@@ -134,6 +134,18 @@ impl LegacyUserPreferenceUpdate {
         // sync_group.publish_intents(&provider).await?;
         sync_group.sync_until_last_intent_resolved().await?;
 
+        updates.iter().for_each(|u| match u {
+            LegacyUserPreferenceUpdate::ConsentUpdate(_) => {
+                tracing::info!("Sent consent to group_id: {:?}", sync_group.group_id);
+                device_sync
+                    .metrics
+                    .increment_metric(SyncMetric::V1ConsentSent)
+            }
+            LegacyUserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                device_sync.metrics.increment_metric(SyncMetric::V1HmacSent)
+            }
+        });
+
         Ok(updates)
     }
 }

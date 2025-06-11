@@ -32,15 +32,15 @@ where
         }))
         .await?;
 
-        // TODO: v1 support - remove this on next hammer
-        let legacy_updates = updates.clone().into_iter().map(Into::into).collect();
-        let legacy_updates =
-            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
-
         updates.iter().for_each(|update| match update {
             PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
             PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
         });
+
+        // TODO: v1 support - remove this on next hammer
+        let legacy_updates = updates.clone().into_iter().map(Into::into).collect();
+        let legacy_updates =
+            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
 
         Ok((updates, legacy_updates))
     }
