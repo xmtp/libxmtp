@@ -265,8 +265,16 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    fn create(&self) -> BoxedWorker {
-        Box::new(EventWorker::new(&self.context)) as Box<_>
+    fn create(
+        &self,
+        metrics: Option<crate::worker::DynMetrics>,
+    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
+        let worker = Box::new(EventWorker::new(&self.context)) as Box<_>;
+        (worker, metrics)
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::Event
     }
 }
 

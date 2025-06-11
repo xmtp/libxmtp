@@ -617,7 +617,10 @@ impl FfiXmtpClient {
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
-        self.inner_client.device_sync().send_sync_request().await?;
+        self.inner_client
+            .device_sync_client()
+            .send_sync_request()
+            .await?;
         Ok(())
     }
 
@@ -1590,7 +1593,7 @@ impl FfiConversations {
 impl FfiConversations {
     pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.device_sync().get_sync_group().await?;
+        let sync_group = inner.device_sync_client().get_sync_group().await?;
         Ok(sync_group.into())
     }
 }
@@ -8200,13 +8203,13 @@ mod tests {
 
         let sg1 = alix
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();
         let sg2 = alix2
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();

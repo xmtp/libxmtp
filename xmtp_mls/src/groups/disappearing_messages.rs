@@ -41,8 +41,16 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    fn create(&self) -> BoxedWorker {
-        Box::new(DisappearingMessagesWorker::new(self.context.clone())) as Box<_>
+    fn create(
+        &self,
+        metrics: Option<crate::worker::DynMetrics>,
+    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
+        let worker = Box::new(DisappearingMessagesWorker::new(self.context.clone())) as Box<_>;
+        (worker, metrics)
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DisappearingMessages
     }
 }
 

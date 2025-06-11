@@ -12,14 +12,15 @@ use crate::{
         },
         GroupError,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
+    subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        metrics::WorkerMetrics, BoxedWorker, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics, BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory,
+        WorkerKind, WorkerResult,
     },
 };
-use futures::{Stream, StreamExt, TryFutureExt};
-use std::{any::Any, pin::Pin, sync::Arc};
-use tokio::sync::OnceCell;
+use futures::TryFutureExt;
+use std::{any::Any, sync::Arc};
+use tokio::sync::{broadcast, OnceCell};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
@@ -47,9 +48,7 @@ const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 
 pub struct SyncWorker<ApiClient, Db> {
     client: DeviceSyncClient<ApiClient, Db>,
-    /// The sync events stream
-    #[allow(clippy::type_complexity)]
-    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
+    receiver: broadcast::Receiver<SyncWorkerEvent>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
@@ -59,15 +58,19 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub fn new(context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let receiver = context.local_events.subscribe();
-        let stream = Box::pin(receiver.stream_sync_messages());
-        let metrics = Arc::new(WorkerMetrics::new());
+    pub fn new(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        metrics: Option<DynMetrics>,
+    ) -> Self {
+        let receiver = context.worker_events.subscribe();
+        let metrics = metrics
+            .and_then(|m| m.as_sync_metrics())
+            .unwrap_or_default();
         let client = DeviceSyncClient::new(context.clone(), metrics.clone());
 
         Self {
             client,
-            stream,
+            receiver,
             init: OnceCell::new(),
             metrics,
         }
@@ -83,8 +86,15 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    fn create(&self) -> BoxedWorker {
-        Box::new(SyncWorker::new(&self.context)) as Box<_>
+    fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
+        let worker = SyncWorker::new(&self.context, metrics);
+        let metrics = worker.metrics.clone();
+
+        (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
     }
 }
 
@@ -132,32 +142,31 @@ where
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
-        while let Some(event) = self.stream.next().await {
-            let event = event?;
-
+        while let Ok(event) = self.receiver.recv().await {
             tracing::info!("New event: {event:?}");
 
-            if let LocalEvents::SyncWorkerEvent(msg) = event {
-                match msg {
-                    SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                        self.evt_new_sync_group_from_welcome().await?;
-                    }
-                    SyncWorkerEvent::NewSyncGroupMsg => {
-                        self.evt_new_sync_group_msg().await?;
-                    }
-                    SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                        self.evt_sync_preferences(preference_updates).await?;
-                    }
-
-                    // Device Sync V1 events
-                    SyncWorkerEvent::Reply { message_id } => {
-                        self.evt_v1_device_sync_reply(message_id).await?;
-                    }
-                    SyncWorkerEvent::Request { message_id } => {
-                        self.evt_v1_device_sync_request(message_id).await?;
-                    }
+            match event {
+                SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                    self.evt_new_sync_group_from_welcome().await?;
                 }
-            };
+                SyncWorkerEvent::NewSyncGroupMsg => {
+                    self.evt_new_sync_group_msg().await?;
+                }
+                SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                    self.evt_sync_preferences(preference_updates).await?;
+                }
+                SyncWorkerEvent::CycleHMAC => {
+                    self.evt_cycle_hmac().await?;
+                }
+
+                // Device Sync V1 events
+                SyncWorkerEvent::Reply { message_id } => {
+                    self.evt_v1_device_sync_reply(message_id).await?;
+                }
+                SyncWorkerEvent::Request { message_id } => {
+                    self.evt_v1_device_sync_request(message_id).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -251,6 +260,11 @@ where
             PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
             PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
         });
+        Ok(())
+    }
+
+    async fn evt_cycle_hmac(&self) -> Result<(), DeviceSyncError> {
+        self.client.preference_sync.cycle_hmac(&self.client).await?;
         Ok(())
     }
 

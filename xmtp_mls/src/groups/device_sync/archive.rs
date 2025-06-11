@@ -232,7 +232,7 @@ mod tests {
         exporter.write_to_file(path).await?;
 
         let alix2 = Tester::new().await;
-        alix2.device_sync().wait_for_sync_worker_init().await;
+        alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2

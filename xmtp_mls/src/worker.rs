@@ -29,6 +29,13 @@ impl WorkerRunner {
             factories: Vec::new(),
         }
     }
+
+    pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.metrics
+            .lock()
+            .get(&WorkerKind::DeviceSync)?
+            .as_sync_metrics()
+    }
 }
 
 impl WorkerRunner {

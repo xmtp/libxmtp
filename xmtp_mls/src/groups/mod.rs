@@ -668,7 +668,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.local_events().send(LocalEvents::SyncWorkerEvent(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id)));
+                    let _ = context.worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -691,12 +691,19 @@ where
                 group: &stored_group.id
             );
 
-            Ok(Self::new(
-                context,
+            let group = Self::new(
+                context.clone(),
                 stored_group.id,
                 stored_group.dm_id,
                 stored_group.created_at_ns,
-            ))
+            );
+
+            // If this group is created by us - auto-consent to it.
+            if context.inbox_id() == metadata.creator_inbox_id {
+                group.quietly_update_consent_state(ConsentState::Allowed)?;
+            }
+
+            Ok(group)
         })
     }
 
@@ -1392,16 +1399,24 @@ where
         }
     }
 
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+    // Returns new consent records. Does not broadcast changes.
+    pub fn quietly_update_consent_state(
+        &self,
+        state: ConsentState,
+    ) -> Result<Vec<StoredConsentRecord>, GroupError> {
         let conn = self.context().db();
-
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
             hex::encode(self.group_id.clone()),
         );
-        let new_records: Vec<_> = conn
-            .insert_or_replace_consent_records(&[consent_record.clone()])?
+
+        Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
+    }
+
+    pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
+        let new_records: Vec<PreferenceUpdate> = self
+            .quietly_update_consent_state(state)?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();
@@ -1410,10 +1425,8 @@ where
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .context
-                .local_events()
-                .send(LocalEvents::SyncWorkerEvent(
-                    SyncWorkerEvent::SyncPreferences(new_records.clone()),
-                ));
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(new_records.clone()));
             // Broadcast the changes
             let _ = self
                 .context

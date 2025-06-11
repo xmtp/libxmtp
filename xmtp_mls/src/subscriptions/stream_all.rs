@@ -23,7 +23,7 @@ use super::{
     Result, SubscribeError,
 };
 use crate::groups::MlsGroup;
-use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
+use crate::subscriptions::SyncWorkerEvent;
 use futures::stream::Stream;
 use xmtp_common::types::GroupId;
 use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
@@ -141,10 +141,8 @@ where
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
-                        .local_events()
-                        .send(LocalEvents::SyncWorkerEvent(
-                            SyncWorkerEvent::NewSyncGroupMsg,
-                        ));
+                        .worker_events()
+                        .send(SyncWorkerEvent::NewSyncGroupMsg);
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }

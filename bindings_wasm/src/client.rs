@@ -307,7 +307,7 @@ impl Client {
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self
       .inner_client
-      .device_sync()
+      .device_sync_client()
       .send_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;

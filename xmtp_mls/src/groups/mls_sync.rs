@@ -864,12 +864,10 @@ where
                                 ..
                             }) = provider.db().find_group(&self.group_id)?
                             {
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::NewSyncGroupMsg,
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::NewSyncGroupMsg);
                             }
                         }
                         Ok::<_, GroupMessageProcessingError>(())
@@ -910,12 +908,10 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history request.");
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::Request { message_id },
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::Request { message_id });
                                 Ok(())
                             }
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -949,12 +945,10 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history reply.");
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::Reply { message_id },
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::Reply { message_id });
                                 Ok(())
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {

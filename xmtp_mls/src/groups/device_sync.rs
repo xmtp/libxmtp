@@ -3,7 +3,7 @@ use crate::{
     client::ClientError,
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
+    subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;
@@ -11,6 +11,7 @@ use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
@@ -100,6 +101,8 @@ pub enum DeviceSyncError {
     Sync(Box<SyncSummary>),
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    #[error(transparent)]
+    Recv(#[from] RecvError),
 }
 
 impl From<SyncSummary> for DeviceSyncError {
@@ -140,7 +143,7 @@ pub struct DeviceSyncClient<ApiClient, Db> {
 
 impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
     pub fn new(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         sync_metrics: Arc<WorkerMetrics<SyncMetric>>,
     ) -> Self {
         Self {
@@ -217,9 +220,10 @@ where
         sync_group.sync_until_last_intent_resolved().await?;
 
         // Notify our own worker of our own message so it can process it.
-        let _ = self.context.local_events.send(LocalEvents::SyncWorkerEvent(
-            SyncWorkerEvent::NewSyncGroupMsg,
-        ));
+        let _ = self
+            .context
+            .worker_events
+            .send(SyncWorkerEvent::NewSyncGroupMsg);
 
         Ok(message_id)
     }

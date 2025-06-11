@@ -9,18 +9,18 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     track,
-    utils::{events::EventWorker, VersionInfo},
+    utils::VersionInfo,
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::events::{Events, EVENTS_ENABLED};
+use xmtp_db::events::Events;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
@@ -185,6 +185,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
 
         let (tx, _) = broadcast::channel(32);
+        let (worker_tx, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -195,6 +196,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             mutexes: MutexRegistry::new(),
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             local_events: tx.clone(),
+            worker_events: worker_tx.clone(),
             device_sync: DeviceSync {
                 server_url: device_sync_server_url,
                 mode: device_sync_worker_mode,

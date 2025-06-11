@@ -171,7 +171,12 @@ mod tests {
         amal_a.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         // Wait for a to process the new hmac key
-        amal_b.device_sync().get_sync_group().await?.sync().await?;
+        amal_b
+            .device_sync_client()
+            .get_sync_group()
+            .await?
+            .sync()
+            .await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
         let pref_a = StoredUserPreferences::load(amal_a.provider.db())?;

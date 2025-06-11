@@ -46,8 +46,8 @@ where
     pub async fn test_has_same_sync_group_as(&self, other: &Self) -> Result<(), GroupError> {
         self.sync_welcomes().await?;
         other.sync_welcomes().await?;
-        let this_sync = self.device_sync();
-        let other_sync = other.device_sync();
+        let this_sync = self.device_sync_client();
+        let other_sync = other.device_sync_client();
         let mut sync_group = this_sync.get_sync_group().await?;
         let mut other_sync_group = other_sync.get_sync_group().await?;
         for i in 0..10 {

@@ -2,11 +2,7 @@ use crate::{
     builder::SyncWorkerMode,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::{
-            preference_sync::{PreferenceSyncService, PreferenceUpdate},
-            worker::SyncMetric,
-            DeviceSyncClient,
-        },
+        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric},
         group_permissions::PolicySet,
         welcome_sync::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
@@ -14,7 +10,7 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError, IdentityUpdates},
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEventError, LocalEvents},
+    subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
     track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -182,6 +178,10 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.context.local_events
     }
+
+    fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {
+        &self.context.worker_events
+    }
 }
 
 #[derive(Clone)]
@@ -262,7 +262,7 @@ where
         self.workers.wait_for_sync_worker_init().await;
     }
 
-    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+    pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.workers.sync_metrics()
     }
 }
@@ -307,9 +307,6 @@ where
         self.context.device_sync_worker_enabled()
     }
 
-    pub fn device_sync(&self) -> DeviceSyncClient<ApiClient, Db> {
-        self.context().device_sync
-    }
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
@@ -423,9 +420,9 @@ where
             let _ = self
                 .local_events
                 .send(LocalEvents::PreferencesChanged(updates.clone()));
-            PreferenceSyncService::<ApiClient, Db>::new()
-                .sync_preferences(updates, &self.device_sync())
-                .await?;
+            let _ = self
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(updates));
         }
 
         Ok(())

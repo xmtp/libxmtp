@@ -1,10 +1,8 @@
 use crate::{
     client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
-    groups::{
-        device_sync::{preference_sync::PreferenceSyncService, DeviceSyncClient},
-        group_membership::{GroupMembership, MembershipDiff},
-    },
+    groups::group_membership::{GroupMembership, MembershipDiff},
+    subscriptions::SyncWorkerEvent,
     XmtpApi,
 };
 use futures::future::try_join_all;
@@ -355,9 +353,8 @@ where
             )
         }
 
-        PreferenceSyncService::<ApiClient, Db>::new()
-            .cycle_hmac(&DeviceSyncClient::new(self.context.clone(), None))
-            .await?;
+        let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
+
         Ok(builder.build())
     }
 

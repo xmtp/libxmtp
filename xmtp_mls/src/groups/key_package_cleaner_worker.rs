@@ -29,8 +29,18 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    fn create(&self) -> BoxedWorker {
-        Box::new(KeyPackagesCleanerWorker::new(self.context.clone())) as Box<_>
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::KeyPackageCleaner
+    }
+
+    fn create(
+        &self,
+        metrics: Option<crate::worker::DynMetrics>,
+    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
+        (
+            Box::new(KeyPackagesCleanerWorker::new(self.context.clone())) as Box<_>,
+            metrics,
+        )
     }
 }
 
