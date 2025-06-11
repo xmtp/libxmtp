@@ -12,6 +12,7 @@
 , lld
 , mkShell
 , sqlite
+, llvmPackages
 }:
 let
   # Pinned Rust Version
@@ -47,6 +48,10 @@ let
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
     RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+  } // lib.optionalAttrs stdenv.isDarwin {
+    CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
+    AR_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/llvm-ar";
+
   };
 
   # enables caching all build time crates

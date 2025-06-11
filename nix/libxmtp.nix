@@ -21,16 +21,15 @@
 , corepack
 , lnav
 , zstd
-, google-chrome
 , foundry-bin
 , graphite-cli
 , jq
+, llvmPackages
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  inherit (darwin.apple_sdk) frameworks;
   inherit (shells) combineShell;
   mkShell =
     top:
@@ -47,14 +46,17 @@ let
           extraInputs = top;
         });
   rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  darwinAttrs = {
+    # set the linker for macos
+    CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
+    AR_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/llvm-ar";
+  };
 in
-mkShell {
+mkShell ({
   OPENSSL_DIR = "${openssl.dev}";
   # LLVM_PATH = "${llvmPackages_19.stdenv}";
-  # CC_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang";
   # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
   # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
-  # AR_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-ar";
   # STRIP_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-strip";
   # disable -fzerocallusedregs in clang
   hardeningDisable = [ "zerocallusedregs" ];
@@ -65,13 +67,13 @@ mkShell {
     [
       rust-toolchain
       fenix.rust-analyzer
-      zstd
       foundry-bin
 
       # native libs
       openssl
       sqlite
       sqlcipher
+      zstd
       # emscripten
 
       mktemp
@@ -89,19 +91,14 @@ mkShell {
       cargo-expand
       inferno
       lnav
-      google-chrome
       jq
 
       # make sure to use nodePackages! or it will install yarn irrespective of environmental node.
       corepack
     ]
     ++ lib.optionals isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      frameworks.ApplicationServices
-      frameworks.AppKit
       darwin.cctools
     ] ++ lib.optionals stdenv.isLinux [
 
     ];
-}
+} // lib.optionalAttrs isDarwin darwinAttrs)
