@@ -84,7 +84,7 @@ proto_full = [
   "xmtp-device_sync",
   "xmtp-device_sync-consent_backup",
 ]
-"xmtp-device_sync-event_backup" = []
+"xmtp-device_sync-event_backup" = ["xmtp-device_sync"]
 "xmtp-device_sync-group_backup" = ["xmtp-device_sync"]
 "xmtp-device_sync-message_backup" = ["xmtp-device_sync"]
 "xmtp-identity" = []

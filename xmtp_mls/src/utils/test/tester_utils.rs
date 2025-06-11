@@ -125,7 +125,7 @@ where
             self.sync_url.as_deref(),
             Some(self.sync_mode),
             None,
-            true,
+            Some(!self.events),
         )
         .await;
         let client = Arc::new(client);
@@ -137,7 +137,7 @@ where
             replace.add(client.inbox_id(), name);
         }
         let provider = client.mls_provider();
-        let worker = client.context.worker_metrics();
+        let worker = client.context.sync_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {
                 worker.wait_for_init().await.unwrap();
@@ -217,6 +217,7 @@ where
     pub wait_for_init: bool,
     pub stream: bool,
     pub name: Option<String>,
+    pub events: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -234,6 +235,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             wait_for_init: true,
             stream: false,
             name: None,
+            events: false,
         }
     }
 }
@@ -253,6 +255,7 @@ where
             wait_for_init: self.wait_for_init,
             stream: self.stream,
             name: self.name,
+            events: self.events,
         }
     }
 
@@ -287,6 +290,13 @@ where
     pub fn stream(self) -> Self {
         Self {
             stream: true,
+            ..self
+        }
+    }
+
+    pub fn events(self) -> Self {
+        Self {
+            events: true,
             ..self
         }
     }

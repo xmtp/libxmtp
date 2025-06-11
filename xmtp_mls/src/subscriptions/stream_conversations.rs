@@ -300,7 +300,6 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
-                        tracing::info!("New Welcome: {:?}", item);
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
@@ -473,7 +472,7 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_sync_groups_are_not_streamed() {
         tester!(alix, sync_worker);
         let stream = alix.stream_conversations(None).await?;

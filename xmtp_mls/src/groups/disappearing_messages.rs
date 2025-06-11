@@ -1,7 +1,8 @@
-use crate::worker::{NeedsDbReconnect, Worker};
-use crate::Client;
-use crate::{client::ClientError, worker::WorkerKind};
-use futures::StreamExt;
+use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
+use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
+use crate::worker::{WorkerKind, WorkerResult};
+use futures::{StreamExt, TryFutureExt};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
@@ -15,44 +16,68 @@ pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);
 pub enum DisappearingMessagesCleanerError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("client error: {0}")]
-    Client(#[from] ClientError),
 }
 
 impl NeedsDbReconnect for DisappearingMessagesCleanerError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
-            Self::Client(s) => s.db_needs_connection(),
         }
     }
 }
 
 pub struct DisappearingMessagesWorker<ApiClient, Db> {
-    client: Client<ApiClient, Db>,
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     #[allow(dead_code)]
     init: OnceCell<()>,
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+struct Factory<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
+
+impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    fn create(
+        &self,
+        metrics: Option<crate::worker::DynMetrics>,
+    ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
+        let worker = Box::new(DisappearingMessagesWorker::new(self.context.clone())) as Box<_>;
+        (worker, metrics)
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DisappearingMessages
+    }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<ApiClient, Db> Worker for DisappearingMessagesWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,
     Db: xmtp_db::XmtpDb + 'static,
 {
-    type Error = DisappearingMessagesCleanerError;
-
     fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
     }
 
-    async fn run_tasks(&mut self) -> Result<(), Self::Error> {
-        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
-        while (intervals.next().await).is_some() {
-            self.delete_expired_messages().await?;
-        }
-        Ok(())
+    async fn run_tasks(&mut self) -> WorkerResult<()> {
+        self.run().map_err(|e| Box::new(e) as Box<_>).await
+    }
+
+    fn factory<C>(context: C) -> impl WorkerFactory + 'static
+    where
+        Self: Sized,
+        C: XmtpSharedContext,
+        <C as XmtpSharedContext>::Db: 'static,
+        <C as XmtpSharedContext>::ApiClient: 'static,
+    {
+        let context = context.context_ref().clone();
+        Factory { context }
     }
 }
 
@@ -61,9 +86,9 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub fn new(client: Client<ApiClient, Db>) -> Self {
+    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
         Self {
-            client,
+            context,
             init: OnceCell::new(),
         }
     }
@@ -74,9 +99,17 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
+    async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
+        let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
+        while (intervals.next().await).is_some() {
+            self.delete_expired_messages().await?;
+        }
+        Ok(())
+    }
+
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let provider = self.client.mls_provider();
+        let provider = self.context.mls_provider();
         match provider.db().delete_expired_messages() {
             Ok(deleted_count) if deleted_count > 0 => {
                 tracing::info!("Successfully deleted {} expired messages", deleted_count);

@@ -1,10 +1,8 @@
 use crate::{
     client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
-    groups::{
-        device_sync::preference_sync::PreferenceSyncService,
-        group_membership::{GroupMembership, MembershipDiff},
-    },
+    groups::group_membership::{GroupMembership, MembershipDiff},
+    subscriptions::SyncWorkerEvent,
     XmtpApi,
 };
 use futures::future::try_join_all;
@@ -355,9 +353,8 @@ where
             )
         }
 
-        PreferenceSyncService::new(self.context.clone())
-            .cycle_hmac()
-            .await?;
+        let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
+
         Ok(builder.build())
     }
 
@@ -776,14 +773,17 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
+        use std::sync::Arc;
+
         use xmtp_common::assert_logged;
 
-        use crate::groups::device_sync::DeviceSyncClient;
+        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let device_sync = DeviceSyncClient::new(client.context.clone());
+            let metrics = WorkerMetrics::default();
+            let device_sync = DeviceSyncClient::new(&client.context, Arc::new(metrics));
             device_sync.wait_for_sync_worker_init().await;
 
             let wallet_2 = generate_local_wallet();

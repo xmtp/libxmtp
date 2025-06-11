@@ -1,3 +1,4 @@
+mod test_consent;
 mod test_dm;
 mod test_key_updates;
 
@@ -2413,7 +2414,11 @@ async fn skip_already_processed_intents() {
 async fn test_parallel_syncs() {
     let wallet = generate_local_wallet();
     let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-    alix1.device_sync().wait_for_sync_worker_init().await;
+    alix1
+        .device_sync_client()
+        .wait_for_sync_worker_init()
+        .await
+        .unwrap();
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 

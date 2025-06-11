@@ -9,7 +9,6 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
-use crate::subscriptions::SyncWorkerEvent;
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, mls_store::MlsStore,
@@ -42,9 +41,9 @@ use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
 };
+use crate::{subscriptions::SyncWorkerEvent, track};
 use xmtp_api::XmtpApi;
 use xmtp_db::{
-    events::{Details, Event, Events},
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -313,7 +312,9 @@ where
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
-                return Err(summary);
+                // We don't return an error if receive fails, because it's possible this is caused
+                // by malicious data sent over the network, or messages from before the user was
+                // added to the group
             }
         }
 
@@ -337,12 +338,11 @@ where
             None,
         )?;
 
-        if intents.is_empty() {
+        let Some(intent) = intents.last() else {
             return Ok(Default::default());
-        }
+        };
 
-        self.sync_until_intent_resolved(intents[intents.len() - 1].id)
-            .await
+        self.sync_until_intent_resolved(intent.id).await
     }
 
     /**
@@ -605,17 +605,16 @@ where
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             } else {
-                Events::track(
-                    provider.db(),
-                    Some(envelope.group_id.clone()),
-                    Event::EpochChange,
-                    Some(Details::EpochChange {
-                        cursor: *cursor as i64,
-                        prev_epoch: message_epoch.as_u64() as i64,
-                        new_epoch: mls_group.epoch().as_u64() as i64,
-                        validated_commit: Some(&validated_commit)
-                            .and_then(|c| serde_json::to_string_pretty(c).ok()),
-                    }),
+                track!(
+                    "Epoch Change",
+                    {
+                        "cursor": cursor,
+                        "prev_epoch": message_epoch.as_u64(),
+                        "new_epoch": mls_group.epoch().as_u64(),
+                        "validated_commit": Some(&validated_commit)
+                            .and_then(|c| serde_json::to_string_pretty(c).ok())
+                    },
+                    group: &envelope.group_id
                 );
 
                 // If no error committing the change, write a transcript message
@@ -760,16 +759,15 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                Events::track(
-                    provider.db(),
-                    Some(envelope.group_id.clone()),
-                    Event::EpochChange,
-                    Some(Details::EpochChange {
-                        cursor: *cursor as i64,
-                        prev_epoch: previous_epoch as i64,
-                        new_epoch: new_epoch as i64,
-                        validated_commit: validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
-                    })
+                track!(
+                    "Epoch Change",
+                    {
+                        "cursor": *cursor as i64,
+                        "prev_epoch": previous_epoch as i64,
+                        "new_epoch": new_epoch as i64,
+                        "validated_commit": validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
+                    },
+                    group: &envelope.group_id
                 );
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
@@ -868,12 +866,10 @@ where
                                 ..
                             }) = provider.db().find_group(&self.group_id)?
                             {
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::NewSyncGroupMsg,
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::NewSyncGroupMsg);
                             }
                         }
                         Ok::<_, GroupMessageProcessingError>(())
@@ -914,12 +910,10 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history request.");
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::Request { message_id },
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::Request { message_id });
                                 Ok(())
                             }
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -953,12 +947,10 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history reply.");
-                                let _ =
-                                    self.context
-                                        .local_events()
-                                        .send(LocalEvents::SyncWorkerEvent(
-                                            SyncWorkerEvent::Reply { message_id },
-                                        ));
+                                let _ = self
+                                    .context
+                                    .worker_events()
+                                    .send(SyncWorkerEvent::Reply { message_id });
                                 Ok(())
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
