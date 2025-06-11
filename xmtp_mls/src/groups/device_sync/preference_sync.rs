@@ -136,7 +136,7 @@ mod tests {
     use xmtp_db::user_preferences::StoredUserPreferences;
 
     #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_hmac_sync() {
         tester!(amal_a, sync_worker);
         tester!(amal_b, from: amal_a);

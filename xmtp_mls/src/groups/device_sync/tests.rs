@@ -7,7 +7,7 @@ use xmtp_db::{
 };
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn basic_sync() {
     tester!(alix1, sync_server, sync_worker, stream);
@@ -28,7 +28,7 @@ async fn basic_sync() {
 }
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 #[cfg(not(target_arch = "wasm32"))]
 async fn only_one_payload_sent() {
     use std::time::Duration;
@@ -51,7 +51,7 @@ async fn only_one_payload_sent() {
 }
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_double_sync_works_fine() {
     tester!(alix1, sync_worker, sync_server);
     tester!(bo);
@@ -94,7 +94,7 @@ async fn test_double_sync_works_fine() {
 }
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_prefrence_sync() {
     tester!(alix1, sync_worker, sync_server, stream);
@@ -141,7 +141,7 @@ async fn test_hmac_and_consent_prefrence_sync() {
 }
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_only_added_to_correct_groups() {
     use diesel::prelude::*;
@@ -213,7 +213,7 @@ async fn test_only_added_to_correct_groups() {
 }
 
 #[rstest::rstest]
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 #[timeout(std::time::Duration::from_secs(15))]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_new_devices_not_added_to_old_sync_groups() {

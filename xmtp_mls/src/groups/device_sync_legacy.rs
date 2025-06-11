@@ -600,7 +600,7 @@ mod tests {
     };
 
     #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn v1_sync_still_works() {
         tester!(alix1, sync_worker, sync_server);

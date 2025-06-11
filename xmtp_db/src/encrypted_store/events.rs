@@ -200,7 +200,7 @@ mod tests {
         with_connection,
     };
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     // A client build event should clear old events.
     async fn clear_old_events() {
         with_connection(|conn| {

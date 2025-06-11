@@ -223,7 +223,7 @@ async fn test_client_creation() {
     }
 }
 
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_turn_local_telemetry_off() {
     let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
     let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
