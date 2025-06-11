@@ -66,7 +66,7 @@ where
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or_default();
-        let client = DeviceSyncClient::new(context.clone(), metrics.clone());
+        let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
             client,

@@ -2,7 +2,7 @@ use crate::{
     builder::SyncWorkerMode,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric},
+        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
         welcome_sync::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
@@ -206,6 +206,10 @@ where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
+    pub fn device_sync_client(&self) -> DeviceSyncClient<ApiClient, Db> {
+        self.context.device_sync_client()
+    }
+
     /// Test only function to update the version of the client
     /// This test returns None if the version was not updated
     #[cfg(test)]
