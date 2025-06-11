@@ -30,6 +30,7 @@ test-utils = [
   "dep:public-suffix",
   "dep:futures-executor",
   "dep:mockall",
+  "dep:rstest",
 ]
 bench = [
   "test-utils",
@@ -94,6 +95,7 @@ futures-executor = { version = "0.3", optional = true }
 mockall = { workspace = true, optional = true }
 passkey = { version = "0.4", optional = true }
 public-suffix = { version = "0.1.2", optional = true }
+rstest = { workspace = true, features = ["async-timeout"], optional = true }
 url = { workspace = true, optional = true }
 xmtp_api_d14n = { workspace = true, optional = true }
 xmtp_api_http = { path = "../xmtp_api_http", optional = true }

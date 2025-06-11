@@ -19,7 +19,6 @@ use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
-use xmtp_proto::xmtp::keystore_api::v1::self_decrypt_request;
 
 pub trait XmtpSharedContext: Sized {
     type Db: XmtpDb;

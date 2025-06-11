@@ -16,7 +16,7 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use xmtp_common::time::now_ns;
+use xmtp_common::{NS_IN_DAY, time::now_ns};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = events)]
@@ -127,18 +127,8 @@ impl Events {
         db: &DbConnection<C>,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
-            let cutoff_time = dsl::events
-                .select(dsl::created_at_ns)
-                .order(dsl::created_at_ns.desc())
-                .limit(1)
-                .offset(9999)
-                .first::<i64>(db)
-                .optional()?;
-
-            if let Some(cutoff) = cutoff_time {
-                diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(cutoff))).execute(db)?;
-            }
-
+            diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_DAY * 15)))
+                .execute(db)?;
             Ok(())
         })
     }
@@ -212,7 +202,6 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = "true")]
     // A client build event should clear old events.
-    #[ignore]
     async fn clear_old_events() {
         with_connection(|conn| {
             let details: HashMap<String, String> = HashMap::default();

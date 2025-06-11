@@ -173,6 +173,11 @@ where
         self.context.db()
     }
 
+    /// Blocks until the sync worker notifies that it is initialized and running.
+    pub async fn wait_for_sync_worker_init(&self) {
+        self.sync_metrics.wait_for_init().await;
+    }
+
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.

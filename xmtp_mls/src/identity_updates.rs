@@ -773,14 +773,17 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
+        use std::sync::Arc;
+
         use xmtp_common::assert_logged;
 
-        use crate::groups::device_sync::DeviceSyncClient;
+        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let device_sync = DeviceSyncClient::new(client.context.clone(), None);
+            let metrics = WorkerMetrics::default();
+            let device_sync = DeviceSyncClient::new(&client.context, Arc::new(metrics));
             device_sync.wait_for_sync_worker_init().await;
 
             let wallet_2 = generate_local_wallet();
