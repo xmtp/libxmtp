@@ -223,7 +223,7 @@ where
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
         // Cycle the HMAC
-        self.client.preference_sync.cycle_hmac(&self.client).await?;
+        self.client.cycle_hmac().await?;
 
         Ok(())
     }
@@ -239,11 +239,7 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        let (updates, legacy_updates) = self
-            .client
-            .preference_sync
-            .sync_preferences(updates, &self.client)
-            .await?;
+        let (updates, legacy_updates) = self.client.sync_preferences(updates).await?;
 
         let sync_group = self.client.get_sync_group().await?;
         legacy_updates.iter().for_each(|u| match u {
@@ -264,7 +260,7 @@ where
     }
 
     async fn evt_cycle_hmac(&self) -> Result<(), DeviceSyncError> {
-        self.client.preference_sync.cycle_hmac(&self.client).await?;
+        self.client.cycle_hmac().await?;
         Ok(())
     }
 

@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use super::*;
 use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate;
 use xmtp_common::time::now_ns;
@@ -20,20 +18,7 @@ pub enum PreferenceUpdate {
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
-#[derive(Clone)]
-pub struct PreferenceSyncService<ApiClient, Db> {
-    _marker: PhantomData<(ApiClient, Db)>,
-}
-
-impl<ApiClient, Db> PreferenceSyncService<ApiClient, Db> {
-    pub fn new() -> Self {
-        Self {
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<ApiClient, Db> PreferenceSyncService<ApiClient, Db>
+impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
@@ -41,35 +26,32 @@ where
     pub(crate) async fn sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
-        device_sync: &DeviceSyncClient<ApiClient, Db>,
     ) -> Result<(Vec<PreferenceUpdate>, Vec<LegacyUserPreferenceUpdate>), ClientError> {
-        device_sync
-            .send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
-                updates: updates.clone().into_iter().map(From::from).collect(),
-            }))
-            .await?;
+        self.send_device_sync_message(ContentProto::PreferenceUpdates(PreferenceUpdates {
+            updates: updates.clone().into_iter().map(From::from).collect(),
+        }))
+        .await?;
 
         // TODO: v1 support - remove this on next hammer
         let legacy_updates = updates.clone().into_iter().map(Into::into).collect();
         let legacy_updates =
-            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, device_sync).await?;
+            LegacyUserPreferenceUpdate::v1_sync_across_devices(legacy_updates, self).await?;
+
+        updates.iter().for_each(|update| match update {
+            PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
+            PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
+        });
 
         Ok((updates, legacy_updates))
     }
 
-    pub(crate) async fn cycle_hmac(
-        &self,
-        device_sync: &DeviceSyncClient<ApiClient, Db>,
-    ) -> Result<(), ClientError> {
+    pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
         tracing::info!("Sending new HMAC key to sync group.");
 
-        self.sync_preferences(
-            vec![PreferenceUpdate::Hmac {
-                key: HmacKey::random_key(),
-                cycled_at_ns: now_ns(),
-            }],
-            device_sync,
-        )
+        self.sync_preferences(vec![PreferenceUpdate::Hmac {
+            key: HmacKey::random_key(),
+            cycled_at_ns: now_ns(),
+        }])
         .await?;
 
         Ok(())
@@ -150,18 +132,14 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        context::XmtpContextProvider,
-        groups::device_sync::worker::SyncMetric,
-        utils::{LocalTesterBuilder, Tester},
-    };
+    use crate::{context::XmtpContextProvider, groups::device_sync::worker::SyncMetric, tester};
     use xmtp_db::user_preferences::StoredUserPreferences;
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
     async fn test_hmac_sync() {
-        let amal_a = Tester::builder().sync_worker().build().await;
-        let amal_b = amal_a.builder.build().await;
+        tester!(amal_a, sync_worker);
+        tester!(amal_b, from: amal_a);
 
         amal_a.test_has_same_sync_group_as(&amal_b).await?;
 
@@ -190,6 +168,7 @@ mod tests {
             .await?;
 
         amal_a.sync_all_welcomes_and_history_sync_groups().await?;
+        amal_a.worker().wait(SyncMetric::HmacReceived, 2).await?;
         let new_pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }

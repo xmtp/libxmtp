@@ -9,7 +9,7 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     track,
-    utils::{events::EventWorker, VersionInfo},
+    utils::VersionInfo,
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
 };
@@ -209,7 +209,6 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             workers.register_new_worker::<SyncWorker<ApiClient, Db>, _>(&context);
         }
         if !disable_events {
-
             // workers.register_new_worker::<EventWorker<ApiClient, Db>, _>(&context);
         }
         workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);

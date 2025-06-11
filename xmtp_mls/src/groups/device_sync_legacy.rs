@@ -268,7 +268,7 @@ where
             Box::pin(group.sync_with_conn()).await?;
         }
 
-        self.sync_metrics
+        self.metrics
             .increment_metric(SyncMetric::V1PayloadProcessed);
 
         Ok(())

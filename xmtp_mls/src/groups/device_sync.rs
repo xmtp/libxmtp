@@ -7,7 +7,6 @@ use crate::{
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;
-use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -137,21 +136,19 @@ pub struct DeviceSyncClient<ApiClient, Db> {
     pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
     pub(crate) mls_store: MlsStore<ApiClient, Db>,
-    pub(crate) preference_sync: PreferenceSyncService<ApiClient, Db>,
-    pub(crate) sync_metrics: Arc<WorkerMetrics<SyncMetric>>,
+    pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
     pub fn new(
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        sync_metrics: Arc<WorkerMetrics<SyncMetric>>,
+        metrics: Arc<WorkerMetrics<SyncMetric>>,
     ) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
             mls_store: MlsStore::new(context.clone()),
-            preference_sync: PreferenceSyncService::<ApiClient, Db>::new(),
-            sync_metrics,
+            metrics,
         }
     }
 }
@@ -175,7 +172,7 @@ where
 
     /// Blocks until the sync worker notifies that it is initialized and running.
     pub async fn wait_for_sync_worker_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.sync_metrics.wait_for_init().await
+        self.metrics.wait_for_init().await
     }
 
     /// Sends a device sync message.
@@ -244,8 +241,7 @@ where
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
-                self.sync_metrics
-                    .increment_metric(SyncMetric::SyncGroupCreated);
+                self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
 
                 sync_group
             }

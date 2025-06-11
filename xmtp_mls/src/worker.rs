@@ -8,7 +8,7 @@ use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
 
 pub mod metrics;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
@@ -122,7 +122,7 @@ pub trait Worker {
                     } else {
                         tracing::error!("Worker error: {err:?}");
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting sync worker...");
+                        tracing::info!("Restarting {:?} worker...", self.kind());
                     }
                 }
             }
@@ -144,7 +144,7 @@ pub trait Worker {
                     } else {
                         tracing::error!("Worker error: {err:?}");
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting sync worker...");
+                        tracing::info!("Restarting {} worker...", self.kind());
                     }
                 }
             }
