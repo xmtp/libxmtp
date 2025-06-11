@@ -12,7 +12,7 @@ const vitestConfig = defineVitestConfig({
     browser: {
       provider: "playwright",
       enabled: true,
-      headless: false,
+      headless: true,
       screenshotFailures: false,
       instances: [
         {
