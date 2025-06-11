@@ -106,7 +106,7 @@ pub async fn connect_to_backend(
     );
     let mut api_client = TonicApiClient::builder();
     api_client.set_host(host);
-    api_client.set_tls(true);
+    api_client.set_tls(is_secure);
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
     let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
@@ -4230,6 +4230,7 @@ mod tests {
             )
             .await
             .unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();

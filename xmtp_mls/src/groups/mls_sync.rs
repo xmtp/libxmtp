@@ -313,7 +313,9 @@ where
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
-                return Err(summary);
+                // We don't return an error if receive fails, because it's possible this is caused
+                // by malicious data sent over the network, or messages from before the user was
+                // added to the group
             }
         }
 
