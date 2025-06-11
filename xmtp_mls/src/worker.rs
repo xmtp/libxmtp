@@ -16,7 +16,7 @@ pub enum WorkerKind {
     Event,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WorkerRunner {
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
@@ -24,10 +24,7 @@ pub struct WorkerRunner {
 
 impl WorkerRunner {
     pub fn new() -> Self {
-        Self {
-            metrics: Arc::new(Mutex::new(HashMap::new())),
-            factories: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -144,7 +141,7 @@ pub trait Worker {
                     } else {
                         tracing::error!("Worker error: {err:?}");
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting {} worker...", self.kind());
+                        tracing::info!("Restarting {:?} worker...", self.kind());
                     }
                 }
             }

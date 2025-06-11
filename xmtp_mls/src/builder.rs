@@ -315,7 +315,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 
     #[cfg(all(test, target_arch = "wasm32"))]
-    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+    pub fn with_disable_events(
+        self,
+        _disable_events: Option<bool>,
+    ) -> ClientBuilder<ApiClient, Db> {
         Self {
             disable_events: true,
             ..self

@@ -36,7 +36,7 @@ where
     type ApiClient = XApiClient;
 
     fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>> {
-        &self
+        self
     }
 }
 
