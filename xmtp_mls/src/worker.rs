@@ -171,9 +171,6 @@ pub type BoxedWorker = Box<dyn Worker>;
 #[cfg(not(target_arch = "wasm32"))]
 pub type BoxedWorker = Box<dyn Worker + Send + Sync>;
 
-#[cfg(target_arch = "wasm32")]
-pub type DynMetrics = Arc<dyn Any>;
-#[cfg(not(target_arch = "wasm32"))]
 pub type DynMetrics = Arc<dyn Any + Send + Sync>;
 
 pub trait MetricsCasting {
