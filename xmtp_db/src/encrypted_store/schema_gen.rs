@@ -26,6 +26,8 @@ diesel::table! {
         group_id -> Nullable<Binary>,
         event -> Text,
         details -> Nullable<Binary>,
+        level -> Integer,
+        icon -> Nullable<Text>,
     }
 }
 
@@ -134,6 +136,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    local_commit_log (created_at_ns) {
+        created_at_ns -> BigInt,
+        group_id -> Binary,
+        epoch_authenticator -> Binary,
+        result -> Integer,
+        state_hash -> Nullable<Binary>,
+        epoch_number -> BigInt,
+        sender_inbox_id -> Nullable<Text>,
+        sender_installation_id -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -163,6 +178,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_commit_log (created_at_ns) {
+        created_at_ns -> BigInt,
+        group_id -> Binary,
+        last_state_hash -> Nullable<Binary>,
+        epoch_authenticator -> Binary,
+        result -> Integer,
+        state_hash -> Nullable<Binary>,
+        epoch_number -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
@@ -185,10 +212,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity_cache,
     identity_updates,
     key_package_history,
+    local_commit_log,
     openmls_key_store,
     openmls_key_value,
     processed_device_sync_messages,
     refresh_state,
+    remote_commit_log,
     user_preferences,
     conversation_list
 );
