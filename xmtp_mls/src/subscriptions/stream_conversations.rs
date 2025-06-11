@@ -300,7 +300,6 @@ where
             Waiting => {
                 match this.inner.poll_next(cx) {
                     Ready(Some(item)) => {
-                        tracing::info!("New Welcome: {:?}", item);
                         let mut this = self.as_mut().project();
                         let future = ProcessWelcomeFuture::new(
                             this.known_welcome_ids.clone(),
