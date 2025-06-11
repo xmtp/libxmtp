@@ -3,14 +3,14 @@ use crate::{
     client::ClientError,
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEvents, SubscribeError, SyncWorkerEvent},
+    subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;
-use preference_sync::PreferenceSyncService;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
@@ -100,6 +100,8 @@ pub enum DeviceSyncError {
     Sync(Box<SyncSummary>),
     #[error(transparent)]
     MlsStore(#[from] MlsStoreError),
+    #[error(transparent)]
+    Recv(#[from] RecvError),
 }
 
 impl From<SyncSummary> for DeviceSyncError {
@@ -134,21 +136,20 @@ pub struct DeviceSyncClient<ApiClient, Db> {
     pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
     pub(crate) mls_store: MlsStore<ApiClient, Db>,
-    pub(crate) preference_sync: PreferenceSyncService<ApiClient, Db>,
+    pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    pub fn new(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        metrics: Arc<WorkerMetrics<SyncMetric>>,
+    ) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
             mls_store: MlsStore::new(context.clone()),
-            preference_sync: PreferenceSyncService::new(context),
+            metrics,
         }
-    }
-
-    pub fn worker_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
-        self.context.worker_metrics()
     }
 }
 
@@ -170,10 +171,8 @@ where
     }
 
     /// Blocks until the sync worker notifies that it is initialized and running.
-    pub async fn wait_for_sync_worker_init(&self) {
-        if let Some(handle) = self.worker_metrics() {
-            let _ = handle.wait_for_init().await;
-        }
+    pub async fn wait_for_sync_worker_init(&self) -> Result<(), xmtp_common::time::Expired> {
+        self.metrics.wait_for_init().await
     }
 
     /// Sends a device sync message.
@@ -223,9 +222,10 @@ where
         sync_group.sync_until_last_intent_resolved().await?;
 
         // Notify our own worker of our own message so it can process it.
-        let _ = self.context.local_events.send(LocalEvents::SyncWorkerEvent(
-            SyncWorkerEvent::NewSyncGroupMsg,
-        ));
+        let _ = self
+            .context
+            .worker_events
+            .send(SyncWorkerEvent::NewSyncGroupMsg);
 
         Ok(message_id)
     }
@@ -241,9 +241,8 @@ where
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 
-                if let Some(handle) = self.worker_metrics() {
-                    handle.increment_metric(SyncMetric::SyncGroupCreated);
-                }
+                self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
+
                 sync_group
             }
         };

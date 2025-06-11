@@ -4,12 +4,11 @@ use std::{future::Future, pin::Pin, time::Duration};
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::events::Events;
 
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_key_rotation_with_optimistic_send() {
     tester!(alix, stream);
-    tester!(bo, stream);
+    tester!(bo, stream, events);
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)
         .await?;
@@ -46,19 +45,18 @@ async fn test_key_rotation_with_optimistic_send() {
     assert_eq!(key_updates.len(), 1);
 }
 
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn key_update_out_of_epoch() {
     // Have bo join a group and immediately send several optimistic messages.
     // Add enough people to move the epoch ahead 5, then sync to ensure proper delivery.
     tester!(alix);
-    tester!(bo);
     tester!(carl);
     tester!(dre);
     tester!(ed);
     tester!(fester);
     tester!(greg);
+    tester!(bo, events);
 
     let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id().to_string()], None, None)

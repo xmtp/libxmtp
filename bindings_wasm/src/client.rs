@@ -153,6 +153,7 @@ pub async fn create_client(
   device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
+  disable_events: Option<bool>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
@@ -193,6 +194,7 @@ pub async fn create_client(
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .with_allow_offline(allow_offline)
+      .with_disable_events(disable_events)
       .store(store)
       .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
@@ -200,6 +202,7 @@ pub async fn create_client(
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .with_allow_offline(allow_offline)
+      .with_disable_events(disable_events)
       .store(store),
   };
 
@@ -304,7 +307,7 @@ impl Client {
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self
       .inner_client
-      .device_sync()
+      .device_sync_client()
       .send_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;

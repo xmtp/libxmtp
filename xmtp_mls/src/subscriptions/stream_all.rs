@@ -4,14 +4,13 @@ use std::{
     task::{ready, Context, Poll},
 };
 
-use crate::groups::welcome_sync::WelcomeService;
 use crate::{
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     subscriptions::stream_messages::MessagesApiSubscription,
 };
+use crate::{groups::welcome_sync::WelcomeService, track};
 
 use xmtp_db::{
-    events::{Details, Event, Events},
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
     XmtpDb,
@@ -24,7 +23,7 @@ use super::{
     Result, SubscribeError,
 };
 use crate::groups::MlsGroup;
-use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
+use crate::subscriptions::SyncWorkerEvent;
 use futures::stream::Stream;
 use xmtp_common::types::GroupId;
 use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
@@ -62,14 +61,13 @@ where
             let provider = context.mls_provider();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
 
-            Events::track(
-                provider.db(),
-                None,
-                Event::MsgStreamConnect,
-                Some(Details::MsgStreamConnect {
-                    conversation_type,
-                    consent_states: consent_states.clone(),
-                }),
+            track!(
+                "Message Stream Connect",
+                {
+                    "conversation_type": conversation_type,
+                    "consent_states": &consent_states,
+                },
+                icon: "🚣"
             );
 
             let groups = provider.db().find_groups(GroupQueryArgs {
@@ -143,10 +141,8 @@ where
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
-                        .local_events()
-                        .send(LocalEvents::SyncWorkerEvent(
-                            SyncWorkerEvent::NewSyncGroupMsg,
-                        ));
+                        .worker_events()
+                        .send(SyncWorkerEvent::NewSyncGroupMsg);
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }

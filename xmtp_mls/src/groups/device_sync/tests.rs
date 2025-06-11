@@ -64,14 +64,29 @@ async fn test_double_sync_works_fine() {
     alix1.sync_welcomes().await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-    alix2.device_sync().get_sync_group().await?.sync().await?;
+    alix2
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
-    alix2.device_sync().send_sync_request().await?;
-    alix1.device_sync().get_sync_group().await?.sync().await?;
+    alix2.device_sync_client().send_sync_request().await?;
+    alix1
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
     alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
 
-    alix2.device_sync().get_sync_group().await?.sync().await?;
+    alix2
+        .device_sync_client()
+        .get_sync_group()
+        .await?
+        .sync()
+        .await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 2).await?;
 
     // Alix2 should be able to talk fine with bo

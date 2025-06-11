@@ -144,6 +144,7 @@ pub async fn create_client(
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
     allow_offline: Option<bool>,
+    disable_events: Option<bool>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -186,6 +187,7 @@ pub async fn create_client(
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
+        .with_disable_events(disable_events)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -203,7 +205,7 @@ pub async fn create_client(
         xmtp_client.inbox_id()
     );
     let worker = FfiSyncWorker {
-        handle: xmtp_client.context.worker_metrics(),
+        handle: xmtp_client.context.sync_metrics(),
     };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -615,7 +617,10 @@ impl FfiXmtpClient {
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
-        self.inner_client.device_sync().send_sync_request().await?;
+        self.inner_client
+            .device_sync_client()
+            .send_sync_request()
+            .await?;
         Ok(())
     }
 
@@ -1588,7 +1593,7 @@ impl FfiConversations {
 impl FfiConversations {
     pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.device_sync().get_sync_group().await?;
+        let sync_group = inner.device_sync_client().get_sync_group().await?;
         Ok(sync_group.into())
     }
 }
@@ -3166,6 +3171,7 @@ mod tests {
             history_sync_url,
             sync_worker_mode,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3198,6 +3204,7 @@ mod tests {
             nonce,
             None,
             sync_server_url,
+            None,
             None,
             None,
         )
@@ -3267,6 +3274,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3296,6 +3304,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3313,6 +3322,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3354,6 +3364,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3372,6 +3383,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3424,6 +3436,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3463,6 +3476,7 @@ mod tests {
             None,
             None,
             Some(true),
+            None,
         )
         .await
         .unwrap();
@@ -3561,7 +3575,7 @@ mod tests {
         let convo_callback = Arc::new(RustStreamCallback::default());
         let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
 
-        let worker = alex.client.inner_client.context.worker_metrics().unwrap();
+        let worker = alex.client.inner_client.context.sync_metrics().unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3618,6 +3632,7 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3740,6 +3755,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3834,6 +3850,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3863,6 +3880,7 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -3905,6 +3923,7 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
             None,
             None,
             None,
@@ -6810,7 +6829,7 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 3)
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -7155,6 +7174,7 @@ mod tests {
             Some(HISTORY_SYNC_URL.to_string()),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7194,6 +7214,7 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
         )
@@ -7262,6 +7283,7 @@ mod tests {
             Some(HISTORY_SYNC_URL.to_string()),
             None,
             None,
+            None,
         )
         .await;
 
@@ -7299,6 +7321,7 @@ mod tests {
             Some(HISTORY_SYNC_URL.to_string()),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7323,6 +7346,7 @@ mod tests {
             Some(HISTORY_SYNC_URL.to_string()),
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -7342,6 +7366,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
         )
@@ -7374,6 +7399,7 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
             None,
             None,
         )
@@ -8178,13 +8204,13 @@ mod tests {
 
         let sg1 = alix
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();
         let sg2 = alix2
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();
@@ -8208,7 +8234,7 @@ mod tests {
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
         alix.worker()
-            .wait(SyncMetric::ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 3)
             .await
             .unwrap();
 

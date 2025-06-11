@@ -245,7 +245,7 @@ async fn test_turn_local_telemetry_off() {
                 .unwrap(),
         )
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .disable_local_telemetry()
+        .with_disable_events(Some(true))
         .build()
         .await?;
 
