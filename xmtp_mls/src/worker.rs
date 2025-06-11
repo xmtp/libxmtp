@@ -1,5 +1,6 @@
 use crate::{
-    configuration::WORKER_RESTART_DELAY, context::XmtpSharedContext,
+    configuration::WORKER_RESTART_DELAY,
+    context::{XmtpContextProvider, XmtpSharedContext},
     groups::device_sync::worker::SyncMetric,
 };
 use metrics::WorkerMetrics;
@@ -46,7 +47,16 @@ impl WorkerRunner {
         self.factories.push(Arc::new(factory))
     }
 
-    pub fn spawn(&self) {
+    pub async fn spawn<C>(&self, ctx: C)
+    where
+        C: XmtpSharedContext,
+        <C as XmtpSharedContext>::Db: 'static,
+        <C as XmtpSharedContext>::ApiClient: 'static,
+    {
+        while !ctx.context_ref().identity().is_ready() {
+            xmtp_common::yield_().await;
+        }
+
         for factory in &self.factories {
             let metric = self.metrics.lock().get(&factory.kind()).cloned();
             let (worker, metrics) = factory.create(metric);

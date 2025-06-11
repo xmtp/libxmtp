@@ -255,9 +255,9 @@ where
     Db: XmtpDb + Send + Sync + 'static,
 {
     /// Reconnect to the client's database if it has previously been released
-    pub fn reconnect_db(&self) -> Result<(), ClientError> {
+    pub async fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
-        self.workers.spawn();
+        self.workers.spawn(&self.context).await;
         Ok(())
     }
 
