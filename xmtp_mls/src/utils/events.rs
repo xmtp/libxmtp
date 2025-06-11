@@ -36,7 +36,7 @@ mod tests {
     use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
 
     #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_debug_pkg() {
         tester!(alix, stream);
         tester!(bo);

@@ -1511,7 +1511,7 @@ pub(crate) mod tests {
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn should_stream_consent() {
         let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;

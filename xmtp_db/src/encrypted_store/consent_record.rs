@@ -336,7 +336,7 @@ mod tests {
         }
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn find_consent_by_dm_id() {
         with_connection(|conn| {
             let mut g = generate_group(None);

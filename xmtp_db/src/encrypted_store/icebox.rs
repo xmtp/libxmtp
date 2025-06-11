@@ -123,7 +123,7 @@ mod tests {
         ]
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn icebox_dependency_chain() {
         with_connection(|conn| {
             let ice = iced();
@@ -138,7 +138,7 @@ mod tests {
         .await
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_wrong_originator() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
@@ -157,7 +157,7 @@ mod tests {
         .await
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_wrong_sequence() {
         with_connection(|conn| {
             // Break the chain by unsetting the originator.
@@ -176,7 +176,7 @@ mod tests {
         .await
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_icebox_depending_fields_xor() {
         with_connection(|conn| {
             // Test to ensure that if one dependency field is set, they both are.
