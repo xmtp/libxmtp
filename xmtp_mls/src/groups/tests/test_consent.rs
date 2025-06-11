@@ -2,7 +2,7 @@ use xmtp_db::consent_record::ConsentState;
 
 use crate::tester;
 
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_auto_consent_to_own_group() {
     tester!(alix1);
 
