@@ -9,14 +9,14 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
     fmt::Debug,
-    sync::{Arc, LazyLock},
+    sync::{atomic::Ordering, Arc, LazyLock},
 };
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
-    events::{EventLevel, Events},
+    events::{EventLevel, Events, EVENTS_ENABLED},
     StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
@@ -75,6 +75,10 @@ where
     }
 
     pub(crate) fn track(self) {
+        if !EVENTS_ENABLED.load(Ordering::Relaxed) {
+            return;
+        }
+
         let event = match self.build() {
             Ok(event) => event,
             Err(err) => {
@@ -83,10 +87,12 @@ where
             }
         };
 
-        if let Some(tx) = &mut *EVENT_TX.lock() {
-            if let Err(err) = tx.unbounded_send(event) {
-                tracing::warn!("Unable to send event to writing worker: {err:?}");
-            }
+        let Some(tx) = (*EVENT_TX.lock()).clone() else {
+            return;
+        };
+
+        if let Err(err) = tx.unbounded_send(event) {
+            tracing::warn!("Unable to send event to writing worker: {err:?}");
         }
     }
 }
