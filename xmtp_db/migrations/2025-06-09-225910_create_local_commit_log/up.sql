@@ -13,7 +13,6 @@ CREATE TABLE remote_commit_log (
 );
 
 CREATE TABLE local_commit_log (
-    "sequence_id" BIGINT NOT NULL PRIMARY KEY,
     "group_id" BLOB NOT NULL,
     "epoch_authenticator" BLOB NOT NULL,
     -- 1 = Success, all other values are failures matching the protobuf

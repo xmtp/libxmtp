@@ -137,7 +137,6 @@ diesel::table! {
 
 diesel::table! {
     local_commit_log (sequence_id) {
-        sequence_id -> BigInt,
         group_id -> Binary,
         epoch_authenticator -> Binary,
         result -> Integer,

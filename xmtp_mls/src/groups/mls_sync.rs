@@ -9,7 +9,6 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
@@ -40,6 +39,10 @@ use crate::{
 use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
     utils::id::calculate_message_id_for_intent,
+};
+use crate::{
+    groups::mls_ext::MergeStagedCommitAndLog,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use crate::{subscriptions::SyncWorkerEvent, track};
 use xmtp_api::XmtpApi;
@@ -603,38 +606,30 @@ where
                 self.context().inbox_id(),
                 intent.id
             );
-            if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
-                tracing::error!("error merging commit: {err}");
-                return Ok((IntentState::ToPublish, None));
-            } else {
-                track!(
-                    "Epoch Change",
-                    {
-                        "cursor": cursor,
-                        "prev_epoch": message_epoch.as_u64(),
-                        "new_epoch": mls_group.epoch().as_u64(),
-                        "validated_commit": Some(&validated_commit)
-                            .and_then(|c| serde_json::to_string_pretty(c).ok())
-                    },
-                    group: &envelope.group_id
-                );
 
-                LocalCommitLog {
-                    sequence_id: *cursor as i64,
-                    epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
-                    epoch_number: Some(mls_group.epoch().as_u64() as i64),
-                    group_id: Some(mls_group.group_id().to_vec()),
-                    result: CommitResult::Success,
-                    sender_inbox_id: validated_commit.actor_inbox_id(),
-                    sender_installation_id: validated_commit.actor_installation_id(),
-                }
-                .store(provider.db())?;
+            let result =
+                mls_group.merge_staged_commit_and_log(&provider, staged_commit, &validated_commit);
+            let intent = match result {
+                Ok(intent) => intent,
+                Err(err) => return err.map(|i| (i, None)),
+            };
 
-                // If no error committing the change, write a transcript message
-                let msg =
-                    self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
-                return Ok((IntentState::Committed, msg.map(|m| m.id)));
-            }
+            track!(
+                "Epoch Change",
+                {
+                    "cursor": cursor,
+                    "prev_epoch": message_epoch.as_u64(),
+                    "new_epoch": mls_group.epoch().as_u64(),
+                    "validated_commit": Some(&validated_commit)
+                        .and_then(|c| serde_json::to_string_pretty(c).ok())
+                },
+                group: &envelope.group_id
+            );
+
+            // If no error committing the change, write a transcript message
+            let msg =
+                self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
+            return Ok((intent, msg.map(|m| m.id)));
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
             tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
             conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)?;
@@ -1029,18 +1024,13 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                mls_group.merge_staged_commit(&provider, staged_commit)?;
-
-                LocalCommitLog {
-                    sequence_id: *cursor as i64,
-                    epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
-                    epoch_number: Some(mls_group.epoch().as_u64() as i64),
-                    group_id: Some(mls_group.group_id().to_vec()),
-                    result: CommitResult::Success,
-                    sender_inbox_id: validated_commit.actor_inbox_id(),
-                    sender_installation_id: validated_commit.actor_installation_id(),
-                }
-                .store(provider.db())?;
+                if let Err(Err(err)) = mls_group.merge_staged_commit_and_log(
+                    &provider,
+                    staged_commit,
+                    &validated_commit,
+                ) {
+                    return Err(err)?;
+                };
 
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
