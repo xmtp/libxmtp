@@ -8,6 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+arc-swap = "1.7"
 futures.workspace = true
 hex.workspace = true
 napi = { version = "2.16.16", default-features = false, features = [
@@ -21,6 +22,7 @@ prost.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tracing.workspace = true
+tracing-appender = { version = "0.2.3" }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",

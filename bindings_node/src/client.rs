@@ -3,13 +3,15 @@ use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
 use crate::ErrorWrapper;
+use arc_swap::ArcSwap;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tokio::sync::{Mutex, OnceCell};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{prelude::*, EnvFilter};
 use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
@@ -23,7 +25,7 @@ use xmtp_proto::api_client::AggregateStats;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
 pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
-static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
+static LOGGER_INIT: OnceCell<LoggerGuard> = OnceCell::const_new();
 
 #[napi]
 pub struct Client {
@@ -95,35 +97,89 @@ pub struct LogOptions {
   pub structured: Option<bool>,
   /// Filter logs by level
   pub level: Option<LogLevel>,
+  /// Output logs to this file
+  pub file: Option<String>,
 }
 
-fn init_logging(options: LogOptions) -> Result<()> {
-  LOGGER_INIT
-    .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
+#[napi]
+pub struct LoggerGuard {
+  inner: Arc<ArcSwap<Option<WorkerGuard>>>,
+}
 
-      if options.structured.unwrap_or_default() {
-        let fmt = tracing_subscriber::fmt::layer()
-          .json()
-          .flatten_event(true)
-          .with_level(true)
-          .with_target(true);
+impl Clone for LoggerGuard {
+  fn clone(&self) -> Self {
+    Self {
+      inner: self.inner.clone(),
+    }
+  }
+}
 
-        tracing_subscriber::registry().with(filter).with(fmt).init();
-      } else {
-        tracing_subscriber::registry()
-          .with(fmt::layer())
-          .with(filter)
-          .init();
-      }
-      Ok(())
+impl LoggerGuard {
+  fn new(worker: Option<WorkerGuard>) -> Self {
+    Self {
+      inner: Arc::new(ArcSwap::from_pointee(worker)),
+    }
+  }
+}
+
+async fn new_logger(options: LogOptions) -> Result<Option<WorkerGuard>> {
+  let filter = if let Some(f) = options.level {
+    xmtp_common::filter_directive(&f.to_string())
+  } else {
+    EnvFilter::builder().parse_lossy("info")
+  };
+
+  let fmt = tracing_subscriber::fmt::layer();
+  let mut guard = None;
+
+  let fmt = if options.structured.unwrap_or_default() {
+    let fmt = fmt
+      .json()
+      .flatten_event(true)
+      .with_level(true)
+      .with_target(true);
+
+    if let Some(f) = &options.file {
+      let file = std::fs::File::create(f)?;
+      let (writer, g) = tracing_appender::non_blocking(file);
+      guard.replace(g);
+      fmt.with_writer(writer).boxed()
+    } else {
+      fmt.boxed()
+    }
+  } else {
+    fmt.boxed()
+  };
+
+  tracing_subscriber::registry().with(filter).with(fmt).init();
+
+  Ok(guard)
+}
+
+#[napi]
+pub async fn create_logger(options: LogOptions) -> Result<LoggerGuard> {
+  Ok(
+    LOGGER_INIT
+      .get_or_try_init(|| async {
+        let logger = new_logger(options)
+          .await
+          .map_err(|e| Error::from_reason(e.to_string()))?;
+        Ok::<_, Error>(LoggerGuard::new(logger))
+      })
+      .await?
+      .clone(),
+  )
+}
+
+async fn init_logging(options: LogOptions) -> Result<()> {
+  let _ = LOGGER_INIT
+    .get_or_try_init(|| async {
+      let logger = new_logger(options)
+        .await
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+      Ok::<_, Error>(LoggerGuard::new(logger))
     })
-    .clone()
-    .map_err(ErrorWrapper::from)?;
+    .await?;
   Ok(())
 }
 
@@ -151,7 +207,7 @@ pub async fn create_client(
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
 
-  init_logging(log_options.unwrap_or_default())?;
+  init_logging(log_options.unwrap_or_default()).await?;
   let api_client = TonicApiClient::create(&host, is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
