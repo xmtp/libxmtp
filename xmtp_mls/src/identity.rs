@@ -846,7 +846,7 @@ mod tests {
         client.rotate_and_upload_key_package().await.unwrap();
 
         // Force deletion of the key package, even though it hasn't expired yet
-        let cleaner = KeyPackagesCleanerWorker::new(client);
+        let cleaner = KeyPackagesCleanerWorker::new(client.context.clone());
         let serialized_key_package_hash_ref =
             serialize_key_package_hash_ref(key_package_bundle.key_package(), &provider).unwrap();
         cleaner
