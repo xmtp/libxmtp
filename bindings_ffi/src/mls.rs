@@ -8399,10 +8399,13 @@ mod tests {
 
         // New installation for alix
         let alix2 = alix.builder.build().await;
+
+        bo.conversations().sync().await.unwrap();
         let boGroup = bo.conversation(group.id()).unwrap();
-        boGroup.send(encoded_content_to_bytes(text_message_alix.clone()))
-        .await
-        .unwrap();
+        boGroup
+            .send(encoded_content_to_bytes(text_message_alix.clone()))
+            .await
+            .unwrap();
         alix.conversations()
             .sync_all_conversations(None)
             .await
@@ -8413,21 +8416,10 @@ mod tests {
             .await
             .unwrap();
 
-        let sync_group = alix2
-            .inner_client
-            .device_sync()
-            .get_sync_group()
+        alix.inner_client
+            .test_has_same_sync_group_as(&alix2.inner_client)
             .await
             .unwrap();
-        assert_eq!(
-            sync_group.group_id,
-            alix.inner_client
-                .device_sync()
-                .get_sync_group()
-                .await
-                .unwrap()
-                .group_id
-        );
 
         // Get the same group on the new installation
         let group2 = alix2.conversation(group.id()).unwrap();
@@ -8437,8 +8429,9 @@ mod tests {
             .unwrap();
 
         // New installation should NOT see messages sent before it was created
-        assert!(
-            messages.is_empty(),
+        assert_eq!(
+            messages.len(),
+            2,
             "Expected no messages to be visible to new installation"
         );
 
