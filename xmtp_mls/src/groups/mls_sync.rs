@@ -619,6 +619,17 @@ where
                     group: &envelope.group_id
                 );
 
+                LocalCommitLog {
+                    sequence_id: *cursor as i64,
+                    epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
+                    epoch_number: Some(mls_group.epoch().as_u64() as i64),
+                    group_id: Some(mls_group.group_id().to_vec()),
+                    result: CommitResult::Success,
+                    sender_inbox_id: validated_commit.actor_inbox_id(),
+                    sender_installation_id: validated_commit.actor_installation_id(),
+                }
+                .store(provider.db())?;
+
                 // If no error committing the change, write a transcript message
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
