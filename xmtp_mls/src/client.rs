@@ -2,10 +2,7 @@ use crate::{
     builder::SyncWorkerMode,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
-        device_sync::{
-            preference_sync::{PreferenceSyncService, PreferenceUpdate},
-            DeviceSyncClient,
-        },
+        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
         welcome_sync::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
@@ -13,9 +10,11 @@ use crate::{
     identity::{parse_credential, Identity, IdentityError},
     identity_updates::{load_identity_updates, IdentityUpdateError, IdentityUpdates},
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEventError, LocalEvents},
+    subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
+    track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    worker::{metrics::WorkerMetrics, WorkerRunner},
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
@@ -29,7 +28,7 @@ use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
     encrypted_store::conversation_list::ConversationListItem as DbConversationListItem,
-    events::{Details, Event, Events},
+    events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -148,6 +147,7 @@ impl From<&str> for ClientError {
 pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
     pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) workers: WorkerRunner,
 }
 
 impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient, XDb> {
@@ -178,6 +178,10 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         &self.context.local_events
     }
+
+    fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {
+        &self.context.worker_events
+    }
 }
 
 #[derive(Clone)]
@@ -192,6 +196,7 @@ impl<ApiClient, Db> Clone for Client<ApiClient, Db> {
         Self {
             context: self.context.clone(),
             local_events: self.local_events.clone(),
+            workers: self.workers.clone(),
         }
     }
 }
@@ -201,6 +206,10 @@ where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
+    pub fn device_sync_client(&self) -> DeviceSyncClient<ApiClient, Db> {
+        self.context.device_sync_client()
+    }
+
     /// Test only function to update the version of the client
     /// This test returns None if the version was not updated
     #[cfg(test)]
@@ -248,12 +257,17 @@ where
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
         self.context.store.reconnect().map_err(StorageError::from)?;
-
-        for manager in self.context.workers.lock().values() {
-            manager.spawn();
-        }
-
+        self.workers.spawn();
         Ok(())
+    }
+
+    /// yields until the sync worker notifies that it is initialized and running.
+    pub async fn wait_for_sync_worker_init(&self) {
+        self.workers.wait_for_sync_worker_init().await;
+    }
+
+    pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
+        self.workers.sync_metrics()
     }
 }
 
@@ -297,9 +311,6 @@ where
         self.context.device_sync_worker_enabled()
     }
 
-    pub fn device_sync(&self) -> DeviceSyncClient<ApiClient, Db> {
-        DeviceSyncClient::new(self.context.clone())
-    }
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
@@ -413,9 +424,9 @@ where
             let _ = self
                 .local_events
                 .send(LocalEvents::PreferencesChanged(updates.clone()));
-            PreferenceSyncService::new(self.context.clone())
-                .sync_preferences(updates)
-                .await?;
+            let _ = self
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(updates));
         }
 
         Ok(())
@@ -473,13 +484,13 @@ where
             .local_events
             .send(LocalEvents::NewGroup(group.group_id.clone()));
 
-        Events::track(
-            self.mls_provider().db(),
-            Some(group.group_id.clone()),
-            Event::GroupCreate,
-            Details::GroupCreate {
-                conversation_type: ConversationType::Group,
+        track!(
+            "Group Create",
+            {
+                "conversation_type": ConversationType::Group
             },
+            group: &group.group_id,
+            level: EventLevel::None
         );
 
         Ok(group)
@@ -1511,7 +1522,7 @@ pub(crate) mod tests {
         assert_eq!(conversations[0].group_id, dm1.group_id);
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn should_stream_consent() {
         let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;

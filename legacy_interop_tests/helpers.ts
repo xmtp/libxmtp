@@ -60,6 +60,8 @@ export const createClient = async (user: User) => {
     undefined,
     undefined,
     { level: LogLevel.off },
+    undefined,
+    true,
   );
 };
 

@@ -33,6 +33,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
       level: Some(LogLevel::Info),
     }),
     None,
+    None,
   )
   .await
   .unwrap();

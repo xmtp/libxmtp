@@ -1,5 +1,3 @@
-use crate::{StorageError, Store, impl_store};
-
 use super::{ConnectionExt, Sqlite, group::StoredGroup};
 use super::{
     db_connection::DbConnection,
@@ -8,6 +6,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
+use crate::{StorageError, Store, impl_store};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -337,7 +336,7 @@ mod tests {
         }
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn find_consent_by_dm_id() {
         with_connection(|conn| {
             let mut g = generate_group(None);

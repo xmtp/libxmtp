@@ -24,6 +24,8 @@ impl BackupRecordProvider for EventSave {
                         group_id: r.group_id,
                         event: r.event,
                         details: serde_json::to_vec(&r.details).ok()?,
+                        icon: r.icon,
+                        level: r.level as i32,
                     })),
                 })
             })

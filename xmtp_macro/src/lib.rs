@@ -126,7 +126,7 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
 struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
-    unwrap_try: Option<syn::LitStr>,
+    unwrap_try: Option<syn::LitBool>,
 }
 
 impl Attributes {
@@ -138,9 +138,7 @@ impl Attributes {
     }
 
     fn unwrap_try(&self) -> bool {
-        self.unwrap_try
-            .as_ref()
-            .is_some_and(|v| v.value() == "true")
+        self.unwrap_try.as_ref().is_some_and(|v| v.value())
     }
 }
 

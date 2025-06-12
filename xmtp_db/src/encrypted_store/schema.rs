@@ -6,6 +6,8 @@ diesel::table! {
         group_id -> Nullable<Binary>,
         event -> Text,
         details -> Jsonb,
+        level -> Integer,
+        icon -> Nullable<Text>
     }
 }
 
