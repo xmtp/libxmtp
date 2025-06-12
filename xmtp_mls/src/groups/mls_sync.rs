@@ -47,10 +47,12 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    local_commit_log::LocalCommitLog,
     refresh_state::EntityKind,
+    remote_commit_log::CommitResult,
     sql_key_store::{self, SqlKeyStore},
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore, XmtpDb,
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
@@ -1017,6 +1019,18 @@ where
                 identifier.group_context(staged_commit.group_context().clone());
 
                 mls_group.merge_staged_commit(&provider, staged_commit)?;
+
+                LocalCommitLog {
+                    sequence_id: *cursor as i64,
+                    epoch_authenticator: mls_group.epoch_authenticator().as_slice().to_vec(),
+                    epoch_number: Some(mls_group.epoch().as_u64() as i64),
+                    group_id: Some(mls_group.group_id().to_vec()),
+                    result: CommitResult::Success,
+                    sender_inbox_id: validated_commit.actor_inbox_id(),
+                    sender_installation_id: validated_commit.actor_installation_id(),
+                }
+                .store(provider.db())?;
+
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));

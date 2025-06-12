@@ -1,6 +1,12 @@
 use crate::schema::remote_commit_log;
 use diesel::{
-    Insertable, Queryable, deserialize::FromSqlRow, expression::AsExpression, sql_types::Integer,
+    Insertable, Queryable,
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Integer,
+    sqlite::Sqlite,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,4 +31,30 @@ pub enum CommitResult {
     WrongEpoch = 2,
     Undecryptable = 3,
     Invalid = 4,
+}
+
+impl ToSql<Integer, Sqlite> for CommitResult
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for CommitResult
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            0 => Ok(Self::Unknown),
+            1 => Ok(Self::Success),
+            2 => Ok(Self::WrongEpoch),
+            3 => Ok(Self::Undecryptable),
+            4 => Ok(Self::Invalid),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
 }
