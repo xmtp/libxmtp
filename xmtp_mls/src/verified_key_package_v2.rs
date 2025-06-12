@@ -1,5 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
+use crate::{configuration::MLS_PROTOCOL_VERSION, groups::mls_ext::WrapperEncryptionExtension};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
     key_packages::Lifetime,
@@ -11,8 +12,7 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use prost::{DecodeError, Message};
 use thiserror::Error;
-
-use crate::configuration::MLS_PROTOCOL_VERSION;
+use xmtp_mls_common::config::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Error, Clone)]
@@ -79,6 +79,20 @@ impl VerifiedKeyPackageV2 {
 
     pub fn hpke_init_key(&self) -> Vec<u8> {
         self.inner.hpke_init_key().as_slice().to_vec()
+    }
+
+    pub fn wrapper_encryption(
+        &self,
+    ) -> Result<Option<WrapperEncryptionExtension>, KeyPackageVerificationError> {
+        let unknown_ext = self
+            .inner
+            .extensions()
+            .unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID);
+
+        match unknown_ext {
+            Some(ext) => Ok(Some(ext.clone().try_into()?)),
+            None => Ok(None),
+        }
     }
 
     pub fn life_time(&self) -> Option<VerifiedLifetime> {

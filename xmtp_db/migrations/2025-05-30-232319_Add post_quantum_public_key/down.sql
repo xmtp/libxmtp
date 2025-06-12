@@ -1,0 +1,1 @@
+ALTER TABLE key_package_history DROP COLUMN post_quantum_public_key;
