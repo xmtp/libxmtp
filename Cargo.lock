@@ -2884,6 +2884,81 @@ dependencies = [
 ]
 
 [[package]]
+name = "hax-lib"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61933dbb676f11311378720e1ee97a511813edb7044255381ba0d625cac6be7b"
+dependencies = [
+ "hax-lib-macros 0.2.0",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
+name = "hax-lib"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89999d4446ba7d86c777bc6a30c106b9bf60d12eb1952242af5d1d7cb33943d"
+dependencies = [
+ "hax-lib-macros 0.3.1",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
+name = "hax-lib-macros"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ba3a8d32921c3f535e973f72053d20bc8c7f74028911a269748440952157807"
+dependencies = [
+ "hax-lib-macros-types 0.2.0",
+ "paste",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "hax-lib-macros"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704a31fb12a8c50243e8d4c88d006f64852822b0e24488a0de9986803a661792"
+dependencies = [
+ "hax-lib-macros-types 0.3.1",
+ "proc-macro-error2",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "hax-lib-macros-types"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a22f64cb35f8363892df6285e7edbe96885cd660d85bfd6765c95886647b77"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "hax-lib-macros-types"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f302d2a43ba5888c61454ffeb8719dc43e7c0e83082d0fe302ac82d8d898b075"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "headers"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2967,8 +3042,24 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e11bd4ee27b79fa1820e72ef8489cc729c87299ec3f7f52b8fc8dcb87cb2d485"
 dependencies = [
- "hpke-rs-crypto",
+ "hpke-rs-crypto 0.2.0",
  "log",
+ "serde",
+ "tls_codec",
+ "zeroize",
+]
+
+[[package]]
+name = "hpke-rs"
+version = "0.2.1-alpha.1"
+source = "git+https://github.com/cryspen/hpke-rs?branch=main#510ad9af413842f185dc430870ad1c8dab6a1642"
+dependencies = [
+ "hpke-rs-crypto 0.3.0-alpha.1",
+ "hpke-rs-libcrux",
+ "hpke-rs-rust-crypto 0.3.0-alpha.1",
+ "libcrux-sha3",
+ "log",
+ "rand_core 0.9.3",
  "serde",
  "tls_codec",
  "zeroize",
@@ -2984,6 +3075,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hpke-rs-crypto"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/cryspen/hpke-rs?branch=main#510ad9af413842f185dc430870ad1c8dab6a1642"
+dependencies = [
+ "rand_core 0.9.3",
+]
+
+[[package]]
+name = "hpke-rs-libcrux"
+version = "0.2.0-alpha.1"
+source = "git+https://github.com/cryspen/hpke-rs?branch=main#510ad9af413842f185dc430870ad1c8dab6a1642"
+dependencies = [
+ "hpke-rs-crypto 0.3.0-alpha.1",
+ "libcrux-chacha20poly1305 0.0.3-alpha.1",
+ "libcrux-ecdh",
+ "libcrux-hkdf 0.0.3-alpha.1",
+ "libcrux-kem",
+ "rand 0.9.1",
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.3",
+]
+
+[[package]]
 name = "hpke-rs-rust-crypto"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2992,9 +3106,28 @@ dependencies = [
  "aes-gcm",
  "chacha20poly1305",
  "hkdf",
- "hpke-rs-crypto",
+ "hpke-rs-crypto 0.2.0",
  "p256",
  "p384",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sha2",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "hpke-rs-rust-crypto"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/cryspen/hpke-rs?branch=main#510ad9af413842f185dc430870ad1c8dab6a1642"
+dependencies = [
+ "aes-gcm",
+ "chacha20poly1305",
+ "hkdf",
+ "hpke-rs-crypto 0.3.0-alpha.1",
+ "k256",
+ "p256",
+ "p384",
+ "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "sha2",
@@ -3584,6 +3717,278 @@ name = "libc"
 version = "0.2.172"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
+
+[[package]]
+name = "libcrux-chacha20poly1305"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78d522fb626847390ea4b776c7eca179ecec363c6c4730b61b0c0feb797b8d92"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-macros 0.0.2",
+ "libcrux-poly1305 0.0.2",
+]
+
+[[package]]
+name = "libcrux-chacha20poly1305"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99cf541d8ceebee29b95617c46a7fda40ed1c42f15af297b3d9e6c404ee9bc1b"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+ "libcrux-poly1305 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-curve25519"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b50b442028bd610eebf488ffbb898591d881dd7fd22017a7393c9880d0870d70"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-ecdh"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bbd54d78d26e0f65532b49daa6e0c235065770bad520e99b84838cf24d0ca5f"
+dependencies = [
+ "libcrux-curve25519",
+ "libcrux-p256",
+ "rand 0.9.1",
+]
+
+[[package]]
+name = "libcrux-ed25519"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c23fece0fe97b00dff260eb176becdb0418eee7969952b40f0ce64a4b8edf28"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-macros 0.0.2",
+ "libcrux-sha2 0.0.2",
+ "rand_core 0.9.3",
+ "wycheproof",
+]
+
+[[package]]
+name = "libcrux-hacl-rs"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8bba0885296a72555a5d77056c39cc9b04edd9ab1afa3025ef3dbd96220705c"
+dependencies = [
+ "libcrux-macros 0.0.2",
+]
+
+[[package]]
+name = "libcrux-hacl-rs"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c551a8f364651f15051282f7d302e8fd9b77358ad68ebf68d04d15beebecac6"
+dependencies = [
+ "libcrux-macros 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-hkdf"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f42b91d695ed80a637c7670bdc7a5a5e11b98493b01266d985a1477bfaa6bd7"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-hmac 0.0.2",
+]
+
+[[package]]
+name = "libcrux-hkdf"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac21c7ef49d67fbed79a8c16063df72d14dcbe1b66a4b94d091db93256e97d52"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-hmac 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-hmac"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e478f3208de8b92021a4e97a9590027e2eb115673ad6b1a2ebdf9f367c2b6057"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-macros 0.0.2",
+ "libcrux-sha2 0.0.2",
+]
+
+[[package]]
+name = "libcrux-hmac"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "971cdcc8056c89d0b029b30b9f1fd9d4df207a4c2485e76cfe66887f6d77d07e"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+ "libcrux-sha2 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-intrinsics"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f764ef781467a75b92f4df575911f1cdcf77a7beb316d8054a233fed53a7ab"
+dependencies = [
+ "hax-lib 0.2.0",
+]
+
+[[package]]
+name = "libcrux-kem"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf136ea0f477319f6368c93d3821d30403402175eb8e20463f984453e4b52da3"
+dependencies = [
+ "libcrux-ecdh",
+ "libcrux-ml-kem",
+ "libcrux-sha3",
+ "libcrux-traits 0.0.3-alpha.1",
+ "rand 0.9.1",
+]
+
+[[package]]
+name = "libcrux-macros"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3021bc24fb679408d4d7175e21cf808f49816c599733ebf4a97e5bd39c3ce7c0"
+dependencies = [
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "libcrux-macros"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "640d73d873eaa75ffbeb0c20ba681cca2015e2c6af2a6e41d6848fc4ca7a416c"
+dependencies = [
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
+name = "libcrux-ml-kem"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e7df3384eef235c12db66f99e932f8b545307fb4c67417243538a28a02281b"
+dependencies = [
+ "hax-lib 0.3.1",
+ "libcrux-intrinsics",
+ "libcrux-platform",
+ "libcrux-secrets",
+ "libcrux-sha3",
+ "rand 0.9.1",
+]
+
+[[package]]
+name = "libcrux-p256"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2ab74e6aac50a4e13a349476730aa160785d29438ca5eaa81ccf1bcb1c57feb"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+ "libcrux-sha2 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-platform"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db82d058aa76ea315a3b2092f69dfbd67ddb0e462038a206e1dcd73f058c0778"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "libcrux-poly1305"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80143d78ae14ab51ceb2c8a9514fb60af6645d42a9c951bc511792c19c974fca"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-macros 0.0.2",
+]
+
+[[package]]
+name = "libcrux-poly1305"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62fb661c390bfc14749a5d9024bd109416af38b4cf39605842a23c40ee63cc41"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-secrets"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b293c291c3277e6f5dcb7457ba43db8826f7fcf2f379601a6442a6dce4f3f7a8"
+dependencies = [
+ "hax-lib 0.3.1",
+]
+
+[[package]]
+name = "libcrux-sha2"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "412cf855804ed65212e3d61983d500cea8b9259eff35bb6f8bf03aaf0ac19fbc"
+dependencies = [
+ "libcrux-hacl-rs 0.0.2",
+ "libcrux-macros 0.0.2",
+ "libcrux-traits 0.0.2",
+]
+
+[[package]]
+name = "libcrux-sha2"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e39903e2d7c34c894dd3a2900a02eb9063b334bda4a81f672fdbc8dee7f9c396"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3-alpha.1",
+ "libcrux-macros 0.0.3-alpha.1",
+ "libcrux-traits 0.0.3-alpha.1",
+]
+
+[[package]]
+name = "libcrux-sha3"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3678ede46c5b5e7d5c0035065f8b9575fb67b6df405a88778ddb89cfb71d8fed"
+dependencies = [
+ "hax-lib 0.2.0",
+ "libcrux-intrinsics",
+ "libcrux-platform",
+]
+
+[[package]]
+name = "libcrux-traits"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50c487a3fb34361f4f78a9c9dc5eff4ae62ef3ccb69a916af7b524dd288de9db"
+dependencies = [
+ "rand 0.9.1",
+]
+
+[[package]]
+name = "libcrux-traits"
+version = "0.0.3-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a3714e02538899fa5282a0c80feff65926417c27437eadead34a9f5e7780ad9"
+dependencies = [
+ "rand 0.9.1",
+]
 
 [[package]]
 name = "libgit2-sys"
@@ -4255,6 +4660,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmls_libcrux_crypto"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
+dependencies = [
+ "hpke-rs 0.2.1-alpha.1",
+ "hpke-rs-crypto 0.3.0-alpha.1",
+ "hpke-rs-libcrux",
+ "libcrux-chacha20poly1305 0.0.2",
+ "libcrux-ed25519",
+ "libcrux-hkdf 0.0.2",
+ "libcrux-sha2 0.0.2",
+ "openmls_memory_storage",
+ "openmls_traits",
+ "rand 0.9.1",
+ "rand_chacha 0.9.0",
+ "tls_codec",
+]
+
+[[package]]
 name = "openmls_memory_storage"
 version = "0.3.0"
 source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
@@ -4276,9 +4700,9 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "hmac",
- "hpke-rs",
- "hpke-rs-crypto",
- "hpke-rs-rust-crypto",
+ "hpke-rs 0.2.0",
+ "hpke-rs-crypto 0.2.0",
+ "hpke-rs-rust-crypto 0.2.0",
  "openmls_memory_storage",
  "openmls_traits",
  "p256",
@@ -4860,6 +5284,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edce586971a4dfaa28950c6f18ed55e0406c1ab88bbce2c6f6293a7aaba73d35"
 dependencies = [
  "toml_edit",
+]
+
+[[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
 ]
 
 [[package]]
@@ -7741,6 +8189,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
 
 [[package]]
+name = "wycheproof"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efb3be19abfb206c6adcbdf2007b09b0e8ca1f6530db40c03b42ce8ed4719894"
+dependencies = [
+ "data-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wyz"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8157,6 +8616,7 @@ dependencies = [
  "once_cell",
  "openmls",
  "openmls_basic_credential",
+ "openmls_libcrux_crypto",
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot 0.12.4",
