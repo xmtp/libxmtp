@@ -1,5 +1,6 @@
 use crate::{
     builder::SyncWorkerMode,
+    configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
@@ -766,7 +767,11 @@ where
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         let provider = self.mls_provider();
         self.identity()
-            .rotate_and_upload_key_package(&provider, self.context.api())
+            .rotate_and_upload_key_package(
+                &provider,
+                self.context.api(),
+                CREATE_PQ_KEY_PACKAGE_EXTENSION,
+            )
             .await?;
 
         Ok(())
@@ -901,12 +906,7 @@ pub(crate) mod tests {
     use crate::subscriptions::StreamMessages;
     use crate::tester;
     use crate::utils::{LocalTesterBuilder, Tester};
-    use crate::{
-        builder::ClientBuilder,
-        hpke::{decrypt_welcome, encrypt_welcome},
-        identity::serialize_key_package_hash_ref,
-        XmtpApi,
-    };
+    use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use std::time::Duration;
@@ -1272,24 +1272,6 @@ pub(crate) mod tests {
 
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 2);
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test]
-    async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider();
-
-        let kp_result = client.identity().new_key_package(&provider).unwrap();
-        let hpke_public_key = kp_result.key_package.hpke_init_key().as_slice();
-        let to_encrypt = vec![1, 2, 3];
-
-        // Encryption doesn't require any details about the sender, so we can test using one client
-        let encrypted = encrypt_welcome(to_encrypt.as_slice(), hpke_public_key).unwrap();
-
-        let decrypted = decrypt_welcome(&provider, hpke_public_key, encrypted.as_slice()).unwrap();
-
-        assert_eq!(decrypted, to_encrypt);
     }
 
     #[rstest::rstest]
