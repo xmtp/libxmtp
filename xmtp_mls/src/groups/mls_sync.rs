@@ -42,8 +42,9 @@ use crate::{
 };
 use crate::{
     groups::mls_ext::{wrap_welcome, WrapWelcomeError},
-    subscriptions::SyncWorkerEvent, track
-;
+    subscriptions::SyncWorkerEvent,
+    track,
+};
 use xmtp_api::XmtpApi;
 use xmtp_db::{
     group::{ConversationType, StoredGroup},

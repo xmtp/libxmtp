@@ -1276,24 +1276,6 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test]
-    async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider();
-
-        let kp_result = client.identity().new_key_package(&provider).unwrap();
-        let hpke_public_key = kp_result.key_package.hpke_init_key().as_slice();
-        let to_encrypt = vec![1, 2, 3];
-
-        // Encryption doesn't require any details about the sender, so we can test using one client
-        let encrypted = encrypt_welcome(to_encrypt.as_slice(), hpke_public_key).unwrap();
-
-        let decrypted = decrypt_welcome(&provider, hpke_public_key, encrypted.as_slice()).unwrap();
-
-        assert_eq!(decrypted, to_encrypt);
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test]
     async fn test_add_remove_then_add_again() {
         let amal = Tester::new().await;
         let bola = Tester::new().await;
