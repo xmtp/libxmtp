@@ -8350,4 +8350,107 @@ mod tests {
         // Clean up the stream
         stream.end_and_wait().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_new_installation_group_message_visibility() {
+        let alix = Tester::builder().sync_worker().build().await;
+        let bo = Tester::new().await;
+
+        // Create group between alix and bo
+        let group = alix
+            .conversations()
+            .create_group_with_inbox_ids(vec![bo.inbox_id()], Default::default())
+            .await
+            .unwrap();
+
+        // Alix sends a message
+        let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
+        group
+            .send(encoded_content_to_bytes(text_message_alix.clone()))
+            .await
+            .unwrap();
+
+        // New installation for alix
+        let alix2 = alix.builder.build().await;
+        let boGroup = bo.conversation(group.id()).unwrap();
+        boGroup.send(encoded_content_to_bytes(text_message_alix.clone()))
+        .await
+        .unwrap();
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        let sync_group = alix2
+            .inner_client
+            .device_sync()
+            .get_sync_group()
+            .await
+            .unwrap();
+        assert_eq!(
+            sync_group.group_id,
+            alix.inner_client
+                .device_sync()
+                .get_sync_group()
+                .await
+                .unwrap()
+                .group_id
+        );
+
+        // Get the same group on the new installation
+        let group2 = alix2.conversation(group.id()).unwrap();
+        let messages = group2
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        // New installation should NOT see messages sent before it was created
+        assert!(
+            messages.is_empty(),
+            "Expected no messages to be visible to new installation"
+        );
+
+        // New installation sends a message
+        let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
+        let msg_from_alix2 = group2
+            .send(encoded_content_to_bytes(text_message_alix2.clone()))
+            .await
+            .unwrap();
+
+        // Sync bo and check for the message
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bob_group = bo.conversation(group.id()).unwrap();
+        let bob_msgs = bob_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert!(
+            bob_msgs.iter().any(|m| m.id == msg_from_alix2),
+            "Bob should see the message sent by alix2"
+        );
+
+        // Sync original alix and check for the message
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let alice_msgs = group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert!(
+            alice_msgs.iter().any(|m| m.id == msg_from_alix2),
+            "Original Alix should see the message from alix2"
+        );
+    }
 }
