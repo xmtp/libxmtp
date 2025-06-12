@@ -304,14 +304,14 @@ where
         }
 
         // Even if publish fails, continue to receiving
-        if let Err(e) = self.publish_intents().await {
+        if let Err(e) = track_err!(self.publish_intents().await) {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
         }
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        match self.receive().await {
+        match track_err!(self.receive().await) {
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
@@ -321,7 +321,7 @@ where
             }
         }
 
-        if let Err(e) = self.post_commit().await {
+        if let Err(e) = track_err!(self.post_commit().await) {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
         }
@@ -347,7 +347,8 @@ where
 
         track!(
             "Syncing Intents",
-            {"num_intents": intents.len()}
+            {"num_intents": intents.len()},
+            icon: "🔄"
         );
 
         track_err!(self.sync_until_intent_resolved(intent.id).await)
@@ -1418,9 +1419,10 @@ where
             "Fetched messages",
             {
                 "total": summary.total_messages.len(),
-                "errors": summary.errored.len(),
+                "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
                 "new": summary.new_messages.len()
-            }
+            },
+            icon: "🐕🦴"
         );
 
         Ok(summary)
