@@ -9,7 +9,6 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
@@ -42,6 +41,10 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{subscriptions::SyncWorkerEvent, track};
+use crate::{
+    track_err,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+};
 use xmtp_api::XmtpApi;
 use xmtp_db::{
     group::{ConversationType, StoredGroup},
@@ -342,7 +345,12 @@ where
             return Ok(Default::default());
         };
 
-        self.sync_until_intent_resolved(intent.id).await
+        track!(
+            "Syncing Intents",
+            {"num_intents": intents.len()}
+        );
+
+        track_err!(self.sync_until_intent_resolved(intent.id).await)
     }
 
     /**
@@ -1405,6 +1413,16 @@ where
             .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
+
+        track!(
+            "Fetched messages",
+            {
+                "total": summary.total_messages.len(),
+                "errors": summary.errored.len(),
+                "new": summary.new_messages.len()
+            }
+        );
+
         Ok(summary)
     }
 

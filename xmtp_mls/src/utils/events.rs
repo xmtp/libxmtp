@@ -236,21 +236,24 @@ macro_rules! track {
 /// See the `track!` macro documentation for all available parameters and options.
 #[macro_export]
 macro_rules! track_err {
-    ($result:expr, label: $label:expr, $(, $k:ident $(: $v:expr)?)*) => {
+    ($result:expr, label: $label:expr $(, $k:ident $(: $v:expr)?)*) => {{
         let result = $result;
         if let Err(err) = &result {
             track!(
                 $label,
                 {
-                    "error": format!("{err:?}")
+                    "error": format!("{err:?}"),
+                    "location": format!("{}: {}", file!(), line!()),
+                    "wrapped": stringify!($result)
                 },
-                level: EventLevel::Error,
+                level: xmtp_db::events::EventLevel::Error,
+                icon: "🚨"
                 $(, $k $(: $v)?)*
-            )
+            );
         }
         result
-    };
-    ($result:expr, $(, $k:ident $(: $v:expr)?)*) => {
+    }};
+    ($result:expr $(, $k:ident $(: $v:expr)?)*) => {
         track_err!($result, label: "Error" $(, $k $(: $v)?)*)
     };
 }
