@@ -47,6 +47,7 @@ use crate::{
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
+    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -304,14 +305,18 @@ where
         }
 
         // Even if publish fails, continue to receiving
-        if let Err(e) = track_err!(self.publish_intents().await) {
+        let result = self.publish_intents().await;
+        track_err!("Publish intents", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
         }
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        match track_err!(self.receive().await) {
+        let result = self.receive().await;
+        track_err!("Receive messages", &result, group: &self.group_id);
+        match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
@@ -321,7 +326,9 @@ where
             }
         }
 
-        if let Err(e) = track_err!(self.post_commit().await) {
+        let result = self.post_commit().await;
+        track_err!("Post commit", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
         }
@@ -348,10 +355,12 @@ where
         track!(
             "Syncing Intents",
             {"num_intents": intents.len()},
+            group: &self.group_id,
             icon: "🔄"
         );
-
-        track_err!(self.sync_until_intent_resolved(intent.id).await)
+        let result = self.sync_until_intent_resolved(intent.id).await;
+        track_err!("Sync until intent resolved", &result, group: &self.group_id);
+        result
     }
 
     /**
@@ -1320,7 +1329,9 @@ where
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
-        let message = match track_err!(self.process_message(msgv1, true).await) {
+        let result = self.process_message(msgv1, true).await;
+        track_err!("Process message", &result, group: &msgv1.group_id);
+        let message = match result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
@@ -1551,6 +1562,15 @@ where
                     message.id, message_epoch, group_epoch
                 );
                 tracing::error!(fork_details);
+                track!(
+                    "Possible Fork",
+                    {
+                        "message_epoch": message_epoch,
+                        "group_epoch": group_epoch
+                    },
+                    group: &self.group_id,
+                    level: EventLevel::Fault
+                );
                 let _ = self
                     .context()
                     .db()

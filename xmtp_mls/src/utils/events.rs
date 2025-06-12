@@ -4,7 +4,6 @@ use crate::{
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
-use serde::Serialize;
 use std::{
     fmt::Debug,
     sync::{atomic::Ordering, Arc, LazyLock},
@@ -38,23 +37,22 @@ impl NeedsDbReconnect for EventError {
 
 static EVENT_TX: LazyLock<broadcast::Sender<Events>> = LazyLock::new(|| broadcast::channel(100).0);
 
-pub(crate) struct EventBuilder<'a, E, D> {
+pub(crate) struct EventBuilder<'a, E> {
     pub event: E,
-    pub details: D,
+    pub details: Option<serde_json::Value>,
     pub group_id: Option<&'a [u8]>,
     pub level: Option<EventLevel>,
     pub icon: Option<String>,
 }
 
-impl<'a, E, D> EventBuilder<'a, E, D>
+impl<'a, E> EventBuilder<'a, E>
 where
     E: AsRef<str>,
-    D: Serialize,
 {
-    pub fn new(event: E, details: D) -> Self {
+    pub fn new(event: E) -> Self {
         Self {
             event,
-            details,
+            details: None,
             group_id: None,
             level: None,
             icon: None,
@@ -172,44 +170,81 @@ where
 /// - The calling code continues execution regardless of tracking success/failure
 #[macro_export]
 macro_rules! track {
-    ($label:expr) => {
-        track!($label, (serde_json::json!(())))
-    };
-    ($label:literal, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
-        track!(($label.to_string()), $details $(, $k $(: $v)?)*)
-    };
-    ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+    ($label:expr, $details:tt $(, $k:ident $(: $v:expr)?)*) => {{
         let details = serde_json::json!($details);
+        track!($label, details: details $(, $k $(: $v)?)*)
+    }};
+
+    ($label:expr $(, $k:ident $(: $v:expr)?)*) => {{
         #[allow(unused_mut)]
-        let mut builder = $crate::utils::events::EventBuilder::new($label, details);
+        let mut builder = $crate::utils::events::EventBuilder::new($label.to_string());
         track!(@process builder $(, $k $(: $v)?)*)
+    }};
+
+    (@process $builder:ident) => {
+        $builder.track()
     };
 
-    (@process $builder:expr) => {
-        $builder.track();
-    };
+    (@process $builder:ident, details: $details:expr $(, $k:ident $(: $v:expr)?)*) => {{
+        $builder.details = Some($details);
+        track!(@process $builder $(, $k $(: $v)?)*)
+    }};
 
-    (@process $builder:expr, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $builder:ident, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {{
+        $builder.level = Some($level);
+
+        if matches!($level, EventLevel::Fault) {
+            $builder.icon = Some("☠️".to_string());
+        }
+
+        track!(@process $builder $(, $k $(: $v)?)*)
+    }};
+
+    (@process $builder:ident, icon: $icon:literal $(, $k:ident $(: $v:expr)?)*) => {{
+        $builder.icon = Some($icon.to_string());
+        track!(@process $builder $(, $k $(: $v)?)*)
+    }};
+    (@process $builder:ident, group: $group:expr $(, $k:ident $(: $v:expr)?)*) => {
         track!(@process $builder, group_id: $group $(, $k $(: $v)?)*)
     };
-    (@process $builder:expr, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+    (@process $builder:ident, group_id: $group_id:expr $(, $k:ident $(: $v:expr)?)*) => {{
         $builder.group_id = Some($group_id);
         track!(@process $builder $(, $k $(: $v)?)*)
-    };
-    (@process $builder:expr, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
+    }};
+    (@process $builder:ident, maybe_group_id: $maybe_group_id:expr $(, $k:ident $(: $v:expr)?)*) => {
         $builder.group_id = $maybe_group_id;
         track!(@process $builder $(, $k $(: $v)?)*)
     };
 
-    (@process $builder:expr, level: $level:expr $(, $k:ident $(: $v:expr)?)*) => {
-        $builder.level = Some($level);
-        track!(@process $builder $(, $k $(: $v)?)*)
-    };
+    (@process $builder:ident, result: $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
+        match $result {
+            Ok(_) => {
+                track!(
+                    @process $builder,
+                    level: xmtp_db::events::EventLevel::Success
+                    $(, $k $(: $v)?)*
+                )
+            },
+            Err(err) => {
+                $builder.event = format!("Error: {}", $builder.event);
+                let mut details = serde_json::json!({
+                        "error": format!("{err:?}"),
+                        "location": format!("{}: {}", file!(), line!()),
+                });
+                if let Some(existing) = &$builder.details {
+                    json_patch::merge(&mut details, existing);
+                };
 
-    (@process $builder:expr, icon: $icon:literal $(, $k:ident $(: $v:expr)?)*) => {
-        $builder.icon = Some($icon.to_string());
-        track!(@process $builder $(, $k $(: $v)?)*)
-    };
+                track!(
+                    @process $builder,
+                    details: details,
+                    level: xmtp_db::events::EventLevel::Error,
+                    icon: "⚠️"
+                    $(, $k $(: $v)?)*
+                )
+            }
+        };
+    }};
 }
 
 /// This macro inspects a `Result` value and automatically tracks an error event if the result
@@ -236,25 +271,18 @@ macro_rules! track {
 /// See the `track!` macro documentation for all available parameters and options.
 #[macro_export]
 macro_rules! track_err {
-    ($result:expr, label: $label:expr $(, $k:ident $(: $v:expr)?)*) => {{
-        let result = $result;
-        if let Err(err) = &result {
-            track!(
-                $label,
-                {
-                    "error": format!("{err:?}"),
-                    "location": format!("{}: {}", file!(), line!()),
-                    "wrapped": stringify!($result)
-                },
-                level: xmtp_db::events::EventLevel::Error,
-                icon: "🚨"
-                $(, $k $(: $v)?)*
-            );
+    ($name:literal, $result:expr $(, $k:ident $(: $v:expr)?)*) => {{
+        let result = &$result;
+        if result.is_err() {
+            track!($name, result: result $(, $k $(: $v)?)*)
         }
-        result
     }};
-    ($result:expr $(, $k:ident $(: $v:expr)?)*) => {
-        track_err!($result, label: "Error" $(, $k $(: $v)?)*)
+}
+
+#[macro_export]
+macro_rules! track_request {
+    ($name:literal, $details:tt $(, $k:ident $(: $v:expr)?)*) => {
+        track!($name, $details, icon: "🛜" $(, $k $(: $v)?)*)
     };
 }
 
@@ -272,7 +300,7 @@ where
         &self,
         metrics: Option<crate::worker::DynMetrics>,
     ) -> (BoxedWorker, Option<crate::worker::DynMetrics>) {
-        let worker = Box::new(EventWorker::new(self.context.clone())) as Box<_>;
+        let worker = Box::new(EventWorker::new(self.context.clone()));
         (worker, metrics)
     }
 
