@@ -26,13 +26,13 @@ impl MergeStagedCommitAndLog for MlsGroup {
         validated_commit: &ValidatedCommit,
     ) -> Result<(), GroupMessageProcessingError> {
         let mut log = LocalCommitLog {
+            epoch_authenticator: Some(self.epoch_authenticator().as_slice().to_vec()),
             timestamp_ns: now_ns(),
-            epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
             epoch_number: Some(self.epoch().as_u64() as i64),
-            group_id: Some(self.group_id().to_vec()),
+            group_id: self.group_id().to_vec(),
             result: CommitResult::Success,
-            sender_inbox_id: validated_commit.actor_inbox_id(),
-            sender_installation_id: validated_commit.actor_installation_id(),
+            sender_inbox_id: Some(validated_commit.actor_inbox_id()),
+            sender_installation_id: Some(validated_commit.actor_installation_id()),
         };
 
         if let Err(err) = self.merge_staged_commit(&provider, staged_commit) {

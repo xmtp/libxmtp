@@ -138,8 +138,8 @@ diesel::table! {
 diesel::table! {
     local_commit_log (timestamp_ns) {
         timestamp_ns -> BigInt,
+        epoch_authenticator -> Nullable<Binary>,
         group_id -> Binary,
-        epoch_authenticator -> Binary,
         result -> Integer,
         epoch_number -> Nullable<BigInt>,
         sender_inbox_id -> Nullable<Text>,

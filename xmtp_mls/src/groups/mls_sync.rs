@@ -50,12 +50,10 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    local_commit_log::LocalCommitLog,
     refresh_state::EntityKind,
-    remote_commit_log::CommitResult,
     sql_key_store::{self, SqlKeyStore},
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore, XmtpDb,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
