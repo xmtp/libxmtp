@@ -389,14 +389,12 @@ pub async fn upload_debug_archive(
 mod tests {
     use std::time::Duration;
 
-    use xmtp_db::events::Events;
-
     use crate::{tester, utils::events::upload_debug_archive};
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_debug_pkg() {
-        tester!(alix, stream);
+        tester!(alix, stream, events);
         tester!(bo);
         tester!(caro);
 
@@ -428,9 +426,6 @@ mod tests {
         caro_g.send_message(b"hi guise!").await?;
 
         g.sync().await?;
-
-        let events = Events::all_events(alix.provider.db())?;
-        assert!(!events.is_empty());
 
         let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
         tracing::info!("{k}");

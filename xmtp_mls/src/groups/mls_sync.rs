@@ -623,15 +623,18 @@ where
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             }
+            let epoch = mls_group.epoch().as_u64();
             track!(
                 "Commit merged",
                 {
+                    "": format!("Epoch {epoch}"),
                     "cursor": cursor,
-                    "epoch": mls_group.epoch().as_u64(),
+                    "epoch": epoch,
                     "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
                     "validated_commit": Some(&validated_commit)
                         .and_then(|c| serde_json::to_string_pretty(c).ok()),
                 },
+                icon: "⬆️",
                 group: &envelope.group_id
             );
 
@@ -1024,16 +1027,18 @@ where
                 identifier.group_context(staged_commit.group_context().clone());
 
                 mls_group.merge_staged_commit(&provider, staged_commit)?;
-
+                let epoch = mls_group.epoch().as_u64();
                 track!(
                     "Commit merged",
                     {
+                        "": format!("Epoch {epoch}"),
                         "cursor": cursor,
-                        "epoch": mls_group.epoch().as_u64(),
+                        "epoch": epoch,
                         "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
                         "validated_commit": Some(&validated_commit)
                             .and_then(|c| serde_json::to_string_pretty(c).ok()),
                     },
+                    icon: "⬆️",
                     group: &envelope.group_id
                 );
 
