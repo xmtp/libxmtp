@@ -8,7 +8,7 @@ use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
 
 pub mod metrics;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
 pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
