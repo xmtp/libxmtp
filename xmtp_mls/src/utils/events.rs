@@ -429,7 +429,7 @@ mod tests {
 
         g.sync().await?;
 
-        let events = Events::all_events(&alix.provider.db())?;
+        let events = Events::all_events(alix.provider.db())?;
         assert!(!events.is_empty());
 
         let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
