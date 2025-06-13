@@ -28,6 +28,7 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
+use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
     configuration::{
@@ -41,7 +42,6 @@ use crate::{
 };
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use crate::{subscriptions::SyncWorkerEvent, track};
-use crate::{track_err, GroupCommitLock};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};

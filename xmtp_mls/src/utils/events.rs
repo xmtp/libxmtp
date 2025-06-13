@@ -393,10 +393,10 @@ mod tests {
 
     use crate::{tester, utils::events::upload_debug_archive};
 
-    // #[xmtp_common::test(unwrap_try = true)]
-    #[ignore]
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_debug_pkg() {
-        tester!(alix, stream, events);
+        tester!(alix, stream);
         tester!(bo);
         tester!(caro);
 

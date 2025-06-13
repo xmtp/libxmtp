@@ -1,8 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use derive_builder::Builder;
 use openmls::group::GroupContext;
-use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use xmtp_common::RetryableError;
 use xmtp_db::group_intent::IntentKind;
 use xmtp_proto::mls_v1::group_message;
