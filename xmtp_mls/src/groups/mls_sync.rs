@@ -9,7 +9,6 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
-use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
@@ -43,10 +42,12 @@ use crate::{
 use crate::{
     groups::mls_ext::{wrap_welcome, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
-    track,
+    track, track_err,
+    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
+    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -304,14 +305,18 @@ where
         }
 
         // Even if publish fails, continue to receiving
-        if let Err(e) = self.publish_intents().await {
+        let result = self.publish_intents().await;
+        track_err!("Publish intents", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
         }
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        match self.receive().await {
+        let result = self.receive().await;
+        track_err!("Receive messages", &result, group: &self.group_id);
+        match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
@@ -321,7 +326,9 @@ where
             }
         }
 
-        if let Err(e) = self.post_commit().await {
+        let result = self.post_commit().await;
+        track_err!("Post commit", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
         }
@@ -345,7 +352,15 @@ where
             return Ok(Default::default());
         };
 
-        self.sync_until_intent_resolved(intent.id).await
+        track!(
+            "Syncing Intents",
+            {"num_intents": intents.len()},
+            group: &self.group_id,
+            icon: "🔄"
+        );
+        let result = self.sync_until_intent_resolved(intent.id).await;
+        track_err!("Sync until intent resolved", &result, group: &self.group_id);
+        result
     }
 
     /**
@@ -607,24 +622,26 @@ where
             if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
-            } else {
-                track!(
-                    "Epoch Change",
-                    {
-                        "cursor": cursor,
-                        "prev_epoch": message_epoch.as_u64(),
-                        "new_epoch": mls_group.epoch().as_u64(),
-                        "validated_commit": Some(&validated_commit)
-                            .and_then(|c| serde_json::to_string_pretty(c).ok())
-                    },
-                    group: &envelope.group_id
-                );
-
-                // If no error committing the change, write a transcript message
-                let msg =
-                    self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
-                return Ok((IntentState::Committed, msg.map(|m| m.id)));
             }
+            let epoch = mls_group.epoch().as_u64();
+            track!(
+                "Commit merged",
+                {
+                    "": format!("Epoch {epoch}"),
+                    "cursor": cursor,
+                    "epoch": epoch,
+                    "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
+                    "validated_commit": Some(&validated_commit)
+                        .and_then(|c| serde_json::to_string_pretty(c).ok()),
+                },
+                icon: "⬆️",
+                group: &envelope.group_id
+            );
+
+            // If no error committing the change, write a transcript message
+            let msg =
+                self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
+            return Ok((IntentState::Committed, msg.map(|m| m.id)));
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
             tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
             conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)?;
@@ -762,16 +779,6 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                track!(
-                    "Epoch Change",
-                    {
-                        "cursor": *cursor as i64,
-                        "prev_epoch": previous_epoch as i64,
-                        "new_epoch": new_epoch as i64,
-                        "validated_commit": validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
-                    },
-                    group: &envelope.group_id
-                );
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
                     self.context.inbox_id(),
@@ -1020,6 +1027,21 @@ where
                 identifier.group_context(staged_commit.group_context().clone());
 
                 mls_group.merge_staged_commit(&provider, staged_commit)?;
+                let epoch = mls_group.epoch().as_u64();
+                track!(
+                    "Commit merged",
+                    {
+                        "": format!("Epoch {epoch}"),
+                        "cursor": cursor,
+                        "epoch": epoch,
+                        "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
+                        "validated_commit": Some(&validated_commit)
+                            .and_then(|c| serde_json::to_string_pretty(c).ok()),
+                    },
+                    icon: "⬆️",
+                    group: &envelope.group_id
+                );
+
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
                 identifier.internal_id(msg.as_ref().map(|m| m.id.clone()));
@@ -1314,7 +1336,9 @@ where
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
-        let message = match self.process_message(msgv1, true).await {
+        let result = self.process_message(msgv1, true).await;
+        track_err!("Process message", &result, group: &msgv1.group_id);
+        let message = match result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
@@ -1408,6 +1432,18 @@ where
             .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
+
+        track!(
+            "Fetched messages",
+            {
+                "total": summary.total_messages.len(),
+                "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
+                "new": summary.new_messages.len()
+            },
+            group: &self.group_id,
+            icon: "🐕🦴"
+        );
+
         Ok(summary)
     }
 
@@ -1534,6 +1570,15 @@ where
                     message.id, message_epoch, group_epoch
                 );
                 tracing::error!(fork_details);
+                track!(
+                    "Possible Fork",
+                    {
+                        "message_epoch": message_epoch,
+                        "group_epoch": group_epoch
+                    },
+                    group: &self.group_id,
+                    level: EventLevel::Fault
+                );
                 let _ = self
                     .context()
                     .db()
