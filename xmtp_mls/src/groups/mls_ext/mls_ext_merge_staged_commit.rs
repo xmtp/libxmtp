@@ -1,8 +1,8 @@
 use openmls::group::{MlsGroup, StagedCommit};
 use xmtp_common::time::now_ns;
 use xmtp_db::{
-    group_intent::IntentState, local_commit_log::LocalCommitLog, remote_commit_log::CommitResult,
-    ConnectionExt, Store, XmtpOpenMlsProvider,
+    local_commit_log::LocalCommitLog, remote_commit_log::CommitResult, ConnectionExt, Store,
+    XmtpOpenMlsProvider,
 };
 
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
@@ -15,7 +15,7 @@ pub trait MergeStagedCommitAndLog {
         provider: &XmtpOpenMlsProvider<Db>,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
-    ) -> Result<IntentState, Result<IntentState, GroupMessageProcessingError>>;
+    ) -> Result<(), GroupMessageProcessingError>;
 }
 
 impl MergeStagedCommitAndLog for MlsGroup {
@@ -24,7 +24,7 @@ impl MergeStagedCommitAndLog for MlsGroup {
         provider: &XmtpOpenMlsProvider<Db>,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
-    ) -> Result<IntentState, Result<IntentState, GroupMessageProcessingError>> {
+    ) -> Result<(), GroupMessageProcessingError> {
         let mut log = LocalCommitLog {
             timestamp_ns: now_ns(),
             epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
@@ -35,20 +35,14 @@ impl MergeStagedCommitAndLog for MlsGroup {
             sender_installation_id: validated_commit.actor_installation_id(),
         };
 
-        let store = |log: LocalCommitLog| {
-            log.store(provider.db())
-                .map_err(|e| Err(GroupMessageProcessingError::Storage(e)))
-        };
-
         if let Err(err) = self.merge_staged_commit(&provider, staged_commit) {
-            tracing::error!("error merging commit: {err}");
+            tracing::error!("Error merging commit: {err}");
             log.result = CommitResult::Invalid;
-            store(log)?;
-            return Err(Ok(IntentState::ToPublish));
+            log.store(provider.db())?;
+            return Err(err)?;
         }
 
-        store(log)?;
-
-        Ok(IntentState::Committed)
+        log.store(provider.db())?;
+        Ok(())
     }
 }

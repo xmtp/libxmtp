@@ -607,12 +607,12 @@ where
                 intent.id
             );
 
-            let result =
-                mls_group.merge_staged_commit_and_log(&provider, staged_commit, &validated_commit);
-            let intent = match result {
-                Ok(intent) => intent,
-                Err(err) => return err.map(|i| (i, None)),
-            };
+            if mls_group
+                .merge_staged_commit_and_log(&provider, staged_commit, &validated_commit)
+                .is_err()
+            {
+                return Ok((IntentState::ToPublish, None));
+            }
 
             track!(
                 "Epoch Change",
@@ -629,7 +629,7 @@ where
             // If no error committing the change, write a transcript message
             let msg =
                 self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
-            return Ok((intent, msg.map(|m| m.id)));
+            return Ok((IntentState::Committed, msg.map(|m| m.id)));
         } else if let Some(id) = calculate_message_id_for_intent(intent)? {
             tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
             conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)?;
@@ -1024,13 +1024,11 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                if let Err(Err(err)) = mls_group.merge_staged_commit_and_log(
+                mls_group.merge_staged_commit_and_log(
                     &provider,
                     staged_commit,
                     &validated_commit,
-                ) {
-                    return Err(err)?;
-                };
+                )?;
 
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
