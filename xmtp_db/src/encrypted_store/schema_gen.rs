@@ -136,11 +136,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    local_commit_log (sequence_id) {
+    local_commit_log (timestamp_ns) {
+        timestamp_ns -> BigInt,
         group_id -> Binary,
         epoch_authenticator -> Binary,
         result -> Integer,
-        epoch_number -> BigInt,
+        epoch_number -> Nullable<BigInt>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
     }

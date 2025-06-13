@@ -4,8 +4,9 @@ use diesel::{Insertable, Queryable, prelude::*};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = local_commit_log)]
-#[diesel(primary_key(sequence_id))]
+#[diesel(primary_key(timestamp_ns))]
 pub struct LocalCommitLog {
+    pub timestamp_ns: i64,
     pub group_id: Option<Vec<u8>>,
     pub epoch_authenticator: Vec<u8>,
     pub result: CommitResult,

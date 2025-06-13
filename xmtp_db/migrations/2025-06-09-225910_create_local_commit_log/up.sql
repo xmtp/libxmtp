@@ -13,12 +13,13 @@ CREATE TABLE remote_commit_log (
 );
 
 CREATE TABLE local_commit_log (
+    "timestamp_ns" BIGINT PRIMARY KEY NOT NULL,
     "group_id" BLOB NOT NULL,
     "epoch_authenticator" BLOB NOT NULL,
     -- 1 = Success, all other values are failures matching the protobuf
     "result" INT NOT NULL,
     -- Items below this line are for debugging purposes
-    "epoch_number" BIGINT NOT NULL,
+    "epoch_number" BIGINT,
     "sender_inbox_id" TEXT,
     "sender_installation_id" BLOB
 );

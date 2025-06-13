@@ -1,4 +1,5 @@
 use openmls::group::{MlsGroup, StagedCommit};
+use xmtp_common::time::now_ns;
 use xmtp_db::{
     group_intent::IntentState, local_commit_log::LocalCommitLog, remote_commit_log::CommitResult,
     ConnectionExt, Store, XmtpOpenMlsProvider,
@@ -25,6 +26,7 @@ impl MergeStagedCommitAndLog for MlsGroup {
         validated_commit: &ValidatedCommit,
     ) -> Result<IntentState, Result<IntentState, GroupMessageProcessingError>> {
         let mut log = LocalCommitLog {
+            timestamp_ns: now_ns(),
             epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
             epoch_number: Some(self.epoch().as_u64() as i64),
             group_id: Some(self.group_id().to_vec()),
