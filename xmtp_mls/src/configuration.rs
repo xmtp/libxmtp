@@ -1,7 +1,7 @@
 use openmls::versions::ProtocolVersion;
 
 use xmtp_common::{NS_IN_30_DAYS, NS_IN_HOUR, NS_IN_SEC};
-pub use xmtp_cryptography::configuration::CIPHERSUITE;
+pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 pub struct DeviceSyncUrls;
 
@@ -36,6 +36,8 @@ pub const MAX_PAST_EPOCHS: usize = 3;
 /// the max amount of data that can be sent in one gRPC call
 /// we leave 5 * 1024 * 1024 as extra buffer room
 pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
+
+pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = false;
 
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field

@@ -4263,7 +4263,9 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        wait_for_eq(|| async { message_callbacks.message_count() }, 6)
+            .await
+            .unwrap();
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
