@@ -13,7 +13,8 @@ CREATE TABLE remote_commit_log (
 );
 
 CREATE TABLE local_commit_log (
-    "timestamp_ns" BIGINT PRIMARY KEY NOT NULL,
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    "sequence_id" BIGINT,
     "epoch_authenticator" BLOB,
     "group_id" BLOB NOT NULL,
     -- 1 = Success, all other values are failures matching the protobuf
@@ -23,5 +24,3 @@ CREATE TABLE local_commit_log (
     "sender_inbox_id" TEXT,
     "sender_installation_id" BLOB
 );
-
-CREATE INDEX local_commit_log_group_timestamp_idx ON local_commit_log (group_id, timestamp_ns);

@@ -606,7 +606,12 @@ where
             );
 
             if mls_group
-                .merge_staged_commit_and_log(&provider, staged_commit, &validated_commit)
+                .merge_staged_commit_and_log(
+                    &provider,
+                    staged_commit,
+                    &validated_commit,
+                    Some(*cursor as i64),
+                )
                 .is_err()
             {
                 return Ok((IntentState::ToPublish, None));
@@ -1026,6 +1031,7 @@ where
                     &provider,
                     staged_commit,
                     &validated_commit,
+                    Some(*cursor as i64),
                 )?;
 
                 let msg =

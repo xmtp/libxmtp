@@ -1,7 +1,7 @@
 use openmls::group::{MlsGroup, StagedCommit};
 use xmtp_common::time::now_ns;
 use xmtp_db::{
-    local_commit_log::LocalCommitLog, remote_commit_log::CommitResult, ConnectionExt, Store,
+    local_commit_log::NewLocalCommitLog, remote_commit_log::CommitResult, ConnectionExt, Store,
     XmtpOpenMlsProvider,
 };
 
@@ -15,6 +15,7 @@ pub trait MergeStagedCommitAndLog {
         provider: &XmtpOpenMlsProvider<Db>,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
+        sequence_id: Option<i64>,
     ) -> Result<(), GroupMessageProcessingError>;
 }
 
@@ -24,10 +25,11 @@ impl MergeStagedCommitAndLog for MlsGroup {
         provider: &XmtpOpenMlsProvider<Db>,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
+        sequence_id: Option<i64>,
     ) -> Result<(), GroupMessageProcessingError> {
-        let mut log = LocalCommitLog {
+        let mut log = NewLocalCommitLog {
             epoch_authenticator: Some(self.epoch_authenticator().as_slice().to_vec()),
-            timestamp_ns: now_ns(),
+            sequence_id,
             epoch_number: Some(self.epoch().as_u64() as i64),
             group_id: self.group_id().to_vec(),
             result: CommitResult::Success,
