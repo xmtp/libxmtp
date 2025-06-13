@@ -387,14 +387,13 @@ pub async fn upload_debug_archive(
 
 #[cfg(test)]
 mod tests {
+    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
     use std::time::Duration;
-
-    use crate::{tester, utils::events::upload_debug_archive};
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_debug_pkg() {
-        tester!(alix, stream, events);
+        tester!(alix, stream);
         tester!(bo);
         tester!(caro);
 
@@ -427,7 +426,7 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
+        let k = upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem
