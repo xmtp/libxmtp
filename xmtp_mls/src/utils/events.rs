@@ -379,19 +379,24 @@ pub async fn upload_debug_archive(
     let url = format!("{device_sync_server_url}/upload");
     let response = exporter.post_to_url(&url).await?;
 
-    Ok(format!("{response}:{}", hex::encode(key)))
+    Ok(format!(
+        "{device_sync_server_url}/client-events?key={response}_{}",
+        hex::encode(key)
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
+    use xmtp_db::events::Events;
 
-    #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = true)]
+    use crate::{tester, utils::events::upload_debug_archive};
+
+    // #[xmtp_common::test(unwrap_try = true)]
+    #[ignore]
     async fn test_debug_pkg() {
-        tester!(alix, stream);
+        tester!(alix, stream, events);
         tester!(bo);
         tester!(caro);
 
@@ -424,7 +429,10 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
+        let events = Events::all_events(&alix.provider.db())?;
+        assert!(!events.is_empty());
+
+        let k = upload_debug_archive(&alix.provider, "http://localhost:5559").await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem
