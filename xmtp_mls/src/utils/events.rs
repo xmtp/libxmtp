@@ -1,5 +1,6 @@
 use crate::{
     client::ClientError,
+    configuration::DeviceSyncUrls,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
@@ -360,10 +361,12 @@ where
 
 pub async fn upload_debug_archive(
     provider: &Arc<XmtpOpenMlsProvider>,
-    device_sync_server_url: impl AsRef<str>,
+    device_sync_server_url: Option<impl AsRef<str>>,
 ) -> Result<String, DeviceSyncError> {
     let provider = provider.clone();
-    let device_sync_server_url = device_sync_server_url.as_ref();
+    let device_sync_server_url = device_sync_server_url
+        .map(|url| url.as_ref().to_string())
+        .unwrap_or(DeviceSyncUrls::PRODUCTION_ADDRESS.to_string());
 
     let options = BackupOptions {
         elements: vec![BackupElementSelection::Event as i32],
@@ -426,7 +429,7 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, DeviceSyncUrls::LOCAL_ADDRESS).await?;
+        let k = upload_debug_archive(&alix.provider, Some(DeviceSyncUrls::LOCAL_ADDRESS)).await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem
