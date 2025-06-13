@@ -1,11 +1,9 @@
+use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use openmls::group::{MlsGroup, StagedCommit};
-use xmtp_common::time::now_ns;
 use xmtp_db::{
     local_commit_log::NewLocalCommitLog, remote_commit_log::CommitResult, ConnectionExt, Store,
     XmtpOpenMlsProvider,
 };
-
-use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 
 /// This trait wraps openmls' merge_staged_commit function to include
 /// commit logging to help in fork resolution.
