@@ -40,7 +40,7 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{wrap_welcome, WrapWelcomeError},
+    groups::mls_ext::{wrap_welcome, MergeStagedCommitAndLog, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -619,8 +619,16 @@ where
                 self.context().inbox_id(),
                 intent.id
             );
-            if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
-                tracing::error!("error merging commit: {err}");
+
+            if mls_group
+                .merge_staged_commit_and_log(
+                    &provider,
+                    staged_commit,
+                    &validated_commit,
+                    *cursor as i64,
+                )
+                .is_err()
+            {
                 return Ok((IntentState::ToPublish, None));
             }
             let epoch = mls_group.epoch().as_u64();
@@ -1026,7 +1034,13 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                mls_group.merge_staged_commit(&provider, staged_commit)?;
+                mls_group.merge_staged_commit_and_log(
+                    &provider,
+                    staged_commit,
+                    &validated_commit,
+                    *cursor as i64,
+                )?;
+
                 let epoch = mls_group.epoch().as_u64();
                 track!(
                     "Commit merged",
