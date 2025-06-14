@@ -32,9 +32,6 @@ mod schema_gen;
 pub mod store;
 pub mod user_preferences;
 
-pub mod local_commit_log;
-pub mod remote_commit_log;
-
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls_traits::OpenMlsProvider;
