@@ -383,7 +383,7 @@ impl Client {
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
     let provider = Arc::new(self.inner_client().mls_provider());
     Ok(
-      upload_debug_archive(&provider, server_url)
+      upload_debug_archive(&provider, Some(server_url))
         .await
         .map_err(ErrorWrapper::from)?,
     )

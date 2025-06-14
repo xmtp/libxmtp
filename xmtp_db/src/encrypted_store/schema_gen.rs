@@ -1,7 +1,5 @@
 // @generated automatically by Diesel CLI.
 
-use super::schema::conversation_list;
-
 diesel::table! {
     association_state (inbox_id, sequence_id) {
         inbox_id -> Text,
@@ -132,6 +130,7 @@ diesel::table! {
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
         delete_at_ns -> Nullable<BigInt>,
+        post_quantum_public_key -> Nullable<Binary>,
     }
 }
 
@@ -218,5 +217,4 @@ diesel::allow_tables_to_appear_in_same_query!(
     refresh_state,
     remote_commit_log,
     user_preferences,
-    conversation_list
 );
