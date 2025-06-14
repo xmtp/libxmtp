@@ -5,7 +5,7 @@ use diesel::{Insertable, Queryable, prelude::*};
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = local_commit_log)]
 pub struct NewLocalCommitLog {
-    pub group_id: Vec<u8>,
+    pub rowid: Vec<u8>,
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
@@ -20,7 +20,7 @@ pub struct NewLocalCommitLog {
 #[diesel(table_name = local_commit_log)]
 #[diesel(primary_key(id))]
 pub struct LocalCommitLog {
-    pub log_id: i32,
+    pub rowid: i32,
     pub group_id: Vec<u8>,
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,

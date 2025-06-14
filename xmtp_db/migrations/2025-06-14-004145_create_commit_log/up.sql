@@ -1,6 +1,6 @@
 CREATE TABLE local_commit_log (
     -- A locally assigned ID for the local log entry
-    "log_id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    "rowid" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     "group_id" BLOB NOT NULL,
     -- The sequence ID of the commit being applied
     "commit_sequence_id" BIGINT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE local_commit_log (
 
 CREATE TABLE remote_commit_log (
     -- The sequence ID of the log entry on the server
-    "log_sequence_id" INTEGER PRIMARY KEY NOT NULL,
+    "log_sequence_id" BIGINT NOT NULL,
     "group_id" BLOB NOT NULL,
     -- The sequence ID of the commit being referenced
     "commit_sequence_id" BIGINT NOT NULL,
