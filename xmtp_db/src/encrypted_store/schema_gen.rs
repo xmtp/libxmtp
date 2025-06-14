@@ -135,8 +135,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    local_commit_log (log_id) {
-        log_id -> Integer,
+    local_commit_log (rowid) {
+        rowid -> Integer,
         group_id -> Binary,
         commit_sequence_id -> BigInt,
         last_epoch_authenticator -> Binary,
@@ -179,8 +179,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_commit_log (log_sequence_id) {
-        log_sequence_id -> Integer,
+    remote_commit_log (rowid) {
+        rowid -> Integer,
+        log_sequence_id -> BigInt,
         group_id -> Binary,
         commit_sequence_id -> BigInt,
         commit_result -> Integer,
