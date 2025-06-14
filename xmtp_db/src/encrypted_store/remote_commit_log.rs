@@ -14,12 +14,12 @@ use serde::{Deserialize, Serialize};
 #[diesel(table_name = remote_commit_log)]
 #[diesel(primary_key(sequence_id))]
 pub struct RemoteCommitLog {
-    pub sequence_id: i64,
-    pub group_id: Option<Vec<u8>>,
-    pub epoch_authenticator: Vec<u8>,
-    pub last_epoch_authenticator: Option<Vec<u8>>,
-    pub result: CommitResult,
-    pub epoch_number: Option<i64>,
+    pub log_sequence_id: i64,
+    pub group_id: Vec<u8>,
+    pub commit_sequence_id: i64,
+    pub commit_result: CommitResult,
+    pub applied_epoch_number: Option<i64>,
+    pub applied_epoch_authenticator: Option<Vec<u8>>,
 }
 
 #[repr(i32)]

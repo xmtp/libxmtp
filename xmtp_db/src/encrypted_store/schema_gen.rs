@@ -135,15 +135,17 @@ diesel::table! {
 }
 
 diesel::table! {
-    local_commit_log (id) {
-        id -> Integer,
-        sequence_id -> Nullable<BigInt>,
-        epoch_authenticator -> Nullable<Binary>,
+    local_commit_log (log_id) {
+        log_id -> Integer,
         group_id -> Binary,
-        result -> Integer,
-        epoch_number -> Nullable<BigInt>,
+        commit_sequence_id -> BigInt,
+        last_epoch_authenticator -> Binary,
+        commit_result -> Integer,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
+        commit_type -> Nullable<Integer>,
     }
 }
 
@@ -177,13 +179,13 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_commit_log (sequence_id) {
-        sequence_id -> BigInt,
+    remote_commit_log (log_sequence_id) {
+        log_sequence_id -> Integer,
         group_id -> Binary,
-        last_epoch_authenticator -> Nullable<Binary>,
-        epoch_authenticator -> Binary,
-        result -> Integer,
-        epoch_number -> Nullable<BigInt>,
+        commit_sequence_id -> BigInt,
+        commit_result -> Integer,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
     }
 }
 
