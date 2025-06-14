@@ -135,10 +135,6 @@ where
     Db: XmtpDb + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        // Wait for the identity to be ready & verified before doing anything
-        while !self.client.context.identity().is_ready() {
-            xmtp_common::yield_().await
-        }
         self.sync_init().await?;
         self.metrics.increment_metric(SyncMetric::Init);
 
