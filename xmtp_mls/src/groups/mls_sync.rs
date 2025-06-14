@@ -40,7 +40,7 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{MergeStagedCommitAndLog, wrap_welcome, WrapWelcomeError},
+    groups::mls_ext::{wrap_welcome, MergeStagedCommitAndLog, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -625,7 +625,7 @@ where
                     &provider,
                     staged_commit,
                     &validated_commit,
-                    Some(*cursor as i64),
+                    *cursor as i64,
                 )
                 .is_err()
             {
@@ -1038,7 +1038,7 @@ where
                     &provider,
                     staged_commit,
                     &validated_commit,
-                    Some(*cursor as i64),
+                    *cursor as i64,
                 )?;
 
                 let epoch = mls_group.epoch().as_u64();

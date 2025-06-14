@@ -5,7 +5,7 @@ use diesel::{Insertable, Queryable, prelude::*};
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = local_commit_log)]
 pub struct NewLocalCommitLog {
-    pub rowid: Vec<u8>,
+    pub group_id: Vec<u8>,
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
@@ -42,7 +42,7 @@ impl LocalCommitLog {
         db.raw_query_read(|db| {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
-                .order_by(dsl::id.asc())
+                .order_by(dsl::rowid.asc())
                 .load(db)
         })
     }
