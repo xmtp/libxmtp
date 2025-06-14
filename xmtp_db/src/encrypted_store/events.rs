@@ -33,7 +33,6 @@ pub struct Events {
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
-/// The state of the consent
 pub enum EventLevel {
     // Just run-of-the-mill info (no border on dashboard)
     None = 0,
