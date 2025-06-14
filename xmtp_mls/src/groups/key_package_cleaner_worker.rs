@@ -1,3 +1,4 @@
+use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use crate::context::XmtpContextProvider;
 use crate::context::XmtpMlsLocalContext;
 use crate::context::XmtpSharedContext;
@@ -197,7 +198,11 @@ where
         if conn.is_identity_needs_rotation()? {
             self.context
                 .identity()
-                .rotate_and_upload_key_package(&provider, self.context.api())
+                .rotate_and_upload_key_package(
+                    &provider,
+                    self.context.api(),
+                    CREATE_PQ_KEY_PACKAGE_EXTENSION,
+                )
                 .await?;
             return Ok(());
         }
