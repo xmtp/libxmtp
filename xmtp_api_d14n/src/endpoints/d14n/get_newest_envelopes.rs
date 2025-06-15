@@ -24,7 +24,7 @@ impl GetNewestEnvelopes {
 /// Will get latest message for each topic
 /// if there is no latest message, returns null in place of that message
 /// ensure ordering is not affected by this null variable, or that extractors
-/// do no unintentially skip nulls when they should preserve length.
+/// do no unintentionally skip nulls when they should preserve length.
 impl Endpoint for GetNewestEnvelopes {
     type Output = GetNewestEnvelopeResponse;
 
