@@ -44,24 +44,8 @@ use crate::{
 };
 use crate::{
     groups::mls_ext::{wrap_welcome, WrapWelcomeError},
-    subscriptions::SyncWorkerEvent,
     track, track_err,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
-use xmtp_api::XmtpApi;
-use xmtp_db::{
-    events::EventLevel,
-    group::{ConversationType, StoredGroup},
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-    group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    refresh_state::EntityKind,
-    sql_key_store::{self, SqlKeyStore},
-    user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
-};
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
-
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -95,7 +79,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{
-    events::{Details, Event, Events},
+    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
@@ -108,7 +92,6 @@ use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
-use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -2087,7 +2070,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            message_cursor: message_cursor.unwrap_or(0),
+                            message_cursor: message_cursor.unwrap_or(0) as u64,
                         })),
                     })
                 },
