@@ -3354,9 +3354,6 @@ impl serde::Serialize for welcome_message::V1 {
         if self.wrapper_algorithm != 0 {
             len += 1;
         }
-        if self.message_cursor != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
@@ -3388,11 +3385,6 @@ impl serde::Serialize for welcome_message::V1 {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
             struct_ser.serialize_field("wrapperAlgorithm", &v)?;
         }
-        if self.message_cursor != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("messageCursor", ToString::to_string(&self.message_cursor).as_str())?;
-        }
         struct_ser.end()
     }
 }
@@ -3413,8 +3405,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             "hpkePublicKey",
             "wrapper_algorithm",
             "wrapperAlgorithm",
-            "message_cursor",
-            "messageCursor",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3425,7 +3415,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             Data,
             HpkePublicKey,
             WrapperAlgorithm,
-            MessageCursor,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3453,7 +3442,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                             "data" => Ok(GeneratedField::Data),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             "wrapperAlgorithm" | "wrapper_algorithm" => Ok(GeneratedField::WrapperAlgorithm),
-                            "messageCursor" | "message_cursor" => Ok(GeneratedField::MessageCursor),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3479,7 +3467,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                 let mut data__ = None;
                 let mut hpke_public_key__ = None;
                 let mut wrapper_algorithm__ = None;
-                let mut message_cursor__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -3528,14 +3515,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                             }
                             wrapper_algorithm__ = Some(map_.next_value::<super::super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
                         }
-                        GeneratedField::MessageCursor => {
-                            if message_cursor__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("messageCursor"));
-                            }
-                            message_cursor__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                     }
                 }
                 Ok(welcome_message::V1 {
@@ -3545,7 +3524,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                     data: data__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                     wrapper_algorithm: wrapper_algorithm__.unwrap_or_default(),
-                    message_cursor: message_cursor__.unwrap_or_default(),
                 })
             }
         }
@@ -3668,9 +3646,6 @@ impl serde::Serialize for welcome_message_input::V1 {
         if self.wrapper_algorithm != 0 {
             len += 1;
         }
-        if self.message_cursor != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessageInput.V1", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -3692,11 +3667,6 @@ impl serde::Serialize for welcome_message_input::V1 {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
             struct_ser.serialize_field("wrapperAlgorithm", &v)?;
         }
-        if self.message_cursor != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("messageCursor", ToString::to_string(&self.message_cursor).as_str())?;
-        }
         struct_ser.end()
     }
 }
@@ -3714,8 +3684,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             "hpkePublicKey",
             "wrapper_algorithm",
             "wrapperAlgorithm",
-            "message_cursor",
-            "messageCursor",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3724,7 +3692,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             Data,
             HpkePublicKey,
             WrapperAlgorithm,
-            MessageCursor,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3750,7 +3717,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                             "data" => Ok(GeneratedField::Data),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             "wrapperAlgorithm" | "wrapper_algorithm" => Ok(GeneratedField::WrapperAlgorithm),
-                            "messageCursor" | "message_cursor" => Ok(GeneratedField::MessageCursor),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3774,7 +3740,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                 let mut data__ = None;
                 let mut hpke_public_key__ = None;
                 let mut wrapper_algorithm__ = None;
-                let mut message_cursor__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
@@ -3807,14 +3772,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                             }
                             wrapper_algorithm__ = Some(map_.next_value::<super::super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
                         }
-                        GeneratedField::MessageCursor => {
-                            if message_cursor__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("messageCursor"));
-                            }
-                            message_cursor__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                     }
                 }
                 Ok(welcome_message_input::V1 {
@@ -3822,7 +3779,6 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                     data: data__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                     wrapper_algorithm: wrapper_algorithm__.unwrap_or_default(),
-                    message_cursor: message_cursor__.unwrap_or_default(),
                 })
             }
         }
