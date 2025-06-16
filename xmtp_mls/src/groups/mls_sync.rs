@@ -246,8 +246,9 @@ where
             other_dm.sync_with_conn().await?;
         }
 
+        let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
         self.maybe_update_installations(None).await?;
-        self.sync_with_conn().await.map_err(GroupError::from)
+        Ok(sync_summary)
     }
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
@@ -443,7 +444,7 @@ where
                 message_epoch = message_epoch.as_u64(),
                 group_epoch = group_epoch.as_u64(),
                 intent_id,
-                "[{}] own message epoch {} is {} or more less than the group epoch {} for intent {}. Retrying message",
+                "[{}] message epoch {} is {} or more less than the group epoch {} for intent {}. Retrying message",
                 inbox_id,
                 message_epoch,
                 max_past_epochs,
@@ -461,7 +462,7 @@ where
                 message_epoch = message_epoch.as_u64(),
                 group_epoch = group_epoch.as_u64(),
                 intent_id,
-                "[{}] own message epoch {} is greater than group epoch {} for intent {}. Retrying message",
+                "[{}] message epoch {} is greater than group epoch {} for intent {}. Retrying message",
                 inbox_id,
                 message_epoch,
                 group_epoch,
@@ -505,6 +506,7 @@ where
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
+                    //todo: question
                     if published_in_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
@@ -535,17 +537,54 @@ where
                         self.context().inbox_id(),
                         intent.id
                     );
+                    let log_message = format!(
+                        concat!(
+                        "self msg -> inbox_id = {}, ",
+                        "installation_id = {}, ",
+                        "group_id = {}, ",
+                        "current_epoch = {}, ",
+                        "msg_epoch = {}, ",
+                        "msg_group_id = {}, ",
+                        "cursor = {}, ",
+                        "extracted sender inbox id: {}"
+                        ),
+                        self.context.inbox_id(),
+                        self.context.installation_id(),
 
+                        hex::encode(&self.group_id),
+                        mls_group.epoch().as_u64(),
+                        message_epoch.as_u64(),
+                        hex::encode(self.group_id.as_slice()),
+                        cursor,
+                        self.context.inbox_id(),
+                    );
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.context,
                         &staged_commit,
                         mls_group,
+                        &intent.id.to_string(),
+                        &log_message,
                     )
                     .await;
-
+                    tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
+                            cursor,
+                            intent.id,
+                            intent.kind = %intent.kind,
+                                "## MaybeValidatedCommit [{}]: {maybe_validated_commit:?}",
+                                intent.id,
+                            );
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
+                            cursor,
+                            intent.id,
+                            intent.kind = %intent.kind,
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
@@ -686,7 +725,7 @@ where
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
             result.inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
-        let processed_message = processed_message.expect("Was just set to Some")?;
+        let processed_message = processed_message.expect("Was just set to Some")?; //todo: we can remove this line
 
         // Reload the mlsgroup to clear the it's internal cache
         *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
@@ -696,7 +735,7 @@ where
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
 
-        tracing::info!(
+        tracing::error!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
@@ -709,12 +748,59 @@ where
             self.context.inbox_id(),
             sender_inbox_id
         );
-
+        let log_message = format!(
+            concat!(
+            "inbox_id = {}, ",
+            "installation_id = {}, ",
+            "sender_inbox_id = {}, ",
+            "sender_installation_id = {}, ",
+            "group_id = {}, ",
+            "current_epoch = {}, ",
+            "msg_epoch = {}, ",
+            "msg_group_id = {}, ",
+            "cursor = {}, "
+            ),
+            self.context.inbox_id(),
+            self.context.installation_id(),
+            sender_inbox_id,
+            hex::encode(&sender_installation_id),
+            hex::encode(&self.group_id),
+            mls_group.epoch().as_u64(),
+            processed_message.epoch().as_u64(),
+            hex::encode(processed_message.group_id().as_slice()),
+            cursor
+        );
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let validated_commit =
-                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
-                        .await?;
+                let validated_commit = match ValidatedCommit::from_staged_commit(
+                    &self.context,
+                    staged_commit,
+                    mls_group,
+                    &cursor.to_string(),
+                    &log_message
+                ).await {
+
+                    Ok(commit) =>{ commit},
+                    Err(e) if e.is_retryable() => {
+                        // Do something when it's a retryable error
+                        tracing::error!("### Retryable error encountered: {:?}", e);
+                        // For example, return a wrapped error or retry
+                        return Err(GroupMessageProcessingError::from(e));
+                    }
+                    Err(e) => {
+                        // Propagate non-retryable errors
+                        tracing::error!("### update cursor from staged error: {:?}", e);
+
+                        provider.db().update_cursor(
+                            &envelope.group_id,
+                            EntityKind::Group,
+                            *cursor as i64,
+                        )?;
+                        tracing::error!("### after update cursor from staged error: {:?}", e);
+
+                        return Err(GroupMessageProcessingError::from(e));
+                    }
+                };
                 identifier.group_context(staged_commit.group_context().clone());
                 Some(validated_commit)
             }
@@ -1079,42 +1165,70 @@ where
         if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
+//cursor in db -> 15 -> thread -> 10
+        // Acquire the MLS group lock first, then do intent fetching and processing inside
+        let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
+            // Fetch the intent now that the lock is held
+            let intent = provider
+                .db()
+                .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
+                .map_err(GroupMessageProcessingError::Storage)?;
 
-        let intent = provider
-            .db()
-            .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
-            .map_err(GroupMessageProcessingError::Storage)?;
-        tracing::info!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
-            cursor = envelope.id,
-            "Processing envelope with hash {}, sequence_id = {}, is_own_intent={}",
-            hex::encode(sha256(envelope.data.as_slice())),
-            envelope.id,
-            intent.is_some()
-        );
-        match intent {
-            // Intent with the payload hash matches
-            Some(intent) => {
-                let mut identifier = MessageIdentifierBuilder::from(envelope);
-                identifier.intent_kind(intent.kind);
-                let intent_id = intent.id;
-                tracing::info!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    cursor = envelope.id,
-                    intent_id,
-                    intent.kind = %intent.kind,
-                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
-                    self.context.inbox_id(),
-                    envelope.id,
-                    intent_id,
-                    intent.kind
-                );
+            let last_cursor = provider
+                .db()
+                .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+            let should_skip_message = last_cursor >= envelope.id as i64;
 
-                let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
+            if should_skip_message {
+                // early return if the message is already procesed
+                // _NOTE_: Not early returning and re-processing a message that
+                // has already been processed, has the potential to result in forks.
+                return MessageIdentifierBuilder::from(envelope).build();
+            }
+
+            tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                "### checked cursor inside lock msg_cursor:[{}]  last cursor in db: [{}]",
+                envelope.id,
+                last_cursor
+            );
+
+            tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                cursor = envelope.id,
+                "Processing envelope with hash {}, sequence_id = {}, is_own_intent={}",
+                hex::encode(sha256(envelope.data.as_slice())),
+                envelope.id,
+                intent.is_some()
+            );
+            match intent {
+                // Intent with the payload hash matches
+                Some(intent) => {
+                    let mut identifier = MessageIdentifierBuilder::from(envelope);
+                    identifier.intent_kind(intent.kind);
+                    if intent.state == IntentState::Error{
+                        tracing::error!("### Intent Error, skip it!");
+                        return identifier.build()
+                    }
+                    let intent_id = intent.id;
+                    tracing::error!(
+                        inbox_id = self.context.inbox_id(),
+                        installation_id = %self.context.installation_id(),
+                        group_id = hex::encode(&self.group_id),
+                        cursor = envelope.id,
+                        intent_id,
+                        intent.kind = %intent.kind,
+                        "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
+                        self.context.inbox_id(),
+                        envelope.id,
+                        intent_id,
+                        intent.kind
+                    );
+
                     let message = message.into();
                     // TODO: the return type of stage_and_validated_commit should be fixed
                     // We should never be nesting Result types within the error return type, it is
@@ -1125,9 +1239,19 @@ where
                     //  - be an Error but produce a valid intent state?
                     //  - be an error and produce a GroupMessage Processing Error
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, &message, envelope).await;
+                    tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
+                            cursor,
+                            intent.id,
+                            intent.kind = %intent.kind,
+                                "## MaybeValidatedCommit after [{}]: {maybe_validated_commit:?}",
+                                intent.id,
+                            );
                     provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
-                            tracing::info!(
+                            tracing::error!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
@@ -1138,11 +1262,11 @@ where
                                 cursor as i64,
                             )?;
                             if updated {
-                                tracing::debug!("cursor updated to [{}]", cursor as i64);
-                            } else { tracing::debug!("no cursor update required"); }
+                                tracing::error!("cursor updated to [{}]", cursor as i64);
+                            } else { tracing::error!("no cursor update required"); }
                             updated
                         } else {
-                            tracing::info!(
+                            tracing::error!(
                                 "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
@@ -1153,7 +1277,7 @@ where
                             current_cursor < cursor as i64
                         };
                         if !requires_processing {
-                            tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                            tracing::error!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
                                 envelope.id,
                                 xmtp_common::fmt::debug_hex(&envelope.group_id),
                                 envelope.created_ns
@@ -1179,7 +1303,19 @@ where
                             }
                         };
                         identifier.internal_id(internal_message_id.clone());
-
+                        tracing::error!(
+                             inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
+                            cursor,
+                            intent.id,
+                            intent.kind = %intent.kind,
+                            "intent state=[{:?}] @cursor=[{}] for group=[{}] created_at=[{}]",
+                            intent_state,
+                                envelope.id,
+                                xmtp_common::fmt::debug_hex(&envelope.group_id),
+                                envelope.created_ns
+                            );
                         match intent_state {
                             IntentState::ToPublish => {
                                 provider.db().set_group_intent_to_publish(intent_id)?;
@@ -1202,37 +1338,32 @@ where
                         }
                         Ok(())
                     })?;
-                    Ok::<_, GroupMessageProcessingError>(identifier)
-                }).await?;
-                identifier.build()
-            }
-            // No matching intent found. The message did not originate here.
-            None => {
-                tracing::info!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    cursor = envelope.id,
-                    "client [{}] is about to process external envelope [{}]",
-                    self.context.inbox_id(),
-                    envelope.id
-                );
-
-                let identifier = self
-                    .load_mls_group_with_lock_async(|mut mls_group| async move {
-                        self.validate_and_process_external_message(
+                    identifier.build()
+                }
+                // No matching intent found. The message did not originate here.
+                None => {
+                    tracing::info!(
+                        inbox_id = self.context.inbox_id(),
+                        installation_id = %self.context.installation_id(),
+                        group_id = hex::encode(&self.group_id),
+                        cursor = envelope.id,
+                        "client [{}] is about to process external envelope [{}]",
+                        self.context.inbox_id(),
+                        envelope.id
+                    );
+                    let identifier = self
+                        .validate_and_process_external_message(
                             &mut mls_group,
                             message,
                             envelope,
                             allow_cursor_increment,
                         )
-                        .await
-                    })
-                    .await?;
-
-                Ok(identifier)
+                        .await?;
+                    Ok::<_, GroupMessageProcessingError>(identifier)
+                }
             }
-        }
+        }).await?;
+        Ok(identifier)
     }
 
     /// In case of metadataUpdate will extract the updated fields and store them to the db
@@ -1317,6 +1448,15 @@ where
             .db()
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
         let should_skip_message = last_cursor > msgv1.id as i64;
+        tracing::error!(
+                inbox_id = self.context.inbox_id(),
+                installation_id = %self.context.installation_id(),
+                group_id = hex::encode(&self.group_id),
+                "### checked cursor msg_cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
+                msgv1.id,
+                message_entity_kind,
+                last_cursor
+            );
         if should_skip_message {
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
@@ -1569,7 +1709,11 @@ where
                     "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
                     message.id, message_epoch, group_epoch
                 );
-                tracing::error!(fork_details);
+                tracing::error!( inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
+                    original_error = error.to_string(),
+                    fork_details);
                 track!(
                     "Possible Fork",
                     {
@@ -1697,6 +1841,7 @@ where
                         provider.db().set_group_intent_processed(intent.id)?
                     }
                 }
+
             }
 
             Ok(())
@@ -1745,17 +1890,23 @@ where
             }
             IntentKind::KeyUpdate => {
                 let provider = self.mls_provider();
-                let (bundle, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let bundle = openmls_group.self_update(
                         &provider,
                         &self.context().identity.installation_keys,
                         LeafNodeParameters::default(),
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
-
                     Ok::<_, GroupError>((bundle, staged_commit))
-                })?;
-
+                });
+                let (bundle, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        return Err(e.into());
+                    }
+                };
                 Ok(Some(PublishIntentData {
                     payload_to_publish: bundle.commit().tls_serialize_detached()?,
                     staged_commit,
@@ -1772,7 +1923,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1781,7 +1932,15 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        return Err(e.into());
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -1801,7 +1960,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1810,7 +1969,15 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        return Err(e.into());
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -1830,7 +1997,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         group_permissions_extensions,
@@ -1839,7 +2006,15 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        return Err(e.into());
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -1889,6 +2064,8 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let provider = self.mls_provider();
+
+        //todo: check for the current inbox installations
         let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
@@ -1926,6 +2103,7 @@ where
      * and the group has not been updated to include it.
      */
     pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
+        //todo-> make sure we only take care of our own installations not everyone
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 
         // If there is nothing to do, stop here
@@ -2369,7 +2547,7 @@ where
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    let (commit, post_commit_action, staged_commit) = provider.transaction(|provider| {
+    let result = provider.transaction(|provider| {
         // Create the commit
         let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
             &provider,
@@ -2391,7 +2569,16 @@ where
             .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
         Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
-    })?;
+    });
+
+    let (commit, post_commit_action, staged_commit) = match result {
+        Ok(res) => res,
+        Err(e) => {
+            *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+            return Err(e.into());
+        }
+    };
 
     Ok(Some(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,

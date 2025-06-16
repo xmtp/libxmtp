@@ -127,6 +127,7 @@ where
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
     ) -> Result<(), GroupError> {
+        //put log
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;

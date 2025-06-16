@@ -100,11 +100,7 @@ pub struct LogOptions {
 fn init_logging(options: LogOptions) -> Result<()> {
   LOGGER_INIT
     .get_or_init(|| {
-      let filter = if let Some(f) = options.level {
-        xmtp_common::filter_directive(&f.to_string())
-      } else {
-        EnvFilter::builder().parse_lossy("info")
-      };
+      let filter = EnvFilter::builder().parse_lossy("xmtp_mls=debug");
 
       if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()
