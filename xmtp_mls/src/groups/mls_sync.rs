@@ -107,8 +107,8 @@ use xmtp_db::{
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
+use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -2072,25 +2072,6 @@ where
         let welcomes = action
             .installations
             .into_iter()
-<<<<<<< HEAD
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                        wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
-                        message_cursor: cursor as u64,
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
-=======
             .map(
                 |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
                     let installation_key = installation.installation_key;
@@ -2111,7 +2092,6 @@ where
                 },
             )
             .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
->>>>>>> origin/main
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
