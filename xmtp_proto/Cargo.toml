@@ -25,10 +25,10 @@ xmtp_common.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 openmls = { workspace = true }
 tonic = { workspace = true, features = [
-  "codegen",
-  "server",
-  "channel",
-  "prost",
+    "codegen",
+    "server",
+    "channel",
+    "prost",
 ] }
 
 [dev-dependencies]

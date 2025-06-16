@@ -2,16 +2,15 @@
 , stdenv
 , filesets
 , lib
-, pkg-config
 , fenix
 , wasm-bindgen-cli_0_2_100
 , wasm-pack
 , binaryen
 , zstd
 , craneLib
-, lld
 , mkShell
 , sqlite
+, llvmPackages
 }:
 let
   # Pinned Rust Version
@@ -37,16 +36,23 @@ let
     '';
     preBuild = ''
       export HOME=$TMPDIR
-      export EM_CACHE=$TMPDIR
-      export EMCC_DEBUG=2
+      # export EM_CACHE=$TMPDIR
+      # export EMCC_DEBUG=2
     '';
 
-    nativeBuildInputs = [ pkg-config wasm-pack emscripten lld binaryen wasm-bindgen-cli_0_2_100 ];
+    nativeBuildInputs = [ wasm-pack emscripten llvmPackages.lld binaryen wasm-bindgen-cli_0_2_100 ];
     buildInputs = [ zstd sqlite ];
     doCheck = false;
     cargoExtraArgs = "--workspace --exclude xmtpv3 --exclude bindings_node --exclude xmtp_cli --exclude xdbg --exclude mls_validation_service --exclude xmtp_api_grpc";
     RUSTFLAGS = [ "--cfg" "tracing_unstable" "--cfg" "getrandom_backend=\"wasm_js\"" "-C" "target-feature=+bulk-memory,+mutable-globals" ];
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+    hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
+    NIX_DEBUG = 1;
+    # SQLITE_WASM_RS_UPDATE_PREBUILD = 1;
+  } // lib.optionalAttrs stdenv.isDarwin {
+    CC_wasm32_unknown_unknown = "${llvmPackages.libcxxClang}/bin/clang";
+    AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
+
   };
 
   # enables caching all build time crates
@@ -68,10 +74,15 @@ let
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack --verbose build --target web --out-dir $out/dist --no-pack --release ./bindings_wasm -- --message-format json-render-diagnostics > "$cargoBuildLog"
       '';
     });
-  devShell = mkShell {
-    inherit (commonArgs) nativeBuildInputs RUSTFLAGS;
-    buildInputs = commonArgs.buildInputs ++ [ rust-toolchain ];
-  };
+  devShell = mkShell
+    {
+      buildInputs = commonArgs.buildInputs ++ [ rust-toolchain ];
+      CC_wasm32_unknown_unknown = "${llvmPackages.clang-unwrapped}/bin/clang";
+      AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
+      SQLITE = "${sqlite.dev}";
+      SQLITE_OUT = "${sqlite.out}";
+
+    } // commonArgs;
 in
 {
   inherit bin devShell;

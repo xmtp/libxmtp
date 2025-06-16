@@ -268,9 +268,8 @@ where
             Box::pin(group.sync_with_conn()).await?;
         }
 
-        if let Some(handle) = self.worker_metrics() {
-            handle.increment_metric(SyncMetric::V1PayloadProcessed);
-        }
+        self.metrics
+            .increment_metric(SyncMetric::V1PayloadProcessed);
 
         Ok(())
     }
@@ -601,7 +600,7 @@ mod tests {
     };
 
     #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn v1_sync_still_works() {
         tester!(alix1, sync_worker, sync_server);
@@ -611,14 +610,19 @@ mod tests {
 
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-        alix2.device_sync().get_sync_group().await?.sync().await?;
+        alix2
+            .device_sync_client()
+            .get_sync_group()
+            .await?
+            .sync()
+            .await?;
         alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
-            .device_sync()
+            .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
@@ -631,7 +635,7 @@ mod tests {
             .await?;
 
         alix2
-            .device_sync()
+            .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;

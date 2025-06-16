@@ -1,3 +1,4 @@
+mod test_consent;
 mod test_dm;
 mod test_key_updates;
 
@@ -74,20 +75,28 @@ async fn force_add_member(
     sender_mls_group: &mut openmls::prelude::MlsGroup,
     sender_provider: &XmtpOpenMlsProvider,
 ) {
+    use crate::{
+        configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,
+    };
+
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;
     let new_member_provider = new_member_client.mls_provider();
 
-    let key_package = new_member_client
+    let key_package_result = new_member_client
         .identity()
-        .new_key_package(&new_member_provider)
+        .new_key_package(&new_member_provider, CREATE_PQ_KEY_PACKAGE_EXTENSION)
         .unwrap();
-    let hpke_init_key = key_package.hpke_init_key().as_slice().to_vec();
+    let hpke_init_key = key_package_result
+        .key_package
+        .hpke_init_key()
+        .as_slice()
+        .to_vec();
     let (commit, welcome, _) = sender_mls_group
         .add_members(
             sender_provider,
             &sender_client.identity().installation_keys,
-            &[key_package],
+            &[key_package_result.key_package],
         )
         .unwrap();
     let serialized_commit = commit.tls_serialize_detached().unwrap();
@@ -96,6 +105,7 @@ async fn force_add_member(
         vec![Installation {
             installation_key: new_member_client.installation_public_key().into(),
             hpke_public_key: hpke_init_key,
+            welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
         }],
         serialized_welcome,
     );
@@ -2413,7 +2423,11 @@ async fn skip_already_processed_intents() {
 async fn test_parallel_syncs() {
     let wallet = generate_local_wallet();
     let alix1 = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-    alix1.device_sync().wait_for_sync_worker_init().await;
+    alix1
+        .device_sync_client()
+        .wait_for_sync_worker_init()
+        .await
+        .unwrap();
 
     let alix1_group = alix1.create_group(None, None).unwrap();
 

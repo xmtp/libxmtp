@@ -56,7 +56,7 @@ mod tests {
         test_utils::with_connection,
     };
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn it_marks_as_processed() {
         with_connection(|conn| {
             let mut group = generate_group(None);

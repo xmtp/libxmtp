@@ -1,10 +1,12 @@
 use super::{
     group_membership::GroupMembership,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
+    mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
     GroupError, MlsGroup,
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    track,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use openmls::prelude::{
@@ -18,32 +20,26 @@ use xmtp_api::XmtpApi;
 use xmtp_common::types::Address;
 use xmtp_db::{
     db_connection::DbConnection,
-    events::{Details, Event, Events},
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_proto::xmtp::mls::{
-    database::{
-        addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
-        post_commit_action::{
-            Installation as InstallationProto, Kind as PostCommitActionKind,
-            SendWelcomes as SendWelcomesProto,
-        },
-        send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-        update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
-        update_group_membership_data::{
-            Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
-        },
-        update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-        update_permission_data::{
-            self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1,
-        },
-        AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-        InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-        UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+use xmtp_proto::xmtp::mls::database::{
+    addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
+    post_commit_action::{
+        Installation as InstallationProto, Kind as PostCommitActionKind,
+        SendWelcomes as SendWelcomesProto,
     },
-    message_contents::WelcomeWrapperAlgorithm,
+    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+    update_group_membership_data::{
+        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+    },
+    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
+    update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
 #[derive(Debug, Error)]
@@ -115,11 +111,10 @@ where
         if intent_kind != IntentKind::SendMessage {
             conn.update_rotated_at_ns(self.group_id.clone())?;
 
-            Events::track(
-                conn,
-                Some(self.group_id.clone()),
-                &Event::QueueIntent,
-                Some(Details::QueueIntent { intent_kind }),
+            track!(
+                "Queue Intent",
+                { "intent_kind": intent_kind },
+                group: &self.group_id
             );
         }
         tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
@@ -703,14 +698,27 @@ pub enum PostCommitAction {
 pub struct Installation {
     pub(crate) installation_key: Vec<u8>,
     pub(crate) hpke_public_key: Vec<u8>,
+    pub(crate) welcome_wrapper_algorithm: WrapperAlgorithm,
 }
 
 impl Installation {
-    pub fn from_verified_key_package(key_package: &VerifiedKeyPackageV2) -> Self {
-        Self {
+    pub fn from_verified_key_package(
+        key_package: &VerifiedKeyPackageV2,
+    ) -> Result<Self, IntentError> {
+        let wrapper_encryption = key_package.wrapper_encryption()?.unwrap_or_else(|| {
+            // Default to using the hpke init key as the pub key and Curve25519 as the algorithm
+            // if no extension is present. This means you are on an older key package
+            WrapperEncryptionExtension::new(
+                WrapperAlgorithm::Curve25519,
+                key_package.hpke_init_key(),
+            )
+        });
+
+        Ok(Self {
             installation_key: key_package.installation_id(),
-            hpke_public_key: key_package.hpke_init_key(),
-        }
+            hpke_public_key: wrapper_encryption.pub_key_bytes,
+            welcome_wrapper_algorithm: wrapper_encryption.algorithm,
+        })
     }
 }
 
@@ -719,7 +727,7 @@ impl From<Installation> for InstallationProto {
         Self {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
-            welcome_wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
+            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
         }
     }
 }
@@ -729,6 +737,7 @@ impl From<InstallationProto> for Installation {
         Self {
             installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
+            welcome_wrapper_algorithm: installation.welcome_wrapper_algorithm.into(),
         }
     }
 }

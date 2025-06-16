@@ -463,7 +463,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
         }
         Commands::ListHistorySyncMessages {} => {
             client.sync_welcomes().await?;
-            let group = client.device_sync().get_sync_group().await?;
+            let group = client.device_sync_client().get_sync_group().await?;
             let group_id_str = hex::encode(group.group_id.clone());
             group.sync().await?;
             let messages = group.find_messages(&MsgQueryArgs {
