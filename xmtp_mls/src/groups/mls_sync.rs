@@ -343,7 +343,7 @@ where
         }
 
         let result = self.post_commit().await;
-        track_err!("Post commit", &result, group: &self.group_id);
+        track_err!("Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -1202,7 +1202,7 @@ where
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(&intent)?;
-                                provider.db().set_group_intent_committed(intent_id)?;
+                                provider.db().set_group_intent_committed(intent_id, cursor as i64)?;
                             }
                             IntentState::Published => {
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1447,6 +1447,7 @@ where
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, provider.db())
             .await?;
+
         let summary = self.process_messages(messages).await;
 
         track!(
@@ -1890,7 +1891,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        self.send_welcomes(action).await?;
+                        self.send_welcomes(action, intent.sequence_id).await?;
                     }
                 }
             }
@@ -2063,12 +2064,11 @@ where
      * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
-        let cursor = self
-            .mls_provider()
-            .db()
-            .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-
+    pub(super) async fn send_welcomes(
+        &self,
+        action: SendWelcomesAction,
+        message_cursor: Option<i64>,
+    ) -> Result<(), GroupError> {
         let welcomes = action
             .installations
             .into_iter()
@@ -2087,6 +2087,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
+                            message_cursor: message_cursor.unwrap_or(0),
                         })),
                     })
                 },
