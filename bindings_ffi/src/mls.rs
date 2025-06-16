@@ -8383,27 +8383,25 @@ mod tests {
         let alix = Tester::builder().sync_worker().build().await;
         let bo = Tester::new().await;
 
-        // Create group between alix and bo
         let group = alix
             .conversations()
             .create_group_with_inbox_ids(vec![bo.inbox_id()], Default::default())
             .await
             .unwrap();
 
-        // Alix sends a message
         let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
         group
             .send(encoded_content_to_bytes(text_message_alix.clone()))
             .await
             .unwrap();
 
-        // New installation for alix
         let alix2 = alix.builder.build().await;
 
         bo.conversations().sync().await.unwrap();
-        let boGroup = bo.conversation(group.id()).unwrap();
-        boGroup
-            .send(encoded_content_to_bytes(text_message_alix.clone()))
+        let bo_group = bo.conversation(group.id()).unwrap();
+        let text_message_bo = TextCodec::encode("hello from bo".to_string()).unwrap();
+        bo_group
+            .send(encoded_content_to_bytes(text_message_bo.clone()))
             .await
             .unwrap();
         alix.conversations()
@@ -8421,28 +8419,40 @@ mod tests {
             .await
             .unwrap();
 
-        // Get the same group on the new installation
         let group2 = alix2.conversation(group.id()).unwrap();
         let messages = group2
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
 
-        // New installation should NOT see messages sent before it was created
         assert_eq!(
             messages.len(),
-            2,
-            "Expected no messages to be visible to new installation"
+            1,
+            "Expected one message to be visible to new installation"
         );
 
-        // New installation sends a message
+        // Decode and verify messages are NOT group member adds
+        for msg in &messages {
+            let encoded =
+                EncodedContent::decode(&msg.content[..]).expect("Failed to decode EncodedContent");
+            assert_eq!(
+                encoded.r#type.as_ref().unwrap().type_id,
+                TextCodec::TYPE_ID,
+                "Expected all visible messages to be text"
+            );
+
+            let text: String =
+                TextCodec::decode(encoded.clone()).expect("Failed to decode message content");
+
+            println!("Decoded text message: {}", text);
+        }
+
         let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
         let msg_from_alix2 = group2
             .send(encoded_content_to_bytes(text_message_alix2.clone()))
             .await
             .unwrap();
 
-        // Sync bo and check for the message
         bo.conversations()
             .sync_all_conversations(None)
             .await
@@ -8458,7 +8468,6 @@ mod tests {
             "Bob should see the message sent by alix2"
         );
 
-        // Sync original alix and check for the message
         alix.conversations()
             .sync_all_conversations(None)
             .await

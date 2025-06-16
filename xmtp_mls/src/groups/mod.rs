@@ -75,7 +75,6 @@ use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
-use xmtp_db::events::{Details, Event, Events};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
