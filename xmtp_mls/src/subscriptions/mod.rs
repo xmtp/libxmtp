@@ -197,7 +197,9 @@ impl RetryableError for SubscribeError {
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
-            StateError(s) => false,
+            // TODO: need to think further about
+            // whether stream state transitions are retryable
+            StateError(_) => false,
         }
     }
 }

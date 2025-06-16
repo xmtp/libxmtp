@@ -1,23 +1,18 @@
-use super::GroupList;
 use crate::subscriptions::stream_messages::extract_message_v1;
 use crate::subscriptions::stream_messages::MessageStreamError;
 use crate::subscriptions::SubscribeError;
-use futures::{stream::TryStreamExt, Stream};
+use futures::Stream;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::ready;
 use std::task::{Context, Poll};
-use xmtp_api::ApiClientWrapper;
-use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::{group_message, GroupMessage},
-};
+use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
-/// A versioned messages stream
-/// Only returns valid envelopes
-/// For instance, if only V1 envelopes are valid, returns only V1 envelopes
-/// If an envelope version is invalid, returns an error.
 pin_project! {
+    /// A versioned messages stream
+    /// Only returns valid envelopes
+    /// For instance, if only V1 envelopes are valid, returns only V1 envelopes
+    /// If an envelope version is invalid, returns an error.
     pub struct VersionedMessagesStream<S> {
         #[pin] inner: S,
     }

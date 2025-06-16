@@ -25,16 +25,14 @@ use std::{
 
 use super::{
     process_message::{self, ProcessMessage},
-    Result, SubscribeError,
+    Result,
 };
-use crate::subscriptions::stream_messages::state::ApplyState;
-use crate::subscriptions::stream_messages::state::StateTransitionResult;
 use crate::{
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     groups::MlsGroup,
     subscriptions::process_message::ProcessedMessage,
 };
-use futures::{future::TryMaybeDone, Stream};
+use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
 use xmtp_common::types::GroupId;
@@ -368,7 +366,7 @@ where
     /// Add the group to the group list
     /// and transition the stream to Adding state
     fn add_new_group(mut self: Pin<&mut Self>, group: MlsGroup<Api, Db>) -> Result<()> {
-        let mut this = self.as_mut().project();
+        let this = self.as_mut().project();
         tracing::debug!(
             "adding group_id={} to message stream",
             hex::encode(&group.group_id)

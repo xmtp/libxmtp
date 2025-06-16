@@ -115,6 +115,12 @@ mock! {
     }
 }
 
+impl crate::ApiClientWrapper<ApiClient> {
+    pub fn mock() -> crate::ApiClientWrapper<crate::test_utils::MockApiClient> {
+        crate::ApiClientWrapper::new(MockApiClient::new(), Default::default())
+    }
+}
+
 // Create a mock XmtpClient for testing the client wrapper
 // need separate defs for wasm and not wasm, b/c `cfg_attr` not supportd in macro! block
 #[cfg(not(target_arch = "wasm32"))]

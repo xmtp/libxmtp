@@ -33,7 +33,7 @@ impl<'a> ProcessMessageFuture<'a> {
 // if processing resulted in a new decryptable message, return it.
 impl<'a, A, D, S, F> ApplyState<ProcessedMessage> for StreamGroupMessages<'a, A, D, S, F> {
     fn apply(mut self: Pin<&mut Self>, state: ProcessedMessage) -> Option<StoredGroupMessage> {
-        let mut this = self.as_mut().project();
+        let this = self.as_mut().project();
         this.groups.set(&state.group_id, state.next_message);
         if let Some(msg) = state.message {
             let id = msg.sequence_id.map(|s| s as u64).unwrap_or(0u64);

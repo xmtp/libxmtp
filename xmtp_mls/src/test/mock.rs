@@ -4,9 +4,7 @@ use std::sync::Arc;
 use crate::groups::summary::SyncSummary;
 use crate::groups::MlsGroup;
 use crate::identity::create_credential;
-use crate::subscriptions::process_message::{
-    ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
-};
+use crate::subscriptions::process_message::{self, ProcessedMessage};
 use crate::subscriptions::SubscribeError;
 use crate::{
     builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
@@ -24,7 +22,8 @@ pub use generate::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
 pub type MockContext = XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb>;
-pub type MockProcessMessageFuture = ProcessMessageFuture<MockApiClient, xmtp_db::MockXmtpDb>;
+pub type MockProcessMessageFuture =
+    process_message::ProcessMessage<MockApiClient, xmtp_db::MockXmtpDb>;
 pub type MockMlsGroup = MlsGroup<MockApiClient, xmtp_db::MockXmtpDb>;
 
 impl Identity {
@@ -42,7 +41,7 @@ impl Identity {
 
 mock! {
     pub ProcessFutureFactory {}
-    impl ProcessFutureFactory<'_> for ProcessFutureFactory {
+    impl process_message::Factory<'_> for ProcessFutureFactory {
         fn create(&self, msg: xmtp_proto::mls_v1::group_message::V1) -> xmtp_common::FutureWrapper<'_, Result<ProcessedMessage, SubscribeError>>;
         fn retrieve(&self, msg: &xmtp_proto::mls_v1::group_message::V1) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
     }

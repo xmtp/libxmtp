@@ -14,7 +14,7 @@ use std::{
 mod process_message_future;
 mod resubscribe;
 
-use futures::future::{try_maybe_done, FusedFuture, MaybeDone, OptionFuture, TryMaybeDone};
+use futures::future::{try_maybe_done, FusedFuture, TryMaybeDone};
 pub use process_message_future::*;
 pub use resubscribe::*;
 use xmtp_api::ApiClientWrapper;
@@ -22,7 +22,6 @@ use xmtp_proto::prelude::XmtpMlsStreams;
 
 use super::process_message;
 use crate::subscriptions::stream_messages::GroupList;
-use crate::subscriptions::stream_messages::StreamGroupMessages;
 use crate::subscriptions::{process_message::ProcessedMessage, SubscribeError};
 use pin_project_lite::pin_project;
 use xmtp_common::types::GroupId;
@@ -107,22 +106,24 @@ impl<'a, Out> State<'a, Out> {
     /// ensure the state is in a waiting state before inserting a new state transition.
     /// If the state not waiting, the stream may
     /// overwrite an in-progress transition resulting in missing information.
-    fn ensure_waiting(&self) -> Result<(), StateError> {
+    fn ensure_valid_transition(&self) -> Result<(), StateError> {
         if !matches!(self.inner, TryMaybeDone::Future(InnerState::Waiting),) {
-            Err(StateError::InvalidStateTransition)
-        } else {
-            Ok(())
+            return Err(StateError::InvalidStateTransition);
         }
+        Ok(())
     }
 
     fn set_waiting(mut self: Pin<&mut Self>) -> Result<(), StateError> {
         // transition the state to Waiting
-        // ensure that the future was finished before overwriting
+        // ensure that the future has finished before overwriting
+        if !self.inner.is_terminated() {
+            return Err(StateError::InvalidStateTransition);
+        }
         self.as_mut()
             .project()
             .inner
             .set(try_maybe_done(InnerState::Waiting));
-        todo!()
+        Ok(())
     }
 
     /// Transition the state to process a new message
@@ -131,7 +132,7 @@ impl<'a, Out> State<'a, Out> {
         factory: impl process_message::Factory<'a>,
         message: group_message::V1,
     ) -> Result<(), StateError> {
-        self.ensure_waiting()?;
+        self.ensure_valid_transition()?;
         let mut this = self.as_mut().project();
         this.inner.set(try_maybe_done(InnerState::Processing {
             f: ProcessMessageFuture::new(factory, message),
@@ -149,7 +150,7 @@ impl<'a, Out> State<'a, Out> {
     where
         S: XmtpMlsStreams<GroupMessageStream = Out> + Send + Sync + 'a,
     {
-        self.ensure_waiting()?;
+        self.ensure_valid_transition()?;
         let mut this = self.as_mut().project();
         let fut = try_maybe_done(InnerState::Resubscribing {
             f: ResubscribeFuture::new(api, groups, group),
@@ -212,9 +213,76 @@ impl<'a, Out> FusedFuture for State<'a, Out> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_test::task::noop_context;
+    use rstest::*;
+    use std::task::Context;
+    use xmtp_api::test_utils::MockApiClient;
+    use xmtp_api::test_utils::MockGroupStream;
 
+    type MockApi = ApiClientWrapper<MockApiClient>;
+    #[fixture]
+    fn cx() -> Context<'static> {
+        noop_context()
+    }
+
+    #[fixture]
+    fn api() -> MockApi {
+        ApiClientWrapper::mock()
+    }
+
+    #[rstest]
     #[xmtp_common::test]
-    fn state_never_ends() {
-        todo!()
+    fn default_state_is_always_empty(mut cx: Context<'static>) {
+        let state = State::<()>::default();
+        futures::pin_mut!(state);
+
+        for _ in 0..25 {
+            let s = state.as_mut().poll(&mut cx);
+            assert!(matches!(s, Poll::Ready(Ok(StateTransitionResult::Empty))));
+        }
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    fn test_state_transitions_to_subscribe(mut cx: Context<'static>, mut api: MockApi) {
+        api.api_client
+            .expect_subscribe_group_messages()
+            .returning(|_| Ok(MockGroupStream::new()));
+        let state = State::default();
+        futures::pin_mut!(state);
+        state
+            .as_mut()
+            .resubscribe(&api, &GroupList::default(), vec![0].into())
+            .unwrap();
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(
+            s,
+            Poll::Ready(Ok(StateTransitionResult::Added(GroupAdded { .. })))
+        ));
+
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(s, Poll::Ready(Ok(StateTransitionResult::Empty))));
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    fn test_state_transitions_to_process(mut cx: Context<'static>, mut api: MockApi) {
+        api.api_client
+            .expect_subscribe_group_messages()
+            .returning(|_| Ok(MockGroupStream::new()));
+        let state = State::default();
+        futures::pin_mut!(state);
+        state
+            .as_mut()
+            .resubscribe(&api, &GroupList::default(), vec![0].into())
+            .unwrap();
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(
+            s,
+            Poll::Ready(Ok(StateTransitionResult::Added(GroupAdded { .. })))
+        ));
+
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(s, Poll::Ready(Ok(StateTransitionResult::Empty))));
     }
 }
