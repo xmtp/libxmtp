@@ -118,7 +118,7 @@ async fn force_add_member(
         .await
         .unwrap();
     sender_group
-        .send_welcomes(send_welcomes_action)
+        .send_welcomes(send_welcomes_action, None)
         .await
         .unwrap();
 }
