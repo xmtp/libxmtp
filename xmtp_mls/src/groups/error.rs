@@ -1,12 +1,13 @@
 use super::group_permissions::GroupMutablePermissionsError;
+use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
 use crate::{
-    client::ClientError, hpke::HpkeError, identity_updates::InstallationDiffError,
-    intents::ProcessIntentError, subscriptions::LocalEventError,
+    client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
+    subscriptions::LocalEventError,
 };
 use openmls::{
     error::LibraryError,
@@ -118,8 +119,6 @@ pub enum GroupError {
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]
     CommitValidation(#[from] CommitValidationError),
-    #[error("Hpke error: {0}")]
-    Hpke(#[from] HpkeError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
@@ -166,6 +165,10 @@ pub enum GroupError {
     NoWelcomesToSend,
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
+    #[error(transparent)]
+    WrapWelcome(#[from] WrapWelcomeError),
+    #[error(transparent)]
+    UnwrapWelcome(#[from] UnwrapWelcomeError),
 }
 
 impl From<SyncSummary> for GroupError {
@@ -232,7 +235,6 @@ impl RetryableError for GroupError {
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
-            Self::Hpke(hpke) => hpke.is_retryable(),
             Self::Identity(identity) => identity.is_retryable(),
             Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
@@ -252,6 +254,8 @@ impl RetryableError for GroupError {
             Self::Db(e) => e.is_retryable(),
             Self::MlsStore(e) => e.is_retryable(),
             Self::MetadataPermissionsError(e) => e.is_retryable(),
+            Self::WrapWelcome(e) => e.is_retryable(),
+            Self::UnwrapWelcome(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

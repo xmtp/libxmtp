@@ -565,6 +565,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             );
             decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
@@ -586,6 +587,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                welcome.wrapper_algorithm.into(),
             )?;
             let DecryptedWelcome {
                 staged_welcome,

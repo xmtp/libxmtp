@@ -35,3 +35,5 @@ diesel::table! {
     authority_id -> Nullable<Text>
   }
 }
+
+diesel::allow_tables_to_appear_in_same_query!(consent_records, conversation_list);
