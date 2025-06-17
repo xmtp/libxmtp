@@ -20,6 +20,29 @@ where
 {
     /// Creates a DM with the other client, sends a message, and ensures delivery,
     /// returning the created dm and sent message contents
+    pub async fn test_talk_in_new_group_with(
+        &self,
+        other: &Self,
+    ) -> Result<(MlsGroup<ApiClient, Db>, String), TestError> {
+        self.sync_welcomes().await?;
+        let group = self
+            .create_group_with_inbox_ids(&[other.inbox_id()], None, None)
+            .await?;
+
+        other.sync_welcomes().await?;
+        let other_group = other.group(&group.group_id)?;
+
+        // Since the other client synced welcomes before creating a DM
+        // the group_id should be the same.
+        assert_eq!(group.group_id, other_group.group_id);
+
+        let msg = group.test_can_talk_with(&other_group).await?;
+
+        Ok((group, msg))
+    }
+
+    /// Creates a DM with the other client, sends a message, and ensures delivery,
+    /// returning the created dm and sent message contents
     pub async fn test_talk_in_dm_with(
         &self,
         other: &Self,

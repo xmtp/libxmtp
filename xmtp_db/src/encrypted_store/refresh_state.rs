@@ -120,6 +120,29 @@ impl<C: ConnectionExt> DbConnection<C> {
         })?;
         Ok(num_updated == 1)
     }
+
+    pub fn insert_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError> {
+        use super::schema::refresh_state::dsl;
+
+        let new_state = RefreshState {
+            entity_id: entity_id.as_ref().to_vec(),
+            entity_kind,
+            cursor,
+        };
+
+        let num_inserted = self.raw_query_write(|conn| {
+            diesel::insert_into(dsl::refresh_state)
+                .values(&new_state)
+                .execute(conn)
+        })?;
+
+        Ok(num_inserted == 1)
+    }
 }
 
 #[cfg(test)]

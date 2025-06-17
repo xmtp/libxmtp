@@ -577,7 +577,7 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
 
-        provider.transaction(|provider| {
+        let group = provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
@@ -705,11 +705,19 @@ where
                 group.quietly_update_consent_state(ConsentState::Allowed)?;
             }
 
-            // Set the message cursor
-            provider.db().update_cursor(&group.group_id, EntityKind::Group, welcome.message_cursor as i64)?;
-
             Ok(group)
-        })
+        });
+
+        if let Ok(group) = &group {
+            // Set the message cursor
+            provider.db().insert_cursor(
+                &group.group_id,
+                EntityKind::Group,
+                welcome.message_cursor as i64,
+            )?;
+        }
+
+        group
     }
 
     pub(crate) fn create_and_insert_sync_group(
