@@ -69,12 +69,12 @@ async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]
-async fn force_add_member(
+async fn force_add_member<C: xmtp_db::ConnectionExt>(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
     sender_group: &ConcreteMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
-    sender_provider: &XmtpOpenMlsProvider,
+    sender_provider: &XmtpOpenMlsProvider<C>,
 ) {
     use crate::{
         configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,
@@ -1046,7 +1046,7 @@ async fn test_key_update() {
         .unwrap();
     assert_eq!(messages.len(), 2);
 
-    let provider: XmtpOpenMlsProvider = client.context.db().into();
+    let provider: XmtpOpenMlsProvider<_> = client.context.db().into();
     let pending_commit_is_none = group
         .load_mls_group_with_lock(&provider, |mls_group| {
             Ok(mls_group.pending_commit().is_none())
@@ -1208,7 +1208,7 @@ async fn test_add_missing_installations() {
 
     assert_eq!(group.members().await.unwrap().len(), 2);
 
-    let provider: XmtpOpenMlsProvider = amal.mls_provider();
+    let provider = amal.mls_provider();
     // Finished with setup
 
     // add a second installation for amal using the same wallet

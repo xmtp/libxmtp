@@ -37,7 +37,7 @@ impl xmtp_common::RetryableError for PlatformStorageError {
 
 #[derive(Clone)]
 pub struct WasmDb {
-    conn: super::DefaultConnection,
+    conn: Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>,
     opts: StorageOption,
 }
 
@@ -213,10 +213,18 @@ impl ConnectionExt for WasmDbConnection {
     fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
     }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = super::DefaultConnection;
+    type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()

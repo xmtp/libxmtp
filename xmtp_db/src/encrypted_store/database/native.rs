@@ -141,7 +141,7 @@ impl RetryableError for PlatformStorageError {
 /// Database used in `native` (everywhere but web)
 pub struct NativeDb {
     customizer: Box<dyn XmtpConnection>,
-    conn: Arc<super::DefaultConnectionInner>,
+    conn: Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>,
     opts: StorageOption,
 }
 
@@ -185,7 +185,7 @@ impl NativeDb {
 }
 
 impl XmtpDb for NativeDb {
-    type Connection = crate::DefaultConnection;
+    type Connection = Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
@@ -204,21 +204,11 @@ impl XmtpDb for NativeDb {
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
-        use PersistentOrMem::*;
-        match self.conn.as_ref() {
-            Persistent(p) => p.disconnect()?,
-            Mem(m) => m.disconnect()?,
-        };
-        Ok(())
+        self.conn.disconnect()
     }
 
     fn reconnect(&self) -> Result<(), ConnectionError> {
-        use PersistentOrMem::*;
-        match self.conn.as_ref() {
-            Persistent(p) => p.reconnect()?,
-            Mem(m) => m.reconnect()?,
-        };
-        Ok(())
+        self.conn.reconnect()
     }
 }
 
@@ -247,11 +237,11 @@ impl EphemeralDbConnection {
         })
     }
 
-    fn disconnect(&self) -> Result<(), PlatformStorageError> {
+    fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), PlatformStorageError> {
+    fn db_reconnect(&self) -> Result<(), PlatformStorageError> {
         let mut w = self.conn.lock();
         let conn = SqliteConnection::establish(":memory:")?;
         *w = conn;
@@ -294,6 +284,14 @@ impl ConnectionExt for EphemeralDbConnection {
 
     fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(self.db_disconnect()?)
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(self.db_reconnect()?)
     }
 }
 
@@ -340,14 +338,14 @@ impl NativeDbConnection {
         })
     }
 
-    fn disconnect(&self) -> Result<(), PlatformStorageError> {
+    fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::warn!("released sqlite database connection");
         let mut pool_guard = self.read.write();
         pool_guard.take();
         Ok(())
     }
 
-    fn reconnect(&self) -> Result<(), PlatformStorageError> {
+    fn db_reconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::info!("reconnecting sqlite database connection");
         let builder = Pool::builder().connection_customizer(self.customizer.clone());
 
@@ -428,6 +426,14 @@ impl ConnectionExt for NativeDbConnection {
 
     fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        Ok(self.db_disconnect()?)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        Ok(self.db_reconnect()?)
     }
 }
 

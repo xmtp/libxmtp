@@ -147,8 +147,8 @@ mod tests {
 
     use super::*;
 
-    fn find_key_package_private_key(
-        provider: &XmtpOpenMlsProvider,
+    fn find_key_package_private_key<C: xmtp_db::ConnectionExt>(
+        provider: &XmtpOpenMlsProvider<C>,
         hpke_public_key: &[u8],
         wrapper_algorithm: WrapperAlgorithm,
     ) -> Vec<u8> {

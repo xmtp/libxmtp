@@ -204,9 +204,9 @@ where
     }
 
     #[cfg(test)]
-    async fn v1_get_latest_sync_reply(
+    async fn v1_get_latest_sync_reply<C: xmtp_db::ConnectionExt>(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider<C>,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;

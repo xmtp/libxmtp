@@ -11,10 +11,23 @@ use parking_lot::Mutex;
 
 use crate::{ConnectionError, ConnectionExt, TransactionGuard};
 
+#[derive(Clone)]
 pub struct MockConnection {
     inner: Arc<Mutex<SqliteConnection>>,
     in_transaction: Arc<AtomicBool>,
     transaction_lock: Arc<Mutex<()>>,
+}
+
+impl std::fmt::Debug for MockConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MockConnection")
+    }
+}
+
+impl AsRef<MockConnection> for MockConnection {
+    fn as_ref(&self) -> &MockConnection {
+        self
+    }
 }
 
 // TODO: We should use diesels test transaction
@@ -53,6 +66,14 @@ impl ConnectionExt for MockConnection {
 
     fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        Ok(())
     }
 }
 /*
