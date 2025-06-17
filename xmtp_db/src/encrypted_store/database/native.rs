@@ -3,12 +3,11 @@ mod sqlcipher_connection;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use crate::{StorageError, TransactionGuard};
-use diesel::connection::TransactionManager;
 use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     Connection,
-    connection::{AnsiTransactionManager, SimpleConnection},
+    connection::SimpleConnection,
     r2d2::{self, CustomizeConnection, PooledConnection},
 };
 use parking_lot::{Mutex, RwLock};
@@ -186,12 +185,13 @@ impl NativeDb {
 
 impl XmtpDb for NativeDb {
     type Connection = Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 
@@ -215,7 +215,6 @@ impl XmtpDb for NativeDb {
 pub struct EphemeralDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
     in_transaction: Arc<AtomicBool>,
-    global_transaction_lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Debug for EphemeralDbConnection {
@@ -233,7 +232,6 @@ impl EphemeralDbConnection {
         Ok(Self {
             conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
             in_transaction: Arc::new(AtomicBool::new(false)),
-            global_transaction_lock: Arc::new(Mutex::new(())),
         })
     }
 
@@ -252,14 +250,10 @@ impl EphemeralDbConnection {
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        let guard = self.global_transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
-            _mutex_guard: guard,
             in_transaction: self.in_transaction.clone(),
         })
     }
@@ -298,7 +292,6 @@ impl ConnectionExt for EphemeralDbConnection {
 pub struct NativeDbConnection {
     pub(super) read: Arc<RwLock<Option<Pool>>>,
     pub(super) write: Arc<Mutex<SqliteConnection>>,
-    global_transaction_lock: Arc<Mutex<()>>,
     in_transaction: Arc<AtomicBool>,
     path: String,
     customizer: Box<dyn XmtpConnection>,
@@ -331,7 +324,6 @@ impl NativeDbConnection {
         Ok(Self {
             read: Arc::new(RwLock::new(Some(read))),
             write,
-            global_transaction_lock: Arc::new(Mutex::new(())),
             in_transaction: Arc::new(AtomicBool::new(false)),
             path: path.to_string(),
             customizer,
@@ -370,17 +362,13 @@ impl NativeDbConnection {
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
         if self.in_transaction.load(Ordering::SeqCst) {
             tracing::warn!("already in transaction, acquiring lock..");
         }
-        let guard = self.global_transaction_lock.lock();
-        let mut write = self.write.lock();
-        AnsiTransactionManager::begin_transaction(&mut *write)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
-            _mutex_guard: guard,
             in_transaction: self.in_transaction.clone(),
         })
     }
@@ -416,10 +404,6 @@ impl ConnectionExt for NativeDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let _guard;
-        if !self.in_transaction.load(Ordering::SeqCst) {
-            _guard = self.global_transaction_lock.lock();
-        }
         let mut locked = self.write.lock();
         fun(&mut locked).map_err(ConnectionError::from)
     }

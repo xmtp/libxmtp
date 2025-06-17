@@ -1,13 +1,14 @@
 #![allow(unused)]
 
-use super::{build_with_verifier, FullXmtpClient};
+use super::FullXmtpClient;
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     configuration::DeviceSyncUrls,
+    context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
-    utils::VersionInfo,
+    utils::{register_client, TestClient, TestMlsStorage, VersionInfo},
     worker::metrics::WorkerMetrics,
     Client,
 };
@@ -36,7 +37,10 @@ use xmtp_api_http::{constants::ApiUrls, LOCALHOST_ADDRESS};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
-use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
+use xmtp_db::{
+    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore, MlsProviderExt,
+    XmtpOpenMlsProvider,
+};
 use xmtp_id::{
     associations::{
         ident,
@@ -51,6 +55,7 @@ use xmtp_proto::prelude::XmtpTestClient;
 
 pub static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
 pub static TOXI_PORT: AtomicUsize = AtomicUsize::new(21100);
+type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -59,8 +64,7 @@ where
     Owner: InboxOwner,
 {
     pub builder: TesterBuilder<Owner>,
-    pub client: Arc<Client>,
-    pub provider: Arc<XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>,
+    pub client: Client,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     pub proxy: Option<Proxy>,
@@ -131,7 +135,6 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-
         let mut api_addr = format!("localhost:{}", ClientBuilder::local_port());
         let mut proxy = None;
 
@@ -163,17 +166,17 @@ where
         }
 
         let api_client = ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
-        let client = build_with_verifier(
-            &self.owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            self.sync_url.as_deref(),
-            Some(self.sync_mode),
-            self.version.clone(),
-            Some(!self.events),
-        )
-        .await;
-        let client = Arc::new(client);
+        let client = ClientBuilder::new_test_builder(&self.owner)
+            .await
+            .api_client(api_client)
+            .with_device_sync_worker_mode(Some(self.sync_mode))
+            .with_device_sync_server_url(self.sync_url.clone())
+            .maybe_version(self.version.clone())
+            .with_disable_events(Some(!self.events))
+            .build()
+            .await
+            .unwrap();
+        register_client(&client, &self.owner).await;
         if let Some(name) = &self.name {
             replace.add(
                 &client.installation_public_key().to_string(),
@@ -181,7 +184,6 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-        let provider = client.mls_provider();
         let worker = client.context.sync_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {
@@ -193,7 +195,6 @@ where
         let mut tester = Tester {
             builder: self.clone(),
             client,
-            provider: Arc::new(provider),
             worker,
             replace,
             stream_handle: None,
@@ -218,7 +219,7 @@ where
 
     fn stream(&mut self) {
         let handle = FullXmtpClient::stream_all_messages_with_callback(
-            self.client.clone(),
+            self.client.context.clone(),
             None,
             None,
             |_| {},
@@ -228,10 +229,8 @@ where
         self.stream_handle = Some(handle);
     }
 
-    fn provider(
-        &self,
-    ) -> XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection> {
-        self.client.mls_provider()
+    fn provider(&self) -> impl MlsProviderExt + use<'_, Owner> {
+        self.client.context.mls_provider()
     }
 }
 

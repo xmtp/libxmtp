@@ -171,6 +171,8 @@ pub enum GroupError {
     UnwrapWelcome(#[from] UnwrapWelcomeError),
     #[error("Result was not initialized")]
     UninitializedResult,
+    #[error(transparent)]
+    Diesel(#[from] xmtp_db::diesel::result::Error),
 }
 
 impl From<SyncSummary> for GroupError {
@@ -258,6 +260,7 @@ impl RetryableError for GroupError {
             Self::MetadataPermissionsError(e) => e.is_retryable(),
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
+            Self::Diesel(e) => e.is_retryable(),
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

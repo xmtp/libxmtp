@@ -1,15 +1,12 @@
 use futures::StreamExt;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
-use tokio::sync::OnceCell;
 use xmtp_api::ApiError;
-use xmtp_db::{DbConnection, StorageError, XmtpDb};
-use xmtp_proto::{
-    api_client::trait_impls::XmtpApi, xmtp::mls::message_contents::PlaintextCommitLogEntry,
-};
+use xmtp_db::{prelude::*, DbQuery, StorageError, XmtpDb};
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 
@@ -17,14 +14,13 @@ use crate::{
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
-pub struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::CommitLog
@@ -63,10 +59,9 @@ impl NeedsDbReconnect for CommitLogError {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for CommitLogWorker<ApiClient, Db>
+impl<Context> Worker for CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static + Send,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::CommitLog
@@ -79,38 +74,28 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 }
 
-pub struct CommitLogWorker<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    #[allow(dead_code)]
-    init: OnceCell<()>,
+pub struct CommitLogWorker<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> CommitLogWorker<ApiClient, Db>
+impl<Context> CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        Self {
-            context,
-            init: OnceCell::new(),
-        }
+    pub fn new(context: Context) -> Self {
+        Self { context }
     }
 }
 
-impl<ApiClient, Db> CommitLogWorker<ApiClient, Db>
+impl<Context> CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
@@ -139,8 +124,7 @@ where
     }
 
     async fn publish_commit_logs_to_remote(&mut self) -> Result<(), CommitLogError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
+        let conn = &self.context.db();
 
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
         let conversation_ids_for_remote_log = conn.get_conversation_ids_for_remote_log()?;
@@ -191,7 +175,7 @@ where
     //  If so - map to the `PublishedCommitLog` cursor in `cursor_map`, otherwise map to None
     fn map_conversation_to_commit_log_cursor(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         conversation_ids: Vec<Vec<u8>>,
     ) -> HashMap<Vec<u8>, Option<i64>> {
         let mut cursor_map: HashMap<Vec<u8>, Option<i64>> = HashMap::new();

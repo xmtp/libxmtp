@@ -35,6 +35,8 @@ async fn test_remote_is_valid_signature(#[future] docker_smart_wallet: SmartWall
         .await
         .local_client()
         .await
+        .default_mls_store()
+        .unwrap()
         .with_remote_verifier()
         .unwrap()
         .build()

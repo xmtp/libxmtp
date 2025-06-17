@@ -1,11 +1,12 @@
 use crate::utils::test::TestClient as TestApiClient;
+use crate::utils::TestXmtpMlsContext;
 use crate::{client::Client, configuration::DeviceSyncUrls, identity::IdentityStrategy};
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{associations::builder::SignatureRequest, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-pub type BenchClient = Client<TestApiClient>;
+pub type BenchClient = Client<TestXmtpMlsContext>;
 
 /// Create a new, yet-unregistered client
 pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, PrivateKeySigner) {
@@ -45,6 +46,8 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
         .await
         .api_client(api_client)
         .with_remote_verifier()
+        .unwrap()
+        .default_mls_store()
         .unwrap();
 
     if history_sync {
@@ -57,7 +60,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
 
 /// Add ECDSA Signature to a client
 pub async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
-    let mut signature_request = client.context().signature_request().unwrap();
+    let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
     signature_request

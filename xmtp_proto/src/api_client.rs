@@ -33,69 +33,29 @@ pub trait XmtpTestClient {
     fn create_dev() -> Self::Builder;
 }
 
-pub type BoxedXmtpApi<Error> = Box<dyn trait_impls::BoxableXmtpApi<Error>>;
-pub type ArcedXmtpApi<Error> = Arc<dyn trait_impls::BoxableXmtpApi<Error>>;
-
-pub use trait_impls::*;
+pub type BoxedXmtpApi<Error> = Box<dyn BoxableXmtpApi<Error>>;
+pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
 
 /// XMTP Api Super Trait
 /// Implements all Trait Network APIs for convenience.
-pub mod trait_impls {
-    #[allow(unused)]
-    #[cfg(any(test, feature = "test-utils"))]
-    use super::XmtpTestClient;
-    pub use inner::*;
-
-    // native, release
-    #[cfg(not(target_arch = "wasm32"))]
-    mod inner {
-        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
-
-        pub trait BoxableXmtpApi<Err>
-        where
-            Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync,
-        {
-        }
-
-        impl<T, Err> BoxableXmtpApi<Err> for T where
-            T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync + ?Sized
-        {
-        }
-
-        pub trait XmtpApi
-        where
-            Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
-        {
-        }
-
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync {}
-    }
-
-    // wasm32, release
-    #[cfg(target_arch = "wasm32")]
-    mod inner {
-
-        pub trait BoxableXmtpApi<Err>
-        where
-            Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err>,
-        {
-        }
-
-        impl<T, Err> BoxableXmtpApi<Err> for T where
-            T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + ?Sized
-        {
-        }
-
-        use crate::api_client::{XmtpIdentityClient, XmtpMlsClient};
-        pub trait XmtpApi
-        where
-            Self: XmtpMlsClient + XmtpIdentityClient,
-        {
-        }
-
-        impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
-    }
+pub trait BoxableXmtpApi<Err>
+where
+    Self: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync,
+{
 }
+
+impl<T, Err> BoxableXmtpApi<Err> for T where
+    T: XmtpMlsClient<Error = Err> + XmtpIdentityClient<Error = Err> + Send + Sync + ?Sized
+{
+}
+
+pub trait XmtpApi
+where
+    Self: XmtpMlsClient + XmtpIdentityClient + Send + Sync,
+{
+}
+
+impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + Send + Sync {}
 
 #[derive(Clone, Default, Debug)]
 pub struct ApiStats {

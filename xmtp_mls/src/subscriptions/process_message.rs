@@ -8,13 +8,11 @@
 pub mod factory;
 
 use super::Result;
-use crate::context::XmtpMlsLocalContext;
+use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
 use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
-use std::sync::Arc;
-use xmtp_api::XmtpApi;
 use xmtp_common::FutureWrapper;
-use xmtp_db::{group_message::StoredGroupMessage, XmtpDb};
+use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::group_message;
 
 /// Creates a future that processes sa single message
@@ -24,10 +22,9 @@ pub trait ProcessFutureFactory<'a> {
     fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>>;
 }
 
-impl<'a, ApiClient, Db> ProcessFutureFactory<'a> for ProcessMessageFuture<ApiClient, Db>
+impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
 where
-    ApiClient: XmtpApi + 'a,
-    Db: XmtpDb + 'a,
+    Context: Send + Sync + XmtpSharedContext + 'a,
 {
     fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>> {
         let group_db = GroupDb::new(self.context.clone());
@@ -45,11 +42,11 @@ where
 }
 
 /// Future that processes a group message from the network
-pub struct ProcessMessageFuture<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct ProcessMessageFuture<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> Clone for ProcessMessageFuture<ApiClient, Db> {
+impl<Context: Clone> Clone for ProcessMessageFuture<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -65,10 +62,9 @@ pub struct ProcessedMessage {
     pub tried_to_process: u64,
 }
 
-impl<ApiClient, Db> ProcessMessageFuture<ApiClient, Db>
+impl<Context> ProcessMessageFuture<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Creates a new `ProcessMessageFuture` to handle processing of an MLS group message.
     ///
@@ -88,9 +84,7 @@ where
     /// let future = ProcessMessageFuture::new(client, incoming_message)?;
     /// let processed = future.process().await?;
     /// ```
-    pub fn new(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> ProcessMessageFuture<ApiClient, Db> {
+    pub fn new(context: Context) -> ProcessMessageFuture<Context> {
         Self { context }
     }
 }

@@ -2,6 +2,9 @@
 
 use crate::{DbConnection, EncryptedMessageStore, StorageOption};
 mod impls;
+mod mls_memory_storage;
+
+pub use mls_memory_storage::*;
 
 pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 
@@ -37,6 +40,12 @@ impl<Db> EncryptedMessageStore<Db> {
     /// just a no-op on wasm32
     #[cfg(target_arch = "wasm32")]
     pub fn remove_db_files<P: AsRef<str>>(_path: P) {}
+}
+
+impl Clone for crate::MockXmtpDb {
+    fn clone(&self) -> Self {
+        panic!("clone is not allowed")
+    }
 }
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]

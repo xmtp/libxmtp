@@ -5,10 +5,9 @@ use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(super) fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let provider = self.mls_provider();
@@ -23,8 +22,7 @@ where
     }
 
     pub(super) fn syncable_messages(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
-        let provider = self.mls_provider();
-        let groups = provider.db().find_groups(GroupQueryArgs::default())?;
+        let groups = self.context.db().find_groups(GroupQueryArgs::default())?;
 
         let mut all_messages = vec![];
         for StoredGroup { id, .. } in groups.into_iter() {
@@ -85,8 +83,7 @@ pub(crate) mod tests {
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        let amal_b_provider = amal_b.mls_provider();
-        let amal_b_conn = amal_b_provider.db();
+        let amal_b_conn = amal_b.context.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
         assert_eq!(groups_b.len(), 0);
@@ -162,8 +159,7 @@ pub(crate) mod tests {
 
         // Create a second installation for amal.
         let amal_b = ClientBuilder::new_test_client_with_history(&wallet, HISTORY_SYNC_URL).await;
-        let amal_b_provider = amal_b.mls_provider();
-        let amal_b_conn = amal_b_provider.db();
+        let amal_b_conn = amal_b.context.db();
 
         let groups_b = amal_b.syncable_groups().unwrap();
         assert_eq!(groups_b.len(), 0);

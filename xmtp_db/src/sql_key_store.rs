@@ -1,6 +1,9 @@
 use xmtp_common::{RetryableError, retryable};
 
-use crate::{ConnectionExt, DbConnection};
+use crate::{
+    ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider,
+    sql_key_store::transactions::MutableTransactionConnection,
+};
 
 use bincode;
 use diesel::{
@@ -10,6 +13,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+mod transactions;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -26,27 +30,47 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub struct SqlKeyStore<C> {
-    // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: DbConnection<C>,
+impl MlsKeyStore for diesel::SqliteConnection {
+    type Store<'a>
+        = SqlKeyStore<MutableTransactionConnection<'a, Self>>
+    where
+        Self: 'a;
+
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a> {
+        SqlKeyStore::new_transactional(self)
+    }
 }
 
-impl<C> SqlKeyStore<C> {
-    pub fn new(conn: C) -> Self {
-        Self {
-            conn: DbConnection::<_>::new(conn),
+#[derive(Clone)]
+pub struct SqlKeyStore<T> {
+    // Directly wrap the DbConnection which is a SqliteConnection in this case
+    conn: T,
+}
+
+impl<'a, A> SqlKeyStore<A> {
+    pub fn new(conn: A) -> Self {
+        Self { conn }
+    }
+
+    pub fn new_transactional(conn: &'a mut A) -> SqlKeyStore<MutableTransactionConnection<'a, A>> {
+        SqlKeyStore {
+            conn: MutableTransactionConnection::new(conn),
         }
     }
+}
 
-    pub fn db(&self) -> &DbConnection<C> {
-        &self.conn
-    }
-
-    pub fn with_connection(db: DbConnection<C>) -> Self {
-        Self { conn: db }
+impl<D, C> From<D> for SqlKeyStore<D>
+where
+    D: crate::DbQuery<C>,
+    D: ConnectionExt<Connection = C>,
+    C: ConnectionExt,
+{
+    fn from(value: D) -> Self {
+        Self { conn: value }
     }
 }
 
+// refactor to use diesel directly
 impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
@@ -55,7 +79,7 @@ where
         &self,
         storage_key: &Vec<u8>,
     ) -> Result<Vec<StorageData>, crate::ConnectionError> {
-        self.db().raw_query_read(|conn| {
+        self.conn.raw_query_read(|conn| {
             sql_query(SELECT_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -68,7 +92,7 @@ where
         storage_key: &Vec<u8>,
         value: &[u8],
     ) -> Result<usize, crate::ConnectionError> {
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(REPLACE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -82,7 +106,7 @@ where
         storage_key: &Vec<u8>,
         modified_data: &Vec<u8>,
     ) -> Result<usize, crate::ConnectionError> {
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(UPDATE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&modified_data)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
@@ -221,7 +245,7 @@ where
         key: &[u8],
     ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
-        self.db().raw_query_write(|conn| {
+        self.conn.raw_query_write(|conn| {
             sql_query(DELETE_QUERY)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(VERSION as i32)
@@ -232,6 +256,7 @@ where
 }
 
 /// Errors thrown by the key store.
+/// General error type for Mls Storage Trait
 #[derive(thiserror::Error, Debug)]
 pub enum SqlKeyStoreError {
     #[error("The key store does not allow storing serialized values.")]
@@ -811,7 +836,7 @@ where
 
         let query = "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
 
-        let data: Vec<StorageData> = self.db().raw_query_read(|conn| {
+        let data: Vec<StorageData> = self.conn.raw_query_read(|conn| {
             sql_query(query)
                 .bind::<diesel::sql_types::Binary, _>(&storage_key)
                 .bind::<diesel::sql_types::Integer, _>(CURRENT_VERSION as i32)
@@ -1098,7 +1123,8 @@ pub(crate) mod tests {
     async fn list_append_remove() {
         let store = crate::TestDb::create_persistent_store(None).await;
         let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(mls_store);
         let group_id = GroupId::random(provider.rand());
         let proposals = (0..10)
             .map(|i| Proposal(format!("TestProposal{i}").as_bytes().to_vec()))
@@ -1175,7 +1201,8 @@ pub(crate) mod tests {
     async fn group_state() {
         let store = crate::TestDb::create_persistent_store(None).await;
         let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let store = SqlKeyStore::new(conn);
+        let provider = XmtpOpenMlsProvider::new(store);
 
         #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone, Copy)]
         struct GroupState(usize);
