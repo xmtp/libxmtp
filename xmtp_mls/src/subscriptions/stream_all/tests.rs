@@ -3,11 +3,14 @@ use super::*;
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-use crate::utils::{
-    fixtures::{bo, eve},
-    FullXmtpClient,
-};
 use crate::{assert_msg, builder::ClientBuilder};
+use crate::{
+    tester,
+    utils::{
+        fixtures::{bo, eve},
+        FullXmtpClient,
+    },
+};
 use futures::StreamExt;
 use rstest::*;
 use std::sync::Arc;
@@ -391,8 +394,7 @@ async fn stream_messages_keeps_track_of_cursor(
     #[future] bo: FullXmtpClient,
     #[future] eve: FullXmtpClient,
 ) {
-    let wallet = generate_local_wallet();
-    let alice = Arc::new(ClientBuilder::new_test_client_no_sync(&wallet).await);
+    tester!(alice);
     let group = alice.create_group(None, None).unwrap();
 
     group
@@ -425,7 +427,8 @@ async fn stream_messages_keeps_track_of_cursor(
     }
     group.sync().await.unwrap();
     // create a new installation for alice
-    let alice_2 = ClientBuilder::new_test_client_no_sync(&wallet).await;
+    tester!(alice_2, from: alice);
+
     let mut s = StreamAllMessages::new(&alice_2.context, None, None)
         .await
         .unwrap();
