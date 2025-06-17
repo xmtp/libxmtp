@@ -31,6 +31,7 @@ use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
 use prost::Message;
 use std::sync::Arc;
+use std::time::Duration;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::time::now_ns;
 use xmtp_common::StreamHandle as _;
@@ -133,6 +134,8 @@ async fn test_send_message() {
         .api()
         .query_group_messages(group.group_id, None)
         .await?;
+
+    tracing::info!("The messages: {messages:?}");
 
     // KP update and the msg itself
     assert_eq!(messages.len(), 2);
