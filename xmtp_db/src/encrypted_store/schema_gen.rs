@@ -1,7 +1,5 @@
 // @generated automatically by Diesel CLI.
 
-use super::schema::conversation_list;
-
 diesel::table! {
     association_state (inbox_id, sequence_id) {
         inbox_id -> Text,
@@ -26,6 +24,8 @@ diesel::table! {
         group_id -> Nullable<Binary>,
         event -> Text,
         details -> Nullable<Binary>,
+        level -> Integer,
+        icon -> Nullable<Text>,
     }
 }
 
@@ -135,6 +135,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    local_commit_log (rowid) {
+        rowid -> Integer,
+        group_id -> Binary,
+        commit_sequence_id -> BigInt,
+        last_epoch_authenticator -> Binary,
+        commit_result -> Integer,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
+        sender_inbox_id -> Nullable<Text>,
+        sender_installation_id -> Nullable<Binary>,
+        commit_type -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -164,6 +179,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_commit_log (rowid) {
+        rowid -> Integer,
+        log_sequence_id -> BigInt,
+        group_id -> Binary,
+        commit_sequence_id -> BigInt,
+        commit_result -> Integer,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
     user_preferences (id) {
         id -> Integer,
         hmac_key -> Nullable<Binary>,
@@ -186,10 +213,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity_cache,
     identity_updates,
     key_package_history,
+    local_commit_log,
     openmls_key_store,
     openmls_key_value,
     processed_device_sync_messages,
     refresh_state,
+    remote_commit_log,
     user_preferences,
-    conversation_list
 );
