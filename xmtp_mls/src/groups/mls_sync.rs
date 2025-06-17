@@ -10,7 +10,7 @@ use super::{
     GroupError, HmacKey, MlsGroup,
 };
 use crate::{
-    client::ClientError, mls_store::MlsStore,
+    client::ClientError, groups::mls_ext::MlsGroupReload, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
@@ -578,11 +578,11 @@ where
                         Err(err) => {
                             tracing::error!(
                                 inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            cursor,
-                            intent.id,
-                            intent.kind = %intent.kind,
+                                installation_id = %self.context.installation_id(),
+                                group_id = hex::encode(&self.group_id),
+                                cursor,
+                                intent.id,
+                                intent.kind = %intent.kind,
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
@@ -726,9 +726,7 @@ where
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
-        *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
-            GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)),
-        )?;
+        mls_group.reload(&provider)?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -1193,7 +1191,6 @@ where
                     let mut identifier = MessageIdentifierBuilder::from(envelope);
                     identifier.intent_kind(intent.kind);
                     if intent.state == IntentState::Error{
-                        tracing::error!("### Intent Error, skip it!");
                         return identifier.build()
                     }
                     let intent_id = intent.id;
@@ -1855,11 +1852,7 @@ where
                 let (bundle, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group =
-                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                                .ok_or(GroupMessageProcessingError::Storage(
-                                    StorageError::NotFound(NotFound::MlsGroup),
-                                ))?;
+                        openmls_group.reload(&provider)?;
                         return Err(e);
                     }
                 };
@@ -1892,11 +1885,7 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group =
-                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                                .ok_or(GroupMessageProcessingError::Storage(
-                                    StorageError::NotFound(NotFound::MlsGroup),
-                                ))?;
+                        openmls_group.reload(&provider)?;
                         return Err(e);
                     }
                 };
@@ -1932,11 +1921,7 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group =
-                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                                .ok_or(GroupMessageProcessingError::Storage(
-                                    StorageError::NotFound(NotFound::MlsGroup),
-                                ))?;
+                        openmls_group.reload(&provider)?;
                         return Err(e);
                     }
                 };
@@ -1972,11 +1957,7 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group =
-                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                                .ok_or(GroupMessageProcessingError::Storage(
-                                    StorageError::NotFound(NotFound::MlsGroup),
-                                ))?;
+                        openmls_group.reload(&provider)?;
                         return Err(e);
                     }
                 };
@@ -2539,10 +2520,7 @@ where
     let (commit, post_commit_action, staged_commit) = match result {
         Ok(res) => res,
         Err(e) => {
-            *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                .ok_or(GroupMessageProcessingError::Storage(
-                    StorageError::NotFound(NotFound::MlsGroup),
-                ))?;
+            openmls_group.reload(&provider)?;
             return Err(e);
         }
     };
