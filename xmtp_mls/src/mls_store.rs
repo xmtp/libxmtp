@@ -109,7 +109,7 @@ where
             .fetch_key_packages(installation_ids.clone())
             .await?;
 
-        let crypto_provider = XmtpOpenMlsProvider::new_crypto();
+        let crypto_provider = XmtpOpenMlsProvider::<()>::new_crypto();
 
         let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
             key_package_results

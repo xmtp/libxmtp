@@ -26,7 +26,7 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub struct SqlKeyStore<C = crate::DefaultConnection> {
+pub struct SqlKeyStore<C> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
     conn: DbConnection<C>,
 }
@@ -40,6 +40,10 @@ impl<C> SqlKeyStore<C> {
 
     pub fn db(&self) -> &DbConnection<C> {
         &self.conn
+    }
+
+    pub fn with_connection(db: DbConnection<C>) -> Self {
+        Self { conn: db }
     }
 }
 

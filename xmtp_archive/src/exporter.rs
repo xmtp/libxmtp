@@ -40,9 +40,9 @@ pub(super) enum Stage {
 
 impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_to_file(
+    pub async fn export_to_file<C: 'static + Send + Sync + ConnectionExt>(
         options: BackupOptions,
-        provider: XmtpOpenMlsProvider,
+        provider: XmtpOpenMlsProvider<C>,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
     ) -> Result<(), crate::ArchiveError> {

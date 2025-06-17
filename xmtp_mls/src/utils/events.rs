@@ -16,7 +16,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events, EVENTS_ENABLED},
-    StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+    ConnectionExt, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -359,8 +359,8 @@ where
     }
 }
 
-pub async fn upload_debug_archive(
-    provider: &Arc<XmtpOpenMlsProvider>,
+pub async fn upload_debug_archive<C: 'static + Send + Sync + ConnectionExt>(
+    provider: &Arc<XmtpOpenMlsProvider<C>>,
     device_sync_server_url: Option<impl AsRef<str>>,
 ) -> Result<String, DeviceSyncError> {
     let provider = provider.clone();

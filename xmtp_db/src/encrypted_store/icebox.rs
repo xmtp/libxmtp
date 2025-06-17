@@ -1,4 +1,4 @@
-use super::db_connection::DbConnection;
+use super::{ConnectionExt, db_connection::DbConnection};
 use crate::{impl_store, schema::icebox};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -28,8 +28,8 @@ pub struct Icebox {
 impl_store!(Icebox, icebox);
 
 impl Icebox {
-    pub fn backward_dep_chain(
-        conn: &DbConnection,
+    pub fn backward_dep_chain<C: ConnectionExt>(
+        conn: &DbConnection<C>,
         sequence_id: i64,
         originator_id: i64,
     ) -> Result<Vec<Self>, crate::ConnectionError> {
@@ -59,8 +59,8 @@ impl Icebox {
         conn.raw_query_read(|conn| query.load(conn))
     }
 
-    pub fn forward_dep_chain(
-        conn: &DbConnection,
+    pub fn forward_dep_chain<C: ConnectionExt>(
+        conn: &DbConnection<C>,
         sequence_id: i64,
         originator_id: i64,
     ) -> Result<Vec<Self>, crate::ConnectionError> {

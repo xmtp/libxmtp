@@ -47,7 +47,7 @@ where
 {
     pub builder: TesterBuilder<Owner>,
     pub client: Arc<Client>,
-    pub provider: Arc<XmtpOpenMlsProvider>,
+    pub provider: Arc<XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     /// Replacement names for this tester
@@ -179,6 +179,12 @@ where
         );
         let handle = Box::new(handle) as Box<_>;
         self.stream_handle = Some(handle);
+    }
+
+    fn provider(
+        &self,
+    ) -> XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection> {
+        self.client.mls_provider()
     }
 }
 

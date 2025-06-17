@@ -287,4 +287,12 @@ where
     fn is_in_transaction(&self) -> bool {
         self.db.is_in_transaction()
     }
+
+    fn disconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+        self.db.disconnect()
+    }
+
+    fn reconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+        self.db.reconnect()
+    }
 }

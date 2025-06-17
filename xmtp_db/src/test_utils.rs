@@ -44,6 +44,8 @@ pub use wasm::*;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 mod wasm {
     use super::*;
+    use crate::{PersistentOrMem, WasmDbConnection};
+    use std::sync::Arc;
 
     impl XmtpTestDb for super::TestDb {
         async fn create_ephemeral_store() -> EncryptedMessageStore<crate::DefaultDatabase> {
@@ -74,7 +76,9 @@ mod wasm {
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(&crate::DbConnection) -> R,
+        F: FnOnce(
+            &crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
+        ) -> R,
     {
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
             .await
@@ -87,7 +91,9 @@ mod wasm {
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection_async<F, T, R>(fun: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> T,
+        F: FnOnce(
+            crate::DbConnection<Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>>,
+        ) -> T,
         T: Future<Output = R>,
     {
         let db = crate::database::WasmDb::new(&StorageOption::Ephemeral)
@@ -119,6 +125,10 @@ mod wasm {
 pub use native::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod native {
+    use std::sync::Arc;
+
+    use crate::{EphemeralDbConnection, NativeDbConnection, PersistentOrMem};
+
     use super::*;
 
     impl XmtpTestDb for super::TestDb {
@@ -144,7 +154,9 @@ mod native {
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(&crate::DbConnection) -> R,
+        F: FnOnce(
+            &crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,
+        ) -> R,
     {
         let opts = StorageOption::Ephemeral;
         let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
@@ -156,7 +168,9 @@ mod native {
     /// Test harness that loads an Ephemeral store.
     pub async fn with_connection_async<F, T, R>(fun: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> T,
+        F: FnOnce(
+            crate::DbConnection<Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>>,
+        ) -> T,
         T: Future<Output = R>,
     {
         let opts = StorageOption::Ephemeral;
