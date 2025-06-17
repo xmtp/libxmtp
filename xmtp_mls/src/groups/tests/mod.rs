@@ -898,7 +898,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     let bo_group = bo_groups.first().unwrap();
     bo_group.sync().await.unwrap();
     let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(bo_msgs.len(), 3);
+    assert_eq!(bo_msgs.len(), 2);
     assert_eq!(bo_msgs[1].decrypted_message_bytes, message_from_alix);
 
     let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();

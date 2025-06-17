@@ -317,23 +317,45 @@ impl<C: ConnectionExt> DbConnection<C> {
             query = query.limit(limit);
         }
 
-        // Run the query
         let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
 
-        // Separate out current group from others for post-filtering
-        let (current_group_msgs, other_group_msgs): (Vec<_>, Vec<_>) = messages
-            .into_iter()
-            .partition(|msg| msg.group_id == group_id);
+        // Check if this is a DM group
+        let is_dm = self.raw_query_read(|conn| {
+            groups_dsl::groups
+                .filter(groups_dsl::id.eq(group_id))
+                .select(groups_dsl::conversation_type)
+                .first::<ConversationType>(conn)
+        })? == ConversationType::Dm;
 
-        // Retain all messages from current group
-        // From other groups, filter out GroupUpdatedCodec messages
-        let stitched = current_group_msgs.into_iter().chain(
-            other_group_msgs
-                .into_iter()
-                .filter(|msg| msg.content_type != ContentType::GroupUpdated),
-        );
+        // If DM, retain only one GroupUpdated message (the oldest)
+        let messages = if is_dm {
+            let mut grouped: Vec<StoredGroupMessage> = Vec::with_capacity(messages.len());
+            let mut oldest_group_updated: Option<StoredGroupMessage> = None;
 
-        Ok(stitched.collect())
+            for msg in messages {
+                if msg.content_type == ContentType::GroupUpdated {
+                    if oldest_group_updated
+                        .as_ref()
+                        .map(|existing| msg.sent_at_ns < existing.sent_at_ns)
+                        .unwrap_or(true)
+                    {
+                        oldest_group_updated = Some(msg);
+                    }
+                } else {
+                    grouped.push(msg);
+                }
+            }
+
+            if let Some(msg) = oldest_group_updated {
+                grouped.push(msg);
+            }
+
+            grouped
+        } else {
+            messages
+        };
+
+        Ok(messages)
     }
 
     pub fn group_messages_paged(
