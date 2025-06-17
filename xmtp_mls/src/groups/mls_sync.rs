@@ -1877,7 +1877,7 @@ where
                                 .ok_or(GroupMessageProcessingError::Storage(
                                     StorageError::NotFound(NotFound::MlsGroup),
                                 ))?;
-                        return Err(e.into());
+                        return Err(e);
                     }
                 };
                 Ok(Some(PublishIntentData {
@@ -1914,7 +1914,7 @@ where
                                 .ok_or(GroupMessageProcessingError::Storage(
                                     StorageError::NotFound(NotFound::MlsGroup),
                                 ))?;
-                        return Err(e.into());
+                        return Err(e);
                     }
                 };
 
@@ -1954,7 +1954,7 @@ where
                                 .ok_or(GroupMessageProcessingError::Storage(
                                     StorageError::NotFound(NotFound::MlsGroup),
                                 ))?;
-                        return Err(e.into());
+                        return Err(e);
                     }
                 };
 
@@ -1994,7 +1994,7 @@ where
                                 .ok_or(GroupMessageProcessingError::Storage(
                                     StorageError::NotFound(NotFound::MlsGroup),
                                 ))?;
-                        return Err(e.into());
+                        return Err(e);
                     }
                 };
 
@@ -2560,7 +2560,7 @@ where
                 .ok_or(GroupMessageProcessingError::Storage(
                     StorageError::NotFound(NotFound::MlsGroup),
                 ))?;
-            return Err(e.into());
+            return Err(e);
         }
     };
 

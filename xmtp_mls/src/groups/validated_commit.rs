@@ -1,3 +1,14 @@
+use super::{
+    group_membership::{GroupMembership, MembershipDiff},
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
+    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+};
+use crate::{
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
+};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -11,25 +22,11 @@ use serde::Serialize;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
+use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{associations::MemberIdentifier, InboxId};
-use xmtp_proto::xmtp::{
-    identity::MlsCredential,
-    mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
-    },
-};
-
-use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
-    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
-};
-use xmtp_db::{StorageError, XmtpDb};
-
-use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_common::types::InstallationId;
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
@@ -37,13 +34,12 @@ use xmtp_mls_common::{
         MetadataField,
     },
 };
-
-use super::{
-    group_membership::{GroupMembership, MembershipDiff},
-    group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+use xmtp_proto::xmtp::{
+    identity::MlsCredential,
+    mls::message_contents::{
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
     },
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -392,14 +388,19 @@ impl ValidatedCommit {
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
-        let expected_diff =
-            ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group,&intent_id, &log_message).await?;
+        let expected_diff = ExpectedDiff::from_staged_commit(
+            context,
+            staged_commit,
+            openmls_group,
+            intent_id,
+            log_message,
+        )
+        .await?;
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
             added_inboxes,
             removed_inboxes,
-            
         } = expected_diff;
 
         // Ensure that the expected diff matches the added/removed installations in the proposals
@@ -620,8 +621,8 @@ impl ExpectedDiff {
             extensions,
             &immutable_metadata,
             &mutable_metadata,
-            &intent_id,
-            &log_message
+            intent_id,
+            log_message,
         )
         .await?;
 
@@ -655,8 +656,8 @@ impl ExpectedDiff {
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
-            &intent_id,
-            &log_message
+            intent_id,
+            log_message,
         )?;
 
         let added_inboxes = membership_diff
@@ -763,8 +764,8 @@ fn validate_membership_diff(
 
         if new_sequence_id.lt(old_sequence_id) {
             tracing::error!(
-                    thread_id = ?std::thread::current().id(),
-                "[{:?}] intent_id: [{:?}] SequenceIdDecreased old membership: {:?},mew membership: {:?},  dif: {:?}",
+                thread_id = ?std::thread::current().id(),
+                "[{:?}] intent_id: [{:?}] SequenceIdDecreased old membership: {:?}, new membership: {:?}, diff: {:?}",
                 &log_message,
                 intent_id,
                 old_membership,
