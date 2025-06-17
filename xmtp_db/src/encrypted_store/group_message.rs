@@ -317,7 +317,23 @@ impl<C: ConnectionExt> DbConnection<C> {
             query = query.limit(limit);
         }
 
-        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+        // Run the query
+        let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
+
+        // Separate out current group from others for post-filtering
+        let (current_group_msgs, other_group_msgs): (Vec<_>, Vec<_>) = messages
+            .into_iter()
+            .partition(|msg| msg.group_id == group_id);
+
+        // Retain all messages from current group
+        // From other groups, filter out GroupUpdatedCodec messages
+        let stitched = current_group_msgs.into_iter().chain(
+            other_group_msgs
+                .into_iter()
+                .filter(|msg| msg.content_type != ContentType::GroupUpdated),
+        );
+
+        Ok(stitched.collect())
     }
 
     pub fn group_messages_paged(

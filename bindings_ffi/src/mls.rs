@@ -7976,10 +7976,10 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages.len(), 4, "Bo should see 3 messages after sync");
+        assert_eq!(bo_messages.len(), 3, "Bo should see 3 messages after sync");
         assert_eq!(
             alix_messages.len(),
-            4,
+            3,
             "Alix should see 3 messages after sync"
         );
 
