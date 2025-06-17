@@ -4704,8 +4704,8 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages1.len(), 0);
-        assert_eq!(bo_messages5.len(), 0);
+        assert_eq!(bo_messages1.len(), 1);
+        assert_eq!(bo_messages5.len(), 1);
 
         bo.conversations()
             .sync_all_conversations(None)
@@ -4720,8 +4720,8 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages1.len(), 1);
-        assert_eq!(bo_messages5.len(), 1);
+        assert_eq!(bo_messages1.len(), 2);
+        assert_eq!(bo_messages5.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -4845,7 +4845,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages.len(), 9);
+        assert_eq!(bo_messages.len(), 10);
         assert_eq!(alix_messages.len(), 10);
 
         assert_eq!(
@@ -5127,9 +5127,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(caro_messages.len(), 5);
+        assert_eq!(caro_messages.len(), 6);
         assert_eq!(alix_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 5);
+        assert_eq!(bo_messages.len(), 6);
         // Bo 2 only sees three messages since it joined after the first 2 were sent
         assert_eq!(bo2_messages.len(), 3);
     }
@@ -5293,7 +5293,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages.len(), 0);
+        assert_eq!(bo_messages.len(), 1);
 
         alix_group
             .remove_members(vec![bo.account_identifier.clone()])
@@ -5313,7 +5313,7 @@ mod tests {
             bo_messages.first().unwrap().kind,
             FfiConversationMessageKind::MembershipChange
         );
-        assert_eq!(bo_messages.len(), 1);
+        assert_eq!(bo_messages.len(), 2);
 
         let bo_members = bo_group.list_members().await.unwrap();
         assert_eq!(bo_members.len(), 1);
@@ -5370,7 +5370,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages1.len(), first_msg_check);
+        assert_eq!(bo_messages1.len(), first_msg_check + 1);
 
         bo_group
             .conversation
@@ -5402,7 +5402,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages2.len(), second_msg_check);
+        assert_eq!(bo_messages2.len(), second_msg_check + 1);
         assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
 
         stream_messages.end_and_wait().await.unwrap();
@@ -7131,25 +7131,25 @@ mod tests {
 
         // Verify DM messages
         assert_eq!(alix_dm_messages.len(), 2);
-        assert_eq!(bo_dm_messages.len(), 1);
+        assert_eq!(bo_dm_messages.len(), 2);
         assert_eq!(
             String::from_utf8_lossy(&alix_dm_messages[1].content),
             "Hello in DM"
         );
         assert_eq!(
-            String::from_utf8_lossy(&bo_dm_messages[0].content),
+            String::from_utf8_lossy(&bo_dm_messages[1].content),
             "Hello in DM"
         );
 
         // Verify group messages
         assert_eq!(alix_group_messages.len(), 2);
-        assert_eq!(bo_group_messages.len(), 1);
+        assert_eq!(bo_group_messages.len(), 2);
         assert_eq!(
             String::from_utf8_lossy(&alix_group_messages[1].content),
             "Hello in group"
         );
         assert_eq!(
-            String::from_utf8_lossy(&bo_group_messages[0].content),
+            String::from_utf8_lossy(&bo_group_messages[1].content),
             "Hello in group"
         );
     }
@@ -7267,8 +7267,8 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(alix_dm_messages[0].content, "Hello in DM".as_bytes());
-        assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
+        assert_eq!(alix_dm_messages[1].content, "Hello in DM".as_bytes());
+        assert_eq!(bo_dm_messages[1].content, "Hello in DM".as_bytes());
 
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
@@ -7545,7 +7545,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        let message_to_react_to = &messages[0];
+        let message_to_react_to = &messages[1];
 
         // Create and send reaction
         let ffi_reaction = FfiReaction {
@@ -7829,7 +7829,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(bo_messages.len(), 3);
+        assert_eq!(bo_messages.len(), 4);
 
         // Verify message content types
         let message_types: Vec<String> = bo_messages
@@ -7840,9 +7840,10 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(message_types[0], "text");
-        assert_eq!(message_types[1], "group_updated");
-        assert_eq!(message_types[2], "text");
+        assert_eq!(message_types[0], "group_updated");
+        assert_eq!(message_types[1], "text");
+        assert_eq!(message_types[2], "group_updated");
+        assert_eq!(message_types[3], "text");
 
         assert_eq!(alix_group.group_name().unwrap(), "hello");
         // this assertion will also fail
@@ -8057,8 +8058,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
-        assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
+        assert_eq!(final_bo_messages.len(), 6, "Bo should see 5 messages");
+        assert_eq!(final_alix_messages.len(), 6, "Alix should see 5 messages");
     }
 
     #[tokio::test]
@@ -8377,5 +8378,110 @@ mod tests {
 
         // Clean up the stream
         stream.end_and_wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_new_installation_group_message_visibility() {
+        let alix = Tester::builder().sync_worker().build().await;
+        let bo = Tester::new().await;
+
+        let group = alix
+            .conversations()
+            .create_group_with_inbox_ids(vec![bo.inbox_id()], Default::default())
+            .await
+            .unwrap();
+
+        let text_message_alix = TextCodec::encode("hello from alix".to_string()).unwrap();
+        group
+            .send(encoded_content_to_bytes(text_message_alix.clone()))
+            .await
+            .unwrap();
+
+        let alix2 = alix.builder.build().await;
+
+        bo.conversations().sync().await.unwrap();
+        let bo_group = bo.conversation(group.id()).unwrap();
+        let text_message_bo = TextCodec::encode("hello from bo".to_string()).unwrap();
+        bo_group
+            .send(encoded_content_to_bytes(text_message_bo.clone()))
+            .await
+            .unwrap();
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        alix2
+            .conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+
+        alix.inner_client
+            .test_has_same_sync_group_as(&alix2.inner_client)
+            .await
+            .unwrap();
+
+        let group2 = alix2.conversation(group.id()).unwrap();
+        let messages = group2
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            messages.len(),
+            1,
+            "Expected one message to be visible to new installation"
+        );
+
+        // Decode and verify messages are NOT group member adds
+        for msg in &messages {
+            let encoded =
+                EncodedContent::decode(&msg.content[..]).expect("Failed to decode EncodedContent");
+            assert_eq!(
+                encoded.r#type.as_ref().unwrap().type_id,
+                TextCodec::TYPE_ID,
+                "Expected all visible messages to be text"
+            );
+
+            let text: String =
+                TextCodec::decode(encoded.clone()).expect("Failed to decode message content");
+
+            println!("Decoded text message: {}", text);
+        }
+
+        let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
+        let msg_from_alix2 = group2
+            .send(encoded_content_to_bytes(text_message_alix2.clone()))
+            .await
+            .unwrap();
+
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let bob_group = bo.conversation(group.id()).unwrap();
+        let bob_msgs = bob_group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert!(
+            bob_msgs.iter().any(|m| m.id == msg_from_alix2),
+            "Bob should see the message sent by alix2"
+        );
+
+        alix.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
+        let alice_msgs = group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert!(
+            alice_msgs.iter().any(|m| m.id == msg_from_alix2),
+            "Original Alix should see the message from alix2"
+        );
     }
 }
