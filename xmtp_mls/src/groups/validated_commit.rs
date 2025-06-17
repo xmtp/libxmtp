@@ -55,7 +55,7 @@ pub enum CommitValidationError {
     #[error("Invalid version format: {0}")]
     InvalidVersionFormat(String),
     #[error("Minimum supported protocol version {0} exceeds current version")]
-    MinimumSupportedProtocolVersionExceedsCurrentVersion(String),
+    ProtocolVersionTooLow(String),
     // TODO: We will need to relax this once we support external joins
     #[error("Actor not a member of the group")]
     ActorNotMember,
@@ -463,11 +463,9 @@ impl ValidatedCommit {
             );
 
             if min_supported_version > current_version {
-                return Err(
-                    CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
-                        min_version.clone(),
-                    ),
-                );
+                return Err(CommitValidationError::ProtocolVersionTooLow(
+                    min_version.clone(),
+                ));
             }
         }
         Ok(verified_commit)

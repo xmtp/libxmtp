@@ -769,11 +769,16 @@ where
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
-                        provider.db().update_cursor(
-                            &envelope.group_id,
-                            EntityKind::Group,
-                            *cursor as i64,
-                        )?;
+                        match &e {
+                            CommitValidationError::ProtocolVersionTooLow(_) => {}
+                            _ => {
+                                provider.db().update_cursor(
+                                    &envelope.group_id,
+                                    EntityKind::Group,
+                                    *cursor as i64,
+                                )?;
+                            }
+                        };
 
                         Err(e)
                     }
@@ -1440,9 +1445,7 @@ where
                 Ok(m)
             }
             Err(GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
-                    min_version,
-                ),
+                CommitValidationError::ProtocolVersionTooLow(min_version),
             )) => {
                 // Instead of updating cursor, mark group as paused
                 provider
