@@ -11,6 +11,7 @@ use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
+use crate::tester;
 use crate::utils::{ConcreteMlsGroup, Tester, VersionInfo};
 use crate::{
     builder::ClientBuilder,
@@ -123,18 +124,17 @@ async fn force_add_member(
         .unwrap();
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
-    let group = client.create_group(None, None).expect("create group");
-    group.send_message(b"hello").await.expect("send message");
-
-    let messages = client
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    group.send_message(b"hello").await?;
+    let messages = alix
         .api()
         .query_group_messages(group.group_id, None)
-        .await
-        .expect("read topic");
+        .await?;
+
+    // KP update and the msg itself
     assert_eq!(messages.len(), 2);
 }
 

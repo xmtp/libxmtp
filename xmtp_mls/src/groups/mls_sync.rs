@@ -539,18 +539,17 @@ where
                     );
                     let log_message = format!(
                         concat!(
-                        "self msg -> inbox_id = {}, ",
-                        "installation_id = {}, ",
-                        "group_id = {}, ",
-                        "current_epoch = {}, ",
-                        "msg_epoch = {}, ",
-                        "msg_group_id = {}, ",
-                        "cursor = {}, ",
-                        "extracted sender inbox id: {}"
+                            "self msg -> inbox_id = {}, ",
+                            "installation_id = {}, ",
+                            "group_id = {}, ",
+                            "current_epoch = {}, ",
+                            "msg_epoch = {}, ",
+                            "msg_group_id = {}, ",
+                            "cursor = {}, ",
+                            "extracted sender inbox id: {}"
                         ),
                         self.context.inbox_id(),
                         self.context.installation_id(),
-
                         hex::encode(&self.group_id),
                         mls_group.epoch().as_u64(),
                         message_epoch.as_u64(),
@@ -567,15 +566,15 @@ where
                     )
                     .await;
                     tracing::error!(
-                                inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            cursor,
-                            intent.id,
-                            intent.kind = %intent.kind,
-                                "## MaybeValidatedCommit [{}]: {maybe_validated_commit:?}",
-                                intent.id,
-                            );
+                        inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    cursor,
+                    intent.id,
+                    intent.kind = %intent.kind,
+                        "## MaybeValidatedCommit [{}]: {maybe_validated_commit:?}",
+                        intent.id,
+                    );
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
@@ -750,15 +749,15 @@ where
         );
         let log_message = format!(
             concat!(
-            "inbox_id = {}, ",
-            "installation_id = {}, ",
-            "sender_inbox_id = {}, ",
-            "sender_installation_id = {}, ",
-            "group_id = {}, ",
-            "current_epoch = {}, ",
-            "msg_epoch = {}, ",
-            "msg_group_id = {}, ",
-            "cursor = {}, "
+                "inbox_id = {}, ",
+                "installation_id = {}, ",
+                "sender_inbox_id = {}, ",
+                "sender_installation_id = {}, ",
+                "group_id = {}, ",
+                "current_epoch = {}, ",
+                "msg_epoch = {}, ",
+                "msg_group_id = {}, ",
+                "cursor = {}, "
             ),
             self.context.inbox_id(),
             self.context.installation_id(),
@@ -777,10 +776,11 @@ where
                     staged_commit,
                     mls_group,
                     &cursor.to_string(),
-                    &log_message
-                ).await {
-
-                    Ok(commit) =>{ commit},
+                    &log_message,
+                )
+                .await
+                {
+                    Ok(commit) => commit,
                     Err(e) if e.is_retryable() => {
                         // Do something when it's a retryable error
                         tracing::error!("### Retryable error encountered: {:?}", e);
@@ -1165,7 +1165,7 @@ where
         if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
-//cursor in db -> 15 -> thread -> 10
+        //cursor in db -> 15 -> thread -> 10
         // Acquire the MLS group lock first, then do intent fetching and processing inside
         let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
             // Fetch the intent now that the lock is held
@@ -1195,7 +1195,7 @@ where
                 last_cursor
             );
 
-            tracing::error!(
+            tracing::info!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
                 group_id = hex::encode(&self.group_id),
@@ -1215,7 +1215,7 @@ where
                         return identifier.build()
                     }
                     let intent_id = intent.id;
-                    tracing::error!(
+                    tracing::info!(
                         inbox_id = self.context.inbox_id(),
                         installation_id = %self.context.installation_id(),
                         group_id = hex::encode(&self.group_id),
@@ -1239,19 +1239,10 @@ where
                     //  - be an Error but produce a valid intent state?
                     //  - be an error and produce a GroupMessage Processing Error
                     let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, &message, envelope).await;
-                    tracing::error!(
-                                inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            cursor,
-                            intent.id,
-                            intent.kind = %intent.kind,
-                                "## MaybeValidatedCommit after [{}]: {maybe_validated_commit:?}",
-                                intent.id,
-                            );
+
                     provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
-                            tracing::error!(
+                            tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
@@ -1262,11 +1253,11 @@ where
                                 cursor as i64,
                             )?;
                             if updated {
-                                tracing::error!("cursor updated to [{}]", cursor as i64);
-                            } else { tracing::error!("no cursor update required"); }
+                                tracing::debug!("cursor updated to [{}]", cursor as i64);
+                            } else { tracing::debug!("no cursor update required"); }
                             updated
                         } else {
-                            tracing::error!(
+                            tracing::info!(
                                 "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
                                 hex::encode(envelope.group_id.as_slice()),
                                 cursor
@@ -1277,7 +1268,7 @@ where
                             current_cursor < cursor as i64
                         };
                         if !requires_processing {
-                            tracing::error!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                            tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
                                 envelope.id,
                                 xmtp_common::fmt::debug_hex(&envelope.group_id),
                                 envelope.created_ns
@@ -1303,19 +1294,7 @@ where
                             }
                         };
                         identifier.internal_id(internal_message_id.clone());
-                        tracing::error!(
-                             inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
-                            cursor,
-                            intent.id,
-                            intent.kind = %intent.kind,
-                            "intent state=[{:?}] @cursor=[{}] for group=[{}] created_at=[{}]",
-                            intent_state,
-                                envelope.id,
-                                xmtp_common::fmt::debug_hex(&envelope.group_id),
-                                envelope.created_ns
-                            );
+
                         match intent_state {
                             IntentState::ToPublish => {
                                 provider.db().set_group_intent_to_publish(intent_id)?;
@@ -1449,14 +1428,14 @@ where
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
         let should_skip_message = last_cursor > msgv1.id as i64;
         tracing::error!(
-                inbox_id = self.context.inbox_id(),
-                installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                "### checked cursor msg_cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                msgv1.id,
-                message_entity_kind,
-                last_cursor
-            );
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            group_id = hex::encode(&self.group_id),
+            "### checked cursor msg_cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
+            msgv1.id,
+            message_entity_kind,
+            last_cursor
+        );
         if should_skip_message {
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
@@ -1902,8 +1881,11 @@ where
                 let (bundle, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        *openmls_group =
+                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                                .ok_or(GroupMessageProcessingError::Storage(
+                                    StorageError::NotFound(NotFound::MlsGroup),
+                                ))?;
                         return Err(e.into());
                     }
                 };
@@ -1936,8 +1918,11 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        *openmls_group =
+                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                                .ok_or(GroupMessageProcessingError::Storage(
+                                    StorageError::NotFound(NotFound::MlsGroup),
+                                ))?;
                         return Err(e.into());
                     }
                 };
@@ -1973,8 +1958,11 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        *openmls_group =
+                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                                .ok_or(GroupMessageProcessingError::Storage(
+                                    StorageError::NotFound(NotFound::MlsGroup),
+                                ))?;
                         return Err(e.into());
                     }
                 };
@@ -2010,8 +1998,11 @@ where
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                            .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                        *openmls_group =
+                            OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
+                                .ok_or(GroupMessageProcessingError::Storage(
+                                    StorageError::NotFound(NotFound::MlsGroup),
+                                ))?;
                         return Err(e.into());
                     }
                 };
@@ -2575,7 +2566,9 @@ where
         Ok(res) => res,
         Err(e) => {
             *openmls_group = OpenMlsGroup::load(provider.storage(), openmls_group.group_id())?
-                .ok_or(GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)))?;
+                .ok_or(GroupMessageProcessingError::Storage(
+                    StorageError::NotFound(NotFound::MlsGroup),
+                ))?;
             return Err(e.into());
         }
     };
