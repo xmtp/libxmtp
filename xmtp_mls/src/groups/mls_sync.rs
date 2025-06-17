@@ -1169,16 +1169,16 @@ where
             .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let last_cursor = provider
+        let group_cursor = provider
             .db()
             .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        let should_skip_message = last_cursor >= envelope.id as i64;
-
-        if should_skip_message {
+        if group_cursor >= cursor as i64 {
             // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
-            return MessageIdentifierBuilder::from(envelope).build();
+            return MessageIdentifierBuilder::from(envelope)
+                .previously_processed(true)
+                .build();
         }
 
         tracing::info!(
@@ -1325,7 +1325,7 @@ where
                         allow_cursor_increment,
                     )
                     .await?;
-                Ok::<_, GroupMessageProcessingError>(identifier)
+                Ok(identifier)
             }
         }
     }
@@ -1411,9 +1411,7 @@ where
         let last_cursor = provider
             .db()
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-        let should_skip_message = last_cursor > msgv1.id as i64;
-
-        if should_skip_message {
+        if last_cursor > msgv1.id as i64 {
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),

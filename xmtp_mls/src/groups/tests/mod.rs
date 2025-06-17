@@ -2381,10 +2381,11 @@ async fn skip_already_processed_messages() {
         }
     }
     let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
-    assert!(process_result.is_errored(), "expected message epoch error");
 
-    assert_eq!(process_result.new_messages.len(), 1);
-    assert_eq!(process_result.errored.len(), 1);
+    assert_eq!(process_result.new_messages.len(), 2);
+    // We no longer error when the message is previously processed
+    assert_eq!(process_result.errored.len(), 0);
+
     let new = process_result.new_messages.pop().unwrap();
     assert!(new.previously_processed);
 }
