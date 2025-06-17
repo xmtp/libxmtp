@@ -564,16 +564,6 @@ where
                         &log_message,
                     )
                     .await;
-                    tracing::error!(
-                        inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    cursor,
-                    intent.id,
-                    intent.kind = %intent.kind,
-                        "## MaybeValidatedCommit [{}]: {maybe_validated_commit:?}",
-                        intent.id,
-                    );
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
