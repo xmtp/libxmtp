@@ -1177,15 +1177,6 @@ where
                 return MessageIdentifierBuilder::from(envelope).build();
             }
 
-            tracing::error!(
-                inbox_id = self.context.inbox_id(),
-                installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                "### checked cursor inside lock msg_cursor:[{}]  last cursor in db: [{}]",
-                envelope.id,
-                last_cursor
-            );
-
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
@@ -1418,15 +1409,7 @@ where
             .db()
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
         let should_skip_message = last_cursor > msgv1.id as i64;
-        tracing::error!(
-            inbox_id = self.context.inbox_id(),
-            installation_id = %self.context.installation_id(),
-            group_id = hex::encode(&self.group_id),
-            "### checked cursor msg_cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-            msgv1.id,
-            message_entity_kind,
-            last_cursor
-        );
+
         if should_skip_message {
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
