@@ -23,7 +23,7 @@ pub struct RemoteCommitLog {
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum CommitResult {
     Unknown = 0,
@@ -31,6 +31,19 @@ pub enum CommitResult {
     WrongEpoch = 2,
     Undecryptable = 3,
     Invalid = 4,
+}
+
+impl std::fmt::Debug for CommitResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            CommitResult::Unknown => "Unknown",
+            CommitResult::Success => "Success",
+            CommitResult::WrongEpoch => "WrongEpoch",
+            CommitResult::Undecryptable => "Undecryptable",
+            CommitResult::Invalid => "Invalid",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 impl ToSql<Integer, Sqlite> for CommitResult
