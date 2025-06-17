@@ -761,7 +761,6 @@ where
         }
 
         self.ensure_not_paused().await?;
-        // self.sync_until_last_intent_resolved().await?;
         let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
