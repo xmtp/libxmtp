@@ -5127,11 +5127,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(caro_messages.len(), 7);
+        assert_eq!(caro_messages.len(), 6);
         assert_eq!(alix_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 7);
+        assert_eq!(bo_messages.len(), 6);
         // Bo 2 only sees three messages since it joined after the first 2 were sent
-        assert_eq!(bo2_messages.len(), 5);
+        assert_eq!(bo2_messages.len(), 3);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
