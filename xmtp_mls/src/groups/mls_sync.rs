@@ -1173,7 +1173,7 @@ where
             // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
-            // return MessageIdentifierBuilder::from(envelope).build();
+            return MessageIdentifierBuilder::from(envelope).build();
         }
 
         tracing::info!(
@@ -1191,9 +1191,9 @@ where
             Some(intent) => {
                 let mut identifier = MessageIdentifierBuilder::from(envelope);
                 identifier.intent_kind(intent.kind);
-                // if intent.state == IntentState::Error{
-                // return identifier.build()
-                // }
+                if intent.state == IntentState::Error {
+                    return identifier.build();
+                }
                 let intent_id = intent.id;
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),

@@ -760,14 +760,15 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(update_interval_ns).await?;
+
         self.ensure_not_paused().await?;
         let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
 
         Ok(message_id)
     }
@@ -776,12 +777,12 @@ where
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(update_interval_ns).await?;
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
 
         Ok(())
     }
