@@ -506,7 +506,6 @@ where
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
-                    //todo: question
                     if published_in_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
@@ -724,7 +723,7 @@ where
         if !matches!(result, Err(StorageError::IntentionalRollback)) {
             result.inspect_err(|e| tracing::debug!("immutable process message failed {}", e))?;
         }
-        let processed_message = processed_message.expect("Was just set to Some")?; //todo: we can remove this line
+        let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
         *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
@@ -734,7 +733,7 @@ where
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
 
-        tracing::error!(
+        tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),sender_inbox_id = sender_inbox_id,
             sender_installation_id = hex::encode(&sender_installation_id),
@@ -771,36 +770,28 @@ where
         );
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let validated_commit = match ValidatedCommit::from_staged_commit(
+                let result = ValidatedCommit::from_staged_commit(
                     &self.context,
                     staged_commit,
                     mls_group,
                     &cursor.to_string(),
                     &log_message,
                 )
-                .await
-                {
-                    Ok(commit) => commit,
-                    Err(e) if e.is_retryable() => {
-                        // Do something when it's a retryable error
-                        tracing::error!("### Retryable error encountered: {:?}", e);
-                        // For example, return a wrapped error or retry
-                        return Err(GroupMessageProcessingError::from(e));
-                    }
-                    Err(e) => {
-                        // Propagate non-retryable errors
-                        tracing::error!("### update cursor from staged error: {:?}", e);
+                .await;
 
+                let validated_commit = match result {
+                    Err(e) if !e.is_retryable() => {
                         provider.db().update_cursor(
                             &envelope.group_id,
                             EntityKind::Group,
                             *cursor as i64,
                         )?;
-                        tracing::error!("### after update cursor from staged error: {:?}", e);
 
-                        return Err(GroupMessageProcessingError::from(e));
+                        Err(e)
                     }
-                };
+                    v => v,
+                }?;
+
                 identifier.group_context(staged_commit.group_context().clone());
                 Some(validated_commit)
             }
