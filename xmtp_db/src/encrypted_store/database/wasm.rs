@@ -37,7 +37,7 @@ impl xmtp_common::RetryableError for PlatformStorageError {
 
 #[derive(Clone)]
 pub struct WasmDb {
-    conn: super::DefaultConnection,
+    conn: Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>,
     opts: StorageOption,
 }
 
@@ -213,10 +213,18 @@ impl ConnectionExt for WasmDbConnection {
     fn is_in_transaction(&self) -> bool {
         self.in_transaction.load(Ordering::SeqCst)
     }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        Ok(())
+    }
 }
 
 impl XmtpDb for WasmDb {
-    type Connection = super::DefaultConnection;
+    type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
@@ -253,7 +261,7 @@ mod tests {
 
     pub async fn with_opfs<'a, F, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> R,
+        F: FnOnce(DbConnection<<crate::DefaultStore as XmtpDb>::Connection>) -> R,
     {
         let util = init_opfs().await;
         let o: Option<&'a str> = path.into();
@@ -275,7 +283,7 @@ mod tests {
     #[allow(unused)]
     pub async fn with_opfs_async<'a, F, T, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(crate::DbConnection) -> T,
+        F: FnOnce(DbConnection<<crate::DefaultStore as XmtpDb>::Connection>) -> T,
         T: Future<Output = R>,
     {
         let util = init_opfs().await;
