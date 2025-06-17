@@ -699,8 +699,12 @@ where
             );
 
             // Create a GroupUpdated payload
-            let already_active = mls_group.is_active();
-            if !already_active {
+            let inbox_id = context.inbox_id();
+            let other_installations_with_same_inbox = mls_group
+                .members()
+                .filter(|member| member.inbox_id == inbox_id && member.installation_id != context.installation_id())
+                .count();
+            if other_installations_with_same_inbox == 0 {
                 let current_inbox_id = context.inbox_id().to_string();
                 let added_payload = GroupUpdated {
                     initiated_by_inbox_id: added_by_inbox_id.clone(),
