@@ -301,8 +301,6 @@ impl ValidatedCommit {
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        intent_id: &str,
-        log_message: &str,
     ) -> Result<Self, CommitValidationError>
     where
         ApiClient: XmtpApi,
@@ -388,14 +386,9 @@ impl ValidatedCommit {
         // Get the expected diff of installations added and removed based on the difference between the current
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
-        let expected_diff = ExpectedDiff::from_staged_commit(
-            context,
-            staged_commit,
-            openmls_group,
-            intent_id,
-            log_message,
-        )
-        .await?;
+        let expected_diff =
+            ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
+
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
@@ -596,8 +589,6 @@ impl ExpectedDiff {
         context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        intent_id: &str,
-        log_message: &str,
     ) -> Result<Self, CommitValidationError>
     where
         ApiClient: XmtpApi,
@@ -619,8 +610,6 @@ impl ExpectedDiff {
             extensions,
             &immutable_metadata,
             &mutable_metadata,
-            intent_id,
-            log_message,
         )
         .await?;
 
@@ -637,8 +626,6 @@ impl ExpectedDiff {
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
-        intent_id: &str,
-        log_message: &str,
     ) -> Result<ExpectedDiff, CommitValidationError>
     where
         ApiClient: XmtpApi,
@@ -654,8 +641,6 @@ impl ExpectedDiff {
             &old_group_membership,
             &new_group_membership,
             &membership_diff,
-            intent_id,
-            log_message,
         )?;
 
         let added_inboxes = membership_diff
@@ -749,8 +734,6 @@ fn validate_membership_diff(
     old_membership: &GroupMembership,
     new_membership: &GroupMembership,
     diff: &MembershipDiff<'_>,
-    intent_id: &str,
-    log_message: &str,
 ) -> Result<(), CommitValidationError> {
     for inbox_id in diff.updated_inboxes.iter() {
         let old_sequence_id = old_membership
@@ -761,15 +744,6 @@ fn validate_membership_diff(
             .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
         if new_sequence_id.lt(old_sequence_id) {
-            tracing::error!(
-                thread_id = ?std::thread::current().id(),
-                "[{:?}] intent_id: [{:?}] SequenceIdDecreased old membership: {:?}, new membership: {:?}, diff: {:?}",
-                &log_message,
-                intent_id,
-                old_membership,
-                new_membership,
-                diff
-            );
             return Err(CommitValidationError::SequenceIdDecreased);
         }
     }

@@ -536,34 +536,14 @@ where
                         self.context().inbox_id(),
                         intent.id
                     );
-                    let log_message = format!(
-                        concat!(
-                            "self msg -> inbox_id = {}, ",
-                            "installation_id = {}, ",
-                            "group_id = {}, ",
-                            "current_epoch = {}, ",
-                            "msg_epoch = {}, ",
-                            "msg_group_id = {}, ",
-                            "cursor = {}, ",
-                            "extracted sender inbox id: {}"
-                        ),
-                        self.context.inbox_id(),
-                        self.context.installation_id(),
-                        hex::encode(&self.group_id),
-                        mls_group.epoch().as_u64(),
-                        message_epoch.as_u64(),
-                        hex::encode(self.group_id.as_slice()),
-                        cursor,
-                        self.context.inbox_id(),
-                    );
+
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.context,
                         &staged_commit,
                         mls_group,
-                        &intent.id.to_string(),
-                        &log_message,
                     )
                     .await;
+
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
@@ -734,38 +714,12 @@ where
             self.context.inbox_id(),
             sender_inbox_id
         );
-        let log_message = format!(
-            concat!(
-                "inbox_id = {}, ",
-                "installation_id = {}, ",
-                "sender_inbox_id = {}, ",
-                "sender_installation_id = {}, ",
-                "group_id = {}, ",
-                "current_epoch = {}, ",
-                "msg_epoch = {}, ",
-                "msg_group_id = {}, ",
-                "cursor = {}, "
-            ),
-            self.context.inbox_id(),
-            self.context.installation_id(),
-            sender_inbox_id,
-            hex::encode(&sender_installation_id),
-            hex::encode(&self.group_id),
-            mls_group.epoch().as_u64(),
-            processed_message.epoch().as_u64(),
-            hex::encode(processed_message.group_id().as_slice()),
-            cursor
-        );
+
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let result = ValidatedCommit::from_staged_commit(
-                    &self.context,
-                    staged_commit,
-                    mls_group,
-                    &cursor.to_string(),
-                    &log_message,
-                )
-                .await;
+                let result =
+                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
+                        .await;
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
@@ -1473,7 +1427,7 @@ where
     #[tracing::instrument(level = "debug", skip(messages))]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
-        for message in messages.into_iter() {
+        for message in messages {
             let message_cursor = match extract_message_cursor(&message) {
                 // None means unsupported message version
                 // skip the message
@@ -1481,10 +1435,12 @@ where
                 Some(c) => c,
             };
             summary.add_id(message_cursor);
+
             let result = retry_async!(
                 Retry::default(),
                 (async { self.consume_message(&message).await })
             );
+
             match result {
                 Ok(m) => summary.add(m),
                 Err(GroupMessageProcessingError::GroupPaused) => {
