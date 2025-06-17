@@ -292,6 +292,7 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_validation_info: MutableMetadataValidationInfo,
+    pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
 }
@@ -403,6 +404,9 @@ impl ValidatedCommit {
             removed_inboxes,
         } = expected_diff;
 
+        let installations_changed =
+            !added_installations.is_empty() || !removed_installations.is_empty();
+
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
@@ -442,6 +446,7 @@ impl ValidatedCommit {
             added_inboxes,
             removed_inboxes,
             metadata_validation_info,
+            installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
         };

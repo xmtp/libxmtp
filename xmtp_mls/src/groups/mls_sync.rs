@@ -40,7 +40,7 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{wrap_welcome, WrapWelcomeError},
+    groups::mls_ext::{wrap_welcome, MergeStagedCommitAndLog, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -51,10 +51,12 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    local_commit_log::NewLocalCommitLog,
     refresh_state::EntityKind,
+    remote_commit_log::CommitResult,
     sql_key_store::{self, SqlKeyStore},
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore, XmtpDb,
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
@@ -646,7 +648,13 @@ where
                 self.context().inbox_id(),
                 intent.id
             );
-            if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
+
+            if let Err(err) = mls_group.merge_staged_commit_and_log(
+                &provider,
+                staged_commit,
+                &validated_commit,
+                *cursor as i64,
+            ) {
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             }
@@ -1091,7 +1099,13 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                mls_group.merge_staged_commit(&provider, staged_commit)?;
+                mls_group.merge_staged_commit_and_log(
+                    &provider,
+                    staged_commit,
+                    &validated_commit,
+                    *cursor as i64,
+                )?;
+
                 let epoch = mls_group.epoch().as_u64();
                 track!(
                     "Commit merged",
@@ -1449,8 +1463,23 @@ where
                     msgv1.id,
                     e
                 );
-                self.process_group_message_error_for_fork_detection(msgv1, &e)
-                    .await?;
+                if let Err(accounting_error) =
+                    self.insert_commit_entry_for_failed_commit(msgv1.id, mls_message_in, &e)
+                {
+                    tracing::error!(
+                        "Error inserting commit entry for failed commit: {}",
+                        accounting_error
+                    );
+                }
+                if let Err(accounting_error) = self
+                    .process_group_message_error_for_fork_detection(msgv1, &e)
+                    .await
+                {
+                    tracing::error!(
+                        "Error trying to log fork detection errors: {}",
+                        accounting_error
+                    );
+                }
                 Err(e)
             }
         }?;
@@ -1593,6 +1622,64 @@ where
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
+    }
+
+    fn insert_commit_entry_for_failed_commit(
+        &self,
+        message_cursor: u64,
+        mls_message_in: MlsMessageIn,
+        error: &GroupMessageProcessingError,
+    ) -> Result<(), StorageError> {
+        if error.is_retryable() {
+            return Ok(());
+        }
+        if let MlsMessageBodyIn::PrivateMessage(message) = mls_message_in.extract() {
+            if message.content_type() != openmls::framing::ContentType::Commit {
+                return Ok(());
+            }
+            let provider = self.mls_provider();
+            let conn = provider.db();
+            let mut last_epoch_authenticator = Vec::new();
+            if let Some(latest_log) = conn.get_latest_log_for_group(&self.group_id)? {
+                // Because we don't increment the cursor for non-retryable errors, we may have already logged this commit
+                if latest_log.commit_sequence_id == message_cursor as i64
+                    && latest_log.commit_result != CommitResult::Success
+                {
+                    return Ok(());
+                }
+                // We would prefer to fetch the last_epoch_authenticator directly from the OpenMLS group, but we cannot
+                // fetch it here without race conditions
+                if latest_log.commit_result == CommitResult::Success {
+                    last_epoch_authenticator =
+                        latest_log.applied_epoch_authenticator.unwrap_or_default();
+                } else {
+                    last_epoch_authenticator = latest_log.last_epoch_authenticator;
+                }
+            }
+            let commit_result = match error {
+                GroupMessageProcessingError::OpenMlsProcessMessage(
+                    ProcessMessageError::ValidationError(ValidationError::WrongEpoch),
+                ) => CommitResult::WrongEpoch,
+                GroupMessageProcessingError::CommitValidation(_) => CommitResult::Invalid,
+                GroupMessageProcessingError::OpenMlsProcessMessage(_) => {
+                    CommitResult::Undecryptable
+                }
+                _ => CommitResult::Unknown,
+            };
+            NewLocalCommitLog {
+                group_id: self.group_id.to_vec(),
+                commit_sequence_id: message_cursor as i64,
+                last_epoch_authenticator,
+                commit_result,
+                applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
+                applied_epoch_authenticator: None,
+                sender_inbox_id: None,
+                sender_installation_id: None,
+                commit_type: None,
+            }
+            .store(conn)?;
+        }
+        Ok(())
     }
 
     async fn process_group_message_error_for_fork_detection(

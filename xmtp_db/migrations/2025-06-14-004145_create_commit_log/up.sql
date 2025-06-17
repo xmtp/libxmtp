@@ -16,7 +16,7 @@ CREATE TABLE local_commit_log (
     -- Items below this line are for debugging purposes
     "sender_inbox_id" TEXT,
     "sender_installation_id" BLOB,
-    "commit_type" INT
+    "commit_type" TEXT
 );
 
 CREATE TABLE remote_commit_log (
