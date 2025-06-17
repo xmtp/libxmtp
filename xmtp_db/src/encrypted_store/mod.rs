@@ -208,12 +208,19 @@ where
     }
 }
 
-pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
+pub type BoxedDatabase = Box<
+    dyn XmtpDb<
+            Connection = diesel::SqliteConnection,
+            DbQuery = DbConnection<diesel::SqliteConnection>,
+        >,
+>;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery<crate::mock::MockConnection>;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;
+
+    type DbQuery: crate::DbQuery<Self::Connection> + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.validate(opts)?;
@@ -245,7 +252,7 @@ pub trait XmtpDb: Send + Sync {
 
     /// Returns a higher-level wrapeped DbConnection from which high-level queries may be
     /// accessed.
-    fn db(&self) -> DbConnection<Self::Connection>;
+    fn db(&self) -> Self::DbQuery;
 
     /// Reconnect to the database
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -382,9 +389,6 @@ pub trait MlsProviderExt: OpenMlsProvider {
     where
         F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
         E: std::error::Error + From<crate::ConnectionError>;
-
-    /// Get the underlying DbConnection this provider is using
-    fn db(&self) -> &DbConnection<Self::Connection>;
 
     fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
 }

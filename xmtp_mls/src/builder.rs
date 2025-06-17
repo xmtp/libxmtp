@@ -11,7 +11,7 @@ use crate::{
     track,
     utils::{events::EventWorker, VersionInfo},
     worker::WorkerRunner,
-    GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
+    GroupCommitLock, StorageError, XmtpApi,
 };
 use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
@@ -165,13 +165,12 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
 
-        let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
         } else {
             identity_strategy
-                .initialize_identity(&api_client, &provider, &scw_verifier)
+                .initialize_identity(&api_client, &conn, &scw_verifier)
                 .await?
         };
 
@@ -184,7 +183,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             // get sequence_id from identity updates and loaded into the DB
             load_identity_updates(
                 &api_client,
-                provider.db(),
+                &conn,
                 vec![identity.inbox_id.as_str()].as_slice(),
             )
             .await?;

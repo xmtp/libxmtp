@@ -6,7 +6,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
 use tracing::instrument;
-use xmtp_db::XmtpDb;
+use xmtp_db::{prelude::*, XmtpDb};
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use process_welcome::ProcessWelcomeResult;
@@ -210,8 +210,7 @@ where
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<ApiClient, Db>> {
-        let provider = self.mls_provider();
-        let conn = provider.db();
+        let conn = self.context.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());

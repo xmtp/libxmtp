@@ -1,6 +1,6 @@
 use super::*;
 
-use xmtp_db::events::Events;
+use xmtp_db::{DbConnection, MlsProviderExt, events::Events};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, event_backup::EventSave};
 
 impl BackupRecordProvider for EventSave {
@@ -12,8 +12,8 @@ impl BackupRecordProvider for EventSave {
         Self: Sized,
         C: ConnectionExt,
     {
-        let batch =
-            Events::all_events_paged(streamer.provider.db(), Self::BATCH_SIZE, streamer.cursor)?;
+        let conn = DbConnection::new(streamer.provider.key_store().conn());
+        let batch = Events::all_events_paged(&conn, Self::BATCH_SIZE, streamer.cursor)?;
 
         let records = batch
             .into_iter()

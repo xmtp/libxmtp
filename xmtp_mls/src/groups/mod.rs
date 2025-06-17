@@ -86,6 +86,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
     MlsProviderExt, NotFound, StorageError,
 };
+use xmtp_db::{prelude::*, ConnectionExt};
 use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
@@ -443,7 +444,7 @@ where
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
-        stored_group.store_or_ignore(provider.db())?;
+        stored_group.store_or_ignore(&context.db())?;
 
         Ok(stored_group)
     }
@@ -505,7 +506,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(provider.db())?;
+        stored_group.store(&context.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
             group_id.clone(),
@@ -535,15 +536,13 @@ where
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
     ) -> Result<Self, GroupError> {
-        let provider = context.mls_provider();
+        let conn = context.db();
+        let provider = XmtpOpenMlsProvider::new(&conn);
         // Check if this welcome was already processed. Return the existing group if so.
-        if provider
-            .db()
-            .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?
+        if conn.get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?
             >= welcome.id as i64
         {
-            let group = provider
-                .db()
+            let group = conn
                 .find_group_by_welcome_id(welcome.id as i64)?
                 // The welcome previously errored out, e.g. HPKE error, so it's not in the DB
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
@@ -596,7 +595,7 @@ where
             );
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
-            let requires_processing = provider.db().update_cursor(
+            let requires_processing = conn.update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
                 welcome.id as i64,
@@ -681,9 +680,9 @@ where
             tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-            let stored_group = provider.db().insert_or_replace_group(to_store)?;
+            let stored_group = conn.insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            StoredConsentRecord::persist_consent(&conn, &stored_group)?;
             track!(
                 "Group Welcome",
                 {
@@ -741,7 +740,7 @@ where
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
-            provider.db(),
+            &context.db(),
             group_id,
             now_ns(),
             GroupMembershipState::Allowed,
@@ -836,7 +835,6 @@ where
     where
         F: FnOnce(i64) -> PlaintextEnvelope,
     {
-        let provider = self.mls_provider();
         let now = now_ns();
         let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
@@ -861,8 +859,8 @@ where
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context().installation_public_key().into(),
-            sender_inbox_id: self.context().inbox_id().to_string(),
+            sender_installation_id: self.context.installation_public_key().into(),
+            sender_inbox_id: self.context.inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
             content_type: queryable_content_fields.content_type,
             version_major: queryable_content_fields.version_major,
@@ -872,7 +870,7 @@ where
             sequence_id: None,
             originator_id: None,
         };
-        group_message.store(provider.db())?;
+        group_message.store(&self.context.db())?;
 
         Ok(message_id)
     }
@@ -1278,16 +1276,12 @@ where
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
     pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
-        let paused_for_version = self
-            .mls_provider()
-            .db()
-            .get_group_paused_version(&self.group_id)?;
+        let paused_for_version = self.context.db().get_group_paused_version(&self.group_id)?;
         Ok(paused_for_version)
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        let provider = self.context().mls_provider();
-        if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
+        if let Some(min_version) = self.context.db().get_group_paused_version(&self.group_id)? {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())
@@ -1448,11 +1442,12 @@ where
     }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
+        let provider = XmtpOpenMlsProvider::new(&db);
         let epoch =
             self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
 
-        let stored_group = match provider.db().find_group(&self.group_id)? {
+        let stored_group = match db.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1480,8 +1475,7 @@ where
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
-        let provider = self.mls_provider();
-        let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
+        let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -1493,7 +1487,9 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
+        self.load_mls_group_with_lock(self.context.mls_provider(), |mls_group| {
+            Ok(mls_group.is_active())
+        })
     }
 
     /// Get the `GroupMetadata` of the group.
@@ -1569,7 +1565,7 @@ where
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
         let conn = context.store().conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
@@ -1621,7 +1617,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(provider.db())?;
+        stored_group.store(&conn)?;
         Ok(Self::new_from_arc(
             context,
             group_id,
@@ -1907,15 +1903,14 @@ where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
-    let provider = context.mls_provider();
-    let conn = provider.db();
+    let db = context.db();
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
     let membership = extract_group_membership(extensions)?;
-    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
+    let needs_update = filter_inbox_ids_needing_updates(&db, membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        load_identity_updates(context.api(), conn, ids.as_slice()).await?;
+        load_identity_updates(context.api(), &db, ids.as_slice()).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
@@ -1925,7 +1920,7 @@ where
         .members
         .iter()
         .map(|(inbox_id, sequence_id)| {
-            identity_updates.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
+            identity_updates.get_association_state(&db, inbox_id, Some(*sequence_id as i64))
         })
         .collect();
 
@@ -1951,6 +1946,29 @@ where
     tracing::info!("Group membership validated");
 
     Ok(())
+}
+
+pub fn filter_inbox_ids_needing_updates<'a, C: ConnectionExt>(
+    conn: &impl DbQuery<C>,
+    filters: &[(&'a str, i64)],
+) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
+    let existing_sequence_ids =
+        conn.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+
+    let needs_update = filters
+        .iter()
+        .filter_map(|filter| {
+            let existing_sequence_id = existing_sequence_ids.get(filter.0);
+            if let Some(sequence_id) = existing_sequence_id {
+                if sequence_id.ge(&filter.1) {
+                    return None;
+                }
+            }
+
+            Some(filter.0)
+        })
+        .collect::<Vec<&str>>();
+    Ok(needs_update)
 }
 
 fn validate_dm_group(

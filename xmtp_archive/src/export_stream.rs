@@ -1,6 +1,6 @@
 use futures::{Stream, StreamExt};
 use std::{marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::{ConnectionExt, StorageError, XmtpOpenMlsProvider};
+use xmtp_db::{ConnectionExt, StorageError, XmtpOpenMlsProvider, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,

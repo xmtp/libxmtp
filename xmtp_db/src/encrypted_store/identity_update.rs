@@ -38,10 +38,38 @@ impl StoredIdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryIdentityUpdates<C: ConnectionExt> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
-    pub fn get_identity_updates<InboxId: AsRef<str>>(
+    fn get_identity_updates<InboxId: AsRef<str>>(
+        &self,
+        inbox_id: InboxId,
+        from_sequence_id: Option<i64>,
+        to_sequence_id: Option<i64>,
+    ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError>;
+
+    /// Batch insert identity updates, ignoring duplicates.
+    fn insert_or_ignore_identity_updates(
+        &self,
+        updates: &[StoredIdentityUpdate],
+    ) -> Result<(), crate::ConnectionError>;
+
+    fn get_latest_sequence_id_for_inbox(
+        &self,
+        inbox_id: &str,
+    ) -> Result<i64, crate::ConnectionError>;
+
+    /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
+    fn get_latest_sequence_id(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryIdentityUpdates<C> for DbConnection<C> {
+    /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
+    /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
+    fn get_identity_updates<InboxId: AsRef<str>>(
         &self,
         inbox_id: InboxId,
         from_sequence_id: Option<i64>,
@@ -65,7 +93,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
     /// Batch insert identity updates, ignoring duplicates.
     #[tracing::instrument(level = "trace", skip(updates))]
-    pub fn insert_or_ignore_identity_updates(
+    fn insert_or_ignore_identity_updates(
         &self,
         updates: &[StoredIdentityUpdate],
     ) -> Result<(), crate::ConnectionError> {
@@ -77,7 +105,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn get_latest_sequence_id_for_inbox(
+    fn get_latest_sequence_id_for_inbox(
         &self,
         inbox_id: &str,
     ) -> Result<i64, crate::ConnectionError> {
@@ -93,7 +121,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
     /// Given a list of inbox_ids return a HashMap of each inbox ID -> highest known sequence ID
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn get_latest_sequence_id(
+    fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
@@ -116,30 +144,6 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         // Convert the Vec to a HashMap
         Ok(HashMap::from_iter(result_tuples))
-    }
-
-    pub fn filter_inbox_ids_needing_updates<'a>(
-        &self,
-        filters: &[(&'a str, i64)],
-    ) -> Result<Vec<&'a str>, crate::ConnectionError> {
-        let existing_sequence_ids =
-            self.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
-
-        let needs_update = filters
-            .iter()
-            .filter_map(|filter| {
-                let existing_sequence_id = existing_sequence_ids.get(filter.0);
-                if let Some(sequence_id) = existing_sequence_id {
-                    if sequence_id.ge(&filter.1) {
-                        return None;
-                    }
-                }
-
-                Some(filter.0)
-            })
-            .collect::<Vec<&str>>();
-
-        Ok(needs_update)
     }
 }
 

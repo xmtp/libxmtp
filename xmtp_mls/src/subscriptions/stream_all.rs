@@ -29,6 +29,7 @@ use crate::groups::MlsGroup;
 use crate::subscriptions::SyncWorkerEvent;
 use futures::stream::Stream;
 use xmtp_common::types::GroupId;
+use xmtp_db::prelude::*;
 use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
 
 use pin_project_lite::pin_project;
@@ -61,7 +62,7 @@ where
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
         let (active_conversations, sync_groups) = async {
-            let provider = context.mls_provider();
+            let conn = context.db();
             WelcomeService::new(context.clone()).sync_welcomes().await?;
 
             track!(
@@ -73,7 +74,7 @@ where
                 icon: "🚣"
             );
 
-            let groups = provider.db().find_groups(GroupQueryArgs {
+            let groups = conn.find_groups(GroupQueryArgs {
                 conversation_type,
                 consent_states,
                 include_duplicate_dms: true,

@@ -19,10 +19,10 @@ use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::types::Address;
 use xmtp_db::{
-    db_connection::DbConnection,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     MlsProviderExt, XmtpDb,
 };
+use xmtp_db::{prelude::*, XmtpOpenMlsProvider};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
@@ -81,10 +81,10 @@ where
         intent_data: Vec<u8>,
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
-        let provider = self.mls_provider();
-        let res = provider.transaction(|provider| {
-            let conn = provider.db();
-            self.queue_intent_with_conn(conn, intent_kind, intent_data, should_push)
+        let conn = self.context.db();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let res = provider.transaction(|_| {
+            self.queue_intent_with_conn(&conn, intent_kind, intent_data, should_push)
         });
 
         res
@@ -92,7 +92,7 @@ where
 
     fn queue_intent_with_conn(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
         should_push: bool,
@@ -125,7 +125,7 @@ where
     #[tracing::instrument(level = "debug", skip_all)]
     fn maybe_insert_key_update_intent(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
     ) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();

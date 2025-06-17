@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::types::InstallationId;
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::{prelude::*, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use xmtp_db::{ConnectionExt, DbConnection, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
@@ -60,12 +60,12 @@ pub trait XmtpContextProvider: Sized {
 
     fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db>;
 
-    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection>;
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
 
     fn mls_provider(&self) -> XmtpOpenMlsProvider<<Self::Db as XmtpDb>::Connection> {
-        self.db().into()
+        XmtpOpenMlsProvider::new(self.db().into_connection())
     }
 
     fn identity(&self) -> &Identity;
@@ -93,7 +93,7 @@ where
     type Db = XDb;
     type ApiClient = XApiClient;
 
-    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         XmtpMlsLocalContext::<XApiClient, XDb>::db(self)
     }
 
@@ -129,7 +129,7 @@ where
     type Db = <T as XmtpContextProvider>::Db;
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
 
-    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpContextProvider>::db(&**self)
     }
 
@@ -165,7 +165,7 @@ where
     type Db = <T as XmtpContextProvider>::Db;
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
 
-    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpContextProvider>::db(*self)
     }
 
@@ -221,13 +221,13 @@ where
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
-    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+    pub fn db(&self) -> Db::DbQuery {
         self.store.db()
     }
 
     /// Pulls a new database connection and creates a new provider
     pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<Db as XmtpDb>::Connection> {
-        self.db().into()
+        XmtpOpenMlsProvider::new(self.db().into_connection())
     }
 
     pub fn store(&self) -> &Db {

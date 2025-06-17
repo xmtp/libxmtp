@@ -14,6 +14,14 @@ impl<C> DbConnection<C> {
     }
 }
 
+impl<C: ConnectionExt> crate::IntoConnection for DbConnection<C> {
+    type Connection = C;
+
+    fn into_connection(self) -> Self::Connection {
+        self.conn
+    }
+}
+
 impl<C> DbConnection<C>
 where
     C: ConnectionExt,

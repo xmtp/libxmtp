@@ -25,6 +25,7 @@ use tokio::sync::{broadcast, OnceCell};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
+use xmtp_db::prelude::*;
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
@@ -182,7 +183,7 @@ where
         } = self;
 
         init.get_or_try_init(|| async {
-            let provider = self.client.context.mls_provider();
+            let conn = self.client.context.db();
             tracing::info!(
                 inbox_id = client.inbox_id(),
                 installation_id = hex::encode(client.context.installation_public_key()),
@@ -191,7 +192,7 @@ where
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if provider.db().primary_sync_group()?.is_none() {
+            if conn.primary_sync_group()?.is_none() {
                 client.get_sync_group().await?;
 
                 // Ask the sync group for a sync payload if the url is present.
@@ -266,8 +267,8 @@ where
 
     /// Called when this device has received a device sync v1 sync reply
     async fn evt_v1_device_sync_reply(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.context.mls_provider();
-        if let Some(msg) = provider.db().get_group_message(&message_id)? {
+        let conn = self.client.context.db();
+        if let Some(msg) = conn.get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Reply(reply) = content {
                 self.client.v1_process_sync_reply(reply).await?;
@@ -278,8 +279,8 @@ where
 
     /// Called when this device has received a device sync v1 sync request
     async fn evt_v1_device_sync_request(&self, message_id: Vec<u8>) -> Result<(), DeviceSyncError> {
-        let provider = self.client.context.mls_provider();
-        if let Some(msg) = provider.db().get_group_message(&message_id)? {
+        let conn = self.client.context.db();
+        if let Some(msg) = conn.get_group_message(&message_id)? {
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
                 self.client
@@ -338,7 +339,7 @@ where
     where
         <Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
-        let provider = self.context.mls_provider();
+        let conn = self.context.db();
         let installation_id = self.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
@@ -370,7 +371,7 @@ where
                 }
 
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates.clone(), provider, handle)?;
+                let updated = store_preference_updates(updates.clone(), &conn, handle)?;
                 if !updated.is_empty() {
                     let _ = self
                         .context

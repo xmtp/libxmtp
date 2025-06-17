@@ -3,9 +3,21 @@ use crate::ConnectionExt;
 use super::*;
 use crate::ConnectionError;
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryDms<C: ConnectionExt> {
     /// Same behavior as fetched, but will stitch DM groups
-    pub fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
+    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError>;
+
+    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    where
+        M: std::fmt::Display;
+
+    /// Load the other DMs that are stitched into this group
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryDms<C> for DbConnection<C> {
+    /// Same behavior as fetched, but will stitch DM groups
+    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query_read(|conn| {
             groups::table
                 .filter(groups::id.eq(key))
@@ -32,7 +44,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    pub fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
     where
         M: std::fmt::Display,
     {
@@ -44,7 +56,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     }
 
     /// Load the other DMs that are stitched into this group
-    pub fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
         let query = dsl::groups.filter(dsl::id.eq(group_id));
         let groups: Vec<StoredGroup> = self.raw_query_read(|conn| query.load(conn))?;
 

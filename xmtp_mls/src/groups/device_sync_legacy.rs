@@ -20,6 +20,7 @@ use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
+use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;

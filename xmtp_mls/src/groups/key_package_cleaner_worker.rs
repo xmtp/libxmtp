@@ -15,10 +15,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     MlsProviderExt, StorageError, XmtpDb,
 };
+
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
@@ -154,8 +156,7 @@ where
 
     /// Delete all the expired keys
     fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
+        let conn = self.context.db();
 
         match conn.get_expired_key_packages() {
             Ok(expired_kps) if !expired_kps.is_empty() => {
@@ -192,14 +193,13 @@ where
 
     /// Check if we need to rotate the keys and upload new keypackage if the las one rotate in has passed
     async fn rotate_last_key_package_if_needed(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
+        let conn = self.context.db();
 
         if conn.is_identity_needs_rotation()? {
             self.context
                 .identity()
                 .rotate_and_upload_key_package(
-                    &provider,
+                    &conn,
                     self.context.api(),
                     CREATE_PQ_KEY_PACKAGE_EXTENSION,
                 )

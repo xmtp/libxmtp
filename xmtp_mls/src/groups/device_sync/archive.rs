@@ -9,7 +9,7 @@ use xmtp_api::XmtpApi;
 pub use xmtp_archive::*;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
+    group_message::StoredGroupMessage, prelude::*, StoreOrIgnore, XmtpDb,
 };
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
@@ -24,7 +24,7 @@ where
 {
     while let Some(element) = importer.next().await {
         let element = element?;
-        if let Err(err) = insert(element, context, context.mls_provider()) {
+        if let Err(err) = insert(element, context) {
             tracing::warn!("Unable to insert record: {err:?}");
         };
     }
@@ -35,7 +35,6 @@ where
 fn insert<ApiClient, Db>(
     element: BackupElement,
     context: &XmtpMlsLocalContext<ApiClient, Db>,
-    provider: impl MlsProviderExt,
 ) -> Result<(), DeviceSyncError>
 where
     ApiClient: XmtpApi,
@@ -48,10 +47,10 @@ where
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            provider.db().insert_newer_consent_record(consent)?;
+            context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
-            if let Ok(Some(_)) = provider.db().find_group(&save.id) {
+            if let Ok(Some(_)) = context.db().find_group(&save.id) {
                 // Do not restore groups that already exist.
                 return Ok(());
             }
@@ -76,7 +75,7 @@ where
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            message.store_or_ignore(provider.db())?;
+            message.store_or_ignore(&context.db())?;
         }
         _ => {}
     }
@@ -145,7 +144,8 @@ mod tests {
         let alix2_provider = alix2.mls_provider();
 
         // No messages
-        let messages: Vec<StoredGroupMessage> = alix2_provider
+        let messages: Vec<StoredGroupMessage> = alix2
+            .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
@@ -159,7 +159,8 @@ mod tests {
             .unwrap();
 
         // One message.
-        let messages: Vec<StoredGroupMessage> = alix2_provider
+        let messages: Vec<StoredGroupMessage> = alix2
+            .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))
             .unwrap();
@@ -179,7 +180,7 @@ mod tests {
         let alix_group = alix.create_group(None, None)?;
 
         // wait for user preference update
-        wait_for_min_intents(alix.provider.db(), 2).await?;
+        wait_for_min_intents(&alix.context.db(), 2).await?;
 
         alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
         alix_group.update_group_name("My group".to_string()).await?;
@@ -188,30 +189,30 @@ mod tests {
         let bo_group = bo.group(&alix_group.group_id)?;
 
         // wait for add member intent/commit
-        wait_for_min_intents(alix.provider.db(), 1).await?;
+        wait_for_min_intents(&alix.context.db(), 1).await?;
 
         alix_group.send_message(b"hello there").await?;
 
         // wait for send message intent/commit publish
         // Wait for Consent state update
-        wait_for_min_intents(alix.provider.db(), 4).await?;
+        wait_for_min_intents(&alix.context.db(), 4).await?;
 
         let mut consent_records: Vec<StoredConsentRecord> = alix
-            .provider
+            .context
             .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         let old_consent_record = consent_records.pop()?;
 
         let mut groups: Vec<StoredGroup> = alix
-            .provider
+            .context
             .db()
             .raw_query_read(|conn| groups::table.load(conn))?;
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
         let old_messages: Vec<StoredGroupMessage> = alix
-            .provider
+            .context
             .db()
             .raw_query_read(|conn| group_messages::table.load(conn))?;
         assert_eq!(old_messages.len(), 6);
@@ -236,7 +237,7 @@ mod tests {
 
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2
-            .provider
+            .context
             .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 0);
@@ -248,14 +249,14 @@ mod tests {
 
         // Consent is there after the import
         let consent_records: Vec<StoredConsentRecord> = alix2
-            .provider
+            .context
             .db()
             .raw_query_read(|conn| consent_records::table.load(conn))?;
         assert_eq!(consent_records.len(), 1);
         // It's the same consent record.
         assert_eq!(consent_records[0], old_consent_record);
 
-        let groups: Vec<StoredGroup> = alix2.provider.db().raw_query_read(|conn| {
+        let groups: Vec<StoredGroup> = alix2.context.db().raw_query_read(|conn| {
             groups::table
                 .filter(groups::conversation_type.ne(ConversationType::Sync))
                 .load(conn)
@@ -264,7 +265,7 @@ mod tests {
         // It's the same group
         assert_eq!(groups[0].id, old_group.id);
 
-        let messages: Vec<StoredGroupMessage> = alix2.provider.db().raw_query_read(|conn| {
+        let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query_read(|conn| {
             group_messages::table
                 .filter(group_messages::group_id.eq(&groups[0].id))
                 .load(conn)

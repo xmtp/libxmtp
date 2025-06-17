@@ -7,7 +7,9 @@ use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;
 use serde::{Deserialize, Serialize};
 use xmtp_common::time::now_ns;
-use xmtp_db::{consent_record::StoredConsentRecord, user_preferences::StoredUserPreferences};
+use xmtp_db::{
+    consent_record::StoredConsentRecord, prelude::*, user_preferences::StoredUserPreferences,
+};
 use xmtp_db::{ConnectionExt, StorageError, XmtpDb, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::xmtp::device_sync::content::{
