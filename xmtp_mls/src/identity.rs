@@ -1,11 +1,8 @@
 use crate::configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX,
 };
-use crate::context::XmtpMlsLocalContext;
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
-use crate::identity_updates::{
-    get_association_state_with_verifier, load_identity_updates, IdentityUpdates,
-};
+use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
@@ -25,7 +22,6 @@ use openmls_traits::{
 };
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use thiserror::Error;
 use tls_codec::SecretVLBytes;
 use tracing::debug;
@@ -375,7 +371,7 @@ impl Identity {
 
             // 4. Fetch state
             let state = get_association_state_with_verifier(
-                provider.db(),
+                provider,
                 &inbox_id,
                 None,
                 &scw_signature_verifier,

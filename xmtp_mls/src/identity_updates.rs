@@ -13,7 +13,7 @@ use std::{
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::association_state::StoredAssociationState;
+use xmtp_db::{association_state::StoredAssociationState, MlsProviderExt};
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_db::{ConnectionExt, XmtpDb};
 use xmtp_id::{
@@ -77,49 +77,50 @@ impl<ApiClient, Db> IdentityUpdates<ApiClient, Db> {
     }
 }
 
-    /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
-    /// If no `to_sequence_id` is provided, use the latest value in the database
-    pub async fn get_association_state_with_verifier<Connection: ConnectionExt + Send + Sync>(
-        conn: &DbConnection<Connection>,
-        inbox_id: &str,
-        to_sequence_id: Option<i64>,
-        scw_verifier: &impl SmartContractSignatureVerifier,
-    ) -> Result<AssociationState, ClientError> {
-        let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        let last_sequence_id = updates
-            .last()
-            .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
-            .sequence_id;
-        if let Some(to_sequence_id) = to_sequence_id {
-            if to_sequence_id != last_sequence_id {
-                return Err(AssociationError::MissingIdentityUpdate.into());
-            }
+/// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+/// If no `to_sequence_id` is provided, use the latest value in the database
+pub async fn get_association_state_with_verifier(
+    provider: impl MlsProviderExt,
+    inbox_id: &str,
+    to_sequence_id: Option<i64>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<AssociationState, ClientError> {
+    let conn = provider.db();
+    let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+    let last_sequence_id = updates
+        .last()
+        .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+        .sequence_id;
+    if let Some(to_sequence_id) = to_sequence_id {
+        if to_sequence_id != last_sequence_id {
+            return Err(AssociationError::MissingIdentityUpdate.into());
         }
-
-        if let Some(association_state) =
-            StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
-        {
-            return Ok(association_state);
-        }
-
-        let unverified_updates = updates
-            .into_iter()
-            // deserialize identity update payload
-            .map(UnverifiedIdentityUpdate::try_from)
-            .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(unverified_updates, scw_verifier).await?;
-
-        let association_state = get_state(updates)?;
-
-        StoredAssociationState::write_to_cache(
-            conn,
-            inbox_id.to_owned(),
-            last_sequence_id,
-            association_state.clone().into(),
-        )?;
-
-        Ok(association_state)
     }
+
+    if let Some(association_state) =
+        StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
+    {
+        return Ok(association_state);
+    }
+
+    let unverified_updates = updates
+        .into_iter()
+        // deserialize identity update payload
+        .map(UnverifiedIdentityUpdate::try_from)
+        .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
+    let updates = verify_updates(unverified_updates, scw_verifier).await?;
+
+    let association_state = get_state(updates)?;
+
+    StoredAssociationState::write_to_cache(
+        conn,
+        inbox_id.to_owned(),
+        last_sequence_id,
+        association_state.clone().into(),
+    )?;
+
+    Ok(association_state)
+}
 
 impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
 where
@@ -163,11 +164,17 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        _conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        get_association_state_with_verifier(conn, inbox_id, to_sequence_id, &self.context.scw_verifier).await
+        get_association_state_with_verifier(
+            self.context.mls_provider(),
+            inbox_id,
+            to_sequence_id,
+            &self.context.scw_verifier,
+        )
+        .await
     }
 
     /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the

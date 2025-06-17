@@ -219,33 +219,6 @@ where
     Db: XmtpDb,
     ApiClient: XmtpApi,
 {
-    pub fn new(
-        identity: Identity,
-        api_client: ApiClientWrapper<ApiClient>,
-        db: Db,
-        scw_signature_verifier: impl SmartContractSignatureVerifier + 'static,
-    ) -> Self {
-        let (local_event_sender, _) = broadcast::channel(100);
-        let (worker_event_sender, _) = broadcast::channel(100);
-
-        Self {
-            identity,
-            api_client,
-            store: db,
-            mutexes: MutexRegistry::new(),
-            mls_commit_lock: Arc::new(GroupCommitLock::default()),
-            version_info: VersionInfo::default(), // or however you construct it
-            local_events: local_event_sender,
-            worker_events: worker_event_sender,
-            scw_verifier: Arc::new(Box::new(scw_signature_verifier)),
-            device_sync: DeviceSync {
-                server_url: None,
-                mode: SyncWorkerMode::Disabled,
-            },
-            workers: WorkerRunner::default(),
-        }
-    }
-
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
     pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
