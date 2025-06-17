@@ -145,7 +145,7 @@ diesel::table! {
         applied_epoch_authenticator -> Nullable<Binary>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
-        commit_type -> Nullable<Integer>,
+        commit_type -> Nullable<Text>,
     }
 }
 

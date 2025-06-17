@@ -1,5 +1,5 @@
 use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_log::dsl};
-use crate::{impl_store, schema::local_commit_log};
+use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 
 #[derive(Insertable, Debug, Clone)]
@@ -13,7 +13,7 @@ pub struct NewLocalCommitLog {
     pub applied_epoch_authenticator: Option<Vec<u8>>,
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
-    pub commit_type: Option<i32>,
+    pub commit_type: Option<String>,
 }
 
 #[derive(Queryable, Debug, Clone)]
@@ -29,21 +29,35 @@ pub struct LocalCommitLog {
     pub applied_epoch_authenticator: Option<Vec<u8>>,
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
-    pub commit_type: Option<i32>,
+    pub commit_type: Option<String>,
 }
 
 impl_store!(NewLocalCommitLog, local_commit_log);
 
-impl LocalCommitLog {
-    pub fn group_logs(
-        db: &DbConnection,
+impl<C: ConnectionExt> DbConnection<C> {
+    pub fn get_group_logs(
+        &self,
         group_id: &[u8],
-    ) -> Result<Vec<Self>, crate::ConnectionError> {
-        db.raw_query_read(|db| {
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.asc())
                 .load(db)
+        })
+    }
+
+    pub fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::local_commit_log
+                .filter(dsl::group_id.eq(group_id))
+                .order_by(dsl::rowid.desc())
+                .limit(1)
+                .first(db)
+                .optional()
         })
     }
 }
