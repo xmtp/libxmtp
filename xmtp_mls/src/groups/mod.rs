@@ -705,6 +705,9 @@ where
                 group.quietly_update_consent_state(ConsentState::Allowed)?;
             }
 
+            // Set the message cursor
+            provider.db().update_cursor(&group.group_id, EntityKind::Group, welcome.message_cursor as i64)?;
+
             Ok(group)
         })
     }
