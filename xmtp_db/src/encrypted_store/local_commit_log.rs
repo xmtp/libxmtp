@@ -45,9 +45,9 @@ impl std::fmt::Display for LocalCommitLog {
             hex::encode(&self.last_epoch_authenticator),
             self.commit_result,
             self.applied_epoch_number,
-            hex::encode(&self.applied_epoch_authenticator.as_ref().unwrap_or(&vec![])),
+            hex::encode(self.applied_epoch_authenticator.as_ref().unwrap_or(&vec![])),
             self.sender_inbox_id,
-            hex::encode(&self.sender_installation_id.as_ref().unwrap_or(&vec![])),
+            hex::encode(self.sender_installation_id.as_ref().unwrap_or(&vec![])),
             self.commit_type
         )
     }

@@ -53,7 +53,7 @@ impl MergeStagedCommitAndLog for MlsGroup {
         NewLocalCommitLog {
             group_id: self.group_id().to_vec(),
             commit_sequence_id: sequence_id,
-            last_epoch_authenticator: last_epoch_authenticator,
+            last_epoch_authenticator,
             commit_result: CommitResult::Success,
             applied_epoch_number: Some(self.epoch().as_u64() as i64),
             applied_epoch_authenticator: Some(self.epoch_authenticator().as_slice().to_vec()),

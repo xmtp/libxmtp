@@ -1589,8 +1589,8 @@ where
             NewLocalCommitLog {
                 group_id: self.group_id.to_vec(),
                 commit_sequence_id: message_cursor as i64,
-                last_epoch_authenticator: last_epoch_authenticator,
-                commit_result: commit_result,
+                last_epoch_authenticator,
+                commit_result,
                 applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
                 applied_epoch_authenticator: None,
                 sender_inbox_id: None,
