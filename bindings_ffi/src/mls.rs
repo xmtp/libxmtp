@@ -8382,36 +8382,42 @@ mod tests {
     #[tokio::test]
     async fn test_cannot_create_more_than_5_installations() {
         use xmtp_identity::errors::IdentityError;
-    
+
         // Create a base tester
         let bo = Tester::new().await;
         let alix = Tester::new().await;
-    
+
         // Create 4 additional installations (total 5)
         let alix2 = alix.builder.build().await;
         let alix3 = alix.builder.build().await;
         let alix4 = alix.builder.build().await;
         let alix5 = alix.builder.build().await;
-    
+
         // Verify we have 5 installations
         let state = alix.inbox_state(true).await.unwrap();
         assert_eq!(state.installations.len(), 5);
-    
+
         // Attempt to create a 6th installation, expect failure
         let alix6_result = alix.builder.build().await;
         assert!(
-            matches!(alix6_result, Err(ClientError::Identity(IdentityError::TooManyInstallations(_, _)))),
+            matches!(
+                alix6_result,
+                Err(ClientError::Identity(IdentityError::TooManyInstallations(
+                    _,
+                    _
+                )))
+            ),
             "Expected TooManyInstallations error, got: {:?}",
             alix6_result
         );
-    
+
         // Create a group with one of the valid installations
         let bo_group = bo
             .conversations()
             .create_group_with_inbox_ids(vec![alix3.inbox_id()], FfiCreateGroupOptions::default())
             .await
             .unwrap();
-    
+
         // Confirm group members list Alix's inbox with exactly 5 installations
         let members = bo_group.members().await.unwrap();
         let alix_member = members
@@ -8419,24 +8425,24 @@ mod tests {
             .find(|m| m.inbox_id == alix.inbox_id)
             .expect("Alix should be a group member");
         assert_eq!(alix_member.installation_ids.len(), 5);
-    
+
         // Revoke one of Alix's installations (e.g. alix5)
         let signature_request = alix
             .revoke_installations(vec![alix5.installation_id()])
             .await
             .unwrap();
-        signature_request
-            .add_wallet_signature(&alix.wallet)
-            .await;
-        alix.apply_signature_request(signature_request).await.unwrap();
-    
+        signature_request.add_wallet_signature(&alix.wallet).await;
+        alix.apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
         // Check that installations have been reduced to 4
         let state_after_revoke = alix.inbox_state(true).await.unwrap();
         assert_eq!(state_after_revoke.installations.len(), 4);
-    
+
         // Now try building alix6 again – should succeed
         let alix6 = alix.builder.build().await.unwrap();
         let updated_state = alix.inbox_state(true).await.unwrap();
         assert_eq!(updated_state.installations.len(), 5);
-    }    
+    }
 }

@@ -1,7 +1,11 @@
-use crate::configuration::{CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX};
+use crate::configuration::{
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX,
+};
 use crate::context::XmtpMlsLocalContext;
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
-use crate::identity_updates::{load_identity_updates, IdentityUpdates};
+use crate::identity_updates::{
+    get_association_state_with_verifier, load_identity_updates, IdentityUpdates,
+};
 use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
@@ -363,59 +367,35 @@ impl Identity {
              */
             // get sequence_id from identity updates and loaded into the DB
             // 1. Load updates
-            load_identity_updates(
-                api_client,
-                provider.db(),
-                &[associated_inbox_id.as_str()],
-            )
-            .await
-            .map_err(|e| IdentityError::NewIdentity(format!("Failed to load identity updates: {e}")))?;
-
-            // 2. Create Identity struct first
-            let credential = create_credential(associated_inbox_id.clone())
-                .map_err(|e| IdentityError::NewIdentity(format!("Credential creation failed: {e}")))?;
-
-            let identity = Identity {
-                inbox_id: associated_inbox_id.clone(),
-                installation_keys,
-                credential,
-                signature_request: None,
-                is_ready: AtomicBool::new(true),
-            };
-
-            // 3. Construct context (NOTE: must pass actual db + raw api)
-            let context = Arc::new(XmtpMlsLocalContext::new(
-                identity.clone(),
-                *api_client,
-                provider.store().clone(),         // or however you can access the db impl
-                scw_signature_verifier,
-            ));
+            load_identity_updates(api_client, provider.db(), &[associated_inbox_id.as_str()])
+                .await
+                .map_err(|e| {
+                    IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
+                })?;
 
             // 4. Fetch state
-            let identity_service = IdentityUpdates::new(context.clone());
-            let state = identity_service
-                .get_association_state(provider.db(), &inbox_id, None)
-                .await
-                .map_err(|err| IdentityError::NewIdentity(format!("Error resolving identity state: {}", err)))?;
+            let state = get_association_state_with_verifier(
+                provider.db(),
+                &inbox_id,
+                None,
+                &scw_signature_verifier,
+            )
+            .await
+            .map_err(|err| {
+                IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
+            })?;
 
             // 5. Check max
             let current_installation_count = state.installation_ids().len();
             if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
                 return Err(IdentityError::TooManyInstallations(
                     associated_inbox_id.clone(),
-                    format!("{}/{}", current_installation_count, MAX_INSTALLATIONS_PER_INBOX),
+                    format!(
+                        "{}/{}",
+                        current_installation_count, MAX_INSTALLATIONS_PER_INBOX
+                    ),
                 ));
             }
-
-
-            // Enforce a maximum limit of 5 installations
-            if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
-                return Err(IdentityError::TooManyInstallations(
-                    associated_inbox_id.clone(),
-                    format!("{}/{}", current_installation_count, MAX_INSTALLATIONS_PER_INBOX),
-                ));
-            }
-
 
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder

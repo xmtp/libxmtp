@@ -219,7 +219,6 @@ where
     Db: XmtpDb,
     ApiClient: XmtpApi,
 {
-
     pub fn new(
         identity: Identity,
         api_client: ApiClientWrapper<ApiClient>,
