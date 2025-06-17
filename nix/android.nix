@@ -19,7 +19,7 @@ let
 
   android = {
     platforms = [ "33" "34" ];
-    platformTools = "33.0.3";
+    platformTools = "34.0.4";
     buildTools = [ "30.0.3" ];
   };
 
@@ -80,10 +80,6 @@ mkShell {
     openssl
   ] ++ lib.optionals stdenv.isDarwin [
     # optional packages if on darwin, in order to check if build passes locally
-    frameworks.CoreServices
-    frameworks.Carbon
-    frameworks.ApplicationServices
-    frameworks.AppKit
     darwin.cctools
   ];
 }

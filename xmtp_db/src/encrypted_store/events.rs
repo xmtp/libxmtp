@@ -3,10 +3,20 @@ use super::{
     group_intent::IntentKind, schema::events::dsl,
 };
 use crate::{Store, impl_store, schema::events};
-use diesel::{Insertable, Queryable, associations::HasTable, prelude::*};
+use diesel::{
+    Insertable, Queryable,
+    associations::HasTable,
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
+    prelude::*,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Integer,
+    sqlite::Sqlite,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use xmtp_common::{NS_IN_30_DAYS, time::now_ns};
+use xmtp_common::{NS_IN_DAY, time::now_ns};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = events)]
@@ -16,19 +26,64 @@ pub struct Events {
     pub group_id: Option<Vec<u8>>,
     pub event: String,
     pub details: serde_json::Value,
+    pub level: EventLevel,
+    pub icon: Option<String>,
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+pub enum EventLevel {
+    // Just run-of-the-mill info (no border on dashboard)
+    None = 0,
+    // green border on dashboard
+    Success = 1,
+    // orange border on dashboard
+    Warn = 2,
+    // red border on dashboard
+    Error = 3,
+    // Irrecoverable error - purple border on dashboard
+    Fault = 4,
+}
+
+impl ToSql<Integer, Sqlite> for EventLevel
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for EventLevel
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            0 => Ok(EventLevel::None),
+            1 => Ok(EventLevel::Success),
+            2 => Ok(EventLevel::Warn),
+            3 => Ok(EventLevel::Error),
+            4 => Ok(EventLevel::Fault),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
 }
 
 impl_store!(Events, events);
 
-pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static EVENTS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 impl Events {
     #[allow(invalid_type_param_default)]
     pub fn track<C: ConnectionExt>(
         db: &DbConnection<C>,
         group_id: Option<Vec<u8>>,
-        event: impl AsRef<Event>,
+        event: impl AsRef<str>,
         details: impl Serialize,
+        icon: Option<String>,
     ) {
         if !EVENTS_ENABLED.load(Ordering::Relaxed) {
             return;
@@ -57,26 +112,21 @@ impl Events {
             group_id,
             event,
             details: serialized_details,
+            level: EventLevel::None,
+            icon,
         }
         .store(db);
         if let Err(err) = result {
             // We don't want ClientEvents causing any issues, so we just warn if something goes wrong.
             tracing::warn!("ClientEvents: {err:?}");
         }
-
-        // Clear old events on build.
-        if matches!(client_event, Event::ClientBuild) {
-            if let Err(err) = Self::clear_old_events(db) {
-                tracing::warn!("ClientEvents clear old events: {err:?}");
-            }
-        }
     }
 
-    fn clear_old_events<C: ConnectionExt>(
+    pub fn clear_old_events<C: ConnectionExt>(
         db: &DbConnection<C>,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
-            diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_30_DAYS)))
+            diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_DAY * 15)))
                 .execute(db)?;
             Ok(())
         })
@@ -101,23 +151,12 @@ impl Events {
     pub fn key_updates(db: &DbConnection) -> Result<Vec<Self>, crate::ConnectionError> {
         db.raw_query_read(|db| {
             let query = dsl::events.filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
-                "jsonb_extract(details, '$.QueueIntent.intent_kind') = 'KeyUpdate'",
+                "jsonb_extract(details, '$.intent_kind') = 'KeyUpdate'",
             ));
 
             query.load::<Events>(db)
         })
     }
-}
-
-#[derive(Debug, Serialize)]
-pub enum Event {
-    ClientBuild,
-    QueueIntent,
-    EpochChange,
-    GroupWelcome,
-    GroupCreate,
-    GroupMembershipChange,
-    MsgStreamConnect,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,12 +187,6 @@ pub enum Details {
     },
 }
 
-impl AsRef<Event> for Event {
-    fn as_ref(&self) -> &Event {
-        self
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -161,12 +194,12 @@ mod tests {
 
     use crate::{
         Store,
-        events::{Details, Event, Events},
+        events::{Details, EventLevel, Events},
         group_intent::IntentKind,
         with_connection,
     };
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     // A client build event should clear old events.
     async fn clear_old_events() {
         with_connection(|conn| {
@@ -174,26 +207,30 @@ mod tests {
             Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&Event::ClientBuild)?,
+                event: "Queue Intent".to_string(),
                 details: serde_json::to_value(details.clone())?,
+                level: EventLevel::None,
+                icon: None,
             }
             .store(conn)?;
             Events {
                 created_at_ns: 0,
                 group_id: None,
-                event: serde_json::to_string(&Event::QueueIntent)?,
+                event: "Queue Intent".to_string(),
                 details: serde_json::to_value(Details::QueueIntent {
                     intent_kind: IntentKind::KeyUpdate,
                 })?,
+                level: EventLevel::None,
+                icon: None,
             }
             .store(conn)?;
 
             let all = Events::all_events(conn)?;
             assert_eq!(all.len(), 2);
 
-            Events::track(conn, None, Event::ClientBuild, Some(details));
+            Events::clear_old_events(conn)?;
             let all = Events::all_events(conn)?;
-            assert_eq!(all.len(), 1);
+            assert_eq!(all.len(), 0);
         })
         .await;
     }

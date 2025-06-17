@@ -106,6 +106,7 @@ mod tests {
     };
     use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
         use futures::io::BufReader;
@@ -165,7 +166,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_file_backup() {
         use crate::tester;
@@ -231,7 +232,7 @@ mod tests {
         exporter.write_to_file(path).await?;
 
         let alix2 = Tester::new().await;
-        alix2.device_sync().wait_for_sync_worker_init().await;
+        alix2.device_sync_client().wait_for_sync_worker_init().await;
 
         // No consent before
         let consent_records: Vec<StoredConsentRecord> = alix2

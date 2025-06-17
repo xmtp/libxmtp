@@ -106,7 +106,7 @@ pub async fn connect_to_backend(
     );
     let mut api_client = TonicApiClient::builder();
     api_client.set_host(host);
-    api_client.set_tls(true);
+    api_client.set_tls(is_secure);
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
     let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
@@ -143,6 +143,8 @@ pub async fn create_client(
     legacy_signed_private_key_proto: Option<Vec<u8>>,
     device_sync_server_url: Option<String>,
     device_sync_mode: Option<FfiSyncWorkerMode>,
+    allow_offline: Option<bool>,
+    disable_events: Option<bool>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -184,6 +186,8 @@ pub async fn create_client(
         .api_client(Arc::unwrap_or_clone(api).0)
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
+        .with_allow_offline(allow_offline)
+        .with_disable_events(disable_events)
         .store(store);
 
     if let Some(sync_worker_mode) = device_sync_mode {
@@ -201,7 +205,7 @@ pub async fn create_client(
         xmtp_client.inbox_id()
     );
     let worker = FfiSyncWorker {
-        handle: xmtp_client.worker_handle(),
+        handle: xmtp_client.context.sync_metrics(),
     };
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -346,6 +350,10 @@ impl FfiXmtpClient {
         let identity = self.inner_client.identity_api_stats();
         let aggregate = AggregateStats { mls: api, identity };
         format!("{:?}", aggregate)
+    }
+
+    pub fn clear_all_statistics(&self) {
+        self.inner_client.clear_stats()
     }
 
     pub fn inbox_id(&self) -> InboxId {
@@ -609,7 +617,10 @@ impl FfiXmtpClient {
 
     /// Manually trigger a device sync request to sync records from another active device on this account.
     pub async fn send_sync_request(&self) -> Result<(), GenericError> {
-        self.inner_client.device_sync().send_sync_request().await?;
+        self.inner_client
+            .device_sync_client()
+            .send_sync_request()
+            .await?;
         Ok(())
     }
 
@@ -772,7 +783,7 @@ impl FfiXmtpClient {
     /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
     pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
         let provider = Arc::new(self.inner_client.mls_provider());
-        Ok(upload_debug_archive(&provider, server_url).await?)
+        Ok(upload_debug_archive(&provider, Some(server_url)).await?)
     }
 }
 
@@ -1582,7 +1593,7 @@ impl FfiConversations {
 impl FfiConversations {
     pub async fn get_sync_group(&self) -> Result<FfiConversation, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sync_group = inner.device_sync().get_sync_group().await?;
+        let sync_group = inner.device_sync_client().get_sync_group().await?;
         Ok(sync_group.into())
     }
 }
@@ -2935,7 +2946,7 @@ mod tests {
     use xmtp_db::EncryptionKey;
     use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
     use xmtp_mls::{
-        groups::{device_sync::handle::SyncMetric, GroupError},
+        groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
     };
@@ -3159,6 +3170,8 @@ mod tests {
             None,
             history_sync_url,
             sync_worker_mode,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3191,6 +3204,8 @@ mod tests {
             nonce,
             None,
             sync_server_url,
+            None,
+            None,
             None,
         )
         .await?;
@@ -3258,6 +3273,8 @@ mod tests {
             Some(legacy_keys),
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3286,6 +3303,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3303,6 +3322,8 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
+            None,
             None,
             None,
             None,
@@ -3342,6 +3363,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3360,6 +3383,8 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
+            None,
             None,
             None,
             None,
@@ -3389,8 +3414,91 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn create_client_does_not_hit_network() {
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
+        let nonce = 1;
+        let ident = ffi_inbox_owner.identifier();
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+
+        let connection = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+        let client = create_client(
+            connection.clone(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let signature_request = client.signature_request().unwrap().clone();
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats Create:\n{}", aggregate_str);
+
+        let api_stats = client.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 1);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_inbox_ids, 1);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+
+        client.clear_all_statistics();
+
+        let build = create_client(
+            connection.clone(),
+            Some(path.clone()),
+            Some(key.clone()),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let aggregate_str = build.api_aggregate_statistics();
+        println!("Aggregate Stats Build:\n{}", aggregate_str);
+
+        let api_stats = build.api_statistics();
+        assert_eq!(api_stats.upload_key_package, 0);
+        assert_eq!(api_stats.fetch_key_package, 0);
+
+        let identity_stats = build.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert_eq!(identity_stats.get_identity_updates_v2, 0);
+        assert_eq!(identity_stats.get_inbox_ids, 0);
+        assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn ffi_api_stats_exposed_correctly() {
-        let tester = Tester::builder().sync_worker().sync_server().build().await;
+        let tester = Tester::new().await;
         let client: &FfiXmtpClient = &tester.client;
 
         let bo = Tester::new().await;
@@ -3408,36 +3516,51 @@ mod tests {
             .list(FfiListConversationsOptions::default());
 
         let api_stats = client.api_statistics();
-        assert!(
-            api_stats.send_group_messages >= 1,
-            "Expected at least one group message send"
-        );
-        assert!(
-            api_stats.send_welcome_messages >= 1,
-            "Expected at least one welcome message"
-        );
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
 
         let identity_stats = client.api_identity_statistics();
-        assert_eq!(
-            identity_stats.publish_identity_update, 1,
-            "Expected one identity update published"
-        );
-        assert!(
-            identity_stats.get_inbox_ids >= 1,
-            "Expected get_inbox_ids to be called"
-        );
+        assert_eq!(identity_stats.publish_identity_update, 1);
+        assert!(identity_stats.get_inbox_ids >= 1);
 
         let aggregate_str = client.api_aggregate_statistics();
         println!("Aggregate Stats:\n{}", aggregate_str);
 
-        assert!(
-            aggregate_str.contains("UploadKeyPackage"),
-            "Aggregate string should contain API stats"
-        );
-        assert!(
-            aggregate_str.contains("PublishIdentityUpdate"),
-            "Aggregate string should contain identity stats"
-        );
+        assert!(aggregate_str.contains("UploadKeyPackage"));
+        assert!(aggregate_str.contains("PublishIdentityUpdate"));
+
+        client.clear_all_statistics();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 0);
+        assert!(api_stats.send_welcome_messages == 0);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 0);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
+
+        let _conversation2 = client
+            .conversations()
+            .create_group(
+                vec![bo.account_identifier.clone()],
+                FfiCreateGroupOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        let api_stats = client.api_statistics();
+        assert!(api_stats.send_group_messages == 1);
+        assert!(api_stats.send_welcome_messages == 1);
+
+        let identity_stats = client.api_identity_statistics();
+        assert_eq!(identity_stats.publish_identity_update, 0);
+        assert!(identity_stats.get_inbox_ids == 1);
+
+        let aggregate_str = client.api_aggregate_statistics();
+        println!("Aggregate Stats:\n{}", aggregate_str);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -3452,7 +3575,7 @@ mod tests {
         let convo_callback = Arc::new(RustStreamCallback::default());
         let _convo_stream_handle = alex.conversations().stream_groups(convo_callback).await;
 
-        let worker = alex.client.inner_client.worker_handle().unwrap();
+        let worker = alex.client.inner_client.context.sync_metrics().unwrap();
 
         let stats = alex.inner_client.api_stats();
         let ident_stats = alex.inner_client.identity_api_stats();
@@ -3509,6 +3632,8 @@ mod tests {
             &inbox_id,
             ffi_inbox_owner.identifier(),
             nonce,
+            None,
+            None,
             None,
             None,
             None,
@@ -3629,6 +3754,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3722,6 +3849,8 @@ mod tests {
             None, // v2_signed_private_key_proto
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -3751,6 +3880,8 @@ mod tests {
             &amal_inbox_id,
             amal.identifier(),
             nonce,
+            None,
+            None,
             None,
             None,
             None,
@@ -3792,6 +3923,8 @@ mod tests {
             &bola_inbox_id,
             bola.identifier(),
             nonce,
+            None,
+            None,
             None,
             None,
             None,
@@ -4116,6 +4249,7 @@ mod tests {
             )
             .await
             .unwrap();
+        message_callbacks.wait_for_delivery(None).await.unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
@@ -4129,7 +4263,9 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 5);
+        wait_for_eq(|| async { message_callbacks.message_count() }, 6)
+            .await
+            .unwrap();
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());
@@ -6695,7 +6831,7 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 3)
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -7039,6 +7175,8 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -7078,6 +7216,8 @@ mod tests {
             nonce,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
             None,
         )
         .await
@@ -7144,6 +7284,8 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
+            None,
         )
         .await;
 
@@ -7180,6 +7322,8 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -7203,6 +7347,8 @@ mod tests {
             None,
             Some(HISTORY_SYNC_URL.to_string()),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -7222,6 +7368,8 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
             None,
         )
         .await
@@ -7253,6 +7401,8 @@ mod tests {
             1,
             None,
             Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
             None,
         )
         .await;
@@ -8056,13 +8206,13 @@ mod tests {
 
         let sg1 = alix
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();
         let sg2 = alix2
             .inner_client
-            .device_sync()
+            .device_sync_client()
             .get_sync_group()
             .await
             .unwrap();
@@ -8086,7 +8236,7 @@ mod tests {
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
         alix.worker()
-            .wait(SyncMetric::ConsentSent, 2)
+            .wait(SyncMetric::ConsentSent, 3)
             .await
             .unwrap();
 

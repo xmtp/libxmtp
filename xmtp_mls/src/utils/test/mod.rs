@@ -3,6 +3,9 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester_utils;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod fixtures;
+
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     context::XmtpContextProvider,
@@ -75,6 +78,23 @@ impl ClientBuilder<TestClient> {
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
             None,
             None,
+            None,
+        )
+        .await
+    }
+
+    /// Test client without anything extra
+    pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
+        let api_client = Self::new_api_client().await;
+
+        build_with_verifier(
+            owner,
+            api_client,
+            MockSmartContractSignatureVerifier::new(true),
+            None,
+            Some(SyncWorkerMode::Disabled),
+            None,
+            None,
         )
         .await
     }
@@ -91,6 +111,7 @@ impl ClientBuilder<TestClient> {
             MockSmartContractSignatureVerifier::new(true),
             None,
             Some(SyncWorkerMode::Disabled),
+            None,
             None,
         )
         .await
@@ -112,6 +133,7 @@ impl ClientBuilder<TestClient> {
             None,
             Some(SyncWorkerMode::Disabled),
             Some(version),
+            None,
         )
         .await
     }
@@ -126,6 +148,7 @@ impl ClientBuilder<TestClient> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
             None,
             None,
@@ -149,6 +172,7 @@ impl ClientBuilder<TestClient> {
             Some(history_sync_url),
             None,
             None,
+            None,
         )
         .await
     }
@@ -164,6 +188,7 @@ impl ClientBuilder<TestClient> {
             owner,
             api_client,
             MockSmartContractSignatureVerifier::new(true),
+            None,
             None,
             None,
             None,
@@ -245,6 +270,7 @@ async fn build_with_verifier<A, V>(
     sync_server_url: Option<&str>,
     sync_worker_mode: Option<SyncWorkerMode>,
     version: Option<VersionInfo>,
+    disable_events: Option<bool>,
 ) -> Client<A>
 where
     A: XmtpApi + Send + Sync + 'static,
@@ -258,6 +284,8 @@ where
         .temp_store()
         .await
         .api_client(api_client)
+        // Anything that tests events should use the tester! macro.
+        .with_disable_events(disable_events)
         .with_scw_verifier(scw_verifier);
 
     if let Some(v) = version {

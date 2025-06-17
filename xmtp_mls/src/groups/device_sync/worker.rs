@@ -1,25 +1,29 @@
 use super::{
-    handle::{SyncMetric, WorkerHandle},
     preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncClient, DeviceSyncError, IterWithContent,
 };
 use crate::{
     client::ClientError,
-    configuration::WORKER_RESTART_DELAY,
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
-        device_sync_legacy::DeviceSyncContent,
+        device_sync_legacy::{
+            preference_sync_legacy::LegacyUserPreferenceUpdate, DeviceSyncContent,
+        },
         GroupError,
     },
-    subscriptions::{LocalEvents, StreamMessages, SubscribeError, SyncWorkerEvent},
+    subscriptions::{LocalEvents, SyncWorkerEvent},
+    worker::{
+        metrics::WorkerMetrics, BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory,
+        WorkerKind, WorkerResult,
+    },
 };
-use futures::{Stream, StreamExt};
-use std::{pin::Pin, sync::Arc};
-use tokio::sync::OnceCell;
+use futures::TryFutureExt;
+use std::{any::Any, sync::Arc};
+use tokio::sync::{broadcast, OnceCell};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use tracing::{info_span, instrument, Instrument};
+use tracing::instrument;
 use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
@@ -44,59 +48,84 @@ const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 
 pub struct SyncWorker<ApiClient, Db> {
     client: DeviceSyncClient<ApiClient, Db>,
-    /// The sync events stream
-    #[allow(clippy::type_complexity)]
-    stream: Pin<Box<dyn Stream<Item = Result<LocalEvents, SubscribeError>> + Send + Sync>>,
+    receiver: broadcast::Receiver<SyncWorkerEvent>,
     init: OnceCell<()>,
-
-    handle: Arc<WorkerHandle<SyncMetric>>,
+    metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
 impl<ApiClient, Db> SyncWorker<ApiClient, Db>
 where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
 {
-    pub(super) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        let receiver = context.local_events.subscribe();
-        let stream = Box::pin(receiver.stream_sync_messages());
-        let client = DeviceSyncClient::new(context.clone());
+    pub fn new(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        metrics: Option<DynMetrics>,
+    ) -> Self {
+        let receiver = context.worker_events.subscribe();
+        let metrics = metrics
+            .and_then(|m| m.as_sync_metrics())
+            .unwrap_or_default();
+        let client = DeviceSyncClient::new(context, metrics.clone());
+
         Self {
             client,
-            stream,
+            receiver,
             init: OnceCell::new(),
-            handle: Arc::new(WorkerHandle::new()),
+            metrics,
         }
     }
+}
 
-    pub(super) fn spawn_worker(mut self) {
-        let span = info_span!("\x1b[34mDEVICE SYNC");
+struct Factory<ApiClient, Db> {
+    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+}
 
-        xmtp_common::spawn(
-            None,
-            async move {
-                let inbox_id = self.client.context.identity.inbox_id().to_string();
-                let installation_id = hex::encode(self.client.context.installation_id());
+impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
+        let worker = SyncWorker::new(&self.context, metrics);
+        let metrics = worker.metrics.clone();
 
-                while let Err(err) = self.run().await {
-                    tracing::info!("Running worker..");
-                    if err.db_needs_connection() {
-                        tracing::warn!(
-                            inbox_id,
-                            installation_id,
-                            "Pool disconnected. task will restart on reconnect"
-                        );
-                        break;
-                    } else {
-                        tracing::error!(inbox_id, installation_id, "Sync worker error: {err}");
-                        // Wait before restarting.
-                        xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
-                        tracing::info!("Restarting sync worker...");
-                    }
-                }
-            }
-            .instrument(span),
-        );
+        (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
+    }
+
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl<ApiClient, Db> Worker for SyncWorker<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
+    fn kind(&self) -> WorkerKind {
+        WorkerKind::DeviceSync
+    }
+
+    fn metrics(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        Some(self.metrics.clone())
+    }
+
+    fn factory<C>(context: C) -> impl WorkerFactory + 'static
+    where
+        Self: Sized,
+        C: XmtpSharedContext,
+        <C as XmtpSharedContext>::Db: 'static,
+        <C as XmtpSharedContext>::ApiClient: 'static,
+    {
+        let context = context.context_ref().clone();
+        Factory { context }
+    }
+
+    async fn run_tasks(&mut self) -> WorkerResult<()> {
+        self.run().map_err(|e| Box::new(e) as Box<_>).await
     }
 }
 
@@ -105,44 +134,39 @@ where
     ApiClient: XmtpApi + 'static,
     Db: XmtpDb + 'static,
 {
-    pub(super) fn handle(&self) -> &Arc<WorkerHandle<SyncMetric>> {
-        &self.handle
-    }
-
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready & verified before doing anything
         while !self.client.context.identity().is_ready() {
             xmtp_common::yield_().await
         }
         self.sync_init().await?;
-        self.handle.increment_metric(SyncMetric::Init);
+        self.metrics.increment_metric(SyncMetric::Init);
 
-        while let Some(event) = self.stream.next().await {
-            let event = event?;
-
+        while let Ok(event) = self.receiver.recv().await {
             tracing::info!("New event: {event:?}");
 
-            if let LocalEvents::SyncWorkerEvent(msg) = event {
-                match msg {
-                    SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                        self.evt_new_sync_group_from_welcome().await?;
-                    }
-                    SyncWorkerEvent::NewSyncGroupMsg => {
-                        self.evt_new_sync_group_msg().await?;
-                    }
-                    SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                        self.evt_sync_preferences(preference_updates).await?;
-                    }
-
-                    // Device Sync V1 events
-                    SyncWorkerEvent::Reply { message_id } => {
-                        self.evt_v1_device_sync_reply(message_id).await?;
-                    }
-                    SyncWorkerEvent::Request { message_id } => {
-                        self.evt_v1_device_sync_request(message_id).await?;
-                    }
+            match event {
+                SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
+                    self.evt_new_sync_group_from_welcome().await?;
                 }
-            };
+                SyncWorkerEvent::NewSyncGroupMsg => {
+                    self.evt_new_sync_group_msg().await?;
+                }
+                SyncWorkerEvent::SyncPreferences(preference_updates) => {
+                    self.evt_sync_preferences(preference_updates).await?;
+                }
+                SyncWorkerEvent::CycleHMAC => {
+                    self.evt_cycle_hmac().await?;
+                }
+
+                // Device Sync V1 events
+                SyncWorkerEvent::Reply { message_id } => {
+                    self.evt_v1_device_sync_reply(message_id).await?;
+                }
+                SyncWorkerEvent::Request { message_id } => {
+                    self.evt_v1_device_sync_request(message_id).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -195,18 +219,18 @@ where
         // We need to add that installation to the groups.
         self.client.add_new_installation_to_groups().await?;
 
-        self.handle
+        self.metrics
             .increment_metric(SyncMetric::SyncGroupWelcomesProcessed);
 
         // Cycle the HMAC
-        self.client.preference_sync.cycle_hmac().await?;
+        self.client.cycle_hmac().await?;
 
         Ok(())
     }
 
     async fn evt_new_sync_group_msg(&self) -> Result<(), DeviceSyncError> {
         self.client
-            .process_new_sync_group_messages(&self.handle)
+            .process_new_sync_group_messages(&self.metrics)
             .await?;
         Ok(())
     }
@@ -215,10 +239,28 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        self.client
-            .preference_sync
-            .sync_preferences(updates)
-            .await?;
+        let (updates, legacy_updates) = self.client.sync_preferences(updates).await?;
+
+        let sync_group = self.client.get_sync_group().await?;
+        legacy_updates.iter().for_each(|u| match u {
+            LegacyUserPreferenceUpdate::ConsentUpdate(_) => {
+                tracing::info!("Sent consent to group_id: {:?}", sync_group.group_id);
+                self.metrics.increment_metric(SyncMetric::V1ConsentSent)
+            }
+            LegacyUserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                self.metrics.increment_metric(SyncMetric::V1HmacSent)
+            }
+        });
+
+        updates.iter().for_each(|update| match update {
+            PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
+            PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
+        });
+        Ok(())
+    }
+
+    async fn evt_cycle_hmac(&self) -> Result<(), DeviceSyncError> {
+        self.client.cycle_hmac().await?;
         Ok(())
     }
 
@@ -241,7 +283,7 @@ where
             let content: DeviceSyncContent = serde_json::from_slice(&msg.decrypted_message_bytes)?;
             if let DeviceSyncContent::Request(request) = content {
                 self.client
-                    .v1_reply_to_sync_request(request, &self.handle)
+                    .v1_reply_to_sync_request(request, &self.metrics)
                     .await?;
             }
         }
@@ -256,7 +298,7 @@ where
 {
     async fn process_new_sync_group_messages(
         &self,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
         <Db as xmtp_db::XmtpDb>::Connection: 'static,
@@ -289,7 +331,7 @@ where
 
     async fn process_message(
         &self,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
         msg: &StoredGroupMessage,
         content: ContentProto,
     ) -> Result<(), DeviceSyncError>
@@ -389,7 +431,7 @@ where
         &self,
         request: Option<DeviceSyncRequestProto>,
         acknowledge: F,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
         F: Fn() -> Fut,
@@ -601,5 +643,33 @@ where
         insert_importer(&mut importer, &self.context).await?;
 
         Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+pub enum SyncMetric {
+    Init,
+    SyncGroupCreated,
+    SyncGroupWelcomesProcessed,
+    RequestReceived,
+    PayloadSent,
+    PayloadProcessed,
+    HmacSent,
+    HmacReceived,
+    ConsentSent,
+    ConsentReceived,
+
+    V1ConsentSent,
+    V1HmacSent,
+    V1PayloadSent,
+    V1PayloadProcessed,
+    V1ConsentReceived,
+    V1HmacReceived,
+    V1RequestSent,
+}
+
+impl WorkerMetrics<SyncMetric> {
+    pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
+        self.wait(SyncMetric::SyncGroupCreated, 1).await
     }
 }

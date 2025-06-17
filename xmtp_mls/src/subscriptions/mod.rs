@@ -55,7 +55,6 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(Vec<u8>),
-    SyncWorkerEvent(SyncWorkerEvent),
     PreferencesChanged(Vec<PreferenceUpdate>),
 }
 
@@ -65,6 +64,7 @@ pub enum SyncWorkerEvent {
     NewSyncGroupMsg,
     // The sync worker will auto-sync these with other devices.
     SyncPreferences(Vec<PreferenceUpdate>),
+    CycleHMAC,
 
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
@@ -77,15 +77,6 @@ impl LocalEvents {
         // this is just to protect against any future variants
         match self {
             NewGroup(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    fn sync_filter(self) -> Option<Self> {
-        use LocalEvents::*;
-
-        match &self {
-            SyncWorkerEvent(_) => Some(self),
             _ => None,
         }
     }
@@ -125,21 +116,11 @@ impl LocalEvents {
 }
 
 pub(crate) trait StreamMessages {
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>>;
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
-    #[instrument(level = "debug", skip_all)]
-    fn stream_sync_messages(self) -> impl Stream<Item = Result<LocalEvents>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::sync_filter)
-                .map(Result::Ok)
-        })
-    }
-
     #[instrument(level = "debug", skip_all)]
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
         BroadcastStream::new(self).filter_map(|event| async {
@@ -258,6 +239,18 @@ where
         ApiClient: XmtpMlsStreams,
     {
         StreamConversations::new(&self.context, conversation_type).await
+    }
+
+    /// Stream conversations but decouple the lifetime of 'self' from the stream.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn stream_conversations_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + 'static>
+    where
+        ApiClient: XmtpMlsStreams,
+    {
+        StreamConversations::new_owned(self.context.clone(), conversation_type).await
     }
 }
 

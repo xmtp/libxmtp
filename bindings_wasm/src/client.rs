@@ -152,6 +152,8 @@ pub async fn create_client(
   device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
+  allow_offline: Option<bool>,
+  disable_events: Option<bool>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
@@ -191,12 +193,16 @@ pub async fn create_client(
       .api_client(api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
+      .with_allow_offline(allow_offline)
+      .with_disable_events(disable_events)
       .store(store)
       .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
+      .with_allow_offline(allow_offline)
+      .with_disable_events(disable_events)
       .store(store),
   };
 
@@ -301,7 +307,7 @@ impl Client {
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self
       .inner_client
-      .device_sync()
+      .device_sync_client()
       .send_sync_request()
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
@@ -380,11 +386,16 @@ impl Client {
     format!("{:?}", aggregate)
   }
 
+  #[wasm_bindgen(js_name = clearAllStatistics)]
+  pub fn clear_all_statistics(&self) {
+    self.inner_client.clear_stats()
+  }
+
   #[wasm_bindgen(js_name = uploadDebugArchive)]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
     let provider = Arc::new(self.inner_client().mls_provider());
 
-    upload_debug_archive(&provider, server_url)
+    upload_debug_archive(&provider, Some(server_url))
       .await
       .map_err(|e| JsError::new(&format!("{e}")))
   }

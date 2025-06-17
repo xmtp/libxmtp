@@ -1,9 +1,10 @@
 #![allow(unused, dead_code)]
 // TODO: Delete this on the next hammer version.
-use super::device_sync::handle::{SyncMetric, WorkerHandle};
 use super::device_sync::preference_sync::PreferenceUpdate;
+use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::subscriptions::SyncWorkerEvent;
+use crate::worker::metrics::WorkerMetrics;
 use crate::{subscriptions::LocalEvents, Client};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
@@ -108,7 +109,7 @@ where
     pub(super) async fn v1_reply_to_sync_request(
         &self,
         request: DeviceSyncRequestProto,
-        handle: &WorkerHandle<SyncMetric>,
+        handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<DeviceSyncReplyProto, DeviceSyncError> {
         let records = match request.kind() {
             BackupElementSelection::Consent => vec![self.v1_syncable_consent_records()?],
@@ -267,9 +268,8 @@ where
             Box::pin(group.sync_with_conn()).await?;
         }
 
-        if let Some(handle) = self.worker_handle() {
-            handle.increment_metric(SyncMetric::V1PayloadProcessed);
-        }
+        self.metrics
+            .increment_metric(SyncMetric::V1PayloadProcessed);
 
         Ok(())
     }
@@ -591,16 +591,17 @@ fn encrypt_syncables_with_key(
 
 #[cfg(test)]
 mod tests {
-
     use xmtp_proto::xmtp::device_sync::BackupElementSelection;
 
     use crate::{
-        groups::device_sync::handle::SyncMetric,
+        groups::device_sync::worker::SyncMetric,
         tester,
         utils::{LocalTesterBuilder, Tester},
     };
 
-    #[xmtp_common::test(unwrap_try = "true")]
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
     async fn v1_sync_still_works() {
         tester!(alix1, sync_worker, sync_server);
         tester!(alix2, from: alix1);
@@ -609,14 +610,19 @@ mod tests {
 
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
-        alix2.device_sync().get_sync_group().await?.sync().await?;
+        alix2
+            .device_sync_client()
+            .get_sync_group()
+            .await?
+            .sync()
+            .await?;
         alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
-            .device_sync()
+            .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
@@ -629,7 +635,7 @@ mod tests {
             .await?;
 
         alix2
-            .device_sync()
+            .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;

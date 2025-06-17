@@ -59,7 +59,7 @@ jobs:
       - uses: cachix/cachix-action@v16
         with:
           name: xmtp
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: check target
         run: |
           nix develop .#android --command \

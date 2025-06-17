@@ -1,10 +1,8 @@
 use crate::{
     client::ClientError,
     context::{XmtpContextProvider, XmtpMlsLocalContext},
-    groups::{
-        device_sync::preference_sync::PreferenceSyncService,
-        group_membership::{GroupMembership, MembershipDiff},
-    },
+    groups::group_membership::{GroupMembership, MembershipDiff},
+    subscriptions::SyncWorkerEvent,
     XmtpApi,
 };
 use futures::future::try_join_all;
@@ -355,9 +353,8 @@ where
             )
         }
 
-        PreferenceSyncService::new(self.context.clone())
-            .cycle_hmac()
-            .await?;
+        let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
+
         Ok(builder.build())
     }
 
@@ -665,8 +662,8 @@ pub(crate) mod tests {
             .expect("insert should succeed");
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     async fn test_is_member_of_association_state() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
@@ -708,6 +705,7 @@ pub(crate) mod tests {
         assert!(is_member);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn create_inbox_round_trip() {
         let wallet = generate_local_wallet();
@@ -736,6 +734,7 @@ pub(crate) mod tests {
         assert!(association_state.get(&wallet_ident.into()).is_some())
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn add_association() {
         let wallet = generate_local_wallet();
@@ -774,14 +773,17 @@ pub(crate) mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     #[cfg(not(target_arch = "wasm32"))]
     fn cache_association_state() {
+        use std::sync::Arc;
+
         use xmtp_common::assert_logged;
 
-        use crate::groups::device_sync::DeviceSyncClient;
+        use crate::{groups::device_sync::DeviceSyncClient, worker::metrics::WorkerMetrics};
 
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let device_sync = DeviceSyncClient::new(client.context.clone());
+            let metrics = WorkerMetrics::default();
+            let device_sync = DeviceSyncClient::new(&client.context, Arc::new(metrics));
             device_sync.wait_for_sync_worker_init().await;
 
             let wallet_2 = generate_local_wallet();
@@ -841,6 +843,7 @@ pub(crate) mod tests {
         });
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn load_identity_updates_if_needed() {
         let wallet = generate_local_wallet();
@@ -858,6 +861,7 @@ pub(crate) mod tests {
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     async fn get_installation_diff() {
         let wallet_1 = generate_local_wallet();
@@ -970,6 +974,7 @@ pub(crate) mod tests {
             .contains(&client_2_installation_key.to_vec()));
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     pub async fn revoke_wallet() {
         let recovery_wallet = generate_local_wallet();
@@ -1030,6 +1035,7 @@ pub(crate) mod tests {
         assert_eq!(inbox_ids.len(), 0);
     }
 
+    #[rstest::rstest]
     #[xmtp_common::test]
     pub async fn revoke_installation() {
         let wallet = generate_local_wallet();
@@ -1131,8 +1137,8 @@ pub(crate) mod tests {
         assert_eq!(association_state.installation_ids().len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[rstest::rstest]
+    #[xmtp_common::test]
     pub async fn change_recovery_address() {
         let original_wallet = generate_local_wallet();
         let new_recovery_wallet = generate_local_wallet();

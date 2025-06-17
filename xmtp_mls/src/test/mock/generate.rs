@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::{mls_v1::group_message, xmtp::mls::api::v1};
 
-use crate::groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary};
+use crate::{
+    groups::{mls_sync::GroupMessageProcessingError, summary::ProcessSummary},
+    worker::WorkerRunner,
+};
 
 use super::*;
 use rstest::*;
@@ -11,6 +14,7 @@ use rstest::*;
 #[fixture]
 pub fn context() -> MockContext {
     let (tx, _) = tokio::sync::broadcast::channel(32);
+    let (worker_tx, _) = tokio::sync::broadcast::channel(32);
     MockContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
@@ -19,12 +23,13 @@ pub fn context() -> MockContext {
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
         local_events: tx,
+        worker_events: worker_tx,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
             server_url: None,
             mode: SyncWorkerMode::Disabled,
-            worker_handle: Default::default(),
         },
+        workers: WorkerRunner::new(),
     }
 }
 

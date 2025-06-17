@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::client::ClientError;
 use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
-use crate::groups::device_sync::handle::{SyncMetric, WorkerHandle};
+use crate::groups::device_sync::worker::SyncMetric;
 use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,7 @@ where
         updates.extend(changed);
     }
 
-    if let Some(handle) = context.device_sync.worker_handle() {
+    if let Some(handle) = context.workers.sync_metrics() {
         updates.iter().for_each(|u| match u {
             PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
             PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),
@@ -104,11 +104,11 @@ where
 
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
+    /// Returns updates synced
     pub(crate) async fn v1_sync_across_devices<C: XmtpApi, Db: XmtpDb>(
         updates: Vec<Self>,
-        context: Arc<XmtpMlsLocalContext<C, Db>>,
-    ) -> Result<(), ClientError> {
-        let device_sync = DeviceSyncClient::new(context.clone());
+        device_sync: &DeviceSyncClient<C, Db>,
+    ) -> Result<Vec<Self>, ClientError> {
         let sync_group = device_sync.get_sync_group().await?;
 
         tracing::info!(
@@ -134,19 +134,19 @@ impl LegacyUserPreferenceUpdate {
         // sync_group.publish_intents(&provider).await?;
         sync_group.sync_until_last_intent_resolved().await?;
 
-        if let Some(handle) = context.device_sync.worker_handle() {
-            updates.iter().for_each(|u| match u {
-                LegacyUserPreferenceUpdate::ConsentUpdate(_) => {
-                    tracing::info!("Sent consent to group_id: {:?}", sync_group.group_id);
-                    handle.increment_metric(SyncMetric::V1ConsentSent)
-                }
-                LegacyUserPreferenceUpdate::HmacKeyUpdate { .. } => {
-                    handle.increment_metric(SyncMetric::V1HmacSent)
-                }
-            });
-        }
+        updates.iter().for_each(|u| match u {
+            LegacyUserPreferenceUpdate::ConsentUpdate(_) => {
+                tracing::info!("Sent consent to group_id: {:?}", sync_group.group_id);
+                device_sync
+                    .metrics
+                    .increment_metric(SyncMetric::V1ConsentSent)
+            }
+            LegacyUserPreferenceUpdate::HmacKeyUpdate { .. } => {
+                device_sync.metrics.increment_metric(SyncMetric::V1HmacSent)
+            }
+        });
 
-        Ok(())
+        Ok(updates)
     }
 }
 
@@ -186,10 +186,7 @@ impl TryFrom<NewUserPreferenceUpdateProto> for LegacyUserPreferenceUpdate {
 mod tests {
 
     use crate::{
-        groups::{
-            device_sync::handle::SyncMetric,
-            device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate,
-        },
+        groups::device_sync_legacy::preference_sync_legacy::LegacyUserPreferenceUpdate,
         utils::{LocalTesterBuilder, Tester},
     };
     use serde::{Deserialize, Serialize};

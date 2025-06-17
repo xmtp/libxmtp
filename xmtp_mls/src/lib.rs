@@ -6,7 +6,6 @@ pub mod client;
 pub mod configuration;
 pub mod context;
 pub mod groups;
-mod hpke;
 pub mod identity;
 pub mod identity_updates;
 mod intents;
@@ -16,6 +15,7 @@ pub mod subscriptions;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package_v2;
+pub mod worker;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
@@ -52,7 +52,7 @@ impl GroupCommitLock {
     }
 
     /// Get or create a semaphore for a specific group and acquire it, returning a guard
-    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> Result<MlsGroupGuard, GroupError> {
+    pub async fn get_lock_async(&self, group_id: Vec<u8>) -> MlsGroupGuard {
         let lock = {
             let mut locks = self.locks.lock();
             locks
@@ -61,9 +61,9 @@ impl GroupCommitLock {
                 .clone()
         };
 
-        Ok(MlsGroupGuard {
+        MlsGroupGuard {
             _permit: lock.lock_owned().await,
-        })
+        }
     }
 
     /// Get or create a semaphore for a specific group and acquire it synchronously
@@ -87,6 +87,9 @@ impl GroupCommitLock {
 pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
 #[cfg(all(test, not(target_arch = "wasm32")))]

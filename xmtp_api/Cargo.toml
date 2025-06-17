@@ -24,6 +24,7 @@ xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }
 
 # test utils
 [dev-dependencies]
+futures-timer.workspace = true
 mockall.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }

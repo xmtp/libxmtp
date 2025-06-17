@@ -104,6 +104,8 @@ pub enum PlatformStorageError {
     SqlCipherNotLoaded,
     #[error("PRAGMA key or salt has incorrect value")]
     SqlCipherKeyIncorrect,
+    #[error("Database is locked")]
+    DatabaseLocked,
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
     #[error(transparent)]
@@ -125,6 +127,7 @@ impl RetryableError for PlatformStorageError {
             Self::SqlCipherNotLoaded => true,
             Self::PoolNeedsConnection => true,
             Self::SqlCipherKeyIncorrect => false,
+            Self::DatabaseLocked => true,
             Self::DieselResult(result) => retryable!(result),
             Self::Io(_) => true,
             Self::DieselConnect(_) => true,
@@ -392,7 +395,7 @@ impl ConnectionExt for NativeDbConnection {
     {
         if self.in_transaction.load(Ordering::SeqCst) {
             let mut conn = self.write.lock();
-            return fun(&mut conn).map_err(ConnectionError::from);
+            fun(&mut conn).map_err(ConnectionError::from)
         } else if let Some(pool) = &*self.read.read() {
             tracing::trace!(
                 "pulling connection from pool, idle={}, total={}",
@@ -401,12 +404,12 @@ impl ConnectionExt for NativeDbConnection {
             );
             let mut conn = pool.get().map_err(PlatformStorageError::from)?;
 
-            return fun(&mut conn).map_err(ConnectionError::from);
+            fun(&mut conn).map_err(ConnectionError::from)
         } else {
-            return Err(ConnectionError::from(
+            Err(ConnectionError::from(
                 PlatformStorageError::PoolNeedsConnection,
-            ));
-        };
+            ))
+        }
     }
 
     #[tracing::instrument(level = "trace", skip_all)]

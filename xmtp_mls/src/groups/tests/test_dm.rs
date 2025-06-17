@@ -5,7 +5,7 @@ use crate::tester;
 /// Test case: If two users are talking in a DM, and one user
 /// creates a new installation and creates a new DM before being
 /// welcomed into the old DM, that new DM group should be consented.
-#[xmtp_common::test(unwrap_try = "true")]
+#[xmtp_common::test(unwrap_try = true)]
 async fn auto_consent_dms_for_new_installations() {
     tester!(alix);
     tester!(bo1);

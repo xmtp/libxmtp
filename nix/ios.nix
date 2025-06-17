@@ -52,10 +52,6 @@ mkShell {
       xcbuild
     ]
     ++ lib.optionals isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      frameworks.ApplicationServices
-      frameworks.AppKit
       darwin.cctools
     ];
 }

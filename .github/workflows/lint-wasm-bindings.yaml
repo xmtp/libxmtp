@@ -12,12 +12,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals,+atomics --cfg getrandom_backend="wasm_js"
+  RUSTFLAGS: --cfg tracing_unstable -Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend="wasm_js"
   CARGO_PROFILE_TEST_DEBUG: 0
 jobs:
   lint:
     name: Lint
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

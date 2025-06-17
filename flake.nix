@@ -8,8 +8,7 @@
     };
     flake-parts = { url = "github:hercules-ci/flake-parts"; };
     systems.url = "github:nix-systems/default";
-    mkshell-util.url = "github:insipx/mkShell-util.nix";
-    foundry.url = "github:shazow/foundry.nix/monthly";
+    foundry.url = "github:shazow/foundry.nix/stable";
     crane = {
       url = "github:ipetkov/crane";
     };
@@ -29,9 +28,6 @@
       systems = import inputs.systems;
       perSystem = { pkgs, system, inputs', ... }:
         let
-          util = import inputs.mkshell-util;
-          mkShellWrappers = pkgs: util callPackage pkgs;
-          callPackage = pkgs: pkgs.lib.callPackageWith ((mkShellWrappers pkgs) // pkgs);
           pkgConfig = {
             inherit system;
             # Rust Overlay
@@ -45,7 +41,7 @@
           mkToolchain = targets: components: pkgs.fenix.combine [
             toolchain
             (pkgs.lib.forEach targets (target: (pkgs.fenix.targets."${target}".fromManifestFile rust-manifest).rust-std))
-            (pkgs.lib.forEach components (c: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${c}"))
+            (pkgs.lib.forEach components (component: (inputs'.fenix.packages.fromManifestFile rust-manifest)."${component}"))
           ];
           craneLib = crane.mkLib pkgs;
           filesets = pkgs.callPackage ./nix/filesets.nix { inherit craneLib; };
@@ -54,16 +50,16 @@
           _module.args.pkgs = import inputs.nixpkgs pkgConfig;
           devShells = {
             # shell for general xmtp rust dev
-            default = callPackage pkgs ./nix/libxmtp.nix { inherit mkToolchain; };
+            default = pkgs.callPackage ./nix/libxmtp.nix { inherit mkToolchain; };
             # Shell for android builds
-            android = callPackage pkgs ./nix/android.nix { inherit mkToolchain; };
+            android = pkgs.callPackage ./nix/android.nix { inherit mkToolchain; };
             # Shell for iOS builds
-            ios = callPackage pkgs ./nix/ios.nix { inherit mkToolchain; };
-            js = callPackage pkgs ./nix/js.nix { };
+            ios = pkgs.callPackage ./nix/ios.nix { inherit mkToolchain; };
+            js = pkgs.callPackage ./nix/js.nix { };
             # the environment bindings_wasm is built in
-            wasmBuild = (callPackage pkgs ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
+            wasmBuild = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).devShell;
           };
-          packages.bindings_wasm = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
+          packages.wasm-bindings = (pkgs.callPackage ./nix/package/bindings_wasm.nix { inherit filesets; craneLib = crane.mkLib pkgs; }).bin;
         };
     };
 }
