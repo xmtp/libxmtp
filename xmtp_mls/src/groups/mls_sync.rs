@@ -1088,9 +1088,8 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        self.load_mls_group_with_lock_async(|mls_group| async move {
+        self.load_mls_group_with_lock_async(|mls_group| {
             self.process_message_inner(mls_group, envelope, trust_message_order)
-                .await
         })
         .await
     }
