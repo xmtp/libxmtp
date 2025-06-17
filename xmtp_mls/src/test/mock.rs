@@ -22,7 +22,7 @@ pub use generate::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
 pub type MockContext = XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb>;
-pub type MockProcessMessageFuture =
+pub type MockProcessFuture =
     process_message::ProcessMessage<MockApiClient, xmtp_db::MockXmtpDb>;
 pub type MockMlsGroup = MlsGroup<MockApiClient, xmtp_db::MockXmtpDb>;
 

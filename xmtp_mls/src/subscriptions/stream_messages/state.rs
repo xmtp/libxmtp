@@ -212,12 +212,18 @@ impl<'a, Out> FusedFuture for State<'a, Out> {
 
 #[cfg(test)]
 mod tests {
+    use crate::test::mock::generate_message_v1;
+    use crate::test::mock::MockProcessFutureFactory;
+
     use super::*;
+    use futures::future;
+    use futures_test::future::FutureTestExt;
     use futures_test::task::noop_context;
     use rstest::*;
     use std::task::Context;
     use xmtp_api::test_utils::MockApiClient;
     use xmtp_api::test_utils::MockGroupStream;
+    use xmtp_common::FutureWrapper;
 
     type MockApi = ApiClientWrapper<MockApiClient>;
     #[fixture]
@@ -244,7 +250,7 @@ mod tests {
 
     #[rstest]
     #[xmtp_common::test]
-    fn test_state_transitions_to_subscribe(mut cx: Context<'static>, mut api: MockApi) {
+    fn test_state_transitions_to_resubscribe(mut cx: Context<'static>, mut api: MockApi) {
         api.api_client
             .expect_subscribe_group_messages()
             .returning(|_| Ok(MockGroupStream::new()));
@@ -266,7 +272,47 @@ mod tests {
 
     #[rstest]
     #[xmtp_common::test]
-    fn test_state_transitions_to_process(mut cx: Context<'static>, mut api: MockApi) {
+    fn test_state_transitions_to_process(mut cx: Context<'static>) {
+        let mut factory = MockProcessFutureFactory::new();
+        factory.expect_create().returning(|msg| {
+            FutureWrapper::new(future::ready(Ok(ProcessedMessage {
+                message: None,
+                group_id: vec![],
+                next_message: 0,
+                tried_to_process: 0,
+            })))
+        });
+        let state = State::<()>::default();
+        futures::pin_mut!(state);
+        state
+            .as_mut()
+            .processing(factory, generate_message_v1(0))
+            .unwrap();
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(
+            s,
+            Poll::Ready(Ok(StateTransitionResult::Processed(_)))
+        ));
+
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(s, Poll::Ready(Ok(StateTransitionResult::Empty))));
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    fn invalid_transition_throws_error(mut cx: Context<'static>, mut api: MockApi) {
+        let mut factory = MockProcessFutureFactory::new();
+        factory.expect_create().returning(|msg| {
+            FutureWrapper::new(
+                future::ready(Ok(ProcessedMessage {
+                    message: None,
+                    group_id: vec![],
+                    next_message: 0,
+                    tried_to_process: 0,
+                }))
+                .interleave_pending(),
+            )
+        });
         api.api_client
             .expect_subscribe_group_messages()
             .returning(|_| Ok(MockGroupStream::new()));
@@ -274,12 +320,20 @@ mod tests {
         futures::pin_mut!(state);
         state
             .as_mut()
-            .resubscribe(&api, &GroupList::default(), vec![0].into())
+            .processing(factory, generate_message_v1(0))
             .unwrap();
+        let s = state.as_mut().poll(&mut cx);
+        assert!(matches!(s, Poll::Pending));
+
+        let r = state
+            .as_mut()
+            .resubscribe(&api, &GroupList::default(), vec![0].into());
+        assert!(matches!(r, Err(StateError::InvalidStateTransition)));
+
         let s = state.as_mut().poll(&mut cx);
         assert!(matches!(
             s,
-            Poll::Ready(Ok(StateTransitionResult::Added(GroupAdded { .. })))
+            Poll::Ready(Ok(StateTransitionResult::Processed(_)))
         ));
 
         let s = state.as_mut().poll(&mut cx);
