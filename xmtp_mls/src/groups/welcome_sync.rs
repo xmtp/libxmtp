@@ -12,7 +12,7 @@ use std::sync::{
 };
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::XmtpDb;
-use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs};
+use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
 
 #[derive(Clone)]
@@ -64,9 +64,9 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Api, Db>>, GroupError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
-        let envelopes = store.query_welcome_messages(provider.db()).await?;
+        let envelopes = store.query_welcome_messages(&db).await?;
         let num_envelopes = envelopes.len();
 
         // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
@@ -94,8 +94,7 @@ where
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 {
-            let provider = self.context.mls_provider();
-            self.context.identity.queue_key_rotation(&provider).await?;
+            self.context.identity.queue_key_rotation(&db).await?;
         }
 
         Ok(groups)
@@ -151,7 +150,7 @@ where
         &self,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, GroupError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
         self.sync_welcomes().await?;
         let query_args = GroupQueryArgs {
             consent_states,
@@ -159,8 +158,7 @@ where
             include_sync_groups: true,
             ..GroupQueryArgs::default()
         };
-        let groups = provider
-            .db()
+        let groups = db
             .find_groups(query_args)?
             .into_iter()
             .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
@@ -171,10 +169,9 @@ where
     }
 
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
         self.sync_welcomes().await?;
-        let groups = provider
-            .db()
+        let groups = db
             .all_sync_groups()?
             .into_iter()
             .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))

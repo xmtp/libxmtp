@@ -3,7 +3,8 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::*;
 use crate::{
-    EncryptedMessageStore, Store, group::tests::generate_group, test_utils::with_connection,
+    EncryptedMessageStore, Store, group::tests::generate_group, prelude::*,
+    test_utils::with_connection,
 };
 use xmtp_common::{assert_err, assert_ok, rand_time, rand_vec};
 use xmtp_content_types::should_push;

@@ -1,4 +1,4 @@
-use crate::{ConnectionExt, DbConnection};
+use crate::ConnectionExt;
 use crate::{MlsProviderExt, sql_key_store::SqlKeyStore};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
@@ -17,23 +17,12 @@ impl<C> XmtpOpenMlsProvider<C> {
             key_store: SqlKeyStore::new(conn),
         }
     }
-
-    pub fn with_connection(conn: DbConnection<C>) -> Self {
-        Self {
-            crypto: RustCrypto::default(),
-            key_store: SqlKeyStore::with_connection(conn),
-        }
-    }
 }
 
 impl<C> XmtpOpenMlsProvider<C>
 where
     C: ConnectionExt,
 {
-    pub fn db(&self) -> &DbConnection<C> {
-        self.key_store.db()
-    }
-
     #[tracing::instrument(level = "debug", skip_all)]
     fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
@@ -42,7 +31,7 @@ where
     {
         tracing::debug!("Transaction beginning");
 
-        let conn = self.db();
+        let conn = self.key_store.conn();
         let _guard = conn.start_transaction()?;
 
         match fun(self) {
@@ -95,10 +84,6 @@ where
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
     }
 
-    fn db(&self) -> &DbConnection<C> {
-        self.key_store.db()
-    }
-
     fn key_store(&self) -> &SqlKeyStore<C> {
         &self.key_store
     }
@@ -117,10 +102,6 @@ where
         E: std::error::Error + From<crate::ConnectionError>,
     {
         XmtpOpenMlsProvider::<C>::inner_transaction(self, fun)
-    }
-
-    fn db(&self) -> &DbConnection<C> {
-        self.key_store.db()
     }
 
     fn key_store(&self) -> &SqlKeyStore<C> {

@@ -46,7 +46,7 @@ pub(crate) mod tests {
 
         // Ensure that consent record now exists.
         let syncable_consent_records = amal_a
-            .syncable_consent_records(amal_a.provider.db())
+            .syncable_consent_records(amal_a.context.db())
             .unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
@@ -60,7 +60,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let consent_records_b = amal_b
-            .syncable_consent_records(amal_b.provider.db())
+            .syncable_consent_records(amal_b.context.db())
             .unwrap();
         assert_eq!(consent_records_b.len(), 0);
 

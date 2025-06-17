@@ -14,6 +14,7 @@ use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
 use xmtp_db::association_state::StoredAssociationState;
+use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_db::{ConnectionExt, XmtpDb};
 use xmtp_id::{
@@ -131,7 +132,7 @@ where
     /// from Identity Updates in the network.
     pub async fn batch_get_association_state(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         let association_states = try_join_all(
@@ -163,7 +164,7 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
@@ -180,7 +181,7 @@ where
     /// provided `inbox_id`
     pub(crate) async fn get_association_state_diff(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
@@ -438,7 +439,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
@@ -466,7 +467,7 @@ where
         load_identity_updates(
             self.context.api(),
             conn,
-            &conn.filter_inbox_ids_needing_updates(filters.as_slice())?,
+            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice())?,
         )
         .await?;
 
@@ -519,7 +520,7 @@ where
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn load_identity_updates<ApiClient: XmtpApi, C: ConnectionExt>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &DbConnection<C>,
+    conn: &impl xmtp_db::DbQuery<C>,
     inbox_ids: &[&str],
 ) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
     if inbox_ids.is_empty() {
@@ -647,7 +648,8 @@ pub(crate) mod tests {
     };
 
     use xmtp_db::{
-        db_connection::DbConnection, identity_update::StoredIdentityUpdate, ConnectionExt,
+        db_connection::DbConnection, identity_update::StoredIdentityUpdate, prelude::*,
+        ConnectionExt,
     };
 
     use xmtp_common::rand_vec;
@@ -880,7 +882,7 @@ pub(crate) mod tests {
         let filtered =
             // Inbox 1 is requesting an inbox ID higher than what is in the DB. Inbox 2 is requesting one that matches the DB.
             // Inbox 3 is requesting one lower than what is in the DB
-            conn.filter_inbox_ids_needing_updates(&[("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
+            crate::groups::filter_inbox_ids_needing_updates(&conn, &[("inbox_1", 3), ("inbox_2", 2), ("inbox_3", 2)]);
         assert_eq!(filtered.unwrap(), vec!["inbox_1"]);
     }
 

@@ -260,8 +260,7 @@ async fn test_turn_local_telemetry_off() {
         .build()
         .await?;
 
-    let provider = client.mls_provider();
-    let events = Events::all_events(provider.db())?;
+    let events = Events::all_events(&client.context.db())?;
 
     // No events should be logged if telemetry is turned off.
     assert!(events.is_empty());
@@ -385,7 +384,7 @@ async fn api_identity_mismatch() {
     let identity = IdentityStrategy::new("other_inbox_id".to_string(), ident, nonce, None);
     assert!(matches!(
         identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+            .initialize_identity(&wrapper, &store.db(), &scw_verifier)
             .await
             .unwrap_err(),
         IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -477,7 +476,7 @@ async fn api_identity_happy_path() {
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(dbg!(
         identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+            .initialize_identity(&wrapper, &store.db(), &scw_verifier)
             .await
     )
     .is_ok());
@@ -510,7 +509,7 @@ async fn stored_identity_happy_path() {
     let wrapper = ApiClientWrapper::new(mock_api, retry());
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+        .initialize_identity(&wrapper, &store.db(), &scw_verifier)
         .await
         .is_ok());
 }
@@ -544,7 +543,7 @@ async fn stored_identity_mismatch() {
     let inbox_id = "inbox_id".to_string();
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     let err = identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+        .initialize_identity(&wrapper, &store.db(), &scw_verifier)
         .await
         .unwrap_err();
 

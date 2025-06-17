@@ -6,8 +6,7 @@ use crate::{context::XmtpMlsLocalContext, groups::MlsGroup, subscriptions::Welco
 use std::sync::Arc;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::XmtpDb;
-use xmtp_db::{group::ConversationType, NotFound};
+use xmtp_db::{group::ConversationType, prelude::*, NotFound, XmtpDb};
 use xmtp_proto::mls_v1::{welcome_message, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
@@ -295,8 +294,8 @@ where
 
     /// Load a group from disk by its welcome_id
     fn load_from_store(&self, id: i64) -> Result<(MlsGroup<ApiClient, Db>, i64)> {
-        let provider = self.context.mls_provider();
-        let group = provider
+        let group = self
+            .context
             .db()
             .find_group_by_welcome_id(id)?
             .ok_or(NotFound::GroupByWelcome(id))?;

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_db::{StorageError, XmtpDb};
+use xmtp_db::{prelude::*, StorageError, XmtpDb};
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
@@ -109,8 +109,8 @@ where
 
     /// Iterate on the list of groups and delete expired messages
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let provider = self.context.mls_provider();
-        match provider.db().delete_expired_messages() {
+        let db = self.context.db();
+        match db.delete_expired_messages() {
             Ok(deleted_count) if deleted_count > 0 => {
                 tracing::info!("Successfully deleted {} expired messages", deleted_count);
             }

@@ -17,6 +17,7 @@ use std::{
 };
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
+use xmtp_db::prelude::*;
 use xmtp_proto::{
     api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
     xmtp::mls::api::v1::WelcomeMessage,
@@ -227,12 +228,9 @@ where
         context: Cow<'a, Arc<XmtpMlsLocalContext<A, D>>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        let provider = context.mls_provider();
-        let conn = provider.db();
+        let conn = context.db();
         let installation_key = context.installation_public_key();
-        let id_cursor = provider
-            .db()
-            .get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
+        let id_cursor = conn.get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
         tracing::debug!(
             cursor = id_cursor,
             inbox_id = context.inbox_id(),

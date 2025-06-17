@@ -8,7 +8,7 @@ use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
-    DbConnection, Fetch, NotFound, XmtpDb, XmtpOpenMlsProvider,
+    Fetch, NotFound, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 
@@ -18,6 +18,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use thiserror::Error;
+use xmtp_db::prelude::*;
 
 #[derive(Error, Debug)]
 pub enum MlsStoreError {
@@ -62,7 +63,7 @@ where
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
         let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
@@ -81,7 +82,7 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 

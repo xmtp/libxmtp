@@ -20,7 +20,7 @@ use xmtp_db::{
     consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
     NotFound, StorageError,
 };
-use xmtp_db::{DbConnection, XmtpDb};
+use xmtp_db::{prelude::*, XmtpDb};
 use xmtp_id::{associations::DeserializationError, InboxIdRef};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi,
@@ -166,7 +166,7 @@ where
         self.context.installation_id()
     }
 
-    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+    pub fn db(&self) -> <Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 

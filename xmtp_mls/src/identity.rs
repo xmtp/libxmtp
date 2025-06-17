@@ -36,6 +36,7 @@ use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
 };
+use xmtp_db::{prelude::*, XmtpOpenMlsProvider};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -120,17 +121,16 @@ impl IdentityStrategy {
      *
      **/
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn initialize_identity<ApiClient: XmtpApi>(
+    pub(crate) async fn initialize_identity<ApiClient: XmtpApi, C: ConnectionExt>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: impl MlsProviderExt + Copy,
+        conn: &impl DbQuery<C>,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         use IdentityStrategy::*;
 
         info!("Initializing identity");
-        let stored_identity: Option<Identity> = provider
-            .db()
+        let stored_identity: Option<Identity> = conn
             .fetch(&())?
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
@@ -166,7 +166,7 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
-                        provider,
+                        conn,
                         scw_signature_verifier,
                     )
                     .await
@@ -333,13 +333,13 @@ impl Identity {
     ///
     /// If no legacy key is provided, a wallet signature is always required.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn new<ApiClient: XmtpApi>(
+    pub(crate) async fn new<ApiClient: XmtpApi, C: ConnectionExt>(
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: impl MlsProviderExt + Copy,
+        conn: &impl DbQuery<C>,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
@@ -466,7 +466,7 @@ impl Identity {
                 is_ready: AtomicBool::new(true),
             };
 
-            identity.register(provider, api_client).await?;
+            identity.register(conn, api_client).await?;
 
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
@@ -619,46 +619,46 @@ impl Identity {
         })
     }
     #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn register<ApiClient: XmtpApi>(
+    pub(crate) async fn register<ApiClient: XmtpApi, C: ConnectionExt>(
         &self,
-        provider: impl MlsProviderExt + Copy,
+        conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
     ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = provider.db().fetch(&())?;
+        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());
         }
 
-        self.rotate_and_upload_key_package(provider, api_client, CREATE_PQ_KEY_PACKAGE_EXTENSION)
+        self.rotate_and_upload_key_package(conn, api_client, CREATE_PQ_KEY_PACKAGE_EXTENSION)
             .await?;
-        Ok(StoredIdentity::try_from(self)?.store(provider.db())?)
+        Ok(StoredIdentity::try_from(self)?.store(conn)?)
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub(crate) async fn queue_key_rotation(
+    pub(crate) async fn queue_key_rotation<C: ConnectionExt>(
         &self,
-        provider: impl MlsProviderExt + Copy,
+        conn: &impl DbQuery<C>,
     ) -> Result<(), IdentityError> {
-        provider.db().queue_key_package_rotation()?;
+        conn.queue_key_package_rotation()?;
         tracing::info!("Last key package not ready for rotation, queued for rotation");
         Ok(())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
+    pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi, C: ConnectionExt>(
         &self,
-        provider: impl MlsProviderExt + Copy,
+        conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
         include_post_quantum: bool,
     ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
-        let conn = provider.db();
 
+        let provider = XmtpOpenMlsProvider::new(conn);
         let NewKeyPackageResult {
             key_package: kp,
             pq_pub_key,
-        } = self.new_key_package(provider, include_post_quantum)?;
+        } = self.new_key_package(&provider, include_post_quantum)?;
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
         let history_id = conn
@@ -713,7 +713,10 @@ pub(crate) fn deserialize_key_package_hash_ref(
     Ok(key_package_hash_ref)
 }
 
-pub(crate) fn create_credential(inbox_id: InboxId) -> Result<OpenMlsCredential, IdentityError> {
+pub(crate) fn create_credential(
+    inbox_id: impl AsRef<str>,
+) -> Result<OpenMlsCredential, IdentityError> {
+    let inbox_id = inbox_id.as_ref().to_string();
     let cred = MlsCredential { inbox_id };
     let mut credential_bytes = Vec::new();
     let _ = cred.encode(&mut credential_bytes);
@@ -820,6 +823,7 @@ mod tests {
     use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
     use tls_codec::Serialize;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::XmtpOpenMlsProvider;
     use xmtp_db::{
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
@@ -878,12 +882,13 @@ mod tests {
     #[xmtp_common::test]
     async fn ensure_pq_keys_are_deleted() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider();
+        let conn = client.context.db();
+        let provider = XmtpOpenMlsProvider::new(&conn);
         // As long as we have `config::CREATE_PQ_KEY_PACKAGE_EXTENSION` set to false, we need to do this step to force a PQ key package to be created
         let api_client = client.context.api();
         client
             .identity()
-            .rotate_and_upload_key_package(&provider, api_client, true)
+            .rotate_and_upload_key_package(&conn, api_client, true)
             .await
             .unwrap();
 
@@ -958,20 +963,20 @@ mod tests {
             [[true, false], [false, true], [true, true], [false, false]]
         {
             let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-            let amal_provider = amal.mls_provider();
+            let amal_conn = amal.context.db();
             let amal_api = amal.context.api();
 
             let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-            let bola_provider = bola.mls_provider();
+            let bola_conn = bola.context.db();
             let bola_api = bola.context.api();
 
             // Give amal a post quantum key package and bola a legacy key package
             amal.identity()
-                .rotate_and_upload_key_package(&amal_provider, amal_api, amal_has_pq)
+                .rotate_and_upload_key_package(&amal_conn, amal_api, amal_has_pq)
                 .await
                 .unwrap();
             bola.identity()
-                .rotate_and_upload_key_package(&bola_provider, bola_api, bola_has_pq)
+                .rotate_and_upload_key_package(&bola_conn, bola_api, bola_has_pq)
                 .await
                 .unwrap();
 

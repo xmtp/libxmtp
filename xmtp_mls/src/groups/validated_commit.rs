@@ -306,8 +306,7 @@ impl ValidatedCommit {
         ApiClient: XmtpApi,
         Db: XmtpDb,
     {
-        let provider = context.mls_provider();
-        let conn = provider.db();
+        let conn = context.db();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -416,7 +415,7 @@ impl ValidatedCommit {
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
             let inbox_state = IdentityUpdates::new(context.clone())
-                .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
+                .get_association_state(&conn, &participant.inbox_id, Some(*to_sequence_id as i64))
                 .await
                 .map_err(InstallationDiffError::from)?;
 
@@ -631,8 +630,7 @@ impl ExpectedDiff {
         ApiClient: XmtpApi,
         Db: XmtpDb,
     {
-        let provider = context.mls_provider();
-        let conn = provider.db();
+        let conn = context.db();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);
@@ -657,7 +655,7 @@ impl ExpectedDiff {
         let identity_updates = IdentityUpdates::new(context.clone());
         let expected_installation_diff = identity_updates
             .get_installation_diff(
-                conn,
+                &conn,
                 &old_group_membership,
                 &new_group_membership,
                 &membership_diff,

@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
@@ -160,7 +161,7 @@ impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient
         &self.context
     }
 
-    fn db(&self) -> DbConnection<<Self::Db as XmtpDb>::Connection> {
+    fn db(&self) -> <XDb as XmtpDb>::DbQuery {
         self.context.db()
     }
 
@@ -300,7 +301,7 @@ where
 
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
-    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+    pub fn db(&self) -> <Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 
@@ -315,7 +316,7 @@ where
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
@@ -328,7 +329,7 @@ where
     /// If no `inbox_id` is found, returns None.
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
         identifiers: &[Identifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
@@ -557,9 +558,8 @@ where
         opts: Option<DMMetadataOptions>,
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
         tracing::info!("finding or creating dm with address: {target_identity}");
-        let provider = self.mls_provider();
         let inbox_id = match self
-            .find_inbox_id_from_identifier(provider.db(), target_identity.clone())
+            .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
             .await?
         {
             Some(id) => id,
@@ -579,8 +579,8 @@ where
     ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
-        let provider = self.mls_provider();
-        let group = provider.db().find_dm_group(&DmMembers {
+        let db = self.context.db();
+        let group = db.find_dm_group(&DmMembers {
             member_one_inbox_id: self.inbox_id(),
             member_two_inbox_id: inbox_id,
         })?;
@@ -744,9 +744,8 @@ where
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
         // Register the identity before applying the signature request
-        let provider = self.context.mls_provider();
         self.identity()
-            .register(&provider, self.context.api())
+            .register(&self.context.db(), self.context.api())
             .await?;
         let updates = IdentityUpdates::new(self.context.clone());
         updates.apply_signature_request(signature_request).await?;
@@ -756,8 +755,9 @@ where
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
     pub async fn queue_key_rotation(&self) -> Result<(), ClientError> {
-        let provider = self.mls_provider();
-        self.identity().queue_key_rotation(&provider).await?;
+        self.identity()
+            .queue_key_rotation(&self.context.db())
+            .await?;
 
         Ok(())
     }
@@ -765,10 +765,9 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
-        let provider = self.mls_provider();
         self.identity()
             .rotate_and_upload_key_package(
-                &provider,
+                &self.context.db(),
                 self.context.api(),
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
@@ -824,9 +823,9 @@ where
     }
 
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
-        let provider = self.mls_provider();
         self.sync_welcomes().await?;
-        let groups = provider
+        let groups = self
+            .context
             .db()
             .all_sync_groups()?
             .into_iter()
@@ -914,6 +913,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::identity::StoredIdentity;
+    use xmtp_db::prelude::*;
     use xmtp_db::{
         consent_record::ConsentState, group::GroupQueryArgs, group_message::MsgQueryArgs,
         schema::identity_updates, ConnectionExt, Fetch,

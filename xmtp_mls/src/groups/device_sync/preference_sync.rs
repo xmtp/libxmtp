@@ -3,7 +3,7 @@ use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPrefere
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
-use xmtp_db::MlsProviderExt;
+use xmtp_db::ConnectionExt;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
@@ -58,9 +58,9 @@ where
     }
 }
 
-pub(super) fn store_preference_updates(
+pub(super) fn store_preference_updates<C: ConnectionExt>(
     updates: Vec<PreferenceUpdateProto>,
-    provider: impl MlsProviderExt,
+    conn: &impl DbQuery<C>,
     handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];
@@ -73,9 +73,7 @@ pub(super) fn store_preference_updates(
                 );
 
                 let consent_record: StoredConsentRecord = consent_save.try_into()?;
-                let updated = provider
-                    .db()
-                    .insert_newer_consent_record(consent_record.clone())?;
+                let updated = conn.insert_newer_consent_record(consent_record.clone())?;
 
                 if updated {
                     changed.push(PreferenceUpdate::Consent(consent_record));
@@ -85,7 +83,7 @@ pub(super) fn store_preference_updates(
             }
             UpdateProto::Hmac(HmacKeyUpdateProto { key, cycled_at_ns }) => {
                 tracing::info!("Storing new HMAC key from sync group");
-                StoredUserPreferences::store_hmac_key(provider.db(), &key, Some(cycled_at_ns))?;
+                StoredUserPreferences::store_hmac_key(conn, &key, Some(cycled_at_ns))?;
                 changed.push(PreferenceUpdate::Hmac { key, cycled_at_ns });
                 handle.increment_metric(SyncMetric::HmacReceived);
             }
@@ -157,8 +155,8 @@ mod tests {
             .await?;
         amal_b.worker().wait(SyncMetric::HmacReceived, 1).await?;
 
-        let pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
-        let pref_b = StoredUserPreferences::load(amal_b.provider.db())?;
+        let pref_a = StoredUserPreferences::load(amal_a.context.db())?;
+        let pref_b = StoredUserPreferences::load(amal_b.context.db())?;
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
@@ -169,7 +167,7 @@ mod tests {
 
         amal_a.sync_all_welcomes_and_history_sync_groups().await?;
         amal_a.worker().wait(SyncMetric::HmacReceived, 2).await?;
-        let new_pref_a = StoredUserPreferences::load(amal_a.provider.db())?;
+        let new_pref_a = StoredUserPreferences::load(amal_a.context.db())?;
         assert_ne!(pref_a.hmac_key, new_pref_a.hmac_key);
     }
 }

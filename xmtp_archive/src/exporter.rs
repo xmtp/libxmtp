@@ -40,12 +40,15 @@ pub(super) enum Stage {
 
 impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_to_file<C: 'static + Send + Sync + ConnectionExt>(
+    pub async fn export_to_file<C>(
         options: BackupOptions,
         provider: XmtpOpenMlsProvider<C>,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), crate::ArchiveError> {
+    ) -> Result<(), crate::ArchiveError>
+    where
+        C: ConnectionExt + Send + Sync + 'static,
+    {
         let provider = Arc::new(provider);
         let mut exporter = Self::new(options, provider, key);
         exporter.write_to_file(path).await?;

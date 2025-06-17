@@ -15,6 +15,7 @@ use crate::{
 use tracing::Instrument;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
+use xmtp_db::prelude::*;
 use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError, XmtpDb};
 use xmtp_proto::mls_v1::group_message;
 

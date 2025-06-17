@@ -38,8 +38,8 @@ where
     }
 
     /// Access to the database queries defined on connections
-    pub fn db(&self) -> DbConnection<Db::Connection> {
-        DbConnection::new(self.db.conn())
+    pub fn db(&self) -> <Db as XmtpDb>::DbQuery {
+        self.db.db()
     }
 
     /// Pulls a new connection from the store
@@ -63,12 +63,13 @@ where
     Db: XmtpDb,
 {
     type Connection = Db::Connection;
+    type DbQuery = Db::DbQuery;
 
     fn conn(&self) -> Self::Connection {
         self.db.conn()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         self.db.db()
     }
 

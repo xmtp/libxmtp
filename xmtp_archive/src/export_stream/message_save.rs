@@ -1,5 +1,6 @@
 use super::*;
-use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::MlsProviderExt;
+use xmtp_db::{DbConnection, group_message::MsgQueryArgs};
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
 impl BackupRecordProvider for GroupMessageSave {
@@ -21,8 +22,8 @@ impl BackupRecordProvider for GroupMessageSave {
             .build()
             .expect("could not build");
 
-        let batch = provider
-            .db()
+        let conn = DbConnection::new(provider.key_store().conn());
+        let batch = conn
             .group_messages_paged(&args, cursor)
             .expect("Failed to load group records");
 

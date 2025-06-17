@@ -8561,6 +8561,7 @@ dependencies = [
  "const-hex",
  "ed25519-dalek",
  "getrandom 0.2.16",
+ "openmls",
  "openmls_basic_credential",
  "openmls_traits",
  "rand 0.8.5",

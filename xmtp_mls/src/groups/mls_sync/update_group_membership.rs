@@ -91,3 +91,95 @@ where
         should_send_push_notification: false,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::RwLock;
+
+    use crate::{
+        groups::{
+            build_group_config, build_mutable_metadata_extension_default,
+            build_mutable_permissions_extension, build_protected_metadata_extension,
+            build_starting_group_membership_extension, MetadataPermissionsError,
+        },
+        identity::create_credential,
+        test::mock::{context, MockContext},
+    };
+    use openmls::{group::MlsGroupCreateConfig, prelude::CredentialWithKey};
+    use rstest::*;
+    use xmtp_cryptography::configuration::CIPHERSUITE;
+    use xmtp_cryptography::XmtpInstallationCredential;
+    use xmtp_db::{
+        mock::{MockConnection, MockDb, MockDbQuery},
+        DbConnection, XmtpOpenMlsProvider, XmtpTestDb,
+    };
+
+    fn generate_config(
+        creator_inbox: &str,
+        members: &[&str],
+    ) -> Result<MlsGroupCreateConfig, GroupError> {
+        let mut membership = GroupMembership::new();
+        membership.add(creator_inbox.to_string(), 0);
+        members
+            .iter()
+            .for_each(|m| membership.add(m.to_string(), 0));
+        let group_membership = build_group_membership_extension(&membership);
+        let protected_metadata =
+            build_protected_metadata_extension(creator_inbox, ConversationType::Group)?;
+        let mutable_metadata =
+            build_mutable_metadata_extension_default(creator_inbox, Default::default())?;
+        let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
+        let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
+        let group_config = build_group_config(
+            protected_metadata,
+            mutable_metadata,
+            group_membership,
+            mutable_permissions,
+        )?;
+        Ok(group_config)
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn applies_group_membership_intent(mut context: MockContext) {
+        context.store.expect_db().returning(|| MockDbQuery::new());
+        let c: MockDb = context.db();
+        let mut credentials = HashMap::new();
+        let installation_key = XmtpInstallationCredential::new();
+        let signature_key = installation_key.clone().into();
+        let credential = CredentialWithKey {
+            credential: create_credential("alice").unwrap(),
+            signature_key,
+        };
+        credentials.insert(CIPHERSUITE, credential);
+        // create a mocked, MLS client + group using openmls test framework
+        let client = openmls::test_utils::test_framework::client::Client::<_> {
+            identity: b"alice".to_vec(),
+            credentials,
+            provider: XmtpOpenMlsProvider::new(&c),
+            groups: RwLock::new(HashMap::new()),
+        };
+        let config = generate_config("alice", &["bob", "caro", "eve"]).unwrap();
+        let id = client.create_group(config, CIPHERSUITE).unwrap();
+        let mut groups = client.groups.write().unwrap();
+        let g = groups.get_mut(&id).unwrap();
+        let installation = XmtpInstallationCredential::new();
+
+        /*
+        apply_update_group_membership_intent(
+            &context,
+            g,
+            UpdateGroupMembershipIntentData {
+                membership_updates: HashMap::new(),
+                removed_members: Vec::new(),
+                failed_installations: Vec::new(),
+            },
+            installation,
+        )
+        .await
+        .unwrap();
+        */
+    }
+}
+>>>>>>> d3e4a28c (intent unit tests)
