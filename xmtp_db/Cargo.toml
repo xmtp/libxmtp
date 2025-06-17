@@ -17,7 +17,6 @@ ctor.workspace = true
 derive_builder.workspace = true
 diesel_migrations = { workspace = true, features = ["sqlite"] }
 hex.workspace = true
-mockall.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
@@ -33,6 +32,7 @@ xmtp_common.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
+mockall = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",
   "tracing",
@@ -73,6 +73,7 @@ wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
 futures-timer.workspace = true
+mockall = { workspace = true }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
 
@@ -89,4 +90,4 @@ wasm-bindgen-test.workspace = true
 
 [features]
 update-schema = ["dep:toml"]
-test-utils = ["xmtp_common/test-utils"]
+test-utils = ["xmtp_common/test-utils", "dep:mockall"]

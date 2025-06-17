@@ -20,27 +20,12 @@ use super::{ConnectionExt, TransactionGuard};
 pub mod wasm_exports {
     pub type RawDbConnection = diesel::prelude::SqliteConnection;
     pub type DefaultDatabase = super::wasm::WasmDb;
-
-    pub(super) type DefaultConnectionInner =
-        super::PersistentOrMem<super::wasm::WasmDbConnection, super::wasm::WasmDbConnection>;
-
-    pub type DefaultConnection = std::sync::Arc<DefaultConnectionInner>;
 }
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod native_exports {
     pub type DefaultDatabase = super::native::NativeDb;
     pub use super::native::EncryptedConnection;
-    /// The 'inner' default connection
-    /// 'DefaultConnection' is preferred here
-    pub(super) type DefaultConnectionInner = super::PersistentOrMem<
-        super::native::NativeDbConnection,
-        super::native::EphemeralDbConnection,
-    >;
-
-    // the native module already defines this
-    // pub type RawDbConnection = native::RawDbConnection;
-    pub type DefaultConnection = std::sync::Arc<DefaultConnectionInner>;
 }
 
 #[derive(Debug)]
@@ -90,6 +75,20 @@ where
         match self {
             Self::Persistent(p) => p.is_in_transaction(),
             Self::Mem(m) => m.is_in_transaction(),
+        }
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        match self {
+            Self::Persistent(p) => p.disconnect(),
+            Self::Mem(m) => m.disconnect(),
+        }
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        match self {
+            Self::Persistent(p) => p.reconnect(),
+            Self::Mem(m) => m.reconnect(),
         }
     }
 }

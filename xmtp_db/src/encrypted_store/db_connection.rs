@@ -4,11 +4,8 @@ use std::fmt;
 use super::{ConnectionExt, TransactionGuard};
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
-/// Uses a [`Mutex]` internally for interior mutability, so that the connection
-/// and transaction state can be shared between the OpenMLS Provider and
-/// native XMTP operations
-pub struct DbConnection<C = crate::DefaultConnection> {
-    conn: C,
+pub struct DbConnection<C> {
+    pub(super) conn: C,
 }
 
 impl<C> DbConnection<C> {
@@ -68,6 +65,14 @@ where
 
     fn is_in_transaction(&self) -> bool {
         self.conn.is_in_transaction()
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.conn.disconnect()
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.conn.reconnect()
     }
 }
 

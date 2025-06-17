@@ -3,8 +3,6 @@ use xmtp_db::{ConnectionError, DbConnection, DefaultDatabase, StorageOption, Xmt
 
 pub mod chaos;
 
-pub type ChaosConnection = chaos::ChaosConnection<xmtp_db::DefaultConnection>;
-
 #[derive(Clone)]
 pub struct ChaosDb<Db = DefaultDatabase>
 where
