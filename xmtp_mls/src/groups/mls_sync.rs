@@ -1129,6 +1129,20 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+        self.load_mls_group_with_lock_async(|mls_group| async move {
+            self.process_message_inner(mls_group, envelope, trust_message_order)
+                .await
+        })
+        .await
+    }
+
+    #[tracing::instrument(skip(envelope), level = "debug")]
+    async fn process_message_inner(
+        &self,
+        mut mls_group: OpenMlsGroup,
+        envelope: &GroupMessageV1,
+        trust_message_order: bool,
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
@@ -1144,72 +1158,71 @@ where
         if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
-        //cursor in db -> 15 -> thread -> 10
-        // Acquire the MLS group lock first, then do intent fetching and processing inside
-        let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
-            // Fetch the intent now that the lock is held
-            let intent = provider
-                .db()
-                .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
-                .map_err(GroupMessageProcessingError::Storage)?;
 
-            let last_cursor = provider
-                .db()
-                .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-            let should_skip_message = last_cursor >= envelope.id as i64;
+        let intent = provider
+            .db()
+            .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
+            .map_err(GroupMessageProcessingError::Storage)?;
 
-            if should_skip_message {
-                // early return if the message is already procesed
-                // _NOTE_: Not early returning and re-processing a message that
-                // has already been processed, has the potential to result in forks.
-                return MessageIdentifierBuilder::from(envelope).build();
-            }
+        let last_cursor = provider
+            .db()
+            .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+        let should_skip_message = last_cursor >= envelope.id as i64;
 
-            tracing::info!(
-                inbox_id = self.context.inbox_id(),
-                installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                cursor = envelope.id,
-                "Processing envelope with hash {}, sequence_id = {}, is_own_intent={}",
-                hex::encode(sha256(envelope.data.as_slice())),
-                envelope.id,
-                intent.is_some()
-            );
-            match intent {
-                // Intent with the payload hash matches
-                Some(intent) => {
-                    let mut identifier = MessageIdentifierBuilder::from(envelope);
-                    identifier.intent_kind(intent.kind);
-                    if intent.state == IntentState::Error{
-                        return identifier.build()
-                    }
-                    let intent_id = intent.id;
-                    tracing::info!(
-                        inbox_id = self.context.inbox_id(),
-                        installation_id = %self.context.installation_id(),
-                        group_id = hex::encode(&self.group_id),
-                        cursor = envelope.id,
-                        intent_id,
-                        intent.kind = %intent.kind,
-                        "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
-                        self.context.inbox_id(),
-                        envelope.id,
-                        intent_id,
-                        intent.kind
-                    );
+        if should_skip_message {
+            // early return if the message is already procesed
+            // _NOTE_: Not early returning and re-processing a message that
+            // has already been processed, has the potential to result in forks.
+            // return MessageIdentifierBuilder::from(envelope).build();
+        }
 
-                    let message = message.into();
-                    // TODO: the return type of stage_and_validated_commit should be fixed
-                    // We should never be nesting Result types within the error return type, it is
-                    // super confusing. Instead of failing one way, this function can now fail
-                    // in four ways with ambiguous meaning:
-                    //  - Be OK but produce a null pointer (None) -- what does this mean?
-                    //  - Be Ok but produce a staged commit and validated commit
-                    //  - be an Error but produce a valid intent state?
-                    //  - be an error and produce a GroupMessage Processing Error
-                    let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, &message, envelope).await;
+        tracing::info!(
+            inbox_id = self.context.inbox_id(),
+            installation_id = %self.context.installation_id(),
+            group_id = hex::encode(&self.group_id),
+            cursor = envelope.id,
+            "Processing envelope with hash {}, sequence_id = {}, is_own_intent={}",
+            hex::encode(sha256(envelope.data.as_slice())),
+            envelope.id,
+            intent.is_some()
+        );
+        match intent {
+            // Intent with the payload hash matches
+            Some(intent) => {
+                let mut identifier = MessageIdentifierBuilder::from(envelope);
+                identifier.intent_kind(intent.kind);
+                // if intent.state == IntentState::Error{
+                // return identifier.build()
+                // }
+                let intent_id = intent.id;
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    cursor = envelope.id,
+                    intent_id,
+                    intent.kind = %intent.kind,
+                    "client [{}] is about to process own envelope [{}] for intent [{}] [{}]",
+                    self.context.inbox_id(),
+                    envelope.id,
+                    intent_id,
+                    intent.kind
+                );
 
-                    provider.transaction(|provider| {
+                let message = message.into();
+                // TODO: the return type of stage_and_validated_commit should be fixed
+                // We should never be nesting Result types within the error return type, it is
+                // super confusing. Instead of failing one way, this function can now fail
+                // in four ways with ambiguous meaning:
+                //  - Be OK but produce a null pointer (None) -- what does this mean?
+                //  - Be Ok but produce a staged commit and validated commit
+                //  - be an Error but produce a valid intent state?
+                //  - be an error and produce a GroupMessage Processing Error
+                let maybe_validated_commit = self
+                    .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
+                    .await;
+
+                provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -1286,32 +1299,30 @@ where
                         }
                         Ok(())
                     })?;
-                    identifier.build()
-                }
-                // No matching intent found. The message did not originate here.
-                None => {
-                    tracing::info!(
-                        inbox_id = self.context.inbox_id(),
-                        installation_id = %self.context.installation_id(),
-                        group_id = hex::encode(&self.group_id),
-                        cursor = envelope.id,
-                        "client [{}] is about to process external envelope [{}]",
-                        self.context.inbox_id(),
-                        envelope.id
-                    );
-                    let identifier = self
-                        .validate_and_process_external_message(
-                            &mut mls_group,
-                            message,
-                            envelope,
-                            allow_cursor_increment,
-                        )
-                        .await?;
-                    Ok::<_, GroupMessageProcessingError>(identifier)
-                }
+                identifier.build()
             }
-        }).await?;
-        Ok(identifier)
+            // No matching intent found. The message did not originate here.
+            None => {
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    cursor = envelope.id,
+                    "client [{}] is about to process external envelope [{}]",
+                    self.context.inbox_id(),
+                    envelope.id
+                );
+                let identifier = self
+                    .validate_and_process_external_message(
+                        &mut mls_group,
+                        message,
+                        envelope,
+                        allow_cursor_increment,
+                    )
+                    .await?;
+                Ok::<_, GroupMessageProcessingError>(identifier)
+            }
+        }
     }
 
     /// In case of metadataUpdate will extract the updated fields and store them to the db
@@ -1417,6 +1428,7 @@ where
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
         let result = self.process_message(msgv1, true).await;
+
         track_err!("Process message", &result, group: &msgv1.group_id);
         let message = match result {
             Ok(m) => {
@@ -1649,11 +1661,13 @@ where
                     "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
                     message.id, message_epoch, group_epoch
                 );
-                tracing::error!( inbox_id = self.context.inbox_id(),
-                            installation_id = %self.context.installation_id(),
-                            group_id = hex::encode(&self.group_id),
+                tracing::error!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
                     original_error = error.to_string(),
-                    fork_details);
+                    fork_details
+                );
                 track!(
                     "Possible Fork",
                     {
