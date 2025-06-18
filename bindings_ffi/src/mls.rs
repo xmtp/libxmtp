@@ -8354,7 +8354,7 @@ mod tests {
     #[tokio::test]
     async fn test_cannot_create_more_than_5_installations() {
         // Create a base tester
-        let alix_wallet = PrivateKeySigner::random();
+        let alix_wallet = generate_local_wallet();
         let bo = Tester::new().await;
         let alix = new_test_client_no_panic(alix_wallet.clone(), None)
             .await
