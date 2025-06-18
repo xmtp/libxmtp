@@ -25,15 +25,26 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::xmtp::identity::api::v1::{
-    get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
-};
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 use xmtp_proto::xmtp::message_contents::signature::WalletEcdsaCompact;
 use xmtp_proto::xmtp::message_contents::signed_private_key::{Secp256k1, Union};
 use xmtp_proto::xmtp::message_contents::unsigned_public_key::{self, Secp256k1Uncompressed};
 use xmtp_proto::xmtp::message_contents::{
     signature, Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey,
+};
+
+use xmtp_proto::xmtp::identity::api::v1::{
+    get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
+};
+
+use xmtp_proto::identity_v1::{
+    get_identity_updates_response::{IdentityUpdateLog, Response},
+    GetIdentityUpdatesResponse,
+};
+
+use xmtp_proto::xmtp::identity::associations::{
+    identity_action::Kind as IdentityActionKindProto, signature::Signature as SignatureEnum,
+    CreateInbox as CreateInboxProto, IdentifierKind, IdentityAction, IdentityUpdate,
+    RecoverableEcdsaSignature, Signature as ProtoSignature,
 };
 
 use crate::{builder::ClientBuilder, identity::IdentityStrategy};
@@ -384,7 +395,7 @@ async fn api_identity_mismatch() {
 // Use the account_address associated inbox
 #[xmtp_common::test]
 async fn api_identity_happy_path() {
-    let mock_api = MockApiClient::new();
+    let mut mock_api = MockApiClient::new();
     let tmpdb = tmp_path();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
@@ -392,6 +403,65 @@ async fn api_identity_happy_path() {
     let nonce = 0;
     let ident = generate_local_wallet().identifier();
     let inbox_id = ident.inbox_id(nonce).unwrap();
+
+    let inbox_id_cloned = inbox_id.clone();
+    mock_api.expect_get_inbox_ids().returning({
+        let ident = ident.clone();
+        move |_| {
+            let kind: IdentifierKind = (&ident).into();
+            Ok(GetInboxIdsResponse {
+                responses: vec![GetInboxIdsResponseItem {
+                    identifier: format!("{ident}"),
+                    identifier_kind: kind as i32,
+                    inbox_id: Some(inbox_id_cloned.clone()),
+                }],
+            })
+        }
+    });
+
+    let mut wrapper = ApiClientWrapper::new(mock_api, retry());
+    wrapper
+        .api_client
+        .expect_get_identity_updates_v2()
+        .returning({
+            let ident = ident.clone();
+            move |req| {
+                let kind: IdentifierKind = (&ident).into();
+
+                let update = IdentityUpdate {
+                    actions: vec![IdentityAction {
+                        kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
+                            initial_identifier: format!("{ident}"),
+                            nonce,
+                            initial_identifier_signature: Some(ProtoSignature {
+                                signature: Some(SignatureEnum::Erc191(RecoverableEcdsaSignature {
+                                    bytes: vec![1; 65], // dummy but structurally valid
+                                })),
+                            }),
+                            initial_identifier_kind: kind as i32,
+                            relying_party: None,
+                        })),
+                    }],
+                    client_timestamp_ns: 0,
+                    inbox_id: req.requests[0].inbox_id.clone(),
+                };
+
+                Ok(GetIdentityUpdatesResponse {
+                    responses: req
+                        .requests
+                        .iter()
+                        .map(|r| Response {
+                            inbox_id: r.inbox_id.clone(),
+                            updates: vec![IdentityUpdateLog {
+                                sequence_id: 1,
+                                server_timestamp_ns: 0,
+                                update: Some(update.clone()),
+                            }],
+                        })
+                        .collect(),
+                })
+            }
+        });
 
     let stored: StoredIdentity = (&Identity {
         inbox_id: inbox_id.clone(),
@@ -402,10 +472,8 @@ async fn api_identity_happy_path() {
     })
         .try_into()
         .unwrap();
+
     stored.store(&store.conn()).unwrap();
-
-    let wrapper = ApiClientWrapper::new(mock_api, retry());
-
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(dbg!(
         identity
@@ -440,7 +508,6 @@ async fn stored_identity_happy_path() {
 
     stored.store(&store.conn()).unwrap();
     let wrapper = ApiClientWrapper::new(mock_api, retry());
-
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(identity
         .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
