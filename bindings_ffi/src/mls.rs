@@ -1937,6 +1937,11 @@ impl FfiConversation {
         Ok(())
     }
 
+    pub async fn receive(&self, limit: Option<u32>) -> Result<(), GenericError> {
+        self.inner.receive(limit).await?;
+        Ok(())
+    }
+
     pub async fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
@@ -7510,6 +7515,61 @@ mod tests {
                 .unwrap();
         let text_message = TextCodec::decode(latest_message_encoded_content).unwrap();
         assert_eq!(text_message, "hey alix");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_limited_receive() {
+        let alix = Tester::new().await;
+        let bo = Tester::new().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Alix will send 10 messages to nobody
+        for i in 0..10 {
+            alix_group
+                .send(format!("Hello {i}").as_bytes().to_vec())
+                .await
+                .unwrap();
+        }
+
+        // Alix adds bo
+        alix_group
+            .add_members_by_inbox_id(vec![bo.inbox_id()])
+            .await
+            .unwrap();
+
+        // Alix sends 10 messages to bo
+        for i in 10..20 {
+            alix_group
+                .send(format!("Hello {i}").as_bytes().to_vec())
+                .await
+                .unwrap();
+        }
+
+        // Fetch the first 5
+        bo.conversations().sync().await.unwrap();
+        let group = bo.conversation(alix_group.id()).unwrap();
+        group.receive(Some(5)).await.unwrap();
+
+        let messages = group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 5);
+
+        assert_eq!(&messages[0].content, b"Hello 10");
+
+        // Fetch the rest
+        group.receive(None).await.unwrap();
+        let messages = group
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 10);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

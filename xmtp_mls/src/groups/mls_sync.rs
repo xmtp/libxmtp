@@ -313,7 +313,7 @@ where
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        let result = self.receive().await;
+        let result = self.receive(None).await;
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -1425,23 +1425,24 @@ where
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "debug")]
-    pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
+    pub async fn receive(&self, limit: Option<u32>) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id, provider.db())
+            .query_group_messages(&self.group_id, provider.db(), limit)
             .await?;
 
         let summary = self.process_messages(messages).await;
 
         track!(
-            "Fetched messages",
+            "Receive messages",
             {
                 "total": summary.total_messages.len(),
                 "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
-                "new": summary.new_messages.len()
+                "new": summary.new_messages.len(),
+                "limit": limit
             },
             group: &self.group_id,
-            icon: "🐕🦴"
+            icon: "🫴"
         );
 
         Ok(summary)

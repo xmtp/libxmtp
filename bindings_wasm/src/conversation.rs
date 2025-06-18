@@ -197,6 +197,18 @@ impl Conversation {
     Ok(())
   }
 
+  #[wasm_bindgen]
+  pub async fn receive(&self, limit: Option<u32>) -> Result<(), JsError> {
+    let group = self.to_mls_group();
+
+    group
+      .receive(limit)
+      .await
+      .map_err(|e| JsError::new(&format!("{e}")))?;
+
+    Ok(())
+  }
+
   #[wasm_bindgen(js_name = findMessages)]
   pub async fn find_messages(
     &self,
