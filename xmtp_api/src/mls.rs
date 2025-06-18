@@ -601,7 +601,7 @@ pub mod tests {
         let wrapper = ApiClientWrapper::new(c, Retry::default());
         let _first = wrapper.query_group_messages(vec![0, 0], None, None).await;
         let now = std::time::Instant::now();
-        let _second = wrapper.query_group_messages(vec![0, 0], None).await;
+        let _second = wrapper.query_group_messages(vec![0, 0], None, None).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
     }
 }
