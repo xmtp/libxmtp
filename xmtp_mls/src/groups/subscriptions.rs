@@ -135,7 +135,7 @@ pub(crate) mod tests {
         let messages = amal
             .context
             .api_client
-            .query_group_messages(amal_group.clone().group_id, None)
+            .query_group_messages(amal_group.clone().group_id, None, None)
             .await
             .expect("read topic");
         let message = messages.first().unwrap();

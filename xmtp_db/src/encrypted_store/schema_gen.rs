@@ -42,6 +42,7 @@ diesel::table! {
         staged_commit -> Nullable<Binary>,
         published_in_epoch -> Nullable<BigInt>,
         should_push -> Bool,
+        sequence_id -> Nullable<BigInt>,
     }
 }
 

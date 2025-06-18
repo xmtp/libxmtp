@@ -169,6 +169,7 @@ impl EnvelopeVisitor<'_> for WelcomeMessageExtractor {
             data: message.data.clone(),
             hpke_public_key: message.hpke_public_key.clone(),
             wrapper_algorithm: message.wrapper_algorithm,
+            message_cursor: message.message_cursor,
         });
         self.welcome_message = mls_v1::WelcomeMessage {
             version: Some(message),

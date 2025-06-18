@@ -1,6 +1,7 @@
 mod test_consent;
 mod test_dm;
 mod test_key_updates;
+mod test_welcomes;
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -119,7 +120,7 @@ async fn force_add_member(
         .await
         .unwrap();
     sender_group
-        .send_welcomes(send_welcomes_action)
+        .send_welcomes(send_welcomes_action, None)
         .await
         .unwrap();
 }
@@ -131,7 +132,7 @@ async fn test_send_message() {
     group.send_message(b"hello").await?;
     let messages = alix
         .api()
-        .query_group_messages(group.group_id.clone(), None)
+        .query_group_messages(group.group_id.clone(), None, None)
         .await?;
 
     group.sync().await?;
@@ -143,39 +144,58 @@ async fn test_send_message() {
     assert_eq!(messages.len(), 2);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_self_message() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
-    let group = client.create_group(None, None).expect("create group");
+    tester!(alix);
+    let group = alix.create_group(None, None).expect("create group");
     let msg = b"hello";
+
     group.send_message(msg).await.expect("send message");
 
-    group.receive().await.unwrap();
+    group.receive(None).await?;
     // Check for messages
-    let messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let messages = group.find_messages(&MsgQueryArgs::default())?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_receive_message_from_other() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-    let alix_group = alix.create_group(None, None).expect("create group");
-    alix_group
-        .add_members_by_inbox_id(&[bo.inbox_id()])
-        .await
-        .unwrap();
-    let alix_message = b"hello from alix";
-    alix_group
-        .send_message(alix_message)
-        .await
-        .expect("send message");
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+
+    // Send 10 messages to nobody
+    let alix_message = "hello from alix";
+    for i in 0..10 {
+        alix_group
+            .send_message(format!("{alix_message} {i}").as_bytes())
+            .await?;
+    }
+
+    // Add bo
+    alix_group.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+
+    // Send 10 messages to bo
+    let alix_message = "hello from alix";
+    for i in 10..20 {
+        alix_group
+            .send_message(format!("{alix_message} {i}").as_bytes())
+            .await?;
+    }
 
     let bo_group = receive_group_invite(&bo).await;
-    let message = get_latest_message(&bo_group).await;
-    assert_eq!(message.decrypted_message_bytes, alix_message);
+    // test with a limit
+    bo_group.receive(Some(5)).await?;
+    let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages[0].decrypted_message_bytes, b"hello from alix 10");
+
+    // fetch the rest of the messages
+    bo_group.receive(None).await?;
+    let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
+    assert_eq!(messages.len(), 10);
 
     let bo_message = b"hello from bo";
     bo_group
@@ -267,7 +287,7 @@ async fn test_add_member_conflict() {
         .await
         .expect("bola's add should succeed in a no-op");
 
-    let summary = amal_group.receive().await.unwrap();
+    let summary = amal_group.receive(None).await.unwrap();
     assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
@@ -461,7 +481,7 @@ async fn test_add_inbox() {
 
     let messages = client
         .api()
-        .query_group_messages(group_id, None)
+        .query_group_messages(group_id, None, None)
         .await
         .unwrap();
 
@@ -534,7 +554,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     // Query messages from Bola_1's perspective
     let messages_bola_1 = bola_1
         .api()
-        .query_group_messages(group.clone().group_id.clone(), None)
+        .query_group_messages(group.clone().group_id.clone(), None, None)
         .await
         .unwrap();
 
@@ -544,7 +564,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
     // Query messages from Alix's perspective
     let messages_alix = alix
         .api()
-        .query_group_messages(group.clone().group_id, None)
+        .query_group_messages(group.clone().group_id, None, None)
         .await
         .unwrap();
 
@@ -1019,7 +1039,7 @@ async fn test_remove_inbox() {
     let group_id = group.group_id;
     let messages = client_1
         .api()
-        .query_group_messages(group_id, None)
+        .query_group_messages(group_id, None, None)
         .await
         .expect("read topic");
 
@@ -1041,7 +1061,7 @@ async fn test_key_update() {
 
     let messages = client
         .api()
-        .query_group_messages(group.group_id.clone(), None)
+        .query_group_messages(group.group_id.clone(), None, None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -2331,7 +2351,7 @@ async fn process_messages_abort_on_retryable_error() {
     // in the middle of a sync instead of the beginning
     let bo_messages = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.context().db())
+        .query_group_messages(&bo_group.group_id, &bo.context().db(), None)
         .await
         .unwrap();
 
@@ -2370,7 +2390,7 @@ async fn skip_already_processed_messages() {
 
     let mut bo_messages_from_api = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo.store().db())
+        .query_group_messages(&bo_group.group_id, &bo.store().db(), None)
         .await
         .unwrap();
 
@@ -2380,14 +2400,11 @@ async fn skip_already_processed_messages() {
             v1.id = 0;
         }
     }
-    let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
+    let process_result = bo_group.process_messages(bo_messages_from_api).await;
 
-    assert_eq!(process_result.new_messages.len(), 2);
+    assert_eq!(process_result.new_messages.len(), 1);
     // We no longer error when the message is previously processed
     assert_eq!(process_result.errored.len(), 0);
-
-    let new = process_result.new_messages.pop().unwrap();
-    assert!(new.previously_processed);
 }
 
 #[xmtp_common::test]
@@ -2464,7 +2481,7 @@ async fn test_parallel_syncs() {
     // Make sure that only one group message was sent
     let group_messages = alix1
         .api()
-        .query_group_messages(alix1_group.group_id.clone(), None)
+        .query_group_messages(alix1_group.group_id.clone(), None, None)
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 1);
@@ -2560,7 +2577,7 @@ async fn add_missing_installs_reentrancy() {
     // but only the first is valid
     let group_messages = alix1
         .api()
-        .query_group_messages(alix1_group.group_id.clone(), None)
+        .query_group_messages(alix1_group.group_id.clone(), None, None)
         .await
         .unwrap();
     assert_eq!(group_messages.len(), 2);
@@ -2609,7 +2626,7 @@ async fn respect_allow_epoch_increment() {
     // Retrieve the envelope for the commit from the network
     let messages = client
         .api()
-        .query_group_messages(group.group_id.clone(), None)
+        .query_group_messages(group.group_id.clone(), None, None)
         .await
         .unwrap();
 
@@ -3593,7 +3610,7 @@ async fn can_stream_out_of_order_without_forking() {
     // Retrieve all messages from group B, verify they contain the two messages from client c even though they were sent from the wrong epoch
     let messages = client_b
         .api()
-        .query_group_messages(group_b.group_id.clone(), None)
+        .query_group_messages(group_b.group_id.clone(), None, None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 8);

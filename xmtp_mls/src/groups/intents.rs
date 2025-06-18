@@ -937,7 +937,7 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_group_messages(group.group_id.clone(), None)
+            .query_group_messages(group.group_id.clone(), None, None)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);

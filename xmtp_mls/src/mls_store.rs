@@ -82,13 +82,14 @@ where
         &self,
         group_id: &[u8],
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        limit: Option<u32>,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let messages = self
             .context
             .api()
-            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
+            .query_group_messages(group_id.to_vec(), Some(id_cursor as u64), limit)
             .await?;
 
         Ok(messages)
