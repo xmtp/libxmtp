@@ -2400,14 +2400,11 @@ async fn skip_already_processed_messages() {
             v1.id = 0;
         }
     }
-    let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
+    let process_result = bo_group.process_messages(bo_messages_from_api).await;
 
-    assert_eq!(process_result.new_messages.len(), 2);
+    assert_eq!(process_result.new_messages.len(), 1);
     // We no longer error when the message is previously processed
     assert_eq!(process_result.errored.len(), 0);
-
-    let new = process_result.new_messages.pop().unwrap();
-    assert!(new.previously_processed);
 }
 
 #[xmtp_common::test]

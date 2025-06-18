@@ -115,7 +115,7 @@ where
             }
 
             if let Some(limit) = limit {
-                if out.len() > limit as usize {
+                if out.len() >= limit as usize {
                     break;
                 }
             }
