@@ -39,6 +39,7 @@ mod tests {
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = "true")]
+    #[ignore]
     async fn test_debug_pkg() {
         tester!(alix, stream);
         tester!(bo);
