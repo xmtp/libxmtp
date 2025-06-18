@@ -1,3 +1,14 @@
+use super::{
+    group_membership::{GroupMembership, MembershipDiff},
+    group_permissions::{
+        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+    },
+    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
+};
+use crate::{
+    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
+};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
     extensions::{Extension, Extensions, UnknownExtension},
@@ -11,24 +22,11 @@ use serde::Serialize;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
+use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{associations::MemberIdentifier, InboxId};
-use xmtp_proto::xmtp::{
-    identity::MlsCredential,
-    mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
-    },
-};
-
-use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
-    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
-};
-use xmtp_db::{StorageError, XmtpDb};
-
-use xmtp_common::{retry::RetryableError, retryable};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
@@ -36,13 +34,12 @@ use xmtp_mls_common::{
         MetadataField,
     },
 };
-
-use super::{
-    group_membership::{GroupMembership, MembershipDiff},
-    group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+use xmtp_proto::xmtp::{
+    identity::MlsCredential,
+    mls::message_contents::{
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
+        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
     },
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 
 #[derive(Debug, Error)]
@@ -58,7 +55,7 @@ pub enum CommitValidationError {
     #[error("Invalid version format: {0}")]
     InvalidVersionFormat(String),
     #[error("Minimum supported protocol version {0} exceeds current version")]
-    MinimumSupportedProtocolVersionExceedsCurrentVersion(String),
+    ProtocolVersionTooLow(String),
     // TODO: We will need to relax this once we support external joins
     #[error("Actor not a member of the group")]
     ActorNotMember,
@@ -391,6 +388,7 @@ impl ValidatedCommit {
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff =
             ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
+
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,
@@ -458,11 +456,9 @@ impl ValidatedCommit {
             );
 
             if min_supported_version > current_version {
-                return Err(
-                    CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
-                        min_version.clone(),
-                    ),
-                );
+                return Err(CommitValidationError::ProtocolVersionTooLow(
+                    min_version.clone(),
+                ));
             }
         }
         Ok(verified_commit)

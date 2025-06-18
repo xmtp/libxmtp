@@ -579,8 +579,8 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
-        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
@@ -611,8 +611,8 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_add_remove_re_add() {
-        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
 
         let alix_group = alix
             .create_group_with_inbox_ids(
