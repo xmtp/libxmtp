@@ -79,6 +79,50 @@ impl<ApiClient, Db> IdentityUpdates<ApiClient, Db> {
     }
 }
 
+/// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
+/// If no `to_sequence_id` is provided, use the latest value in the database
+pub async fn get_association_state_with_verifier<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    inbox_id: &str,
+    to_sequence_id: Option<i64>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<AssociationState, ClientError> {
+    let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
+    let last_sequence_id = updates
+        .last()
+        .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
+        .sequence_id;
+    if let Some(to_sequence_id) = to_sequence_id {
+        if to_sequence_id != last_sequence_id {
+            return Err(AssociationError::MissingIdentityUpdate.into());
+        }
+    }
+
+    if let Some(association_state) =
+        StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
+    {
+        return Ok(association_state);
+    }
+
+    let unverified_updates = updates
+        .into_iter()
+        // deserialize identity update payload
+        .map(UnverifiedIdentityUpdate::try_from)
+        .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
+    let updates = verify_updates(unverified_updates, scw_verifier).await?;
+
+    let association_state = get_state(updates)?;
+
+    StoredAssociationState::write_to_cache(
+        conn,
+        inbox_id.to_owned(),
+        last_sequence_id,
+        association_state.clone().into(),
+    )?;
+
+    Ok(association_state)
+}
+
 impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
 where
     ApiClient: XmtpApi,
@@ -125,40 +169,13 @@ where
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
-        let last_sequence_id = updates
-            .last()
-            .ok_or::<ClientError>(AssociationError::MissingIdentityUpdate.into())?
-            .sequence_id;
-        if let Some(to_sequence_id) = to_sequence_id {
-            if to_sequence_id != last_sequence_id {
-                return Err(AssociationError::MissingIdentityUpdate.into());
-            }
-        }
-
-        if let Some(association_state) =
-            StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
-        {
-            return Ok(association_state);
-        }
-
-        let unverified_updates = updates
-            .into_iter()
-            // deserialize identity update payload
-            .map(UnverifiedIdentityUpdate::try_from)
-            .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-        let updates = verify_updates(unverified_updates, &self.context.scw_verifier).await?;
-
-        let association_state = get_state(updates)?;
-
-        StoredAssociationState::write_to_cache(
+        get_association_state_with_verifier(
             conn,
-            inbox_id.to_string(),
-            last_sequence_id,
-            association_state.clone().into(),
-        )?;
-
-        Ok(association_state)
+            inbox_id,
+            to_sequence_id,
+            &self.context.scw_verifier,
+        )
+        .await
     }
 
     /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the
@@ -615,17 +632,21 @@ pub(crate) mod tests {
         context::XmtpContextProvider,
         groups::group_membership::GroupMembership,
         identity_updates::IdentityUpdates,
+        tester,
         utils::{FullXmtpClient, Tester},
         Client, XmtpApi,
     };
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::{
-        builder::{SignatureRequest, SignatureRequestError},
-        test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
-        unverified::UnverifiedSignature,
-        AssociationState, MemberIdentifier,
+    use xmtp_id::{
+        associations::{
+            builder::{SignatureRequest, SignatureRequestError},
+            test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
+            unverified::UnverifiedSignature,
+            AssociationState, MemberIdentifier,
+        },
+        InboxOwner,
     };
 
     use xmtp_db::{
@@ -740,12 +761,10 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn add_association() {
-        let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
-        let wallet_ident = wallet.identifier();
         let wallet2_ident = wallet_2.identifier();
 
-        let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
+        tester!(client);
 
         let mut add_association_request = client
             .identity_updates()
@@ -762,14 +781,18 @@ pub(crate) mod tests {
             .unwrap();
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
-        let members = association_state.members_by_parent(&wallet_ident.clone().into());
+        let members = association_state
+            .members_by_parent(&client.builder.owner.get_identifier().unwrap().into());
         // Those members should have timestamps
         for member in members {
             assert!(member.client_timestamp_ns.is_some());
         }
 
         assert_eq!(association_state.members().len(), 3);
-        assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+        assert_eq!(
+            *association_state.recovery_identifier(),
+            client.builder.owner.get_identifier().unwrap()
+        );
         assert!(association_state.get(&wallet2_ident.into()).is_some());
     }
 

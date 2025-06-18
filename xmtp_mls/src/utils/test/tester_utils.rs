@@ -7,6 +7,7 @@ use crate::{
     configuration::DeviceSyncUrls,
     groups::device_sync::handle::{SyncMetric, WorkerHandle},
     subscriptions::SubscribeError,
+    utils::VersionInfo,
     Client,
 };
 use ethers::signers::LocalWallet;
@@ -123,8 +124,8 @@ where
             MockSmartContractSignatureVerifier::new(true),
             self.sync_url.as_deref(),
             Some(self.sync_mode),
-            None,
-            true,
+            self.version.clone(),
+            !self.events,
         )
         .await;
         let client = Arc::new(client);
@@ -216,6 +217,8 @@ where
     pub wait_for_init: bool,
     pub stream: bool,
     pub name: Option<String>,
+    pub events: bool,
+    pub version: Option<VersionInfo>,
 }
 
 impl TesterBuilder<LocalWallet> {
@@ -233,6 +236,8 @@ impl Default for TesterBuilder<LocalWallet> {
             wait_for_init: true,
             stream: false,
             name: None,
+            events: false,
+            version: None,
         }
     }
 }
@@ -252,6 +257,8 @@ where
             wait_for_init: self.wait_for_init,
             stream: self.stream,
             name: self.name,
+            events: self.events,
+            version: self.version,
         }
     }
 
@@ -261,6 +268,13 @@ where
     pub fn with_name(self, s: &str) -> TesterBuilder<Owner> {
         Self {
             name: Some(s.to_string()),
+            ..self
+        }
+    }
+
+    pub fn version(self, version: VersionInfo) -> Self {
+        Self {
+            version: Some(version),
             ..self
         }
     }

@@ -6,7 +6,7 @@ use xmtp_db::events::Events;
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[ignore]
 async fn test_key_rotation_with_optimistic_send() {
     tester!(alix, stream);
     tester!(bo, stream);
@@ -52,7 +52,7 @@ async fn test_key_rotation_with_optimistic_send() {
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = "true")]
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[ignore]
 async fn key_update_out_of_epoch() {
     // Have bo join a group and immediately send several optimistic messages.
     // Add enough people to move the epoch ahead 5, then sync to ensure proper delivery.

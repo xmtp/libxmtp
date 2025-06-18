@@ -22,6 +22,7 @@ use xmtp_proto::xmtp::mls::api::v1::{GroupMessageInput, WelcomeMessageInput};
 use xmtp_proto::xmtp::mls::api::v1::{
     group_message_input::V1 as GroupMessageV1, welcome_message_input::V1 as WelcomeMessageV1,
 };
+use xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::UnsignedOriginatorEnvelope;
 use xmtp_proto::xmtp::xmtpv4::envelopes::client_envelope::Payload;

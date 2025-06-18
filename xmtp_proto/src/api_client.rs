@@ -104,12 +104,34 @@ pub struct ApiStats {
     pub subscribe_welcomes: Arc<EndpointStats>,
 }
 
+impl ApiStats {
+    pub fn clear(&self) {
+        self.upload_key_package.clear();
+        self.fetch_key_package.clear();
+        self.send_group_messages.clear();
+        self.send_welcome_messages.clear();
+        self.query_group_messages.clear();
+        self.query_welcome_messages.clear();
+        self.subscribe_messages.clear();
+        self.subscribe_welcomes.clear();
+    }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct IdentityStats {
     pub publish_identity_update: Arc<EndpointStats>,
     pub get_identity_updates_v2: Arc<EndpointStats>,
     pub get_inbox_ids: Arc<EndpointStats>,
     pub verify_smart_contract_wallet_signature: Arc<EndpointStats>,
+}
+
+impl IdentityStats {
+    pub fn clear(&self) {
+        self.publish_identity_update.clear();
+        self.get_identity_updates_v2.clear();
+        self.get_inbox_ids.clear();
+        self.verify_smart_contract_wallet_signature.clear();
+    }
 }
 
 pub struct AggregateStats {
@@ -190,6 +212,9 @@ impl EndpointStats {
 
     pub fn get_count(&self) -> usize {
         self.request_count.load(Ordering::Relaxed)
+    }
+    pub fn clear(&self) {
+        self.request_count.store(0, Ordering::Relaxed)
     }
 }
 

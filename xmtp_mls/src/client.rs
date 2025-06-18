@@ -243,6 +243,11 @@ where
         self.context.api().api_client.identity_stats()
     }
 
+    pub fn clear_stats(&self) {
+        self.context.api().api_client.stats().clear();
+        self.context.api().api_client.identity_stats().clear();
+    }
+
     pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
         &self.context.scw_verifier
     }
@@ -1046,67 +1051,52 @@ pub(crate) mod tests {
         );
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 2)
-    )]
+    #[xmtp_common::test(unwrap_try = "true")]
     async fn double_dms() {
-        let alice_wallet = generate_local_wallet();
-        let alice = ClientBuilder::new_test_client(&alice_wallet).await;
-
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        tester!(alice);
+        tester!(bob);
 
         let alice_dm = alice
             .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
-            .await
-            .unwrap();
-        alice_dm.send_message(b"Welcome 1").await.unwrap();
+            .await?;
+        alice_dm.send_message(b"Welcome 1").await?;
 
         let bob_dm = bob
             .create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
-            .await
-            .unwrap();
+            .await?;
 
-        let alice2 = ClientBuilder::new_test_client(&alice_wallet).await;
+        tester!(alice2, from: alice);
         let alice_dm2 = alice
             .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
-            .await
-            .unwrap();
-        alice_dm2.send_message(b"Welcome 2").await.unwrap();
+            .await?;
+        alice_dm2.send_message(b"Welcome 2").await?;
 
-        alice_dm.update_installations().await.unwrap();
-        alice.sync_welcomes().await.unwrap();
-        bob.sync_welcomes().await.unwrap();
+        alice_dm.update_installations().await?;
+        alice.sync_welcomes().await?;
+        bob.sync_welcomes().await?;
 
-        alice_dm.send_message(b"Welcome from 1").await.unwrap();
+        alice_dm.send_message(b"Welcome from 1").await?;
 
         // This message will set bob's dm as the primary DM for all clients
-        bob_dm.send_message(b"Bob says hi 1").await.unwrap();
+        // bob_dm.sync().await?;
+        bob_dm.send_message(b"Bob says hi 1").await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
-        alice_dm.sync().await.unwrap();
+        alice_dm.sync().await?;
 
-        alice2.sync_welcomes().await.unwrap();
-        let groups = alice2
-            .find_groups(GroupQueryArgs {
-                ..Default::default()
-            })
-            .unwrap();
+        alice2.sync_welcomes().await?;
+        let mut groups = alice2.find_groups(GroupQueryArgs::default())?;
 
         assert_eq!(groups.len(), 1);
+        let group = groups.pop()?;
 
-        groups[0].sync().await.unwrap();
-        let messages = groups[0]
-            .find_messages(&MsgQueryArgs {
-                ..Default::default()
-            })
-            .unwrap();
+        group.sync().await?;
+        let messages = group.find_messages(&MsgQueryArgs::default())?;
 
         assert_eq!(messages.len(), 3);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
-        let new_alice_dm = alice.stitched_group(&alice_dm.group_id).unwrap();
+        let new_alice_dm = alice.stitched_group(&alice_dm.group_id)?;
 
         // The group_id should not be what we asked for because it was stitched
         assert_ne!(alice_dm.group_id, new_alice_dm.group_id);

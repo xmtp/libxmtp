@@ -152,6 +152,7 @@ pub async fn create_client(
   device_sync_server_url: Option<String>,
   device_sync_worker_mode: Option<DeviceSyncWorkerMode>,
   log_options: Option<LogOptions>,
+  allow_offline: Option<bool>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
@@ -191,12 +192,14 @@ pub async fn create_client(
       .api_client(api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
+      .with_allow_offline(allow_offline)
       .store(store)
       .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
       .api_client(api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
+      .with_allow_offline(allow_offline)
       .store(store),
   };
 
@@ -378,6 +381,11 @@ impl Client {
     let identity = self.inner_client.identity_api_stats();
     let aggregate = AggregateStats { mls: api, identity };
     format!("{:?}", aggregate)
+  }
+
+  #[wasm_bindgen(js_name = clearAllStatistics)]
+  pub fn clear_all_statistics(&self) {
+    self.inner_client.clear_stats()
   }
 
   #[wasm_bindgen(js_name = uploadDebugArchive)]

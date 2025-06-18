@@ -451,22 +451,6 @@ mod test {
         #[future] bo: FullXmtpClient,
         #[case] group_size: usize,
     ) {
-        use tracing_subscriber::layer::SubscriberExt;
-        use tracing_subscriber::util::SubscriberInitExt;
-        use tracing_subscriber::{filter::LevelFilter, EnvFilter};
-
-        let filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .parse("debug")
-            .unwrap();
-
-        tracing_subscriber::registry()
-            .with(tracing_wasm::WASMLayer::default())
-            .with(filter)
-            .init();
-
-        console_error_panic_hook::set_once();
-        tracing::info!("RUNNING TEST");
         let mut groups = vec![];
         let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
         for _ in 0..group_size {
@@ -595,8 +579,8 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(10))]
     async fn test_self_group_creation() {
-        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
 
         let stream = alix
             .stream_conversations(Some(ConversationType::Group))
@@ -627,8 +611,8 @@ mod test {
     #[xmtp_common::test]
     #[timeout(std::time::Duration::from_secs(5))]
     async fn test_add_remove_re_add() {
-        let alix = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
-        let bo = Arc::new(ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await);
+        tester!(alix);
+        tester!(bo);
 
         let alix_group = alix
             .create_group_with_inbox_ids(
