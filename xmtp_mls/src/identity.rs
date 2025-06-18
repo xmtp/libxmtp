@@ -364,7 +364,7 @@ impl Identity {
                 })?;
 
             let state = get_association_state_with_verifier(
-                provider,
+                provider.db(),
                 &inbox_id,
                 None,
                 &scw_signature_verifier,

@@ -13,7 +13,7 @@ use std::{
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::{association_state::StoredAssociationState, MlsProviderExt};
+use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_db::{ConnectionExt, XmtpDb};
 use xmtp_id::{
@@ -79,13 +79,12 @@ impl<ApiClient, Db> IdentityUpdates<ApiClient, Db> {
 
 /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
 /// If no `to_sequence_id` is provided, use the latest value in the database
-pub async fn get_association_state_with_verifier(
-    provider: impl MlsProviderExt,
+pub async fn get_association_state_with_verifier<C: ConnectionExt>(
+    conn: &DbConnection<C>,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<AssociationState, ClientError> {
-    let conn = provider.db();
     let updates = conn.get_identity_updates(inbox_id, None, to_sequence_id)?;
     let last_sequence_id = updates
         .last()
@@ -164,12 +163,12 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        _conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
         get_association_state_with_verifier(
-            self.context.mls_provider(),
+            conn,
             inbox_id,
             to_sequence_id,
             &self.context.scw_verifier,
