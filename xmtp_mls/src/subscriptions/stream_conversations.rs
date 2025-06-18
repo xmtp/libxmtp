@@ -451,7 +451,6 @@ mod test {
         #[future] bo: FullXmtpClient,
         #[case] group_size: usize,
     ) {
-
         let mut groups = vec![];
         let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
         for _ in 0..group_size {
