@@ -706,11 +706,7 @@ where
             }
 
             // Set the message cursor
-            provider.db().insert_cursor(
-                &group.group_id,
-                EntityKind::Group,
-                welcome.message_cursor as i64,
-            )?;
+            provider.db().update_cursor(&group.group_id, EntityKind::Group, welcome.message_cursor as i64)?;
 
             Ok(group)
         })
