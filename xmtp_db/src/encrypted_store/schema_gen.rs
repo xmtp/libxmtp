@@ -141,6 +141,7 @@ diesel::table! {
         commit_sequence_id -> BigInt,
         last_epoch_authenticator -> Binary,
         commit_result -> Integer,
+        error_message -> Nullable<Text>,
         applied_epoch_number -> Nullable<BigInt>,
         applied_epoch_authenticator -> Nullable<Binary>,
         sender_inbox_id -> Nullable<Text>,
