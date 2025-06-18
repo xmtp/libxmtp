@@ -90,7 +90,6 @@ where
         );
         let mut out: Vec<GroupMessage> = vec![];
         let mut id_cursor = id_cursor;
-        let limit = limit.unwrap_or(MAX_PAGE_SIZE);
         loop {
             let mut result = retry_async!(
                 self.retry_strategy,
@@ -100,7 +99,7 @@ where
                             group_id: group_id.clone(),
                             paging_info: Some(PagingInfo {
                                 id_cursor: id_cursor.unwrap_or(0),
-                                limit: limit.min(MAX_PAGE_SIZE),
+                                limit: limit.unwrap_or(MAX_PAGE_SIZE).min(MAX_PAGE_SIZE),
                                 direction: SortDirection::Ascending as i32,
                             }),
                         })
@@ -115,8 +114,10 @@ where
                 break;
             }
 
-            if out.len() >= limit as usize {
-                break;
+            if let Some(limit) = limit {
+                if out.len() > limit as usize {
+                    break;
+                }
             }
 
             let paging_info = result.paging_info.expect("Empty paging info");

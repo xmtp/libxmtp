@@ -8438,4 +8438,73 @@ mod tests {
         // Clean up the stream
         stream.end_and_wait().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_cannot_create_more_than_5_installations() {
+        // Create a base tester
+        let alix_wallet = PrivateKeySigner::random();
+        let bo = Tester::new().await;
+        let alix = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+
+        // Create 4 additional installations (total 5)
+        let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix4 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let alix5 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+
+        // Verify we have 5 installations
+        let state = alix.inbox_state(true).await.unwrap();
+        assert_eq!(state.installations.len(), 5);
+
+        // Attempt to create a 6th installation, expect failure
+        let alix6_result = new_test_client_no_panic(alix_wallet.clone(), None).await;
+        assert!(
+            alix6_result.is_err(),
+            "Expected failure when creating 6th installation, but got Ok"
+        );
+
+        // Create a group with one of the valid installations
+        let bo_group = bo
+            .conversations()
+            .create_group_with_inbox_ids(vec![alix3.inbox_id()], FfiCreateGroupOptions::default())
+            .await
+            .unwrap();
+
+        // Confirm group members list Alix's inbox with exactly 5 installations
+        let members = bo_group.list_members().await.unwrap();
+        let alix_member = members
+            .iter()
+            .find(|m| m.inbox_id == alix.inbox_id())
+            .expect("Alix should be a group member");
+        assert_eq!(alix_member.installation_ids.len(), 5);
+
+        // Revoke one of Alix's installations (e.g. alix5)
+        let signature_request = alix
+            .revoke_installations(vec![alix5.installation_id()])
+            .await
+            .unwrap();
+
+        signature_request.add_wallet_signature(&alix_wallet).await;
+        alix.apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let state_after_revoke = alix.inbox_state(true).await.unwrap();
+        assert_eq!(state_after_revoke.installations.len(), 4);
+
+        // Now try building alix6 again – should succeed
+        let _alix6 = new_test_client_no_panic(alix_wallet.clone(), None).await;
+        let updated_state = alix.inbox_state(true).await.unwrap();
+        assert_eq!(updated_state.installations.len(), 5);
+    }
 }
