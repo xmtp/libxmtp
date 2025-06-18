@@ -1,6 +1,5 @@
 use crate::configuration::{CIPHERSUITE, MAX_INSTALLATIONS_PER_INBOX};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
-use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::OpenMlsCrypto;
