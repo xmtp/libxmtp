@@ -1149,9 +1149,6 @@ where
             Some(intent) => {
                 let mut identifier = MessageIdentifierBuilder::from(envelope);
                 identifier.intent_kind(intent.kind);
-                if intent.state == IntentState::Error {
-                    return identifier.build();
-                }
                 let intent_id = intent.id;
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
@@ -1971,7 +1968,6 @@ where
     ) -> Result<(), GroupError> {
         let provider = self.mls_provider();
 
-        //todo: check for the current inbox installations
         let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
@@ -2009,7 +2005,6 @@ where
      * and the group has not been updated to include it.
      */
     pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
-        //todo-> make sure we only take care of our own installations not everyone
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 
         // If there is nothing to do, stop here
