@@ -1,4 +1,6 @@
-use crate::configuration::CIPHERSUITE;
+use crate::configuration::{CIPHERSUITE, MAX_INSTALLATIONS_PER_INBOX};
+use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
+use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
 use openmls::prelude::OpenMlsCrypto;
@@ -221,6 +223,12 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
+    #[error("Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first.")]
+    TooManyInstallations {
+        inbox_id: String,
+        count: usize,
+        max: usize,
+    },
 }
 
 impl RetryableError for IdentityError {
@@ -313,6 +321,34 @@ impl Identity {
             if *associated_inbox_id != inbox_id {
                 return Err(IdentityError::NewIdentity("Inbox ID mismatch".to_string()));
             }
+
+            // get sequence_id from identity updates and loaded into the DB
+            load_identity_updates(api_client, provider.db(), &[associated_inbox_id.as_str()])
+                .await
+                .map_err(|e| {
+                    IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
+                })?;
+
+            let state = get_association_state_with_verifier(
+                provider.db(),
+                &inbox_id,
+                None,
+                &scw_signature_verifier,
+            )
+            .await
+            .map_err(|err| {
+                IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
+            })?;
+
+            let current_installation_count = state.installation_ids().len();
+            if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
+                return Err(IdentityError::TooManyInstallations {
+                    inbox_id: associated_inbox_id.clone(),
+                    count: current_installation_count,
+                    max: MAX_INSTALLATIONS_PER_INBOX,
+                });
+            }
+
             let builder = SignatureRequestBuilder::new(associated_inbox_id.clone());
             let mut signature_request = builder
                 .add_association(
