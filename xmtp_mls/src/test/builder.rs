@@ -25,8 +25,6 @@ use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::identity_v1::get_identity_updates_response::Response;
-use xmtp_proto::identity_v1::GetIdentityUpdatesResponse;
 use xmtp_proto::xmtp::identity::api::v1::{
     get_inbox_ids_response::Response as GetInboxIdsResponseItem, GetInboxIdsResponse,
 };
@@ -386,7 +384,7 @@ async fn api_identity_mismatch() {
 // Use the account_address associated inbox
 #[xmtp_common::test]
 async fn api_identity_happy_path() {
-    let mut mock_api = MockApiClient::new();
+    let mock_api = MockApiClient::new();
     let tmpdb = tmp_path();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
@@ -395,20 +393,16 @@ async fn api_identity_happy_path() {
     let ident = generate_local_wallet().identifier();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let inbox_id_cloned = inbox_id.clone();
-    mock_api.expect_get_inbox_ids().returning({
-        let ident = ident.clone();
-        move |_| {
-            let kind: IdentifierKind = (&ident).into();
-            Ok(GetInboxIdsResponse {
-                responses: vec![GetInboxIdsResponseItem {
-                    identifier: format!("{ident}"),
-                    identifier_kind: kind as i32,
-                    inbox_id: Some(inbox_id_cloned.clone()),
-                }],
-            })
-        }
-    });
+    let stored: StoredIdentity = (&Identity {
+        inbox_id: inbox_id.clone(),
+        installation_keys: XmtpInstallationCredential::new(),
+        credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
+        signature_request: None,
+        is_ready: AtomicBool::new(true),
+    })
+        .try_into()
+        .unwrap();
+    stored.store(&store.conn()).unwrap();
 
     let wrapper = ApiClientWrapper::new(mock_api, retry());
 
@@ -445,23 +439,8 @@ async fn stored_identity_happy_path() {
         .unwrap();
 
     stored.store(&store.conn()).unwrap();
-    let mut wrapper = ApiClientWrapper::new(mock_api, retry());
+    let wrapper = ApiClientWrapper::new(mock_api, retry());
 
-    wrapper
-        .api_client
-        .expect_get_identity_updates_v2()
-        .returning(|req| {
-            Ok(GetIdentityUpdatesResponse {
-                responses: req
-                    .requests
-                    .iter()
-                    .map(|r| Response {
-                        inbox_id: r.inbox_id.clone(),
-                        updates: vec![],
-                    })
-                    .collect(),
-            })
-        });
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(identity
         .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
