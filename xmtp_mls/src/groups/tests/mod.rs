@@ -125,18 +125,22 @@ async fn force_add_member(
         .unwrap();
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message() {
-    let wallet = generate_local_wallet();
-    let client = ClientBuilder::new_test_client(&wallet).await;
-    let group = client.create_group(None, None).expect("create group");
-    group.send_message(b"hello").await.expect("send message");
-
-    let messages = client
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    group.send_message(b"hello").await?;
+    let messages = alix
         .api()
-        .query_group_messages(group.group_id, None, None)
-        .await
-        .expect("read topic");
+        .query_group_messages(group.group_id.clone(), None, None)
+        .await?;
+
+    group.sync().await?;
+    let decrypted_messages = group.find_messages(&MsgQueryArgs::default())?;
+
+    tracing::info!("The messages: {decrypted_messages:?}");
+
+    // KP update and the msg itself
     assert_eq!(messages.len(), 2);
 }
 
@@ -1044,8 +1048,8 @@ async fn test_remove_inbox() {
 
 #[xmtp_common::test]
 async fn test_key_update() {
-    let client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
-    let bola_client = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+    tester!(client);
+    tester!(bola_client);
 
     let group = client.create_group(None, None).expect("create group");
     group
@@ -2368,27 +2372,25 @@ async fn process_messages_abort_on_retryable_error() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_messages() {
-    let alix = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
-
-    let bo_wallet = generate_local_wallet();
-    let bo_client = ClientBuilder::new_test_client_no_sync(&bo_wallet).await;
+    tester!(alix);
+    tester!(bo);
 
     let alix_group = alix.create_group(None, None).unwrap();
 
     alix_group
-        .add_members_by_inbox_id(&[bo_client.inbox_id()])
+        .add_members_by_inbox_id(&[bo.inbox_id()])
         .await
         .unwrap();
 
     let alix_message = vec![1];
     alix_group.send_message(&alix_message).await.unwrap();
-    bo_client.sync_welcomes().await.unwrap();
-    let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
+    bo.sync_welcomes().await.unwrap();
+    let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = bo_groups.first().unwrap();
 
-    let mut bo_messages_from_api = bo_client
+    let mut bo_messages_from_api = bo
         .mls_store()
-        .query_group_messages(&bo_group.group_id, &bo_client.store().db(), None)
+        .query_group_messages(&bo_group.group_id, &bo.store().db(), None)
         .await
         .unwrap();
 
@@ -2399,10 +2401,11 @@ async fn skip_already_processed_messages() {
         }
     }
     let mut process_result = bo_group.process_messages(bo_messages_from_api).await;
-    assert!(process_result.is_errored(), "expected message epoch error");
 
-    assert_eq!(process_result.new_messages.len(), 1);
-    assert_eq!(process_result.errored.len(), 1);
+    assert_eq!(process_result.new_messages.len(), 2);
+    // We no longer error when the message is previously processed
+    assert_eq!(process_result.errored.len(), 0);
+
     let new = process_result.new_messages.pop().unwrap();
     assert!(new.previously_processed);
 }
@@ -3025,11 +3028,9 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
             .unwrap()
             .as_str(),
     );
-    // Step 1: Create two clients, amal is one version ahead of bo
-    let amal =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), amal_version.clone())
-            .await;
-    let bo = ClientBuilder::new_test_client_no_sync(&generate_local_wallet()).await;
+    tester!(amal, version: amal_version.clone());
+    tester!(bo);
+
     // ensure the version is as expected
     assert!(bo.context.version_info() != &amal_version);
     // Step 2: Amal creates a group and adds bo as a member
@@ -3083,11 +3084,12 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
             .unwrap()
             .as_str(),
     );
-    let bo = ClientBuilder::from_client(bo)
+    let bo = ClientBuilder::from_client((*bo.client).clone())
         .version(bo_version.clone())
         .build()
         .await
         .unwrap();
+
     assert_eq!(bo.context.version_info(), amal.context.version_info());
 
     // Refresh Bo's group context

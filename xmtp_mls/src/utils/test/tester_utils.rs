@@ -7,6 +7,7 @@ use crate::{
     configuration::DeviceSyncUrls,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
+    utils::VersionInfo,
     worker::metrics::WorkerMetrics,
     Client,
 };
@@ -124,7 +125,7 @@ where
             MockSmartContractSignatureVerifier::new(true),
             self.sync_url.as_deref(),
             Some(self.sync_mode),
-            None,
+            self.version.clone(),
             Some(!self.events),
         )
         .await;
@@ -218,6 +219,7 @@ where
     pub stream: bool,
     pub name: Option<String>,
     pub events: bool,
+    pub version: Option<VersionInfo>,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -236,6 +238,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             stream: false,
             name: None,
             events: false,
+            version: None,
         }
     }
 }
@@ -256,6 +259,7 @@ where
             stream: self.stream,
             name: self.name,
             events: self.events,
+            version: self.version,
         }
     }
 
@@ -265,6 +269,13 @@ where
     pub fn with_name(self, s: &str) -> TesterBuilder<Owner> {
         Self {
             name: Some(s.to_string()),
+            ..self
+        }
+    }
+
+    pub fn version(self, version: VersionInfo) -> Self {
+        Self {
+            version: Some(version),
             ..self
         }
     }

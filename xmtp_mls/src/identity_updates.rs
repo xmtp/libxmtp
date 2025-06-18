@@ -629,17 +629,21 @@ pub(crate) mod tests {
         context::XmtpContextProvider,
         groups::group_membership::GroupMembership,
         identity_updates::IdentityUpdates,
+        tester,
         utils::{FullXmtpClient, Tester},
         Client, XmtpApi,
     };
     use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::{
-        builder::{SignatureRequest, SignatureRequestError},
-        test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
-        unverified::UnverifiedSignature,
-        AssociationState, MemberIdentifier,
+    use xmtp_id::{
+        associations::{
+            builder::{SignatureRequest, SignatureRequestError},
+            test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
+            unverified::UnverifiedSignature,
+            AssociationState, MemberIdentifier,
+        },
+        InboxOwner,
     };
 
     use xmtp_db::{
@@ -754,12 +758,10 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn add_association() {
-        let wallet = generate_local_wallet();
         let wallet_2 = generate_local_wallet();
-        let wallet_ident = wallet.identifier();
         let wallet2_ident = wallet_2.identifier();
 
-        let client = ClientBuilder::new_test_client_no_sync(&wallet).await;
+        tester!(client);
 
         let mut add_association_request = client
             .identity_updates()
@@ -776,14 +778,18 @@ pub(crate) mod tests {
             .unwrap();
         let association_state = get_association_state(&client, client.inbox_id()).await;
 
-        let members = association_state.members_by_parent(&wallet_ident.clone().into());
+        let members = association_state
+            .members_by_parent(&client.builder.owner.get_identifier().unwrap().into());
         // Those members should have timestamps
         for member in members {
             assert!(member.client_timestamp_ns.is_some());
         }
 
         assert_eq!(association_state.members().len(), 3);
-        assert_eq!(association_state.recovery_identifier(), &wallet_ident);
+        assert_eq!(
+            *association_state.recovery_identifier(),
+            client.builder.owner.get_identifier().unwrap()
+        );
         assert!(association_state.get(&wallet2_ident.into()).is_some());
     }
 

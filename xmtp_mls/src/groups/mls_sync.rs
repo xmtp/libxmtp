@@ -13,7 +13,7 @@ use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
-    client::ClientError, mls_store::MlsStore,
+    client::ClientError, groups::mls_ext::MlsGroupReload, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
@@ -245,8 +245,9 @@ where
             other_dm.sync_with_conn().await?;
         }
 
+        let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
         self.maybe_update_installations(None).await?;
-        self.sync_with_conn().await.map_err(GroupError::from)
+        Ok(sync_summary)
     }
 
     fn handle_group_paused(&self) -> Result<(), GroupError> {
@@ -442,7 +443,7 @@ where
                 message_epoch = message_epoch.as_u64(),
                 group_epoch = group_epoch.as_u64(),
                 intent_id,
-                "[{}] own message epoch {} is {} or more less than the group epoch {} for intent {}. Retrying message",
+                "[{}] message epoch {} is {} or more less than the group epoch {} for intent {}. Retrying message",
                 inbox_id,
                 message_epoch,
                 max_past_epochs,
@@ -460,7 +461,7 @@ where
                 message_epoch = message_epoch.as_u64(),
                 group_epoch = group_epoch.as_u64(),
                 intent_id,
-                "[{}] own message epoch {} is greater than group epoch {} for intent {}. Retrying message",
+                "[{}] message epoch {} is greater than group epoch {} for intent {}. Retrying message",
                 inbox_id,
                 message_epoch,
                 group_epoch,
@@ -545,6 +546,12 @@ where
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                                installation_id = %self.context.installation_id(),
+                                group_id = hex::encode(&self.group_id),
+                                cursor,
+                                intent.id,
+                                intent.kind = %intent.kind,
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
@@ -688,9 +695,7 @@ where
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
-        *mls_group = OpenMlsGroup::load(provider.storage(), mls_group.group_id())?.ok_or(
-            GroupMessageProcessingError::Storage(StorageError::NotFound(NotFound::MlsGroup)),
-        )?;
+        mls_group.reload(&provider)?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -711,9 +716,28 @@ where
 
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let validated_commit =
+                let result =
                     ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
-                        .await?;
+                        .await;
+
+                let validated_commit = match result {
+                    Err(e) if !e.is_retryable() => {
+                        match &e {
+                            CommitValidationError::ProtocolVersionTooLow(_) => {}
+                            _ => {
+                                provider.db().update_cursor(
+                                    &envelope.group_id,
+                                    EntityKind::Group,
+                                    *cursor as i64,
+                                )?;
+                            }
+                        };
+
+                        Err(e)
+                    }
+                    v => v,
+                }?;
+
                 identifier.group_context(staged_commit.group_context().clone());
                 Some(validated_commit)
             }
@@ -1063,6 +1087,19 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+        self.load_mls_group_with_lock_async(|mls_group| {
+            self.process_message_inner(mls_group, envelope, trust_message_order)
+        })
+        .await
+    }
+
+    #[tracing::instrument(skip(envelope), level = "debug")]
+    async fn process_message_inner(
+        &self,
+        mut mls_group: OpenMlsGroup,
+        envelope: &GroupMessageV1,
+        trust_message_order: bool,
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
@@ -1083,6 +1120,19 @@ where
             .db()
             .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
             .map_err(GroupMessageProcessingError::Storage)?;
+
+        let group_cursor = provider
+            .db()
+            .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+        if group_cursor >= cursor as i64 {
+            // early return if the message is already procesed
+            // _NOTE_: Not early returning and re-processing a message that
+            // has already been processed, has the potential to result in forks.
+            return MessageIdentifierBuilder::from(envelope)
+                .previously_processed(true)
+                .build();
+        }
+
         tracing::info!(
             inbox_id = self.context.inbox_id(),
             installation_id = %self.context.installation_id(),
@@ -1113,18 +1163,20 @@ where
                     intent.kind
                 );
 
-                let identifier = self.load_mls_group_with_lock_async(|mut mls_group| async move {
-                    let message = message.into();
-                    // TODO: the return type of stage_and_validated_commit should be fixed
-                    // We should never be nesting Result types within the error return type, it is
-                    // super confusing. Instead of failing one way, this function can now fail
-                    // in four ways with ambiguous meaning:
-                    //  - Be OK but produce a null pointer (None) -- what does this mean?
-                    //  - Be Ok but produce a staged commit and validated commit
-                    //  - be an Error but produce a valid intent state?
-                    //  - be an error and produce a GroupMessage Processing Error
-                    let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, &message, envelope).await;
-                    provider.transaction(|provider| {
+                let message = message.into();
+                // TODO: the return type of stage_and_validated_commit should be fixed
+                // We should never be nesting Result types within the error return type, it is
+                // super confusing. Instead of failing one way, this function can now fail
+                // in four ways with ambiguous meaning:
+                //  - Be OK but produce a null pointer (None) -- what does this mean?
+                //  - Be Ok but produce a staged commit and validated commit
+                //  - be an Error but produce a valid intent state?
+                //  - be an error and produce a GroupMessage Processing Error
+                let maybe_validated_commit = self
+                    .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
+                    .await;
+
+                provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -1201,8 +1253,6 @@ where
                         }
                         Ok(())
                     })?;
-                    Ok::<_, GroupMessageProcessingError>(identifier)
-                }).await?;
                 identifier.build()
             }
             // No matching intent found. The message did not originate here.
@@ -1216,19 +1266,14 @@ where
                     self.context.inbox_id(),
                     envelope.id
                 );
-
                 let identifier = self
-                    .load_mls_group_with_lock_async(|mut mls_group| async move {
-                        self.validate_and_process_external_message(
-                            &mut mls_group,
-                            message,
-                            envelope,
-                            allow_cursor_increment,
-                        )
-                        .await
-                    })
+                    .validate_and_process_external_message(
+                        &mut mls_group,
+                        message,
+                        envelope,
+                        allow_cursor_increment,
+                    )
                     .await?;
-
                 Ok(identifier)
             }
         }
@@ -1315,8 +1360,7 @@ where
         let last_cursor = provider
             .db()
             .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-        let should_skip_message = last_cursor > msgv1.id as i64;
-        if should_skip_message {
+        if last_cursor > msgv1.id as i64 {
             tracing::info!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
@@ -1336,6 +1380,7 @@ where
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
         let result = self.process_message(msgv1, true).await;
+
         track_err!("Process message", &result, group: &msgv1.group_id);
         let message = match result {
             Ok(m) => {
@@ -1347,9 +1392,7 @@ where
                 Ok(m)
             }
             Err(GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::MinimumSupportedProtocolVersionExceedsCurrentVersion(
-                    min_version,
-                ),
+                CommitValidationError::ProtocolVersionTooLow(min_version),
             )) => {
                 // Instead of updating cursor, mark group as paused
                 provider
@@ -1379,7 +1422,7 @@ where
     #[tracing::instrument(level = "debug", skip(messages))]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
-        for message in messages.into_iter() {
+        for message in messages {
             let message_cursor = match extract_message_cursor(&message) {
                 // None means unsupported message version
                 // skip the message
@@ -1387,10 +1430,12 @@ where
                 Some(c) => c,
             };
             summary.add_id(message_cursor);
+
             let result = retry_async!(
                 Retry::default(),
                 (async { self.consume_message(&message).await })
             );
+
             match result {
                 Ok(m) => summary.add(m),
                 Err(GroupMessageProcessingError::GroupPaused) => {
@@ -1570,7 +1615,13 @@ where
                     "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
                     message.id, message_epoch, group_epoch
                 );
-                tracing::error!(fork_details);
+                tracing::error!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    original_error = error.to_string(),
+                    fork_details
+                );
                 track!(
                     "Possible Fork",
                     {
@@ -1698,6 +1749,7 @@ where
                         provider.db().set_group_intent_processed(intent.id)?
                     }
                 }
+
             }
 
             Ok(())
@@ -1746,17 +1798,22 @@ where
             }
             IntentKind::KeyUpdate => {
                 let provider = self.mls_provider();
-                let (bundle, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let bundle = openmls_group.self_update(
                         &provider,
                         &self.context().identity.installation_keys,
                         LeafNodeParameters::default(),
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
-
                     Ok::<_, GroupError>((bundle, staged_commit))
-                })?;
-
+                });
+                let (bundle, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        openmls_group.reload(&provider)?;
+                        return Err(e);
+                    }
+                };
                 Ok(Some(PublishIntentData {
                     payload_to_publish: bundle.commit().tls_serialize_detached()?,
                     staged_commit,
@@ -1773,7 +1830,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1782,7 +1839,14 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        openmls_group.reload(&provider)?;
+                        return Err(e);
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -1802,7 +1866,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1811,7 +1875,14 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        openmls_group.reload(&provider)?;
+                        return Err(e);
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -1831,7 +1902,7 @@ where
                 )?;
 
                 let provider = self.mls_provider();
-                let (commit, staged_commit) = provider.transaction(|provider| {
+                let result = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         group_permissions_extensions,
@@ -1840,7 +1911,14 @@ where
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
-                })?;
+                });
+                let (commit, staged_commit) = match result {
+                    Ok(res) => res,
+                    Err(e) => {
+                        openmls_group.reload(&provider)?;
+                        return Err(e);
+                    }
+                };
 
                 let commit_bytes = commit.tls_serialize_detached()?;
                 Ok(Some(PublishIntentData {
@@ -1890,6 +1968,7 @@ where
         update_interval_ns: Option<i64>,
     ) -> Result<(), GroupError> {
         let provider = self.mls_provider();
+
         let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
@@ -2375,7 +2454,7 @@ where
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    let (commit, post_commit_action, staged_commit) = provider.transaction(|provider| {
+    let result = provider.transaction(|provider| {
         // Create the commit
         let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
             &provider,
@@ -2397,7 +2476,15 @@ where
             .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
         Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
-    })?;
+    });
+
+    let (commit, post_commit_action, staged_commit) = match result {
+        Ok(res) => res,
+        Err(e) => {
+            openmls_group.reload(&provider)?;
+            return Err(e);
+        }
+    };
 
     Ok(Some(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,

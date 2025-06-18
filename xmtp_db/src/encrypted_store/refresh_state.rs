@@ -131,7 +131,11 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .execute(conn)
             {
                 Ok(_) => Ok(true),
-                Err(_) => Ok(false),
+                Err(diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    _,
+                )) => Ok(false),
+                Err(e) => Err(e),
             }
         });
 
