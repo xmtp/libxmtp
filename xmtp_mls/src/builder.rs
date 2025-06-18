@@ -783,7 +783,17 @@ pub(crate) mod tests {
         });
 
         let wrapper = ApiClientWrapper::new(mock_api, retry());
+        let stored: StoredIdentity = (&Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: XmtpInstallationCredential::new(),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
+            signature_request: None,
+            is_ready: AtomicBool::new(true),
+        })
+            .try_into()
+            .unwrap();
 
+        stored.store(&store.conn()).unwrap();
         let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
         assert!(dbg!(
             identity
