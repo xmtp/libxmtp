@@ -2,11 +2,11 @@ name: Update Swift Repository
 on:
   push:
     tags:
-      - 'swift-bindings-*'
+      - "swift-bindings-*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to use (e.g. swift-bindings-0.1.0.abc1234)'
+        description: "Tag to use (e.g. swift-bindings-0.1.0.abc1234)"
         required: true
 
 jobs:
@@ -18,28 +18,28 @@ jobs:
         with:
           path: libxmtp
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
-      
+
       - name: Checkout libxmtp-swift
         uses: actions/checkout@v4
         with:
           repository: xmtp/libxmtp-swift
           path: libxmtp-swift
           token: ${{ secrets.LIBXMTP_SWIFT_PAT }}
-      
+
       - name: Get version and SHA
         id: version_info
         run: |
           cd libxmtp
           # Get the original version from cargo metadata
           ORIG_VERSION=$(cargo metadata --manifest-path bindings_ffi/Cargo.toml --format-version 1 | jq -r '.packages[] | select(.name == "xmtpv3") | .version')
-          
+
           # Extract the major version and add 3 to it
           MAJOR_VERSION=$(echo $ORIG_VERSION | cut -d. -f1)
           NEW_MAJOR=$((MAJOR_VERSION + 3))
-          
+
           # Replace the major version in the original version string
           VERSION=$(echo $ORIG_VERSION | sed "s/^$MAJOR_VERSION/$NEW_MAJOR/")
-          
+
           # Get the tag - either from the push event or from workflow_dispatch input
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG="${{ github.event.inputs.tag }}"
@@ -55,47 +55,47 @@ jobs:
               TAG="$SWIFT_TAG"
             fi
           fi
-          
+
           # Extract version and SHA from tag
           VERSION_INPUT=$(echo $TAG | sed 's/swift-bindings-//' | cut -d. -f1-3)
           SHA7=$(echo $TAG | cut -d. -f4)
           RELEASE_TAG="${TAG}"
-          
+
           # If version contains "dev", append the git commit SHA
           if [[ "$VERSION" == *"dev"* ]]; then
             VERSION="${VERSION}.${SHA7}"
           fi
-          
+
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "sha7=${SHA7}" >> $GITHUB_OUTPUT
           echo "release_tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
-      
+
       - name: Create branch in libxmtp-swift
         run: |
           cd libxmtp-swift
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
           git checkout -b update-to-${{ steps.version_info.outputs.release_tag }}
-      
+
       - name: Run Swift local script
         run: |
           cd libxmtp/bindings_ffi && ./run_swift_local.sh
-      
+
       - name: Update LibXMTP.podspec
         run: |
           cd libxmtp-swift
           RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
           VERSION="${{ steps.version_info.outputs.version }}"
-          
+
           # Update version in podspec
           sed -i '' "s/s.version *= *'[^']*'/s.version          = '${VERSION}'/" LibXMTP.podspec
-          
+
           # Update source URL in podspec
           sed -i '' "s|s.source *=.*{.*}|s.source           = { :http => \"${RELEASE_URL}\", :type => :zip }|" LibXMTP.podspec
-          
+
           # Verify podspec
           pod spec lint LibXMTP.podspec || echo "Podspec validation failed but continuing"
-      
+
       - name: Get checksum from release
         id: get_checksum
         env:
@@ -104,32 +104,32 @@ jobs:
           # Fetch the checksum from the release description
           RELEASE_TAG="${{ steps.version_info.outputs.release_tag }}"
           CHECKSUM=$(gh api repos/xmtp/libxmtp/releases/tags/$RELEASE_TAG --jq '.body' | grep -o 'Checksum of LibXMTPSwiftFFI.zip: [a-f0-9]*' | cut -d' ' -f4)
-          
+
           # Verify we got a valid checksum
           if [[ ! $CHECKSUM =~ ^[a-f0-9]+$ ]]; then
             echo "Failed to extract valid checksum from release description"
             exit 1
           fi
-          
+
           echo "checksum=${CHECKSUM}" >> $GITHUB_OUTPUT
-      
+
       - name: Update Package.swift
         run: |
           cd libxmtp-swift
           RELEASE_URL="https://github.com/xmtp/libxmtp/releases/download/${{ steps.version_info.outputs.release_tag }}/LibXMTPSwiftFFI.zip"
           CHECKSUM="${{ steps.get_checksum.outputs.checksum }}"
-          
+
           # Update URL and checksum in Package.swift
           sed -i '' "s|url: \"https://github.com/xmtp/libxmtp/releases/download/.*\"|url: \"${RELEASE_URL}\"|" Package.swift
           sed -i '' "s|checksum: \"[a-f0-9]*\"|checksum: \"${CHECKSUM}\"|" Package.swift
-      
+
       - name: Commit and push changes
         run: |
           cd libxmtp-swift
           git add -A
           git commit -m "Update to libxmtp ${{ steps.version_info.outputs.version }}"
           git push origin update-to-${{ steps.version_info.outputs.release_tag }}
-      
+
       - name: Create PR
         env:
           GH_TOKEN: ${{ secrets.LIBXMTP_SWIFT_PAT }}
