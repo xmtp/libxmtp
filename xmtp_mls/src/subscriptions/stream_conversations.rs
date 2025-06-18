@@ -451,22 +451,7 @@ mod test {
         #[future] bo: FullXmtpClient,
         #[case] group_size: usize,
     ) {
-        use tracing_subscriber::layer::SubscriberExt;
-        use tracing_subscriber::util::SubscriberInitExt;
-        use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
-        let filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .parse("debug")
-            .unwrap();
-
-        tracing_subscriber::registry()
-            .with(tracing_wasm::WASMLayer::default())
-            .with(filter)
-            .init();
-
-        console_error_panic_hook::set_once();
-        tracing::info!("RUNNING TEST");
         let mut groups = vec![];
         let mut stream = StreamConversations::new(&bo.context, None).await.unwrap();
         for _ in 0..group_size {
