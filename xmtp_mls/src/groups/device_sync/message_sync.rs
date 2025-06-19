@@ -5,10 +5,9 @@ use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(super) fn syncable_groups(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let provider = self.mls_provider();

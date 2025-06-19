@@ -10,7 +10,7 @@ use super::{
     GroupError, HmacKey, MlsGroup,
 };
 use crate::{
-    client::ClientError, mls_store::MlsStore,
+    client::ClientError, context::XmtpSharedContext, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
@@ -218,10 +218,9 @@ struct PublishIntentData {
     should_send_push_notification: bool,
 }
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     #[tracing::instrument]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
@@ -263,7 +262,7 @@ where
                 "Group is paused until version: {}",
                 required_min_version_str
             );
-            let current_version_str = self.context.version_info().pkg_version();
+            let current_version_str = self.context.context_ref().version_info().pkg_version();
             let current_version = LibXMTPVersion::parse(current_version_str)?;
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
@@ -536,7 +535,7 @@ where
 
                     tracing::info!(
                         "[{}] Validating commit for intent {}. Message timestamp: {envelope_timestamp_ns}",
-                        self.context().inbox_id(),
+                        self.context.inbox_id(),
                         intent.id
                     );
 
@@ -566,7 +565,7 @@ where
 
             IntentKind::SendMessage => {
                 Self::validate_message_epoch(
-                    self.context().inbox_id(),
+                    self.context.inbox_id(),
                     intent.id,
                     group_epoch,
                     message_epoch,
@@ -609,7 +608,7 @@ where
             intent.id,
             intent.kind = %intent.kind,
             "[{}]-[{}] processing own message for intent {} / {}, message_epoch: {}",
-            self.context().inbox_id(),
+            self.context.inbox_id(),
             hex::encode(self.group_id.clone()),
             intent.id,
             intent.kind,
@@ -619,7 +618,7 @@ where
         if let Some((staged_commit, validated_commit)) = commit {
             tracing::info!(
                 "[{}] merging pending commit for intent {}",
-                self.context().inbox_id(),
+                self.context.inbox_id(),
                 intent.id
             );
             let provider = XmtpOpenMlsProvider::new(&conn);
@@ -835,7 +834,7 @@ where
                     msg_group_id,
                     cursor,
                     "[{}] decoding application message",
-                    self.context().inbox_id()
+                    self.context.inbox_id()
                 );
                 let message_bytes = application_message.into_bytes();
 
@@ -1014,7 +1013,7 @@ where
                     msg_group_id,
                     cursor,
                     "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.context().inbox_id()
+                    self.context.inbox_id()
                 );
 
                 tracing::info!(
@@ -1027,7 +1026,7 @@ where
                     msg_group_id,
                     cursor,
                     "[{}] staged commit is valid, will attempt to merge",
-                    self.context().inbox_id()
+                    self.context.inbox_id()
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
@@ -1457,7 +1456,7 @@ where
 
         tracing::info!(
             "[{}]: Storing a transcript message with {} members added and {} members removed and {} metadata changes",
-            self.context().inbox_id(),
+            self.context.inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
             validated_commit.metadata_validation_info.metadata_field_changes.len(),
@@ -1553,7 +1552,7 @@ where
 
             let message_epoch = protocol_message.epoch();
             let epoch_validation_result = Self::validate_message_epoch(
-                self.context().inbox_id(),
+                self.context.inbox_id(),
                 0,
                 GroupEpoch::from(group_epoch),
                 message_epoch,
@@ -1705,12 +1704,12 @@ where
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<Option<PublishIntentData>, GroupError> {
-        let provider = self.mls_provider();
+        let provider = self.context.mls_provider();
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
                 let intent_data =
                     UpdateGroupMembershipIntentData::try_from(intent.data.as_slice())?;
-                let signer = &self.context().identity.installation_keys;
+                let signer = &self.context.identity().installation_keys;
                 apply_update_group_membership_intent(
                     &self.context,
                     openmls_group,
@@ -1725,7 +1724,7 @@ where
                 // TODO: Handle pending_proposal errors and UseAfterEviction errors
                 let msg = openmls_group.create_message(
                     &provider,
-                    &self.context().identity.installation_keys,
+                    &self.context.identity().installation_keys,
                     intent_data.message.as_slice(),
                 )?;
 
@@ -1737,11 +1736,11 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let provider = self.mls_provider();
+                let provider = self.context.mls_provider();
                 let (bundle, staged_commit) = provider.transaction(|provider| {
                     let bundle = openmls_group.self_update(
                         &provider,
-                        &self.context().identity.installation_keys,
+                        &self.context.identity().installation_keys,
                         LeafNodeParameters::default(),
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
@@ -1764,12 +1763,12 @@ where
                     metadata_intent.field_value,
                 )?;
 
-                let provider = self.mls_provider();
+                let provider = self.context.mls_provider();
                 let (commit, staged_commit) = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
-                        &self.context().identity.installation_keys,
+                        &self.context.identity().installation_keys,
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
@@ -1793,12 +1792,12 @@ where
                     admin_list_update_intent,
                 )?;
 
-                let provider = self.mls_provider();
+                let provider = self.context.mls_provider();
                 let (commit, staged_commit) = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
-                        &self.context().identity.installation_keys,
+                        &self.context.identity().installation_keys,
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
@@ -1822,12 +1821,12 @@ where
                     update_permissions_intent,
                 )?;
 
-                let provider = self.mls_provider();
+                let provider = self.context.mls_provider();
                 let (commit, staged_commit) = provider.transaction(|provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         group_permissions_extensions,
-                        &self.context().identity.installation_keys,
+                        &self.context.identity().installation_keys,
                     )?;
                     let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
 
@@ -2178,15 +2177,11 @@ fn extract_message_sender(
     })
 }
 
-async fn calculate_membership_changes_with_keypackages<'a, ApiClient, Db>(
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+async fn calculate_membership_changes_with_keypackages<'a>(
+    context: impl XmtpSharedContext,
     new_group_membership: &'a GroupMembership,
     old_group_membership: &'a GroupMembership,
-) -> Result<MembershipDiffWithKeyPackages, GroupError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+) -> Result<MembershipDiffWithKeyPackages, GroupError> {
     let membership_diff = old_group_membership.diff(new_group_membership);
 
     let identity = IdentityUpdates::new(context.clone());
@@ -2250,14 +2245,11 @@ where
 }
 #[allow(dead_code)]
 #[cfg(any(test, feature = "test-utils"))]
-async fn get_keypackages_for_installation_ids<ApiClient, Db>(
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+async fn get_keypackages_for_installation_ids(
+    context: impl XmtpSharedContext,
     added_installations: HashSet<Vec<u8>>,
     failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
 {
     use crate::utils::{
         get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
@@ -2287,16 +2279,13 @@ where
 }
 #[allow(unused_variables, dead_code)]
 #[cfg(not(any(test, feature = "test-utils")))]
-async fn get_keypackages_for_installation_ids<ApiClient, Db>(
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+async fn get_keypackages_for_installation_ids(
+    context: impl XmtpSharedContext,
     added_installations: HashSet<Vec<u8>>,
     failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
 {
-    let my_installation_id = context.installation_public_key().to_vec();
+    let my_installation_id = context.identity().installation_public_key().to_vec();
     let store = MlsStore::new(context.clone());
     store
         .get_key_packages_for_installation_ids(

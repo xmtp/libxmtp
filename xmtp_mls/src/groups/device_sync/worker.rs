@@ -47,27 +47,23 @@ use xmtp_proto::{
 
 const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 
-pub struct SyncWorker<ApiClient, Db> {
-    client: DeviceSyncClient<ApiClient, Db>,
+pub struct SyncWorker<Context> {
+    client: DeviceSyncClient<Context>,
     receiver: broadcast::Receiver<SyncWorkerEvent>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+impl<Context> SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        metrics: Option<DynMetrics>,
-    ) -> Self {
-        let receiver = context.worker_events.subscribe();
+    pub fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
+        let receiver = context.context_ref().worker_events.subscribe();
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or_default();
-        let client = DeviceSyncClient::new(context, metrics.clone());
+        let client = DeviceSyncClient::new(&context, metrics.clone());
 
         Self {
             client,
@@ -78,17 +74,16 @@ where
     }
 }
 
-struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(&self.context, metrics);
+        let worker = SyncWorker::new(self.context.clone(), metrics);
         let metrics = worker.metrics.clone();
 
         (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
@@ -101,10 +96,9 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for SyncWorker<ApiClient, Db>
+impl<Context> Worker for SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DeviceSync
@@ -117,11 +111,8 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 
@@ -130,10 +121,9 @@ where
     }
 }
 
-impl<ApiClient, Db> SyncWorker<ApiClient, Db>
+impl<Context> SyncWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         // Wait for the identity to be ready & verified before doing anything
@@ -186,9 +176,9 @@ where
             let conn = self.client.context.db();
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_id()),
                 "Initializing device sync... url: {:?}",
-                client.context.device_sync.server_url
+                client.context.device_sync().server_url
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
@@ -203,7 +193,7 @@ where
 
             tracing::info!(
                 inbox_id = client.inbox_id(),
-                installation_id = hex::encode(client.context.installation_public_key()),
+                installation_id = hex::encode(client.context.installation_id()),
                 "Device sync initialized."
             );
 
@@ -292,17 +282,16 @@ where
     }
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     async fn process_new_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
         let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
@@ -337,10 +326,10 @@ where
         content: ContentProto,
     ) -> Result<(), DeviceSyncError>
     where
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
         let conn = self.context.db();
-        let installation_id = self.installation_id();
+        let installation_id = self.context.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
         match content {
@@ -437,7 +426,7 @@ where
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
-        <Db as xmtp_db::XmtpDb>::Connection: 'static,
+        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
     {
         if let Some(request) = &request {
             if request.kind() != BackupElementSelection::Unspecified {
@@ -445,8 +434,6 @@ where
                 return Ok(());
             }
         }
-
-        let provider = Arc::new(self.context.mls_provider());
 
         match acknowledge().await {
             Err(DeviceSyncError::AlreadyAcknowledged) => {
@@ -456,7 +443,7 @@ where
             result => result?,
         }
 
-        let Some(device_sync_server_url) = &self.context.device_sync.server_url else {
+        let Some(device_sync_server_url) = &self.context.device_sync().server_url else {
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
@@ -479,7 +466,8 @@ where
         // Now we want to create an encrypted stream from our database to the history server.
         //
         // 1. Build the exporter
-        let exporter = ArchiveExporter::new(options, provider.clone(), &key);
+        let db = self.context.db();
+        let exporter = ArchiveExporter::new(options, db, &key);
         let metadata = exporter.metadata().clone();
 
         // 5. Make the request

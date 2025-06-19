@@ -2,7 +2,7 @@ use super::*;
 use openmls::group::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
-use xmtp_db::{DbConnection, MlsProviderExt};
+use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
 };
@@ -15,12 +15,13 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
-        streamer: &BackupRecordStreamer<Self, C>,
+    fn backup_records<D, C>(
+        streamer: &BackupRecordStreamer<Self, D, C>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C>,
     {
         let mut args = GroupQueryArgs::default();
 
@@ -33,10 +34,11 @@ impl BackupRecordProvider for GroupSave {
 
         args.limit = Some(Self::BATCH_SIZE);
 
-        let conn = DbConnection::new(streamer.provider.key_store().conn());
-        let batch = conn.find_groups_by_id_paged(args, streamer.cursor)?;
+        let batch = streamer.db.find_groups_by_id_paged(args, streamer.cursor)?;
 
-        let storage = streamer.provider.storage();
+        let store = SqlKeyStore::new(&streamer.db);
+        let provider = XmtpOpenMlsProvider::new(store);
+        let storage = provider.storage();
         let records = batch
             .into_iter()
             .filter_map(|record| {

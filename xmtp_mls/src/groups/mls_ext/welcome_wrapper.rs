@@ -136,6 +136,7 @@ fn unwrap_welcome_inner(
 
 #[cfg(test)]
 mod tests {
+    use openmls::storage::StorageProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProvider;
 
@@ -147,8 +148,8 @@ mod tests {
 
     use super::*;
 
-    fn find_key_package_private_key<C: xmtp_db::ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<C>,
+    fn find_key_package_private_key<S: StorageProvider>(
+        provider: &XmtpOpenMlsProvider<S>,
         hpke_public_key: &[u8],
         wrapper_algorithm: WrapperAlgorithm,
     ) -> Vec<u8> {

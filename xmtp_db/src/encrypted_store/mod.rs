@@ -38,8 +38,7 @@ use openmls_traits::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use crate::Store;
-use crate::sql_key_store::SqlKeyStore;
+use crate::{DbQuery, Store};
 
 pub use database::*;
 pub use store::*;
@@ -369,8 +368,6 @@ where
 }
 
 pub trait MlsProviderExt: OpenMlsProvider {
-    type Connection: ConnectionExt;
-
     /// Start a new database transaction with the OpenMLS Provider from XMTP
     /// with the provided connection
     /// # Arguments
@@ -385,12 +382,14 @@ pub trait MlsProviderExt: OpenMlsProvider {
     ///     provider.conn().db_operation()?;
     /// })
     /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>;
+        F: FnOnce(&XmtpOpenMlsProvider<<Self as OpenMlsProvider>::StorageProvider>) -> Result<T, E>,
+        E: std::error::Error + From<crate::ConnectionError>,
+        C: ConnectionExt,
+        D: DbQuery<C>;
 
-    fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
+    fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider;
 }
 
 #[cfg(test)]

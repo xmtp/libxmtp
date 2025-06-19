@@ -19,16 +19,12 @@ use xmtp_db::MlsProviderExt;
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn apply_update_group_membership_intent<ApiClient, Db>(
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub async fn apply_update_group_membership_intent(
+    context: &impl XmtpSharedContext,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: impl Signer,
-) -> Result<Option<PublishIntentData>, GroupError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+) -> Result<Option<PublishIntentData>, GroupError> {
     let provider = context.mls_provider();
     let extensions: Extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;

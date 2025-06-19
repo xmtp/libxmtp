@@ -1,16 +1,16 @@
 use super::*;
-use xmtp_db::MlsProviderExt;
-use xmtp_db::{DbConnection, group_message::MsgQueryArgs};
+use xmtp_db::group_message::MsgQueryArgs;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, message_backup::GroupMessageSave};
 
 impl BackupRecordProvider for GroupMessageSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
-        streamer: &BackupRecordStreamer<Self, C>,
+    fn backup_records<D, C>(
+        streamer: &BackupRecordStreamer<Self, D, C>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C>,
     {
         let args = MsgQueryArgs::builder()
             .sent_after_ns(streamer.start_ns)
@@ -19,8 +19,8 @@ impl BackupRecordProvider for GroupMessageSave {
             .build()
             .expect("could not build");
 
-        let conn = DbConnection::new(streamer.provider.key_store().conn());
-        let batch = conn
+        let batch = streamer
+            .db
             .group_messages_paged(&args, streamer.cursor)
             .expect("Failed to load group records");
 

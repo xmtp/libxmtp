@@ -11,62 +11,109 @@ use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
+use openmls::storage::StorageProvider;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::types::InstallationId;
+use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{prelude::*, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use xmtp_db::{ConnectionExt, DbConnection, XmtpDb};
+use xmtp_db::{ConnectionExt, DbConnection, MlsProviderExt, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
 
-pub trait XmtpSharedContext: Sized {
+pub trait XmtpSharedContext: Sized + Clone {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
-    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>>;
+    type MlsStorage: StorageProvider;
+    fn context_ref(&self)
+        -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>>;
+
+    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
+        self.context_ref().db()
+    }
+
+    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+        self.context_ref().api()
+    }
+
+    fn device_sync(&self) -> &DeviceSync {
+        &self.context_ref().device_sync
+    }
+
+    fn device_sync_server_url(&self) -> Option<&String> {
+        self.context_ref().device_sync_server_url()
+    }
+
+    fn device_sync_worker_enabled(&self) -> bool {
+        self.context_ref().device_sync_worker_enabled()
+    }
+
+    /// Creates a new MLS Provider
+    fn mls_provider(&self) -> XmtpOpenMlsProvider<&Self::MlsStorage> {
+        XmtpOpenMlsProvider::new(&self.context_ref().mls_storage)
+    }
+
+    fn signature_request(&self) -> Option<SignatureRequest> {
+        self.context_ref().signature_request()
+    }
+
+    fn identity(&self) -> &Identity {
+        self.context_ref().identity()
+    }
+
+    fn inbox_id(&self) -> InboxIdRef<'_> {
+        self.context_ref().inbox_id()
+    }
+
+    fn installation_id(&self) -> InstallationId {
+        self.context_ref().installation_id()
+    }
 }
 
-impl<XApiClient, XDb> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb>>
+impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
     XApiClient: XmtpApi,
     XDb: XmtpDb,
+    XMls: StorageProvider,
 {
     type Db = XDb;
-
     type ApiClient = XApiClient;
+    type MlsStorage = XMls;
 
-    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>> {
+    fn context_ref(
+        &self,
+    ) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>> {
         self
     }
 }
 
-impl<XApiClient, XDb> XmtpSharedContext for &Arc<XmtpMlsLocalContext<XApiClient, XDb>>
+impl<T> XmtpSharedContext for &T
 where
-    XApiClient: XmtpApi,
-    XDb: XmtpDb,
+    T: ?Sized + XmtpSharedContext,
 {
-    type Db = XDb;
+    type Db = <T as XmtpSharedContext>::Db;
 
-    type ApiClient = XApiClient;
+    type ApiClient = <T as XmtpSharedContext>::ApiClient;
 
-    fn context_ref(&self) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db>> {
-        self
+    type MlsStorage = <T as XmtpSharedContext>::MlsStorage;
+
+    fn context_ref(
+        &self,
+    ) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>> {
+        <T as XmtpSharedContext>::context_ref(self)
     }
 }
-
 pub trait XmtpContextProvider: Sized {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
+    type MlsStorage: StorageProvider;
 
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db>;
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>;
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
-
-    fn mls_provider(&self) -> XmtpOpenMlsProvider<<Self::Db as XmtpDb>::Connection> {
-        XmtpOpenMlsProvider::new(self.db().into_connection())
-    }
 
     fn identity(&self) -> &Identity;
 
@@ -85,13 +132,15 @@ pub trait XmtpContextProvider: Sized {
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
 }
 
-impl<XApiClient, XDb> XmtpContextProvider for XmtpMlsLocalContext<XApiClient, XDb>
+impl<XApiClient, XDb, S> XmtpContextProvider for XmtpMlsLocalContext<XApiClient, XDb, S>
 where
     XApiClient: XmtpApi,
     XDb: XmtpDb,
+    S: StorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
+    type MlsStorage = S;
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         XmtpMlsLocalContext::<XApiClient, XDb>::db(self)
@@ -101,7 +150,7 @@ where
         &self.api_client
     }
 
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
         self
     }
 
@@ -128,6 +177,7 @@ where
 {
     type Db = <T as XmtpContextProvider>::Db;
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
+    type MlsStorage = <T as XmtpContextProvider>::MlsStorage;
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpContextProvider>::db(&**self)
@@ -137,7 +187,7 @@ where
         <T as XmtpContextProvider>::api(&**self)
     }
 
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
         <T as XmtpContextProvider>::context_ref(&**self)
     }
 
@@ -164,6 +214,7 @@ where
 {
     type Db = <T as XmtpContextProvider>::Db;
     type ApiClient = <T as XmtpContextProvider>::ApiClient;
+    type MlsStorage = <T as XmtpContextProvider>::MlsStorage;
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpContextProvider>::db(*self)
@@ -173,7 +224,7 @@ where
         <T as XmtpContextProvider>::api(*self)
     }
 
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
         <T as XmtpContextProvider>::context_ref(*self)
     }
 
@@ -197,13 +248,14 @@ where
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
-pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
+pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// The XMTP Api Client
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     /// XMTP Local Storage
     pub(crate) store: Db,
+    pub(crate) mls_storage: S,
     pub(crate) mutexes: MutexRegistry,
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
@@ -214,10 +266,11 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) workers: WorkerRunner,
 }
 
-impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db>
+impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
 where
     Db: XmtpDb,
     ApiClient: XmtpApi,
+    S: StorageProvider,
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
@@ -225,9 +278,9 @@ where
         self.store.db()
     }
 
-    /// Pulls a new database connection and creates a new provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<Db as XmtpDb>::Connection> {
-        XmtpOpenMlsProvider::new(self.db().into_connection())
+    /// Creates a new MLS Provider
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<&S> {
+        XmtpOpenMlsProvider::new(&self.mls_storage)
     }
 
     pub fn store(&self) -> &Db {
@@ -248,14 +301,14 @@ where
 
     /// Reconstructs the DeviceSyncClient from the context
     pub fn device_sync_client(
-        self: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> DeviceSyncClient<ApiClient, Db> {
+        self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
+    ) -> DeviceSyncClient<Self> {
         let metrics = self.sync_metrics();
         DeviceSyncClient::new(self, metrics.unwrap_or_default())
     }
 }
 
-impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db> {
+impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> InstallationId {
         (*self.identity.installation_keys.public_bytes()).into()

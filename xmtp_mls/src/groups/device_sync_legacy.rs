@@ -3,6 +3,7 @@
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
+use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
 use crate::{subscriptions::LocalEvents, Client};
@@ -58,10 +59,9 @@ pub(super) enum Syncable {
     ConsentRecord(StoredConsentRecord),
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: xmtp_db::XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(super) async fn v1_send_sync_request(
         &self,
@@ -205,9 +205,9 @@ where
     }
 
     #[cfg(test)]
-    async fn v1_get_latest_sync_reply<C: xmtp_db::ConnectionExt>(
+    async fn v1_get_latest_sync_reply<S: StorageProvider>(
         &self,
-        provider: &XmtpOpenMlsProvider<C>,
+        provider: &XmtpOpenMlsProvider<S>,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
@@ -284,13 +284,13 @@ where
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.context.device_sync.server_url else {
+        let Some(url) = &self.context.device_sync().server_url else {
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
             inbox_id = self.inbox_id(),
-            installation_id = hex::encode(self.context.installation_public_key()),
+            installation_id = hex::encode(self.context.installation_id()),
             "Using upload url {upload_url}",
         );
 
@@ -303,7 +303,7 @@ where
         if !response.status().is_success() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.context.installation_public_key()),
+                installation_id = hex::encode(self.context.installation_id()),
                 "Failed to upload file. Status code: {} Response: {response:?}",
                 response.status()
             );

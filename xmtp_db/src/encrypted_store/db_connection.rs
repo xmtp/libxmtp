@@ -1,4 +1,4 @@
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use crate::{sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use std::fmt;
 
 use super::{ConnectionExt, TransactionGuard};
@@ -89,9 +89,9 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<C> {
-    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<C> {
-        XmtpOpenMlsProvider::new(db.conn)
+impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<SqlKeyStore<C>> {
+    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<SqlKeyStore<C>> {
+        XmtpOpenMlsProvider::new(SqlKeyStore::new(db.conn))
     }
 }
 

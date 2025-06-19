@@ -18,10 +18,9 @@ pub enum PreferenceUpdate {
     Hmac { key: Vec<u8>, cycled_at_ns: i64 },
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(crate) async fn sync_preferences(
         &self,

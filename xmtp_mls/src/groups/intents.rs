@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
+    context::XmtpSharedContext,
     track,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
@@ -70,10 +71,9 @@ pub enum IntentError {
     UnknownAdminListAction,
 }
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub fn queue_intent(
         &self,
@@ -92,7 +92,7 @@ where
 
     fn queue_intent_with_conn(
         &self,
-        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
         should_push: bool,
@@ -125,7 +125,7 @@ where
     #[tracing::instrument(level = "debug", skip_all)]
     fn maybe_insert_key_update_intent(
         &self,
-        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
     ) -> Result<(), GroupError> {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();

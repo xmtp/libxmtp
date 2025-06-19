@@ -1,11 +1,7 @@
 use super::*;
 use crate::{Client, XmtpApi};
 
-impl<ApiClient, Db> Client<ApiClient, Db>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+impl<Context: XmtpSharedContext> Client<Context> {
     pub(super) fn syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let consent_records = self
             .context

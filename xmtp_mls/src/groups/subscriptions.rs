@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use super::MlsGroup;
 use crate::{
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     subscriptions::{
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::{MessageStreamError, StreamGroupMessages},
@@ -19,10 +19,9 @@ use xmtp_common::StreamHandle;
 use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// External proxy for `process_stream_entry`
     /// Converts some `SubscribeError` variants to an Option, if they are inconsequential.
@@ -44,15 +43,15 @@ where
 
     pub async fn stream<'a>(
         &'a self,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, ApiClient, Db>>
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + use<'a, Context>>
     where
-        ApiClient: XmtpMlsStreams + 'a,
+        Context::ApiClient: XmtpMlsStreams + 'a,
     {
         StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
     }
 
     pub fn stream_with_callback(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         group_id: Vec<u8>,
         #[cfg(target_arch = "wasm32")] callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
@@ -60,19 +59,17 @@ where
             + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
-        ApiClient: 'static,
-        ApiClient: XmtpMlsStreams + 'static,
-        Db: 'static,
+        Context: 'static,
     {
-        stream_messages_with_callback(context, vec![group_id.into()].into_iter(), callback)
+        stream_messages_with_callback(context.clone(), vec![group_id.into()].into_iter(), callback)
     }
 }
 
 // TODO: there's a better way than #[cfg]
 /// Stream messages from groups in `group_id_to_info`, passing
 /// messages along to a callback.
-pub(crate) fn stream_messages_with_callback<ApiClient, Db>(
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub(crate) fn stream_messages_with_callback<Context>(
+    context: Context,
     #[cfg(not(target_arch = "wasm32"))] active_conversations: impl Iterator<Item = GroupId>
         + Send
         + 'static,
@@ -83,13 +80,12 @@ pub(crate) fn stream_messages_with_callback<ApiClient, Db>(
         + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     let (tx, rx) = oneshot::channel();
 
     xmtp_common::spawn(Some(rx), async move {
-        let context_ref = &context;
+        let context_ref = context.context_ref();
         let stream = StreamGroupMessages::new(context_ref, active_conversations.collect()).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());

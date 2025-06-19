@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use super::{stream_conversations::ConversationStreamError, Result};
+use crate::context::XmtpSharedContext;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::{context::XmtpMlsLocalContext, groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::sync::Arc;
@@ -10,26 +11,23 @@ use xmtp_db::{group::ConversationType, prelude::*, NotFound, XmtpDb};
 use xmtp_proto::mls_v1::{welcome_message, WelcomeMessage};
 
 /// Future for processing `WelcomeorGroup`
-pub struct ProcessWelcomeFuture<ApiClient, Db> {
+pub struct ProcessWelcomeFuture<Context> {
     /// welcome ids in DB and which are already processed
     known_welcome_ids: HashSet<i64>,
     /// The libxmtp client
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    context: Context,
     /// the welcome or group being processed in this future
     item: WelcomeOrGroup,
     /// Conversation type to filter for, if any.
     conversation_type: Option<ConversationType>,
 }
 
-pub enum ProcessWelcomeResult<ApiClient, Db> {
+pub enum ProcessWelcomeResult<Context> {
     /// New Group and welcome id
-    New {
-        group: MlsGroup<ApiClient, Db>,
-        id: i64,
-    },
+    New { group: MlsGroup<Context>, id: i64 },
     /// A group we already have/we created that might not have a welcome id
     NewStored {
-        group: MlsGroup<ApiClient, Db>,
+        group: MlsGroup<Context>,
         maybe_id: Option<i64>,
     },
     /// Skip this welcome but add and id to known welcome ids
@@ -38,10 +36,9 @@ pub enum ProcessWelcomeResult<ApiClient, Db> {
     Ignore,
 }
 
-impl<ApiClient, Db> ProcessWelcomeFuture<ApiClient, Db>
+impl<Context> ProcessWelcomeFuture<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Creates a new `ProcessWelcomeFuture` to handle processing of welcome messages or groups.
     ///
@@ -73,10 +70,10 @@ where
     /// ```
     pub fn new(
         known_welcome_ids: HashSet<i64>,
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         item: WelcomeOrGroup,
         conversation_type: Option<ConversationType>,
-    ) -> Result<ProcessWelcomeFuture<ApiClient, Db>> {
+    ) -> Result<ProcessWelcomeFuture<Context>> {
         Ok(Self {
             known_welcome_ids,
             context,
@@ -94,10 +91,9 @@ fn extract_welcome_message(welcome: &WelcomeMessage) -> Result<&welcome_message:
 }
 
 /// bulk of the processing for a new welcome/group
-impl<ApiClient, Db> ProcessWelcomeFuture<ApiClient, Db>
+impl<Context> ProcessWelcomeFuture<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Processes a welcome message or group.
     ///
@@ -126,7 +122,7 @@ where
     ///
     /// # Tracing
     #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<ProcessWelcomeResult<ApiClient, Db>> {
+    pub async fn process(self) -> Result<ProcessWelcomeResult<Context>> {
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
@@ -185,8 +181,8 @@ where
     /// Returns an error if retrieving group metadata fails
     async fn filter(
         &self,
-        processed: ProcessWelcomeResult<ApiClient, Db>,
-    ) -> Result<ProcessWelcomeResult<ApiClient, Db>> {
+        processed: ProcessWelcomeResult<Context>,
+    ) -> Result<ProcessWelcomeResult<Context>> {
         use super::ProcessWelcomeResult::*;
         match processed {
             New { group, id } => {
@@ -258,7 +254,7 @@ where
     /// * `welcome` - The welcome message (V1) to process
     ///
     /// # Returns
-    /// * `Result<(MlsGroup<ApiClient, Db>, i64)>` - A tuple containing:
+    /// * `Result<(MlsGroup<Context>, i64)>` - A tuple containing:
     ///   - The MLS group associated with the welcome
     ///   - The welcome ID for tracking
     ///
@@ -267,10 +263,7 @@ where
     ///
     /// # Note
     /// This function uses retry logic to handle transient network failures
-    async fn on_welcome(
-        &self,
-        welcome: &welcome_message::V1,
-    ) -> Result<(MlsGroup<ApiClient, Db>, i64)> {
+    async fn on_welcome(&self, welcome: &welcome_message::V1) -> Result<(MlsGroup<Context>, i64)> {
         let welcome_message::V1 {
             id,
             created_ns: _,
@@ -293,7 +286,7 @@ where
     }
 
     /// Load a group from disk by its welcome_id
-    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<ApiClient, Db>, i64)> {
+    fn load_from_store(&self, id: i64) -> Result<(MlsGroup<Context>, i64)> {
         let group = self
             .context
             .db()

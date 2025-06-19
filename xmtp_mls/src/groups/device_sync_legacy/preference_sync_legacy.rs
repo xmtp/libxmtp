@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::client::ClientError;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
+use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;
@@ -53,14 +53,10 @@ impl LegacyUserPreferenceUpdate {
 }
 
 /// Process and insert incoming preference updates over the sync group
-pub(crate) fn process_incoming_preference_update<ApiClient, Db>(
+pub(crate) fn process_incoming_preference_update(
     update_proto: UserPreferenceUpdateProto,
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-) -> Result<Vec<PreferenceUpdate>, StorageError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+    context: &impl XmtpSharedContext,
+) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let db = context.db();
     let proto_content = update_proto.contents;
 
@@ -94,7 +90,7 @@ where
         updates.extend(changed);
     }
 
-    if let Some(handle) = context.workers.sync_metrics() {
+    if let Some(handle) = context.context_ref().workers.sync_metrics() {
         updates.iter().for_each(|u| match u {
             PreferenceUpdate::Consent(_) => handle.increment_metric(SyncMetric::V1ConsentReceived),
             PreferenceUpdate::Hmac { .. } => handle.increment_metric(SyncMetric::V1HmacReceived),
@@ -107,9 +103,9 @@ where
 impl LegacyUserPreferenceUpdate {
     /// Send a preference update through the sync group for other devices to consume
     /// Returns updates synced
-    pub(crate) async fn v1_sync_across_devices<C: XmtpApi, Db: XmtpDb>(
+    pub(crate) async fn v1_sync_across_devices<C: XmtpSharedContext>(
         updates: Vec<Self>,
-        device_sync: &DeviceSyncClient<C, Db>,
+        device_sync: &DeviceSyncClient<C>,
     ) -> Result<Vec<Self>, ClientError> {
         let sync_group = device_sync.get_sync_group().await?;
 

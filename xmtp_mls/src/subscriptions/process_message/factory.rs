@@ -2,6 +2,7 @@
 use std::sync::Arc;
 
 use super::ProcessedMessage;
+use crate::context::XmtpSharedContext;
 use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use crate::{context::XmtpContextProvider, subscriptions::SubscribeError};
 use crate::{
@@ -34,18 +35,17 @@ pub trait GroupDatabase {
 }
 
 #[derive(Clone)]
-pub struct GroupDb<ApiClient, Db>(Arc<XmtpMlsLocalContext<ApiClient, Db>>);
+pub struct GroupDb<Context>(Context);
 
-impl<ApiClient, Db> GroupDb<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+impl<Context> GroupDb<Context> {
+    pub fn new(context: Context) -> Self {
         Self(context)
     }
 }
 
-impl<ApiClient, Db> GroupDatabase for GroupDb<ApiClient, Db>
+impl<Context> GroupDatabase for GroupDb<Context>
 where
-    Db: XmtpDb,
-    ApiClient: XmtpApi,
+    Context: XmtpSharedContext,
 {
     fn last_cursor(&self, group_id: &[u8]) -> Result<i64, StorageError> {
         self.0
@@ -80,17 +80,16 @@ pub trait Sync {
 }
 
 #[derive(Clone)]
-pub struct Syncer<ApiClient, Db>(Arc<XmtpMlsLocalContext<ApiClient, Db>>);
-impl<ApiClient, Db> Syncer<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+pub struct Syncer<Context>(Context);
+impl<Context> Syncer<Context> {
+    pub fn new(context: Context) -> Self {
         Self(context)
     }
 }
 
-impl<ApiClient, Db> Sync for Syncer<ApiClient, Db>
+impl<Context> Sync for Syncer<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     async fn process(&self, msg: &group_message::V1) -> Result<MessageIdentifier, SubscribeError> {
         let (group, _) = MlsGroup::new_cached(self.0.clone(), &msg.group_id)?;
