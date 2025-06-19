@@ -84,7 +84,7 @@ impl serde::Serialize for GetSyncCursorResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.metadata_api.GetSyncCursorResponse", len)?;
         if let Some(v) = self.latest_sync.as_ref() {
-            struct_ser.serialize_field("latestSync", v)?;
+            struct_ser.serialize_field("latest_sync", v)?;
         }
         struct_ser.end()
     }

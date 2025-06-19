@@ -273,7 +273,7 @@ impl serde::Serialize for ReactionV2 {
             struct_ser.serialize_field("reference", &self.reference)?;
         }
         if !self.reference_inbox_id.is_empty() {
-            struct_ser.serialize_field("referenceInboxId", &self.reference_inbox_id)?;
+            struct_ser.serialize_field("reference_inbox_id", &self.reference_inbox_id)?;
         }
         if self.action != 0 {
             let v = ReactionAction::try_from(self.action)
@@ -447,7 +447,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.RemoteAttachmentInfo", len)?;
         if !self.content_digest.is_empty() {
-            struct_ser.serialize_field("contentDigest", &self.content_digest)?;
+            struct_ser.serialize_field("content_digest", &self.content_digest)?;
         }
         if !self.secret.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -471,7 +471,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if let Some(v) = self.content_length.as_ref() {
-            struct_ser.serialize_field("contentLength", v)?;
+            struct_ser.serialize_field("content_length", v)?;
         }
         if let Some(v) = self.filename.as_ref() {
             struct_ser.serialize_field("filename", v)?;

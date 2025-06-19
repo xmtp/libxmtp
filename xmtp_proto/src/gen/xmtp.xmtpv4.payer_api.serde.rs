@@ -87,10 +87,10 @@ impl serde::Serialize for GetReaderNodeResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.GetReaderNodeResponse", len)?;
         if !self.reader_node_url.is_empty() {
-            struct_ser.serialize_field("readerNodeUrl", &self.reader_node_url)?;
+            struct_ser.serialize_field("reader_node_url", &self.reader_node_url)?;
         }
         if !self.backup_node_urls.is_empty() {
-            struct_ser.serialize_field("backupNodeUrls", &self.backup_node_urls)?;
+            struct_ser.serialize_field("backup_node_urls", &self.backup_node_urls)?;
         }
         struct_ser.end()
     }
@@ -293,7 +293,7 @@ impl serde::Serialize for PublishClientEnvelopesResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse", len)?;
         if !self.originator_envelopes.is_empty() {
-            struct_ser.serialize_field("originatorEnvelopes", &self.originator_envelopes)?;
+            struct_ser.serialize_field("originator_envelopes", &self.originator_envelopes)?;
         }
         struct_ser.end()
     }

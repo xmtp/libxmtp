@@ -12,7 +12,7 @@ impl serde::Serialize for FetchKeyPackagesRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesRequest", len)?;
         if !self.installation_keys.is_empty() {
-            struct_ser.serialize_field("installationKeys", &self.installation_keys.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("installation_keys", &self.installation_keys.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -111,7 +111,7 @@ impl serde::Serialize for FetchKeyPackagesResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse", len)?;
         if !self.key_packages.is_empty() {
-            struct_ser.serialize_field("keyPackages", &self.key_packages)?;
+            struct_ser.serialize_field("key_packages", &self.key_packages)?;
         }
         struct_ser.end()
     }
@@ -209,7 +209,7 @@ impl serde::Serialize for fetch_key_packages_response::KeyPackage {
         if !self.key_package_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
+            struct_ser.serialize_field("key_package_tls_serialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
         struct_ser.end()
     }
@@ -310,12 +310,12 @@ impl serde::Serialize for GetIdentityUpdatesRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesRequest", len)?;
         if !self.account_addresses.is_empty() {
-            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+            struct_ser.serialize_field("account_addresses", &self.account_addresses)?;
         }
         if self.start_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
+            struct_ser.serialize_field("start_time_ns", ToString::to_string(&self.start_time_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -525,12 +525,12 @@ impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.credential_identity.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("credentialIdentity", pbjson::private::base64::encode(&self.credential_identity).as_str())?;
+            struct_ser.serialize_field("credential_identity", pbjson::private::base64::encode(&self.credential_identity).as_str())?;
         }
         struct_ser.end()
     }
@@ -644,7 +644,7 @@ impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpda
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -747,15 +747,15 @@ impl serde::Serialize for get_identity_updates_response::Update {
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if let Some(v) = self.kind.as_ref() {
             match v {
                 get_identity_updates_response::update::Kind::NewInstallation(v) => {
-                    struct_ser.serialize_field("newInstallation", v)?;
+                    struct_ser.serialize_field("new_installation", v)?;
                 }
                 get_identity_updates_response::update::Kind::RevokedInstallation(v) => {
-                    struct_ser.serialize_field("revokedInstallation", v)?;
+                    struct_ser.serialize_field("revoked_installation", v)?;
                 }
             }
         }
@@ -1096,12 +1096,12 @@ impl serde::Serialize for group_message::V1 {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1111,10 +1111,10 @@ impl serde::Serialize for group_message::V1 {
         if !self.sender_hmac.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
+            struct_ser.serialize_field("sender_hmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         if self.should_push {
-            struct_ser.serialize_field("shouldPush", &self.should_push)?;
+            struct_ser.serialize_field("should_push", &self.should_push)?;
         }
         struct_ser.end()
     }
@@ -1391,10 +1391,10 @@ impl serde::Serialize for group_message_input::V1 {
         if !self.sender_hmac.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
+            struct_ser.serialize_field("sender_hmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         if self.should_push {
-            struct_ser.serialize_field("shouldPush", &self.should_push)?;
+            struct_ser.serialize_field("should_push", &self.should_push)?;
         }
         struct_ser.end()
     }
@@ -1519,7 +1519,7 @@ impl serde::Serialize for KeyPackageUpload {
         if !self.key_package_tls_serialized.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
+            struct_ser.serialize_field("key_package_tls_serialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
         struct_ser.end()
     }
@@ -1633,7 +1633,7 @@ impl serde::Serialize for PagingInfo {
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
+            struct_ser.serialize_field("id_cursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
     }
@@ -1760,10 +1760,10 @@ impl serde::Serialize for QueryGroupMessagesRequest {
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -1879,7 +1879,7 @@ impl serde::Serialize for QueryGroupMessagesResponse {
             struct_ser.serialize_field("messages", &self.messages)?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -1991,10 +1991,10 @@ impl serde::Serialize for QueryWelcomeMessagesRequest {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -2110,7 +2110,7 @@ impl serde::Serialize for QueryWelcomeMessagesResponse {
             struct_ser.serialize_field("messages", &self.messages)?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -2220,10 +2220,10 @@ impl serde::Serialize for RegisterInstallationRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
-            struct_ser.serialize_field("keyPackage", v)?;
+            struct_ser.serialize_field("key_package", v)?;
         }
         if self.is_inbox_id_credential {
-            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
+            struct_ser.serialize_field("is_inbox_id_credential", &self.is_inbox_id_credential)?;
         }
         struct_ser.end()
     }
@@ -2333,7 +2333,7 @@ impl serde::Serialize for RegisterInstallationResponse {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -2436,10 +2436,10 @@ impl serde::Serialize for RevokeInstallationRequest {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if let Some(v) = self.wallet_signature.as_ref() {
-            struct_ser.serialize_field("walletSignature", v)?;
+            struct_ser.serialize_field("wallet_signature", v)?;
         }
         struct_ser.end()
     }
@@ -2913,12 +2913,12 @@ impl serde::Serialize for subscribe_group_messages_request::Filter {
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
+            struct_ser.serialize_field("id_cursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
     }
@@ -3130,12 +3130,12 @@ impl serde::Serialize for subscribe_welcome_messages_request::Filter {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if self.id_cursor != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
+            struct_ser.serialize_field("id_cursor", ToString::to_string(&self.id_cursor).as_str())?;
         }
         struct_ser.end()
     }
@@ -3250,10 +3250,10 @@ impl serde::Serialize for UploadKeyPackageRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.UploadKeyPackageRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
-            struct_ser.serialize_field("keyPackage", v)?;
+            struct_ser.serialize_field("key_package", v)?;
         }
         if self.is_inbox_id_credential {
-            struct_ser.serialize_field("isInboxIdCredential", &self.is_inbox_id_credential)?;
+            struct_ser.serialize_field("is_inbox_id_credential", &self.is_inbox_id_credential)?;
         }
         struct_ser.end()
     }
@@ -3483,12 +3483,12 @@ impl serde::Serialize for welcome_message::V1 {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -3498,12 +3498,12 @@ impl serde::Serialize for welcome_message::V1 {
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
+            struct_ser.serialize_field("hpke_public_key", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         if self.wrapper_algorithm != 0 {
             let v = super::super::message_contents::WelcomeWrapperAlgorithm::try_from(self.wrapper_algorithm)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
-            struct_ser.serialize_field("wrapperAlgorithm", &v)?;
+            struct_ser.serialize_field("wrapper_algorithm", &v)?;
         }
         struct_ser.end()
     }
@@ -3778,7 +3778,7 @@ impl serde::Serialize for welcome_message_input::V1 {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.data.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -3788,12 +3788,12 @@ impl serde::Serialize for welcome_message_input::V1 {
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
+            struct_ser.serialize_field("hpke_public_key", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         if self.wrapper_algorithm != 0 {
             let v = super::super::message_contents::WelcomeWrapperAlgorithm::try_from(self.wrapper_algorithm)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
-            struct_ser.serialize_field("wrapperAlgorithm", &v)?;
+            struct_ser.serialize_field("wrapper_algorithm", &v)?;
         }
         struct_ser.end()
     }

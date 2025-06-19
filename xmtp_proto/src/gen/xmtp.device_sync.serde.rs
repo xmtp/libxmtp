@@ -20,7 +20,7 @@ impl serde::Serialize for BackupElement {
                     struct_ser.serialize_field("group", v)?;
                 }
                 backup_element::Element::GroupMessage(v) => {
-                    struct_ser.serialize_field("groupMessage", v)?;
+                    struct_ser.serialize_field("group_message", v)?;
                 }
                 backup_element::Element::Consent(v) => {
                     struct_ser.serialize_field("consent", v)?;
@@ -260,17 +260,17 @@ impl serde::Serialize for BackupMetadataSave {
         if self.exported_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("exportedAtNs", ToString::to_string(&self.exported_at_ns).as_str())?;
+            struct_ser.serialize_field("exported_at_ns", ToString::to_string(&self.exported_at_ns).as_str())?;
         }
         if let Some(v) = self.start_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("start_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.end_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("endNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("end_ns", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -422,12 +422,12 @@ impl serde::Serialize for BackupOptions {
         if let Some(v) = self.start_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("start_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.end_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("endNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("end_ns", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }

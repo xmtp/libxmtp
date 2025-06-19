@@ -15,12 +15,12 @@ impl serde::Serialize for AuthData {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.AuthData", len)?;
         if !self.wallet_addr.is_empty() {
-            struct_ser.serialize_field("walletAddr", &self.wallet_addr)?;
+            struct_ser.serialize_field("wallet_addr", &self.wallet_addr)?;
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -426,12 +426,12 @@ impl serde::Serialize for Envelope {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.Envelope", len)?;
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if !self.message.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -569,7 +569,7 @@ impl serde::Serialize for IndexCursor {
         if self.sender_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderTimeNs", ToString::to_string(&self.sender_time_ns).as_str())?;
+            struct_ser.serialize_field("sender_time_ns", ToString::to_string(&self.sender_time_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -989,20 +989,20 @@ impl serde::Serialize for QueryRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.QueryRequest", len)?;
         if !self.content_topics.is_empty() {
-            struct_ser.serialize_field("contentTopics", &self.content_topics)?;
+            struct_ser.serialize_field("content_topics", &self.content_topics)?;
         }
         if self.start_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
+            struct_ser.serialize_field("start_time_ns", ToString::to_string(&self.start_time_ns).as_str())?;
         }
         if self.end_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("endTimeNs", ToString::to_string(&self.end_time_ns).as_str())?;
+            struct_ser.serialize_field("end_time_ns", ToString::to_string(&self.end_time_ns).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -1144,7 +1144,7 @@ impl serde::Serialize for QueryResponse {
             struct_ser.serialize_field("envelopes", &self.envelopes)?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -1397,7 +1397,7 @@ impl serde::Serialize for SubscribeRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.SubscribeRequest", len)?;
         if !self.content_topics.is_empty() {
-            struct_ser.serialize_field("contentTopics", &self.content_topics)?;
+            struct_ser.serialize_field("content_topics", &self.content_topics)?;
         }
         struct_ser.end()
     }
@@ -1499,15 +1499,15 @@ impl serde::Serialize for Token {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.Token", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if !self.auth_data_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("authDataBytes", pbjson::private::base64::encode(&self.auth_data_bytes).as_str())?;
+            struct_ser.serialize_field("auth_data_bytes", pbjson::private::base64::encode(&self.auth_data_bytes).as_str())?;
         }
         if let Some(v) = self.auth_data_signature.as_ref() {
-            struct_ser.serialize_field("authDataSignature", v)?;
+            struct_ser.serialize_field("auth_data_signature", v)?;
         }
         struct_ser.end()
     }

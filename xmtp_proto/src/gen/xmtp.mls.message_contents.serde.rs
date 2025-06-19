@@ -92,16 +92,16 @@ impl serde::Serialize for ContentTypeId {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ContentTypeId", len)?;
         if !self.authority_id.is_empty() {
-            struct_ser.serialize_field("authorityId", &self.authority_id)?;
+            struct_ser.serialize_field("authority_id", &self.authority_id)?;
         }
         if !self.type_id.is_empty() {
-            struct_ser.serialize_field("typeId", &self.type_id)?;
+            struct_ser.serialize_field("type_id", &self.type_id)?;
         }
         if self.version_major != 0 {
-            struct_ser.serialize_field("versionMajor", &self.version_major)?;
+            struct_ser.serialize_field("version_major", &self.version_major)?;
         }
         if self.version_minor != 0 {
-            struct_ser.serialize_field("versionMinor", &self.version_minor)?;
+            struct_ser.serialize_field("version_minor", &self.version_minor)?;
         }
         struct_ser.end()
     }
@@ -317,10 +317,10 @@ impl serde::Serialize for DmMembers {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.DmMembers", len)?;
         if let Some(v) = self.dm_member_one.as_ref() {
-            struct_ser.serialize_field("dmMemberOne", v)?;
+            struct_ser.serialize_field("dm_member_one", v)?;
         }
         if let Some(v) = self.dm_member_two.as_ref() {
-            struct_ser.serialize_field("dmMemberTwo", v)?;
+            struct_ser.serialize_field("dm_member_two", v)?;
         }
         struct_ser.end()
     }
@@ -607,7 +607,7 @@ impl serde::Serialize for GroupMembership {
             struct_ser.serialize_field("members", &v)?;
         }
         if !self.failed_installations.is_empty() {
-            struct_ser.serialize_field("failedInstallations", &self.failed_installations.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("failed_installations", &self.failed_installations.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -729,16 +729,16 @@ impl serde::Serialize for GroupMembershipChanges {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMembershipChanges", len)?;
         if !self.members_added.is_empty() {
-            struct_ser.serialize_field("membersAdded", &self.members_added)?;
+            struct_ser.serialize_field("members_added", &self.members_added)?;
         }
         if !self.members_removed.is_empty() {
-            struct_ser.serialize_field("membersRemoved", &self.members_removed)?;
+            struct_ser.serialize_field("members_removed", &self.members_removed)?;
         }
         if !self.installations_added.is_empty() {
-            struct_ser.serialize_field("installationsAdded", &self.installations_added)?;
+            struct_ser.serialize_field("installations_added", &self.installations_added)?;
         }
         if !self.installations_removed.is_empty() {
-            struct_ser.serialize_field("installationsRemoved", &self.installations_removed)?;
+            struct_ser.serialize_field("installations_removed", &self.installations_removed)?;
         }
         struct_ser.end()
     }
@@ -881,16 +881,16 @@ impl serde::Serialize for GroupMetadataV1 {
         if self.conversation_type != 0 {
             let v = ConversationType::try_from(self.conversation_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.conversation_type)))?;
-            struct_ser.serialize_field("conversationType", &v)?;
+            struct_ser.serialize_field("conversation_type", &v)?;
         }
         if !self.creator_account_address.is_empty() {
-            struct_ser.serialize_field("creatorAccountAddress", &self.creator_account_address)?;
+            struct_ser.serialize_field("creator_account_address", &self.creator_account_address)?;
         }
         if !self.creator_inbox_id.is_empty() {
-            struct_ser.serialize_field("creatorInboxId", &self.creator_inbox_id)?;
+            struct_ser.serialize_field("creator_inbox_id", &self.creator_inbox_id)?;
         }
         if let Some(v) = self.dm_members.as_ref() {
-            struct_ser.serialize_field("dmMembers", v)?;
+            struct_ser.serialize_field("dm_members", v)?;
         }
         struct_ser.end()
     }
@@ -1031,10 +1031,10 @@ impl serde::Serialize for GroupMutableMetadataV1 {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
         if let Some(v) = self.admin_list.as_ref() {
-            struct_ser.serialize_field("adminList", v)?;
+            struct_ser.serialize_field("admin_list", v)?;
         }
         if let Some(v) = self.super_admin_list.as_ref() {
-            struct_ser.serialize_field("superAdminList", v)?;
+            struct_ser.serialize_field("super_admin_list", v)?;
         }
         struct_ser.end()
     }
@@ -1259,16 +1259,16 @@ impl serde::Serialize for GroupUpdated {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated", len)?;
         if !self.initiated_by_inbox_id.is_empty() {
-            struct_ser.serialize_field("initiatedByInboxId", &self.initiated_by_inbox_id)?;
+            struct_ser.serialize_field("initiated_by_inbox_id", &self.initiated_by_inbox_id)?;
         }
         if !self.added_inboxes.is_empty() {
-            struct_ser.serialize_field("addedInboxes", &self.added_inboxes)?;
+            struct_ser.serialize_field("added_inboxes", &self.added_inboxes)?;
         }
         if !self.removed_inboxes.is_empty() {
-            struct_ser.serialize_field("removedInboxes", &self.removed_inboxes)?;
+            struct_ser.serialize_field("removed_inboxes", &self.removed_inboxes)?;
         }
         if !self.metadata_field_changes.is_empty() {
-            struct_ser.serialize_field("metadataFieldChanges", &self.metadata_field_changes)?;
+            struct_ser.serialize_field("metadata_field_changes", &self.metadata_field_changes)?;
         }
         struct_ser.end()
     }
@@ -1400,7 +1400,7 @@ impl serde::Serialize for group_updated::Inbox {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated.Inbox", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -1502,13 +1502,13 @@ impl serde::Serialize for group_updated::MetadataFieldChange {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange", len)?;
         if !self.field_name.is_empty() {
-            struct_ser.serialize_field("fieldName", &self.field_name)?;
+            struct_ser.serialize_field("field_name", &self.field_name)?;
         }
         if let Some(v) = self.old_value.as_ref() {
-            struct_ser.serialize_field("oldValue", v)?;
+            struct_ser.serialize_field("old_value", v)?;
         }
         if let Some(v) = self.new_value.as_ref() {
-            struct_ser.serialize_field("newValue", v)?;
+            struct_ser.serialize_field("new_value", v)?;
         }
         struct_ser.end()
     }
@@ -1628,7 +1628,7 @@ impl serde::Serialize for Inbox {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.Inbox", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -1724,7 +1724,7 @@ impl serde::Serialize for Inboxes {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.Inboxes", len)?;
         if !self.inbox_ids.is_empty() {
-            struct_ser.serialize_field("inboxIds", &self.inbox_ids)?;
+            struct_ser.serialize_field("inbox_ids", &self.inbox_ids)?;
         }
         struct_ser.end()
     }
@@ -1826,13 +1826,13 @@ impl serde::Serialize for MembershipChange {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipChange", len)?;
         if !self.installation_ids.is_empty() {
-            struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("installation_ids", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         if !self.account_address.is_empty() {
-            struct_ser.serialize_field("accountAddress", &self.account_address)?;
+            struct_ser.serialize_field("account_address", &self.account_address)?;
         }
         if !self.initiated_by_account_address.is_empty() {
-            struct_ser.serialize_field("initiatedByAccountAddress", &self.initiated_by_account_address)?;
+            struct_ser.serialize_field("initiated_by_account_address", &self.initiated_by_account_address)?;
         }
         struct_ser.end()
     }
@@ -1962,10 +1962,10 @@ impl serde::Serialize for MembershipPolicy {
                     struct_ser.serialize_field("base", &v)?;
                 }
                 membership_policy::Kind::AndCondition(v) => {
-                    struct_ser.serialize_field("andCondition", v)?;
+                    struct_ser.serialize_field("and_condition", v)?;
                 }
                 membership_policy::Kind::AnyCondition(v) => {
-                    struct_ser.serialize_field("anyCondition", v)?;
+                    struct_ser.serialize_field("any_condition", v)?;
                 }
             }
         }
@@ -2361,10 +2361,10 @@ impl serde::Serialize for MetadataPolicy {
                     struct_ser.serialize_field("base", &v)?;
                 }
                 metadata_policy::Kind::AndCondition(v) => {
-                    struct_ser.serialize_field("andCondition", v)?;
+                    struct_ser.serialize_field("and_condition", v)?;
                 }
                 metadata_policy::Kind::AnyCondition(v) => {
-                    struct_ser.serialize_field("anyCondition", v)?;
+                    struct_ser.serialize_field("any_condition", v)?;
                 }
             }
         }
@@ -2760,10 +2760,10 @@ impl serde::Serialize for PermissionsUpdatePolicy {
                     struct_ser.serialize_field("base", &v)?;
                 }
                 permissions_update_policy::Kind::AndCondition(v) => {
-                    struct_ser.serialize_field("andCondition", v)?;
+                    struct_ser.serialize_field("and_condition", v)?;
                 }
                 permissions_update_policy::Kind::AnyCondition(v) => {
-                    struct_ser.serialize_field("anyCondition", v)?;
+                    struct_ser.serialize_field("any_condition", v)?;
                 }
             }
         }
@@ -3270,7 +3270,7 @@ impl serde::Serialize for plaintext_envelope::V1 {
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         if !self.idempotency_key.is_empty() {
-            struct_ser.serialize_field("idempotencyKey", &self.idempotency_key)?;
+            struct_ser.serialize_field("idempotency_key", &self.idempotency_key)?;
         }
         struct_ser.end()
     }
@@ -3382,7 +3382,7 @@ impl serde::Serialize for plaintext_envelope::V2 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextEnvelope.V2", len)?;
         if !self.idempotency_key.is_empty() {
-            struct_ser.serialize_field("idempotencyKey", &self.idempotency_key)?;
+            struct_ser.serialize_field("idempotency_key", &self.idempotency_key)?;
         }
         if let Some(v) = self.message_type.as_ref() {
             match v {
@@ -3392,13 +3392,13 @@ impl serde::Serialize for plaintext_envelope::V2 {
                     struct_ser.serialize_field("content", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 plaintext_envelope::v2::MessageType::DeviceSyncRequest(v) => {
-                    struct_ser.serialize_field("deviceSyncRequest", v)?;
+                    struct_ser.serialize_field("device_sync_request", v)?;
                 }
                 plaintext_envelope::v2::MessageType::DeviceSyncReply(v) => {
-                    struct_ser.serialize_field("deviceSyncReply", v)?;
+                    struct_ser.serialize_field("device_sync_reply", v)?;
                 }
                 plaintext_envelope::v2::MessageType::UserPreferenceUpdate(v) => {
-                    struct_ser.serialize_field("userPreferenceUpdate", v)?;
+                    struct_ser.serialize_field("user_preference_update", v)?;
                 }
             }
         }
@@ -3555,22 +3555,22 @@ impl serde::Serialize for PolicySet {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PolicySet", len)?;
         if let Some(v) = self.add_member_policy.as_ref() {
-            struct_ser.serialize_field("addMemberPolicy", v)?;
+            struct_ser.serialize_field("add_member_policy", v)?;
         }
         if let Some(v) = self.remove_member_policy.as_ref() {
-            struct_ser.serialize_field("removeMemberPolicy", v)?;
+            struct_ser.serialize_field("remove_member_policy", v)?;
         }
         if !self.update_metadata_policy.is_empty() {
-            struct_ser.serialize_field("updateMetadataPolicy", &self.update_metadata_policy)?;
+            struct_ser.serialize_field("update_metadata_policy", &self.update_metadata_policy)?;
         }
         if let Some(v) = self.add_admin_policy.as_ref() {
-            struct_ser.serialize_field("addAdminPolicy", v)?;
+            struct_ser.serialize_field("add_admin_policy", v)?;
         }
         if let Some(v) = self.remove_admin_policy.as_ref() {
-            struct_ser.serialize_field("removeAdminPolicy", v)?;
+            struct_ser.serialize_field("remove_admin_policy", v)?;
         }
         if let Some(v) = self.update_permissions_policy.as_ref() {
-            struct_ser.serialize_field("updatePermissionsPolicy", v)?;
+            struct_ser.serialize_field("update_permissions_policy", v)?;
         }
         struct_ser.end()
     }
@@ -3807,7 +3807,7 @@ impl serde::Serialize for WelcomeWrapperEncryption {
         if !self.pub_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("pubKey", pbjson::private::base64::encode(&self.pub_key).as_str())?;
+            struct_ser.serialize_field("pub_key", pbjson::private::base64::encode(&self.pub_key).as_str())?;
         }
         if self.algorithm != 0 {
             let v = WelcomeWrapperAlgorithm::try_from(self.algorithm)

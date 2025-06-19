@@ -13,6 +13,7 @@ plugins:
     out: src/gen
     opt:
       - ignore_unknown_fields=true
+      - preserve_proto_field_names=true
   - plugin: buf.build/community/neoeinstein-tonic:v0.4.1
     out: src/gen
     opt:

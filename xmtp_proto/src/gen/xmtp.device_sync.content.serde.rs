@@ -12,7 +12,7 @@ impl serde::Serialize for DeviceSyncAcknowledge {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncAcknowledge", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         struct_ser.end()
     }
@@ -119,7 +119,7 @@ impl serde::Serialize for DeviceSyncContent {
                     struct_ser.serialize_field("reply", v)?;
                 }
                 device_sync_content::Content::PreferenceUpdates(v) => {
-                    struct_ser.serialize_field("preferenceUpdates", v)?;
+                    struct_ser.serialize_field("preference_updates", v)?;
                 }
             }
         }
@@ -252,7 +252,7 @@ impl serde::Serialize for DeviceSyncKeyType {
                 device_sync_key_type::Key::Aes256Gcm(v) => {
                     #[allow(clippy::needless_borrow)]
                     #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("aes256Gcm", pbjson::private::base64::encode(&v).as_str())?;
+                    struct_ser.serialize_field("aes_256_gcm", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
         }
@@ -365,18 +365,18 @@ impl serde::Serialize for DeviceSyncReply {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncReply", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if let Some(v) = self.encryption_key.as_ref() {
-            struct_ser.serialize_field("encryptionKey", v)?;
+            struct_ser.serialize_field("encryption_key", v)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if self.kind != 0 {
             let v = super::BackupElementSelection::try_from(self.kind)
@@ -548,10 +548,10 @@ impl serde::Serialize for DeviceSyncRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncRequest", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         if !self.pin_code.is_empty() {
-            struct_ser.serialize_field("pinCode", &self.pin_code)?;
+            struct_ser.serialize_field("pin_code", &self.pin_code)?;
         }
         if self.kind != 0 {
             let v = super::BackupElementSelection::try_from(self.kind)
@@ -699,7 +699,7 @@ impl serde::Serialize for HmacKeyUpdate {
         if self.cycled_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("cycledAtNs", ToString::to_string(&self.cycled_at_ns).as_str())?;
+            struct_ser.serialize_field("cycled_at_ns", ToString::to_string(&self.cycled_at_ns).as_str())?;
         }
         struct_ser.end()
     }

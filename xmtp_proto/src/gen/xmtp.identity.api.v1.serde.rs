@@ -110,12 +110,12 @@ impl serde::Serialize for get_identity_updates_request::Request {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetIdentityUpdatesRequest.Request", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -328,12 +328,12 @@ impl serde::Serialize for get_identity_updates_response::IdentityUpdateLog {
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
         }
         if self.server_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("serverTimestampNs", ToString::to_string(&self.server_timestamp_ns).as_str())?;
+            struct_ser.serialize_field("server_timestamp_ns", ToString::to_string(&self.server_timestamp_ns).as_str())?;
         }
         if let Some(v) = self.update.as_ref() {
             struct_ser.serialize_field("update", v)?;
@@ -462,7 +462,7 @@ impl serde::Serialize for get_identity_updates_response::Response {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetIdentityUpdatesResponse.Response", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         if !self.updates.is_empty() {
             struct_ser.serialize_field("updates", &self.updates)?;
@@ -675,7 +675,7 @@ impl serde::Serialize for get_inbox_ids_request::Request {
         if self.identifier_kind != 0 {
             let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -886,12 +886,12 @@ impl serde::Serialize for get_inbox_ids_response::Response {
             struct_ser.serialize_field("identifier", &self.identifier)?;
         }
         if let Some(v) = self.inbox_id.as_ref() {
-            struct_ser.serialize_field("inboxId", v)?;
+            struct_ser.serialize_field("inbox_id", v)?;
         }
         if self.identifier_kind != 0 {
             let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -1010,7 +1010,7 @@ impl serde::Serialize for PublishIdentityUpdateRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.PublishIdentityUpdateRequest", len)?;
         if let Some(v) = self.identity_update.as_ref() {
-            struct_ser.serialize_field("identityUpdate", v)?;
+            struct_ser.serialize_field("identity_update", v)?;
         }
         struct_ser.end()
     }
@@ -1187,12 +1187,12 @@ impl serde::Serialize for VerifySmartContractWalletSignatureRequestSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature", len)?;
         if !self.account_id.is_empty() {
-            struct_ser.serialize_field("accountId", &self.account_id)?;
+            struct_ser.serialize_field("account_id", &self.account_id)?;
         }
         if let Some(v) = self.block_number.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("block_number", ToString::to_string(&v).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1534,12 +1534,12 @@ impl serde::Serialize for verify_smart_contract_wallet_signatures_response::Vali
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse", len)?;
         if self.is_valid {
-            struct_ser.serialize_field("isValid", &self.is_valid)?;
+            struct_ser.serialize_field("is_valid", &self.is_valid)?;
         }
         if let Some(v) = self.block_number.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("block_number", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.error.as_ref() {
             struct_ser.serialize_field("error", v)?;

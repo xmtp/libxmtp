@@ -21,10 +21,10 @@ impl serde::Serialize for EnvelopesQuery {
             struct_ser.serialize_field("topics", &self.topics.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         if !self.originator_node_ids.is_empty() {
-            struct_ser.serialize_field("originatorNodeIds", &self.originator_node_ids)?;
+            struct_ser.serialize_field("originator_node_ids", &self.originator_node_ids)?;
         }
         if let Some(v) = self.last_seen.as_ref() {
-            struct_ser.serialize_field("lastSeen", v)?;
+            struct_ser.serialize_field("last_seen", v)?;
         }
         struct_ser.end()
     }
@@ -252,7 +252,7 @@ impl serde::Serialize for get_inbox_ids_request::Request {
         if self.identifier_kind != 0 {
             let v = super::super::identity::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -463,12 +463,12 @@ impl serde::Serialize for get_inbox_ids_response::Response {
             struct_ser.serialize_field("identifier", &self.identifier)?;
         }
         if let Some(v) = self.inbox_id.as_ref() {
-            struct_ser.serialize_field("inboxId", v)?;
+            struct_ser.serialize_field("inbox_id", v)?;
         }
         if self.identifier_kind != 0 {
             let v = super::super::identity::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -780,7 +780,7 @@ impl serde::Serialize for get_newest_envelope_response::Response {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.GetNewestEnvelopeResponse.Response", len)?;
         if let Some(v) = self.originator_envelope.as_ref() {
-            struct_ser.serialize_field("originatorEnvelope", v)?;
+            struct_ser.serialize_field("originator_envelope", v)?;
         }
         struct_ser.end()
     }
@@ -879,7 +879,7 @@ impl serde::Serialize for LivenessFailure {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.LivenessFailure", len)?;
         if self.response_time_ns != 0 {
-            struct_ser.serialize_field("responseTimeNs", &self.response_time_ns)?;
+            struct_ser.serialize_field("response_time_ns", &self.response_time_ns)?;
         }
         if let Some(v) = self.request.as_ref() {
             match v {
@@ -1122,12 +1122,12 @@ impl serde::Serialize for MisbehaviorReport {
         if self.server_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("serverTimeNs", ToString::to_string(&self.server_time_ns).as_str())?;
+            struct_ser.serialize_field("server_time_ns", ToString::to_string(&self.server_time_ns).as_str())?;
         }
         if !self.unsigned_misbehavior_report.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("unsignedMisbehaviorReport", pbjson::private::base64::encode(&self.unsigned_misbehavior_report).as_str())?;
+            struct_ser.serialize_field("unsigned_misbehavior_report", pbjson::private::base64::encode(&self.unsigned_misbehavior_report).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -1253,7 +1253,7 @@ impl serde::Serialize for PublishPayerEnvelopesRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.PublishPayerEnvelopesRequest", len)?;
         if !self.payer_envelopes.is_empty() {
-            struct_ser.serialize_field("payerEnvelopes", &self.payer_envelopes)?;
+            struct_ser.serialize_field("payer_envelopes", &self.payer_envelopes)?;
         }
         struct_ser.end()
     }
@@ -1349,7 +1349,7 @@ impl serde::Serialize for PublishPayerEnvelopesResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.message_api.PublishPayerEnvelopesResponse", len)?;
         if !self.originator_envelopes.is_empty() {
-            struct_ser.serialize_field("originatorEnvelopes", &self.originator_envelopes)?;
+            struct_ser.serialize_field("originator_envelopes", &self.originator_envelopes)?;
         }
         struct_ser.end()
     }
@@ -1656,7 +1656,7 @@ impl serde::Serialize for QueryMisbehaviorReportsRequest {
         if self.after_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("afterNs", ToString::to_string(&self.after_ns).as_str())?;
+            struct_ser.serialize_field("after_ns", ToString::to_string(&self.after_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -2315,10 +2315,10 @@ impl serde::Serialize for UnsignedMisbehaviorReport {
         if self.reporter_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("reporterTimeNs", ToString::to_string(&self.reporter_time_ns).as_str())?;
+            struct_ser.serialize_field("reporter_time_ns", ToString::to_string(&self.reporter_time_ns).as_str())?;
         }
         if self.misbehaving_node_id != 0 {
-            struct_ser.serialize_field("misbehavingNodeId", &self.misbehaving_node_id)?;
+            struct_ser.serialize_field("misbehaving_node_id", &self.misbehaving_node_id)?;
         }
         if self.r#type != 0 {
             let v = Misbehavior::try_from(self.r#type)
@@ -2326,7 +2326,7 @@ impl serde::Serialize for UnsignedMisbehaviorReport {
             struct_ser.serialize_field("type", &v)?;
         }
         if self.submitted_by_node {
-            struct_ser.serialize_field("submittedByNode", &self.submitted_by_node)?;
+            struct_ser.serialize_field("submitted_by_node", &self.submitted_by_node)?;
         }
         if let Some(v) = self.failure.as_ref() {
             match v {

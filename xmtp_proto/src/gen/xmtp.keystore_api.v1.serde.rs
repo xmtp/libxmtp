@@ -14,7 +14,7 @@ impl serde::Serialize for CreateAuthTokenRequest {
         if let Some(v) = self.timestamp_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -129,10 +129,10 @@ impl serde::Serialize for CreateInviteRequest {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.consent_proof.as_ref() {
-            struct_ser.serialize_field("consentProof", v)?;
+            struct_ser.serialize_field("consent_proof", v)?;
         }
         struct_ser.end()
     }
@@ -794,15 +794,15 @@ impl serde::Serialize for decrypt_v1_request::Request {
             struct_ser.serialize_field("payload", v)?;
         }
         if let Some(v) = self.peer_keys.as_ref() {
-            struct_ser.serialize_field("peerKeys", v)?;
+            struct_ser.serialize_field("peer_keys", v)?;
         }
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if self.is_sender {
-            struct_ser.serialize_field("isSender", &self.is_sender)?;
+            struct_ser.serialize_field("is_sender", &self.is_sender)?;
         }
         struct_ser.end()
     }
@@ -1041,10 +1041,10 @@ impl serde::Serialize for decrypt_v2_request::Request {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         struct_ser.end()
     }
@@ -1381,7 +1381,7 @@ impl serde::Serialize for encrypt_response::response::Success {
         if !self.sender_hmac.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
+            struct_ser.serialize_field("sender_hmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         struct_ser.end()
     }
@@ -1601,7 +1601,7 @@ impl serde::Serialize for encrypt_v1_request::Request {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         struct_ser.end()
     }
@@ -1831,10 +1831,10 @@ impl serde::Serialize for encrypt_v2_request::Request {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         struct_ser.end()
     }
@@ -2126,7 +2126,7 @@ impl serde::Serialize for GetConversationHmacKeysResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.keystore_api.v1.GetConversationHmacKeysResponse", len)?;
         if !self.hmac_keys.is_empty() {
-            struct_ser.serialize_field("hmacKeys", &self.hmac_keys)?;
+            struct_ser.serialize_field("hmac_keys", &self.hmac_keys)?;
         }
         struct_ser.end()
     }
@@ -2227,12 +2227,12 @@ impl serde::Serialize for get_conversation_hmac_keys_response::HmacKeyData {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.keystore_api.v1.GetConversationHmacKeysResponse.HmacKeyData", len)?;
         if self.thirty_day_periods_since_epoch != 0 {
-            struct_ser.serialize_field("thirtyDayPeriodsSinceEpoch", &self.thirty_day_periods_since_epoch)?;
+            struct_ser.serialize_field("thirty_day_periods_since_epoch", &self.thirty_day_periods_since_epoch)?;
         }
         if !self.hmac_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("hmacKey", pbjson::private::base64::encode(&self.hmac_key).as_str())?;
+            struct_ser.serialize_field("hmac_key", pbjson::private::base64::encode(&self.hmac_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -2534,7 +2534,7 @@ impl serde::Serialize for GetKeystoreStatusRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.keystore_api.v1.GetKeystoreStatusRequest", len)?;
         if !self.wallet_address.is_empty() {
-            struct_ser.serialize_field("walletAddress", &self.wallet_address)?;
+            struct_ser.serialize_field("wallet_address", &self.wallet_address)?;
         }
         struct_ser.end()
     }
@@ -2898,7 +2898,7 @@ impl serde::Serialize for GetRefreshJobRequest {
         if self.job_type != 0 {
             let v = JobType::try_from(self.job_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.job_type)))?;
-            struct_ser.serialize_field("jobType", &v)?;
+            struct_ser.serialize_field("job_type", &v)?;
         }
         struct_ser.end()
     }
@@ -2996,7 +2996,7 @@ impl serde::Serialize for GetRefreshJobResponse {
         if self.last_run_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastRunNs", ToString::to_string(&self.last_run_ns).as_str())?;
+            struct_ser.serialize_field("last_run_ns", ToString::to_string(&self.last_run_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -3678,12 +3678,12 @@ impl serde::Serialize for save_invites_request::Request {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.keystore_api.v1.SaveInvitesRequest.Request", len)?;
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -4981,12 +4981,12 @@ impl serde::Serialize for SetRefeshJobRequest {
         if self.job_type != 0 {
             let v = JobType::try_from(self.job_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.job_type)))?;
-            struct_ser.serialize_field("jobType", &v)?;
+            struct_ser.serialize_field("job_type", &v)?;
         }
         if self.last_run_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastRunNs", ToString::to_string(&self.last_run_ns).as_str())?;
+            struct_ser.serialize_field("last_run_ns", ToString::to_string(&self.last_run_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -5178,10 +5178,10 @@ impl serde::Serialize for SignDigestRequest {
         if let Some(v) = self.signer.as_ref() {
             match v {
                 sign_digest_request::Signer::IdentityKey(v) => {
-                    struct_ser.serialize_field("identityKey", v)?;
+                    struct_ser.serialize_field("identity_key", v)?;
                 }
                 sign_digest_request::Signer::PrekeyIndex(v) => {
-                    struct_ser.serialize_field("prekeyIndex", v)?;
+                    struct_ser.serialize_field("prekey_index", v)?;
                 }
             }
         }
@@ -5407,10 +5407,10 @@ impl serde::Serialize for topic_map::TopicData {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.peer_address.is_empty() {
-            struct_ser.serialize_field("peerAddress", &self.peer_address)?;
+            struct_ser.serialize_field("peer_address", &self.peer_address)?;
         }
         if let Some(v) = self.invitation.as_ref() {
             struct_ser.serialize_field("invitation", v)?;

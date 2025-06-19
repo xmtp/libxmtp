@@ -29,5 +29,21 @@ else
     echo "rustup is not installed, rust may not be up to date"
 fi
 
+WASM_TARGET="wasm32-unknown-unknown"
+
+if ! rustup target list --installed | grep -q "^$WASM_TARGET$"; then
+    echo "✗ $WASM_TARGET is not installed"
+    echo "Installing $WASM_TARGET..."
+
+    if rustup target add "$WASM_TARGET"; then
+        echo "✓ Successfully installed $WASM_TARGET"
+    else
+        echo "✗ Failed to install $WASM_TARGET"
+        exit 1
+    fi
+else
+    echo "✓ $WASM_TARGET is already installed"
+fi
+
 dev/build_validation_service_local
 dev/docker/up

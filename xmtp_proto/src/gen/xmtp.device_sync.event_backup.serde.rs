@@ -112,7 +112,7 @@ impl serde::Serialize for EventSave {
         if self.created_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdAtNs", ToString::to_string(&self.created_at_ns).as_str())?;
+            struct_ser.serialize_field("created_at_ns", ToString::to_string(&self.created_at_ns).as_str())?;
         }
         if !self.event.is_empty() {
             struct_ser.serialize_field("event", &self.event)?;
@@ -125,7 +125,7 @@ impl serde::Serialize for EventSave {
         if let Some(v) = self.group_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&v).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&v).as_str())?;
         }
         if self.level != 0 {
             let v = EventLevelSave::try_from(self.level)

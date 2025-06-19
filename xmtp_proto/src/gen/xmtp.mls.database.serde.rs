@@ -12,7 +12,7 @@ impl serde::Serialize for AccountAddresses {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AccountAddresses", len)?;
         if !self.account_addresses.is_empty() {
-            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+            struct_ser.serialize_field("account_addresses", &self.account_addresses)?;
         }
         struct_ser.end()
     }
@@ -208,7 +208,7 @@ impl serde::Serialize for add_members_data::V1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData.V1", len)?;
         if let Some(v) = self.addresses_or_installation_ids.as_ref() {
-            struct_ser.serialize_field("addressesOrInstallationIds", v)?;
+            struct_ser.serialize_field("addresses_or_installation_ids", v)?;
         }
         struct_ser.end()
     }
@@ -306,10 +306,10 @@ impl serde::Serialize for AddressesOrInstallationIds {
         if let Some(v) = self.addresses_or_installation_ids.as_ref() {
             match v {
                 addresses_or_installation_ids::AddressesOrInstallationIds::AccountAddresses(v) => {
-                    struct_ser.serialize_field("accountAddresses", v)?;
+                    struct_ser.serialize_field("account_addresses", v)?;
                 }
                 addresses_or_installation_ids::AddressesOrInstallationIds::InstallationIds(v) => {
-                    struct_ser.serialize_field("installationIds", v)?;
+                    struct_ser.serialize_field("installation_ids", v)?;
                 }
             }
         }
@@ -499,7 +499,7 @@ impl serde::Serialize for InstallationIds {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.InstallationIds", len)?;
         if !self.installation_ids.is_empty() {
-            struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("installation_ids", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -763,7 +763,7 @@ impl serde::Serialize for PostCommitAction {
         if let Some(v) = self.kind.as_ref() {
             match v {
                 post_commit_action::Kind::SendWelcomes(v) => {
-                    struct_ser.serialize_field("sendWelcomes", v)?;
+                    struct_ser.serialize_field("send_welcomes", v)?;
                 }
             }
         }
@@ -870,17 +870,17 @@ impl serde::Serialize for post_commit_action::Installation {
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
+            struct_ser.serialize_field("installation_key", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
+            struct_ser.serialize_field("hpke_public_key", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         if self.welcome_wrapper_algorithm != 0 {
             let v = super::message_contents::WelcomeWrapperAlgorithm::try_from(self.welcome_wrapper_algorithm)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.welcome_wrapper_algorithm)))?;
-            struct_ser.serialize_field("welcomeWrapperAlgorithm", &v)?;
+            struct_ser.serialize_field("welcome_wrapper_algorithm", &v)?;
         }
         struct_ser.end()
     }
@@ -1012,7 +1012,7 @@ impl serde::Serialize for post_commit_action::SendWelcomes {
         if !self.welcome_message.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("welcomeMessage", pbjson::private::base64::encode(&self.welcome_message).as_str())?;
+            struct_ser.serialize_field("welcome_message", pbjson::private::base64::encode(&self.welcome_message).as_str())?;
         }
         struct_ser.end()
     }
@@ -1221,7 +1221,7 @@ impl serde::Serialize for remove_members_data::V1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersData.V1", len)?;
         if let Some(v) = self.addresses_or_installation_ids.as_ref() {
-            struct_ser.serialize_field("addressesOrInstallationIds", v)?;
+            struct_ser.serialize_field("addresses_or_installation_ids", v)?;
         }
         struct_ser.end()
     }
@@ -1419,7 +1419,7 @@ impl serde::Serialize for send_message_data::V1 {
         if !self.payload_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("payloadBytes", pbjson::private::base64::encode(&self.payload_bytes).as_str())?;
+            struct_ser.serialize_field("payload_bytes", pbjson::private::base64::encode(&self.payload_bytes).as_str())?;
         }
         struct_ser.end()
     }
@@ -1622,10 +1622,10 @@ impl serde::Serialize for update_admin_lists_data::V1 {
         if self.admin_list_update_type != 0 {
             let v = AdminListUpdateType::try_from(self.admin_list_update_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.admin_list_update_type)))?;
-            struct_ser.serialize_field("adminListUpdateType", &v)?;
+            struct_ser.serialize_field("admin_list_update_type", &v)?;
         }
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -1841,13 +1841,13 @@ impl serde::Serialize for update_group_membership_data::V1 {
         if !self.membership_updates.is_empty() {
             let v: std::collections::HashMap<_, _> = self.membership_updates.iter()
                 .map(|(k, v)| (k, v.to_string())).collect();
-            struct_ser.serialize_field("membershipUpdates", &v)?;
+            struct_ser.serialize_field("membership_updates", &v)?;
         }
         if !self.removed_members.is_empty() {
-            struct_ser.serialize_field("removedMembers", &self.removed_members)?;
+            struct_ser.serialize_field("removed_members", &self.removed_members)?;
         }
         if !self.failed_installations.is_empty() {
-            struct_ser.serialize_field("failedInstallations", &self.failed_installations.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("failed_installations", &self.failed_installations.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -2076,10 +2076,10 @@ impl serde::Serialize for update_metadata_data::V1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdateMetadataData.V1", len)?;
         if !self.field_name.is_empty() {
-            struct_ser.serialize_field("fieldName", &self.field_name)?;
+            struct_ser.serialize_field("field_name", &self.field_name)?;
         }
         if !self.field_value.is_empty() {
-            struct_ser.serialize_field("fieldValue", &self.field_value)?;
+            struct_ser.serialize_field("field_value", &self.field_value)?;
         }
         struct_ser.end()
     }
@@ -2295,15 +2295,15 @@ impl serde::Serialize for update_permission_data::V1 {
         if self.permission_update_type != 0 {
             let v = PermissionUpdateType::try_from(self.permission_update_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.permission_update_type)))?;
-            struct_ser.serialize_field("permissionUpdateType", &v)?;
+            struct_ser.serialize_field("permission_update_type", &v)?;
         }
         if self.permission_policy_option != 0 {
             let v = PermissionPolicyOption::try_from(self.permission_policy_option)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.permission_policy_option)))?;
-            struct_ser.serialize_field("permissionPolicyOption", &v)?;
+            struct_ser.serialize_field("permission_policy_option", &v)?;
         }
         if let Some(v) = self.metadata_field_name.as_ref() {
-            struct_ser.serialize_field("metadataFieldName", v)?;
+            struct_ser.serialize_field("metadata_field_name", v)?;
         }
         struct_ser.end()
     }

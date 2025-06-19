@@ -12,7 +12,7 @@ impl serde::Serialize for MlsCredential {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.MlsCredential", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }

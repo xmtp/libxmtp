@@ -14,7 +14,7 @@ impl serde::Serialize for Ciphertext {
         if let Some(v) = self.union.as_ref() {
             match v {
                 ciphertext::Union::Aes256GcmHkdfSha256(v) => {
-                    struct_ser.serialize_field("aes256GcmHkdfSha256", v)?;
+                    struct_ser.serialize_field("aes256_gcm_hkdf_sha256", v)?;
                 }
             }
         }
@@ -121,12 +121,12 @@ impl serde::Serialize for ciphertext::Aes256gcmHkdfsha256 {
         if !self.hkdf_salt.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("hkdfSalt", pbjson::private::base64::encode(&self.hkdf_salt).as_str())?;
+            struct_ser.serialize_field("hkdf_salt", pbjson::private::base64::encode(&self.hkdf_salt).as_str())?;
         }
         if !self.gcm_nonce.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("gcmNonce", pbjson::private::base64::encode(&self.gcm_nonce).as_str())?;
+            struct_ser.serialize_field("gcm_nonce", pbjson::private::base64::encode(&self.gcm_nonce).as_str())?;
         }
         if !self.payload.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -551,7 +551,7 @@ impl serde::Serialize for ConsentProofPayload {
         if self.payload_version != 0 {
             let v = ConsentProofPayloadVersion::try_from(self.payload_version)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.payload_version)))?;
-            struct_ser.serialize_field("payloadVersion", &v)?;
+            struct_ser.serialize_field("payload_version", &v)?;
         }
         struct_ser.end()
     }
@@ -855,7 +855,7 @@ impl serde::Serialize for ContactBundleV1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.ContactBundleV1", len)?;
         if let Some(v) = self.key_bundle.as_ref() {
-            struct_ser.serialize_field("keyBundle", v)?;
+            struct_ser.serialize_field("key_bundle", v)?;
         }
         struct_ser.end()
     }
@@ -951,7 +951,7 @@ impl serde::Serialize for ContactBundleV2 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.ContactBundleV2", len)?;
         if let Some(v) = self.key_bundle.as_ref() {
-            struct_ser.serialize_field("keyBundle", v)?;
+            struct_ser.serialize_field("key_bundle", v)?;
         }
         struct_ser.end()
     }
@@ -1056,16 +1056,16 @@ impl serde::Serialize for ContentTypeId {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.ContentTypeId", len)?;
         if !self.authority_id.is_empty() {
-            struct_ser.serialize_field("authorityId", &self.authority_id)?;
+            struct_ser.serialize_field("authority_id", &self.authority_id)?;
         }
         if !self.type_id.is_empty() {
-            struct_ser.serialize_field("typeId", &self.type_id)?;
+            struct_ser.serialize_field("type_id", &self.type_id)?;
         }
         if self.version_major != 0 {
-            struct_ser.serialize_field("versionMajor", &self.version_major)?;
+            struct_ser.serialize_field("version_major", &self.version_major)?;
         }
         if self.version_minor != 0 {
-            struct_ser.serialize_field("versionMinor", &self.version_minor)?;
+            struct_ser.serialize_field("version_minor", &self.version_minor)?;
         }
         struct_ser.end()
     }
@@ -1216,18 +1216,18 @@ impl serde::Serialize for ConversationReference {
             struct_ser.serialize_field("topic", &self.topic)?;
         }
         if !self.peer_address.is_empty() {
-            struct_ser.serialize_field("peerAddress", &self.peer_address)?;
+            struct_ser.serialize_field("peer_address", &self.peer_address)?;
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.context.as_ref() {
             struct_ser.serialize_field("context", v)?;
         }
         if let Some(v) = self.consent_proof_payload.as_ref() {
-            struct_ser.serialize_field("consentProofPayload", v)?;
+            struct_ser.serialize_field("consent_proof_payload", v)?;
         }
         struct_ser.end()
     }
@@ -1395,21 +1395,21 @@ impl serde::Serialize for DecodedMessage {
             struct_ser.serialize_field("id", &self.id)?;
         }
         if !self.message_version.is_empty() {
-            struct_ser.serialize_field("messageVersion", &self.message_version)?;
+            struct_ser.serialize_field("message_version", &self.message_version)?;
         }
         if !self.sender_address.is_empty() {
-            struct_ser.serialize_field("senderAddress", &self.sender_address)?;
+            struct_ser.serialize_field("sender_address", &self.sender_address)?;
         }
         if let Some(v) = self.recipient_address.as_ref() {
-            struct_ser.serialize_field("recipientAddress", v)?;
+            struct_ser.serialize_field("recipient_address", v)?;
         }
         if self.sent_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sentNs", ToString::to_string(&self.sent_ns).as_str())?;
+            struct_ser.serialize_field("sent_ns", ToString::to_string(&self.sent_ns).as_str())?;
         }
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         if let Some(v) = self.conversation.as_ref() {
             struct_ser.serialize_field("conversation", v)?;
@@ -1417,7 +1417,7 @@ impl serde::Serialize for DecodedMessage {
         if !self.content_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("contentBytes", pbjson::private::base64::encode(&self.content_bytes).as_str())?;
+            struct_ser.serialize_field("content_bytes", pbjson::private::base64::encode(&self.content_bytes).as_str())?;
         }
         struct_ser.end()
     }
@@ -1976,7 +1976,7 @@ impl serde::Serialize for EncryptedPrivateKeyBundleV1 {
         if !self.wallet_pre_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("walletPreKey", pbjson::private::base64::encode(&self.wallet_pre_key).as_str())?;
+            struct_ser.serialize_field("wallet_pre_key", pbjson::private::base64::encode(&self.wallet_pre_key).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
             struct_ser.serialize_field("ciphertext", v)?;
@@ -2106,25 +2106,25 @@ impl serde::Serialize for FrameAction {
             struct_ser.serialize_field("signature", v)?;
         }
         if let Some(v) = self.signed_public_key_bundle.as_ref() {
-            struct_ser.serialize_field("signedPublicKeyBundle", v)?;
+            struct_ser.serialize_field("signed_public_key_bundle", v)?;
         }
         if !self.action_body.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("actionBody", pbjson::private::base64::encode(&self.action_body).as_str())?;
+            struct_ser.serialize_field("action_body", pbjson::private::base64::encode(&self.action_body).as_str())?;
         }
         if !self.installation_signature.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationSignature", pbjson::private::base64::encode(&self.installation_signature).as_str())?;
+            struct_ser.serialize_field("installation_signature", pbjson::private::base64::encode(&self.installation_signature).as_str())?;
         }
         if !self.installation_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
+            struct_ser.serialize_field("installation_id", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -2309,10 +2309,10 @@ impl serde::Serialize for FrameActionBody {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.FrameActionBody", len)?;
         if !self.frame_url.is_empty() {
-            struct_ser.serialize_field("frameUrl", &self.frame_url)?;
+            struct_ser.serialize_field("frame_url", &self.frame_url)?;
         }
         if self.button_index != 0 {
-            struct_ser.serialize_field("buttonIndex", &self.button_index)?;
+            struct_ser.serialize_field("button_index", &self.button_index)?;
         }
         if self.timestamp != 0 {
             #[allow(clippy::needless_borrow)]
@@ -2320,13 +2320,13 @@ impl serde::Serialize for FrameActionBody {
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if !self.opaque_conversation_identifier.is_empty() {
-            struct_ser.serialize_field("opaqueConversationIdentifier", &self.opaque_conversation_identifier)?;
+            struct_ser.serialize_field("opaque_conversation_identifier", &self.opaque_conversation_identifier)?;
         }
         if self.unix_timestamp != 0 {
-            struct_ser.serialize_field("unixTimestamp", &self.unix_timestamp)?;
+            struct_ser.serialize_field("unix_timestamp", &self.unix_timestamp)?;
         }
         if !self.input_text.is_empty() {
-            struct_ser.serialize_field("inputText", &self.input_text)?;
+            struct_ser.serialize_field("input_text", &self.input_text)?;
         }
         if !self.state.is_empty() {
             struct_ser.serialize_field("state", &self.state)?;
@@ -2335,7 +2335,7 @@ impl serde::Serialize for FrameActionBody {
             struct_ser.serialize_field("address", &self.address)?;
         }
         if !self.transaction_id.is_empty() {
-            struct_ser.serialize_field("transactionId", &self.transaction_id)?;
+            struct_ser.serialize_field("transaction_id", &self.transaction_id)?;
         }
         struct_ser.end()
     }
@@ -2545,12 +2545,12 @@ impl serde::Serialize for InvitationV1 {
             struct_ser.serialize_field("context", v)?;
         }
         if let Some(v) = self.consent_proof.as_ref() {
-            struct_ser.serialize_field("consentProof", v)?;
+            struct_ser.serialize_field("consent_proof", v)?;
         }
         if let Some(v) = self.encryption.as_ref() {
             match v {
                 invitation_v1::Encryption::Aes256GcmHkdfSha256(v) => {
-                    struct_ser.serialize_field("aes256GcmHkdfSha256", v)?;
+                    struct_ser.serialize_field("aes256_gcm_hkdf_sha256", v)?;
                 }
             }
         }
@@ -2685,7 +2685,7 @@ impl serde::Serialize for invitation_v1::Aes256gcmHkdfsha256 {
         if !self.key_material.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyMaterial", pbjson::private::base64::encode(&self.key_material).as_str())?;
+            struct_ser.serialize_field("key_material", pbjson::private::base64::encode(&self.key_material).as_str())?;
         }
         struct_ser.end()
     }
@@ -2786,7 +2786,7 @@ impl serde::Serialize for invitation_v1::Context {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.InvitationV1.Context", len)?;
         if !self.conversation_id.is_empty() {
-            struct_ser.serialize_field("conversationId", &self.conversation_id)?;
+            struct_ser.serialize_field("conversation_id", &self.conversation_id)?;
         }
         if !self.metadata.is_empty() {
             struct_ser.serialize_field("metadata", &self.metadata)?;
@@ -3149,7 +3149,7 @@ impl serde::Serialize for MessageHeaderV2 {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if !self.topic.is_empty() {
             struct_ser.serialize_field("topic", &self.topic)?;
@@ -3266,7 +3266,7 @@ impl serde::Serialize for MessageV1 {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
             struct_ser.serialize_field("ciphertext", v)?;
@@ -3389,7 +3389,7 @@ impl serde::Serialize for MessageV2 {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
             struct_ser.serialize_field("ciphertext", v)?;
@@ -3397,10 +3397,10 @@ impl serde::Serialize for MessageV2 {
         if let Some(v) = self.sender_hmac.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&v).as_str())?;
+            struct_ser.serialize_field("sender_hmac", pbjson::private::base64::encode(&v).as_str())?;
         }
         if let Some(v) = self.should_push.as_ref() {
-            struct_ser.serialize_field("shouldPush", v)?;
+            struct_ser.serialize_field("should_push", v)?;
         }
         struct_ser.end()
     }
@@ -3546,7 +3546,7 @@ impl serde::Serialize for PrivateKey {
             struct_ser.serialize_field("timestamp", ToString::to_string(&self.timestamp).as_str())?;
         }
         if let Some(v) = self.public_key.as_ref() {
-            struct_ser.serialize_field("publicKey", v)?;
+            struct_ser.serialize_field("public_key", v)?;
         }
         if let Some(v) = self.union.as_ref() {
             match v {
@@ -3889,10 +3889,10 @@ impl serde::Serialize for PrivateKeyBundleV1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivateKeyBundleV1", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if !self.pre_keys.is_empty() {
-            struct_ser.serialize_field("preKeys", &self.pre_keys)?;
+            struct_ser.serialize_field("pre_keys", &self.pre_keys)?;
         }
         struct_ser.end()
     }
@@ -4003,10 +4003,10 @@ impl serde::Serialize for PrivateKeyBundleV2 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivateKeyBundleV2", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if !self.pre_keys.is_empty() {
-            struct_ser.serialize_field("preKeys", &self.pre_keys)?;
+            struct_ser.serialize_field("pre_keys", &self.pre_keys)?;
         }
         struct_ser.end()
     }
@@ -4116,22 +4116,22 @@ impl serde::Serialize for PrivatePreferencesAction {
         if let Some(v) = self.message_type.as_ref() {
             match v {
                 private_preferences_action::MessageType::AllowAddress(v) => {
-                    struct_ser.serialize_field("allowAddress", v)?;
+                    struct_ser.serialize_field("allow_address", v)?;
                 }
                 private_preferences_action::MessageType::DenyAddress(v) => {
-                    struct_ser.serialize_field("denyAddress", v)?;
+                    struct_ser.serialize_field("deny_address", v)?;
                 }
                 private_preferences_action::MessageType::AllowGroup(v) => {
-                    struct_ser.serialize_field("allowGroup", v)?;
+                    struct_ser.serialize_field("allow_group", v)?;
                 }
                 private_preferences_action::MessageType::DenyGroup(v) => {
-                    struct_ser.serialize_field("denyGroup", v)?;
+                    struct_ser.serialize_field("deny_group", v)?;
                 }
                 private_preferences_action::MessageType::AllowInboxId(v) => {
-                    struct_ser.serialize_field("allowInboxId", v)?;
+                    struct_ser.serialize_field("allow_inbox_id", v)?;
                 }
                 private_preferences_action::MessageType::DenyInboxId(v) => {
-                    struct_ser.serialize_field("denyInboxId", v)?;
+                    struct_ser.serialize_field("deny_inbox_id", v)?;
                 }
             }
         }
@@ -4285,7 +4285,7 @@ impl serde::Serialize for private_preferences_action::AllowAddress {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowAddress", len)?;
         if !self.wallet_addresses.is_empty() {
-            struct_ser.serialize_field("walletAddresses", &self.wallet_addresses)?;
+            struct_ser.serialize_field("wallet_addresses", &self.wallet_addresses)?;
         }
         struct_ser.end()
     }
@@ -4381,7 +4381,7 @@ impl serde::Serialize for private_preferences_action::AllowGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids)?;
+            struct_ser.serialize_field("group_ids", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4477,7 +4477,7 @@ impl serde::Serialize for private_preferences_action::AllowInboxId {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.AllowInboxId", len)?;
         if !self.inbox_ids.is_empty() {
-            struct_ser.serialize_field("inboxIds", &self.inbox_ids)?;
+            struct_ser.serialize_field("inbox_ids", &self.inbox_ids)?;
         }
         struct_ser.end()
     }
@@ -4573,7 +4573,7 @@ impl serde::Serialize for private_preferences_action::DenyAddress {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyAddress", len)?;
         if !self.wallet_addresses.is_empty() {
-            struct_ser.serialize_field("walletAddresses", &self.wallet_addresses)?;
+            struct_ser.serialize_field("wallet_addresses", &self.wallet_addresses)?;
         }
         struct_ser.end()
     }
@@ -4669,7 +4669,7 @@ impl serde::Serialize for private_preferences_action::DenyGroup {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyGroup", len)?;
         if !self.group_ids.is_empty() {
-            struct_ser.serialize_field("groupIds", &self.group_ids)?;
+            struct_ser.serialize_field("group_ids", &self.group_ids)?;
         }
         struct_ser.end()
     }
@@ -4765,7 +4765,7 @@ impl serde::Serialize for private_preferences_action::DenyInboxId {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesAction.DenyInboxId", len)?;
         if !self.inbox_ids.is_empty() {
-            struct_ser.serialize_field("inboxIds", &self.inbox_ids)?;
+            struct_ser.serialize_field("inbox_ids", &self.inbox_ids)?;
         }
         struct_ser.end()
     }
@@ -4977,7 +4977,7 @@ impl serde::Serialize for PublicKey {
         if let Some(v) = self.union.as_ref() {
             match v {
                 public_key::Union::Secp256k1Uncompressed(v) => {
-                    struct_ser.serialize_field("secp256k1Uncompressed", v)?;
+                    struct_ser.serialize_field("secp256k1_uncompressed", v)?;
                 }
             }
         }
@@ -5202,10 +5202,10 @@ impl serde::Serialize for PublicKeyBundle {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PublicKeyBundle", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if let Some(v) = self.pre_key.as_ref() {
-            struct_ser.serialize_field("preKey", v)?;
+            struct_ser.serialize_field("pre_key", v)?;
         }
         struct_ser.end()
     }
@@ -5427,7 +5427,7 @@ impl serde::Serialize for SealedInvitationHeaderV1 {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -5552,7 +5552,7 @@ impl serde::Serialize for SealedInvitationV1 {
         if !self.header_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+            struct_ser.serialize_field("header_bytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
         }
         if let Some(v) = self.ciphertext.as_ref() {
             struct_ser.serialize_field("ciphertext", v)?;
@@ -5666,10 +5666,10 @@ impl serde::Serialize for Signature {
         if let Some(v) = self.union.as_ref() {
             match v {
                 signature::Union::EcdsaCompact(v) => {
-                    struct_ser.serialize_field("ecdsaCompact", v)?;
+                    struct_ser.serialize_field("ecdsa_compact", v)?;
                 }
                 signature::Union::WalletEcdsaCompact(v) => {
-                    struct_ser.serialize_field("walletEcdsaCompact", v)?;
+                    struct_ser.serialize_field("wallet_ecdsa_compact", v)?;
                 }
             }
         }
@@ -6153,7 +6153,7 @@ impl serde::Serialize for SignedEciesCiphertext {
         if !self.ecies_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("eciesBytes", pbjson::private::base64::encode(&self.ecies_bytes).as_str())?;
+            struct_ser.serialize_field("ecies_bytes", pbjson::private::base64::encode(&self.ecies_bytes).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -6276,7 +6276,7 @@ impl serde::Serialize for signed_ecies_ciphertext::Ecies {
         if !self.ephemeral_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("ephemeralPublicKey", pbjson::private::base64::encode(&self.ephemeral_public_key).as_str())?;
+            struct_ser.serialize_field("ephemeral_public_key", pbjson::private::base64::encode(&self.ephemeral_public_key).as_str())?;
         }
         if !self.iv.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -6552,10 +6552,10 @@ impl serde::Serialize for SignedPrivateKey {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.public_key.as_ref() {
-            struct_ser.serialize_field("publicKey", v)?;
+            struct_ser.serialize_field("public_key", v)?;
         }
         if let Some(v) = self.union.as_ref() {
             match v {
@@ -6788,7 +6788,7 @@ impl serde::Serialize for SignedPublicKey {
         if !self.key_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("keyBytes", pbjson::private::base64::encode(&self.key_bytes).as_str())?;
+            struct_ser.serialize_field("key_bytes", pbjson::private::base64::encode(&self.key_bytes).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -6903,10 +6903,10 @@ impl serde::Serialize for SignedPublicKeyBundle {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.SignedPublicKeyBundle", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if let Some(v) = self.pre_key.as_ref() {
-            struct_ser.serialize_field("preKey", v)?;
+            struct_ser.serialize_field("pre_key", v)?;
         }
         struct_ser.end()
     }
@@ -7019,12 +7019,12 @@ impl serde::Serialize for UnsignedPublicKey {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         if let Some(v) = self.union.as_ref() {
             match v {
                 unsigned_public_key::Union::Secp256k1Uncompressed(v) => {
-                    struct_ser.serialize_field("secp256k1Uncompressed", v)?;
+                    struct_ser.serialize_field("secp256k1_uncompressed", v)?;
                 }
             }
         }
