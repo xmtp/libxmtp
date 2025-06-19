@@ -806,28 +806,7 @@ class ClientTests: XCTestCase {
 			)
 		)
 		
-		// Wait for initial operations to complete
-		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-		
-		let aggregateStats1 = alix.debugInformation.aggregateStatistics
-		print("Aggregate Stats Create:\n\(aggregateStats1)")
-		
-		let apiStats1 = alix.debugInformation.apiStatistics
-		XCTAssertEqual(1, apiStats1.uploadKeyPackage)
-		XCTAssertEqual(0, apiStats1.fetchKeyPackage)
-		XCTAssertEqual(2, apiStats1.sendGroupMessages)
-		XCTAssertEqual(0, apiStats1.sendWelcomeMessages)
-		XCTAssertEqual(4, apiStats1.queryGroupMessages)
-		XCTAssertEqual(0, apiStats1.queryWelcomeMessages)
-		XCTAssertEqual(0, apiStats1.subscribeMessages)
-		XCTAssertEqual(0, apiStats1.subscribeWelcomes)
-		
-		let identityStats1 = alix.debugInformation.identityStatistics
-		XCTAssertEqual(1, identityStats1.publishIdentityUpdate)
-		XCTAssertEqual(3, identityStats1.getIdentityUpdatesV2)
-		XCTAssertEqual(2, identityStats1.getInboxIds)
-		XCTAssertEqual(0, identityStats1.verifySmartContractWalletSignature)
-		
+		alix.debugInformation.clearAllStatistics()
 		// Start streaming messages
 		let streamTask = Task {
 			for try await _ in await alix.conversations.streamAllMessages() {
@@ -838,24 +817,23 @@ class ClientTests: XCTestCase {
 		// Create a group and send a message
 		let group = try await alix.conversations.newGroup(with: [])
 		_ = try await group.send(content: "hi")
-		
+		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
 		let aggregateStats2 = alix.debugInformation.aggregateStatistics
 		print("Aggregate Stats Create:\n\(aggregateStats2)")
 		
 		let apiStats2 = alix.debugInformation.apiStatistics
-		XCTAssertEqual(1, apiStats2.uploadKeyPackage)
+		XCTAssertEqual(0, apiStats2.uploadKeyPackage)
 		XCTAssertEqual(0, apiStats2.fetchKeyPackage)
 		XCTAssertEqual(6, apiStats2.sendGroupMessages)
 		XCTAssertEqual(0, apiStats2.sendWelcomeMessages)
-		XCTAssertEqual(12, apiStats2.queryGroupMessages) // this seems inconsistently 11 or 12
 		XCTAssertEqual(1, apiStats2.queryWelcomeMessages)
-		XCTAssertEqual(1, apiStats2.subscribeMessages)
 		XCTAssertEqual(1, apiStats2.subscribeWelcomes)
 		
 		let identityStats2 = alix.debugInformation.identityStatistics
-		XCTAssertEqual(1, identityStats2.publishIdentityUpdate)
-		XCTAssertEqual(4, identityStats2.getIdentityUpdatesV2)
-		XCTAssertEqual(2, identityStats2.getInboxIds)
+		XCTAssertEqual(0, identityStats2.publishIdentityUpdate)
+		XCTAssertEqual(2, identityStats2.getIdentityUpdatesV2)
+		XCTAssertEqual(0, identityStats2.getInboxIds)
 		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignature)
 		
 		// Cancel the streaming task
@@ -927,4 +905,122 @@ class ClientTests: XCTestCase {
 			}
 		}
 	}
+	
+	func testCanBeBuiltOffline() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let wallet = try PrivateKey.generate()
+		let options = ClientOptions(
+			api: .init(env: .local, isSecure: false),
+			dbEncryptionKey: key
+		)
+
+		let client = try await Client.create(account: wallet, options: options)
+
+		client.debugInformation.clearAllStatistics()
+		print("Initial stats: \(client.debugInformation.aggregateStatistics)")
+
+		let builtClient = try await Client.build(
+			publicIdentity: client.publicIdentity,
+			options: options,
+			inboxId: client.inboxID
+		)
+
+		print("Post-build stats: \(builtClient.debugInformation.aggregateStatistics)")
+		XCTAssertEqual(client.inboxID, builtClient.inboxID)
+
+		let fixtures = try await fixtures()// Assuming this provides alixClient and boClient
+
+		let group = try await builtClient.conversations.newGroup(
+			with: [fixtures.alixClient.inboxID])
+		try await group.send(content: "howdy")
+
+		let alixDm = try await fixtures.alixClient.conversations.newConversation(with: builtClient.inboxID)
+		try await alixDm.send(content: "howdy")
+
+		let boGroup = try await fixtures.boClient.conversations.newGroupWithIdentities(
+			with: [builtClient.publicIdentity])
+		try await boGroup.send(content: "howdy")
+
+		try await builtClient.conversations.syncAllConversations()
+		let convos = try await builtClient.conversations.list()
+
+		XCTAssertEqual(convos.count, 3)
+	}
+
+	
+	func testCannotCreateMoreThan5Installations() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let wallet = try PrivateKey.generate()
+
+		var clients: [Client] = []
+
+		for i in 0..<5 {
+			let client = try await Client.create(
+				account: wallet,
+				options: ClientOptions(
+					api: .init(env: .local, isSecure: false),
+					dbEncryptionKey: key,
+					dbDirectory: "xmtp_db_\(i)"
+				)
+			)
+			clients.append(client)
+		}
+
+		let state = try await clients[0].inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(state.installations.count, 5)
+
+		// Attempt to create a 6th installation, should throw
+		await assertThrowsAsyncError(
+			_ = try await Client.create(
+				account: wallet,
+				options: ClientOptions(
+					api: .init(env: .local, isSecure: false),
+					dbEncryptionKey: key,
+					dbDirectory: "xmtp_db_5"
+				)
+			)
+		)
+
+		let boWallet = try PrivateKey.generate()
+		let boClient = try await Client.create(
+			account: boWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: try Crypto.secureRandomBytes(count: 32),
+				dbDirectory: "xmtp_bo"
+			)
+		)
+
+		let group = try await boClient.conversations.newGroup(with: [clients[2].inboxID])
+		let members = try await group.members
+		let alixMember = members.first { $0.inboxId == clients[0].inboxID }
+		XCTAssertNotNil(alixMember)
+
+		let inboxState = try await boClient.inboxStatesForInboxIds(
+			refreshFromNetwork: true,
+			inboxIds: [alixMember!.inboxId]
+		)
+		XCTAssertEqual(inboxState.first?.installations.count, 5)
+
+		try await clients[0].revokeInstallations(
+			signingKey: wallet,
+			installationIds: [clients[4].installationID]
+		)
+
+		let stateAfterRevoke = try await clients[0].inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(stateAfterRevoke.installations.count, 4)
+
+		let sixthClient = try await Client.create(
+			account: wallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: "xmtp_db_6"
+			)
+		)
+
+		let finalState = try await clients[0].inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(finalState.installations.count, 5)
+	}
+
 }

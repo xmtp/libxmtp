@@ -69,7 +69,7 @@ public struct ClientOptions {
 		self.dbEncryptionKey = dbEncryptionKey
 		self.dbDirectory = dbDirectory
 		if useDefaultHistorySyncUrl && historySyncUrl == nil {
-            self.historySyncUrl = api.env.getHistorySyncUrl()
+			self.historySyncUrl = api.env.getHistorySyncUrl()
 		} else {
 			self.historySyncUrl = historySyncUrl
 		}
@@ -103,13 +103,13 @@ public final class Client {
 	public lazy var conversations: Conversations = .init(
 		client: self, ffiConversations: ffiClient.conversations(),
 		ffiClient: ffiClient)
-    
+
 	public lazy var preferences: PrivatePreferences = .init(
 		client: self, ffiClient: ffiClient)
-    
-    public lazy var debugInformation: XMTPDebugInformation = .init(
-        client: self, ffiClient: ffiClient)
-    
+
+	public lazy var debugInformation: XMTPDebugInformation = .init(
+		client: self, ffiClient: ffiClient)
+
 	static var codecRegistry = CodecRegistry()
 
 	public static func register(codec: any ContentCodec) {
@@ -121,12 +121,14 @@ public final class Client {
 		options: ClientOptions,
 		signingKey: SigningKey?,
 		inboxId: InboxId,
-		apiClient: XmtpApiClient? = nil
+		apiClient: XmtpApiClient? = nil,
+		buildOffline: Bool = false
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountIdentifier: publicIdentity,
 			options: options,
-			inboxId: inboxId
+			inboxId: inboxId,
+			buildOffline: buildOffline
 		)
 
 		let client = try Client(
@@ -153,11 +155,16 @@ public final class Client {
 				}
 			} else {
 				// add log messages here for logging 1) dbDirectory, 2) number of files in dbDirectory, 3) dbPath
-				let dbPathDirectory = URL(fileURLWithPath: dbPath).deletingLastPathComponent().path
-				XMTPLogger.database.error("custom dbDirectory: \(options.dbDirectory ?? "nil")")
+				let dbPathDirectory = URL(fileURLWithPath: dbPath)
+					.deletingLastPathComponent().path
+				XMTPLogger.database.error(
+					"custom dbDirectory: \(options.dbDirectory ?? "nil")")
 				XMTPLogger.database.error("dbPath: \(dbPath)")
-				XMTPLogger.database.error("dbPath Directory: \(dbPathDirectory)")
-				XMTPLogger.database.error("Number of files in dbDirectory: \(getNumberOfFilesInDirectory(directory: dbPathDirectory))")
+				XMTPLogger.database.error(
+					"dbPath Directory: \(dbPathDirectory)")
+				XMTPLogger.database.error(
+					"Number of files in dbDirectory: \(getNumberOfFilesInDirectory(directory: dbPathDirectory))"
+				)
 				throw ClientError.creationError(
 					"No signing key found, you must pass a SigningKey in order to create an MLS client"
 				)
@@ -207,7 +214,8 @@ public final class Client {
 			publicIdentity: publicIdentity,
 			options: options,
 			signingKey: nil,
-			inboxId: resolvedInboxId
+			inboxId: resolvedInboxId,
+			buildOffline: inboxId != nil
 		)
 	}
 
@@ -245,7 +253,8 @@ public final class Client {
 	private static func initFFiClient(
 		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
-		inboxId: InboxId
+		inboxId: InboxId,
+		buildOffline: Bool = false
 	) async throws -> (FfiXmtpClient, String) {
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
@@ -267,15 +276,18 @@ public final class Client {
 		} else {
 			directoryURL = URL.documentsDirectory
 		}
-		
+
 		let alias = "xmtp-\(options.api.env.rawValue)-\(inboxId).db3"
 		var dbURL = directoryURL.appendingPathComponent(alias).path
 		var fileExists = FileManager.default.fileExists(atPath: dbURL)
 
 		if !fileExists {
-			let legacyAlias = "xmtp-\(options.api.env.legacyRawValue)-\(inboxId).db3"
-			let legacyDbURL = directoryURL.appendingPathComponent(legacyAlias).path
-			let legacyFileExists = FileManager.default.fileExists(atPath: legacyDbURL)
+			let legacyAlias =
+				"xmtp-\(options.api.env.legacyRawValue)-\(inboxId).db3"
+			let legacyDbURL = directoryURL.appendingPathComponent(legacyAlias)
+				.path
+			let legacyFileExists = FileManager.default.fileExists(
+				atPath: legacyDbURL)
 
 			if legacyFileExists {
 				dbURL = legacyDbURL
@@ -290,7 +302,8 @@ public final class Client {
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncServerUrl: options.historySyncUrl,
-            deviceSyncMode: .enabled
+			deviceSyncMode: .enabled,
+			allowOffline: buildOffline
 		)
 
 		return (ffiClient, dbURL)
@@ -371,7 +384,8 @@ public final class Client {
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncServerUrl: nil,
-			deviceSyncMode: nil
+			deviceSyncMode: nil,
+			allowOffline: false
 		)
 	}
 
@@ -396,7 +410,7 @@ public final class Client {
 			refreshFromNetwork: true, inboxIds: inboxIds)
 		return result.map { InboxState(ffiInboxState: $0) }
 	}
-	
+
 	public static func keyPackageStatusesForInstallationIds(
 		installationIds: [String],
 		api: ClientOptions.Api
@@ -404,7 +418,9 @@ public final class Client {
 		let ffiClient = try await prepareClient(api: api)
 
 		let byteArrays = installationIds.map { $0.hexToData }
-		let result = try await ffiClient.getKeyPackageStatusesForInstallationIds(installationIds: byteArrays)
+		let result =
+			try await ffiClient.getKeyPackageStatusesForInstallationIds(
+				installationIds: byteArrays)
 		var statusMap: [String: FfiKeyPackageStatus] = [:]
 		for (keyBytes, status) in result {
 			let keyHex = keyBytes.toHex
@@ -519,7 +535,8 @@ public final class Client {
 		return canMessage[identity.identifier] ?? false
 	}
 
-	public func canMessage(identities: [PublicIdentity]) async throws -> [String: Bool]
+	public func canMessage(identities: [PublicIdentity]) async throws
+		-> [String: Bool]
 	{
 		let ffiIdentifiers = identities.map { $0.ffiPrivate }
 		let result = try await ffiClient.canMessage(
@@ -741,7 +758,7 @@ extension Client {
 		case info
 		/// Debug level and above
 		case debug
-		
+
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
 			case .error: return .error
@@ -764,10 +781,12 @@ extension Client {
 		maxFiles: Int,
 		customLogDirectory: URL? = nil
 	) {
-		
+
 		let fileManager = FileManager.default
-		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
-		
+		let logDirectory =
+			customLogDirectory
+			?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+
 		// Check if directory exists and is writable before proceeding
 		if !fileManager.fileExists(atPath: logDirectory.path) {
 			do {
@@ -777,38 +796,51 @@ extension Client {
 					attributes: nil
 				)
 			} catch {
-				os_log("Failed to create log directory: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+				os_log(
+					"Failed to create log directory: %{public}@",
+					log: OSLog.default, type: .error, error.localizedDescription
+				)
 				return
 			}
 		}
-		
+
 		// Verify write permissions by attempting to create a test file
 		let testFilePath = logDirectory.appendingPathComponent("write_test.tmp")
-		if !fileManager.createFile(atPath: testFilePath.path, contents: Data("test".utf8)) {
-			os_log("Directory exists but is not writable: %{public}@", log: OSLog.default, type: .error, logDirectory.path)
+		if !fileManager.createFile(
+			atPath: testFilePath.path, contents: Data("test".utf8))
+		{
+			os_log(
+				"Directory exists but is not writable: %{public}@",
+				log: OSLog.default, type: .error, logDirectory.path)
 			return
 		}
-		
+
 		// Clean up test file
 		do {
 			try fileManager.removeItem(at: testFilePath)
 		} catch {
 			// If we can't remove the test file, log but continue
-			os_log("Could not remove test file: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+			os_log(
+				"Could not remove test file: %{public}@", log: OSLog.default,
+				type: .error, error.localizedDescription)
 		}
-		
+
 		// Install a signal handler to prevent app crashes on panics
 		signal(SIGABRT) { _ in
-			os_log("Caught SIGABRT from Rust panic in logging", log: OSLog.default, type: .error)
+			os_log(
+				"Caught SIGABRT from Rust panic in logging", log: OSLog.default,
+				type: .error)
 			// Try to safely deactivate the logger
 			do {
 				try exitDebugWriter()
 			} catch {
 				// Already in a bad state, just log
-				os_log("Failed to deactivate logger after panic", log: OSLog.default, type: .error)
+				os_log(
+					"Failed to deactivate logger after panic",
+					log: OSLog.default, type: .error)
 			}
 		}
-		
+
 		do {
 			try enterDebugWriter(
 				directory: logDirectory.path,
@@ -817,40 +849,50 @@ extension Client {
 				maxFiles: UInt32(maxFiles)
 			)
 		} catch {
-			os_log("Failed to activate persistent log writer: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+			os_log(
+				"Failed to activate persistent log writer: %{public}@",
+				log: OSLog.default, type: .error, error.localizedDescription)
 		}
 	}
-	
+
 	/// Deactivates the persistent log writer
 	public static func deactivatePersistentLibXMTPLogWriter() {
 		do {
 			try exitDebugWriter()
 		} catch {
-			os_log("Failed to deactivate persistent log writer: %{public}@", log: OSLog.default, type: .error, error.localizedDescription)
+			os_log(
+				"Failed to deactivate persistent log writer: %{public}@",
+				log: OSLog.default, type: .error, error.localizedDescription)
 		}
 	}
-	
+
 	/// Returns paths to all XMTP log files
 	/// - Parameter customLogDirectory: Optional custom directory path for logs
 	/// - Returns: Array of file paths to log files
-	public static func getXMTPLogFilePaths(customLogDirectory: URL? = nil) -> [String] {
+	public static func getXMTPLogFilePaths(customLogDirectory: URL? = nil)
+		-> [String]
+	{
 		let fileManager = FileManager.default
-		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
-		
+		let logDirectory =
+			customLogDirectory
+			?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+
 		if !fileManager.fileExists(atPath: logDirectory.path) {
 			return []
 		}
-		
+
 		do {
 			let fileURLs = try fileManager.contentsOfDirectory(
 				at: logDirectory,
 				includingPropertiesForKeys: [.isRegularFileKey],
 				options: []
 			)
-			
+
 			return fileURLs.compactMap { url in
 				do {
-					let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
+					let resourceValues = try url.resourceValues(forKeys: [
+						.isRegularFileKey
+					])
 					return resourceValues.isRegularFile == true ? url.path : nil
 				} catch {
 					return nil
@@ -860,37 +902,41 @@ extension Client {
 			return []
 		}
 	}
-	
+
 	/// Clears all XMTP log files
 	/// - Parameter customLogDirectory: Optional custom directory path for logs
 	/// - Returns: Number of files deleted
 	@discardableResult
 	public static func clearXMTPLogs(customLogDirectory: URL? = nil) -> Int {
 		let fileManager = FileManager.default
-		let logDirectory = customLogDirectory ?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
-		
+		let logDirectory =
+			customLogDirectory
+			?? URL.documentsDirectory.appendingPathComponent("xmtp_logs")
+
 		if !fileManager.fileExists(atPath: logDirectory.path) {
 			return 0
 		}
-		
+
 		do {
 			deactivatePersistentLibXMTPLogWriter()
 		} catch {
 			// Log writer might not be active, continue with deletion
 		}
-		
+
 		var deletedCount = 0
-		
+
 		do {
 			let fileURLs = try fileManager.contentsOfDirectory(
 				at: logDirectory,
 				includingPropertiesForKeys: [.isRegularFileKey],
 				options: []
 			)
-			
+
 			for fileURL in fileURLs {
 				do {
-					let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+					let resourceValues = try fileURL.resourceValues(forKeys: [
+						.isRegularFileKey
+					])
 					if resourceValues.isRegularFile == true {
 						try fileManager.removeItem(at: fileURL)
 						deletedCount += 1
@@ -902,55 +948,63 @@ extension Client {
 		} catch {
 			// Return current count if directory listing fails
 		}
-		
+
 		return deletedCount
-    }
-    
-    private static func getNumberOfFilesInDirectory(directory: String?) -> Int {
-        guard let directory = directory else {
-            XMTPLogger.database.error("Directory is nil")
-            return 0
-        }
-        
-        let fileManager = FileManager.default
-        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
-        
-        // Check if directory exists
-        if !fileManager.fileExists(atPath: directory) {
-            XMTPLogger.database.error("Directory does not exist: \(directory)")
-            return 0
-        }
-        
-        do {
-            let contents = try fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: []
-            )
-            
-            // Log the contents found
-            XMTPLogger.database.debug("Found \(contents.count) items in directory")
-            
-            // Count only regular files, not directories
-            var fileCount = 0
-            for url in contents {
-                do {
-                    let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
-                    if resourceValues.isRegularFile == true {
-                        fileCount += 1
-                        XMTPLogger.database.debug("Regular file found: \(url.lastPathComponent)")
-                    } else {
-                        XMTPLogger.database.debug("Non-regular file found: \(url.lastPathComponent)")
-                    }
-                } catch {
-                    XMTPLogger.database.error("Error checking file type: \(error.localizedDescription)")
-                }
-            }
-            
-            return fileCount
-        } catch {
-            XMTPLogger.database.error("Error reading directory: \(error.localizedDescription)")
-            return 0
-        }
-    }
+	}
+
+	private static func getNumberOfFilesInDirectory(directory: String?) -> Int {
+		guard let directory = directory else {
+			XMTPLogger.database.error("Directory is nil")
+			return 0
+		}
+
+		let fileManager = FileManager.default
+		let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+
+		// Check if directory exists
+		if !fileManager.fileExists(atPath: directory) {
+			XMTPLogger.database.error("Directory does not exist: \(directory)")
+			return 0
+		}
+
+		do {
+			let contents = try fileManager.contentsOfDirectory(
+				at: directoryURL,
+				includingPropertiesForKeys: [.isRegularFileKey],
+				options: []
+			)
+
+			// Log the contents found
+			XMTPLogger.database.debug(
+				"Found \(contents.count) items in directory")
+
+			// Count only regular files, not directories
+			var fileCount = 0
+			for url in contents {
+				do {
+					let resourceValues = try url.resourceValues(forKeys: [
+						.isRegularFileKey
+					])
+					if resourceValues.isRegularFile == true {
+						fileCount += 1
+						XMTPLogger.database.debug(
+							"Regular file found: \(url.lastPathComponent)")
+					} else {
+						XMTPLogger.database.debug(
+							"Non-regular file found: \(url.lastPathComponent)")
+					}
+				} catch {
+					XMTPLogger.database.error(
+						"Error checking file type: \(error.localizedDescription)"
+					)
+				}
+			}
+
+			return fileCount
+		} catch {
+			XMTPLogger.database.error(
+				"Error reading directory: \(error.localizedDescription)")
+			return 0
+		}
+	}
 }

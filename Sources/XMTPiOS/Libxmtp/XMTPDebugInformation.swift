@@ -28,6 +28,10 @@ public class XMTPDebugInformation {
     public var aggregateStatistics: String {
         ffiClient.apiAggregateStatistics()
     }
+	
+	public func clearAllStatistics() {
+		ffiClient.clearAllStatistics()
+	}
     
     public func uploadDebugInformation(serverUrl: String? = nil) async throws -> String {
         let url = serverUrl ?? client.environment.getHistorySyncUrl()
