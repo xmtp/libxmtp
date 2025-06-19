@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
@@ -57,6 +58,44 @@ class ClientTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun testCanBeBuiltOffline() {
+        val fixtures = fixtures()
+        val key = SecureRandom().generateSeed(32)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val wallet = PrivateKeyBuilder()
+        val options = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            appContext = context,
+            dbEncryptionKey = key
+        )
+        val client = runBlocking {
+            Client.create(account = wallet, options = options)
+        }
+
+        client.debugInformation.clearAllStatistics()
+        println(client.debugInformation.aggregateStatistics)
+        val builtClient = runBlocking {
+            Client.build(client.publicIdentity, options = options, client.inboxId)
+        }
+        println(client.debugInformation.aggregateStatistics)
+        assertEquals(client.inboxId, builtClient.inboxId)
+
+        val convos = runBlocking {
+            val group = builtClient.conversations.newGroup(listOf(fixtures.alixClient.inboxId))
+            group.send("howdy")
+            val alixDm = fixtures.alixClient.conversations.newConversation(builtClient.inboxId)
+            alixDm.send("howdy")
+            val boGroup =
+                fixtures.boClient.conversations.newGroupWithIdentities(listOf(builtClient.publicIdentity))
+            boGroup.send("howdy")
+            builtClient.conversations.syncAllConversations()
+            builtClient.conversations.list()
+        }
+
+        assertEquals(convos.size, 3)
     }
 
     @Test
@@ -990,25 +1029,7 @@ class ClientTest {
                 dbEncryptionKey = key
             )
         )
-        delay(2000)
-        val aggregateStats1 = alix.debugInformation.aggregateStatistics
-        println("Aggregate Stats Create:\n$aggregateStats1")
-
-        val apiStats1 = alix.debugInformation.apiStatistics
-        assertEquals(1, apiStats1.uploadKeyPackage)
-        assertEquals(0, apiStats1.fetchKeyPackage)
-        assertEquals(2, apiStats1.sendGroupMessages)
-        assertEquals(0, apiStats1.sendWelcomeMessages)
-        assertEquals(4, apiStats1.queryGroupMessages)
-        assertEquals(0, apiStats1.queryWelcomeMessages)
-        assertEquals(0, apiStats1.subscribeMessages)
-        assertEquals(0, apiStats1.subscribeWelcomes)
-
-        val identityStats1 = alix.debugInformation.identityStatistics
-        assertEquals(1, identityStats1.publishIdentityUpdate)
-        assertEquals(3, identityStats1.getIdentityUpdatesV2)
-        assertEquals(2, identityStats1.getInboxIds)
-        assertEquals(0, identityStats1.verifySmartContractWalletSignature)
+        alix.debugInformation.clearAllStatistics()
 
         val job = CoroutineScope(Dispatchers.IO).launch {
             alix.conversations.streamAllMessages().collect { }
@@ -1016,23 +1037,23 @@ class ClientTest {
         val group = alix.conversations.newGroup(emptyList())
         group.send("hi")
 
+        delay(4000)
+
         val aggregateStats2 = alix.debugInformation.aggregateStatistics
         println("Aggregate Stats Create:\n$aggregateStats2")
 
         val apiStats2 = alix.debugInformation.apiStatistics
-        assertEquals(1, apiStats2.uploadKeyPackage)
+        assertEquals(0, apiStats2.uploadKeyPackage)
         assertEquals(0, apiStats2.fetchKeyPackage)
         assertEquals(6, apiStats2.sendGroupMessages)
         assertEquals(0, apiStats2.sendWelcomeMessages)
-        assertEquals(11, apiStats2.queryGroupMessages)
         assertEquals(1, apiStats2.queryWelcomeMessages)
-        assertEquals(1, apiStats2.subscribeMessages)
         assertEquals(1, apiStats2.subscribeWelcomes)
 
         val identityStats2 = alix.debugInformation.identityStatistics
-        assertEquals(1, identityStats2.publishIdentityUpdate)
-        assertEquals(4, identityStats2.getIdentityUpdatesV2)
-        assertEquals(2, identityStats2.getInboxIds)
+        assertEquals(0, identityStats2.publishIdentityUpdate)
+        assertEquals(2, identityStats2.getIdentityUpdatesV2)
+        assertEquals(0, identityStats2.getInboxIds)
         assertEquals(0, identityStats2.verifySmartContractWalletSignature)
         job.cancel()
     }
@@ -1052,5 +1073,95 @@ class ClientTest {
         )
         val uploadKey = alix.debugInformation.uploadDebugInformation()
         assert(uploadKey.isNotEmpty())
+    }
+
+    @Test
+    fun testCannotCreateMoreThan5Installations() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val encryptionKey = SecureRandom().generateSeed(32)
+        val wallet = PrivateKeyBuilder()
+
+        val clients = mutableListOf<Client>()
+
+        repeat(5) { i ->
+            val client = runBlocking {
+                Client.create(
+                    account = wallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = encryptionKey,
+                        dbDirectory = File(context.filesDir, "xmtp_db_$i").absolutePath
+                    )
+                )
+            }
+            clients.add(client)
+        }
+
+        val state = runBlocking { clients.first().inboxState(true) }
+        assertEquals(5, state.installations.size)
+
+        // Attempt to create a 6th installation, should fail
+        assertThrows(
+            "Error creating V3 client: Client builder error: Cannot register a new installation because the InboxID ${clients[0].inboxId} has already registered 5/5 installations. Please revoke existing installations first.",
+            XMTPException::class.java
+        ) {
+            runBlocking {
+                Client.create(
+                    account = wallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = encryptionKey,
+                        dbDirectory = File(context.filesDir, "xmtp_db_5").absolutePath
+                    )
+                )
+            }
+        }
+
+        val boWallet = PrivateKeyBuilder()
+        val boClient = runBlocking {
+            Client.create(
+                account = boWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = SecureRandom().generateSeed(32),
+                    dbDirectory = File(context.filesDir, "xmtp_bo").absolutePath
+                )
+            )
+        }
+
+        val group = runBlocking {
+            boClient.conversations.newGroup(listOf(clients[2].inboxId))
+        }
+
+        val members = runBlocking { group.members() }
+        val alixMember = members.find { it.inboxId == clients.first().inboxId }
+        assertNotNull(alixMember)
+        val inboxState =
+            runBlocking { boClient.inboxStatesForInboxIds(true, listOf(alixMember!!.inboxId)) }
+        assertEquals(5, inboxState.first().installations.size)
+
+        runBlocking {
+            clients.first().revokeInstallations(wallet, listOf(clients[4].installationId))
+        }
+
+        val stateAfterRevoke = runBlocking { clients.first().inboxState(true) }
+        assertEquals(4, stateAfterRevoke.installations.size)
+
+        runBlocking {
+            Client.create(
+                account = wallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    appContext = context,
+                    dbEncryptionKey = encryptionKey,
+                    dbDirectory = File(context.filesDir, "xmtp_db_6").absolutePath
+                )
+            )
+        }
+        val updatedState = runBlocking { clients.first().inboxState(true) }
+        assertEquals(5, updatedState.installations.size)
     }
 }

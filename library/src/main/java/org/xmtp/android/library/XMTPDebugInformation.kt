@@ -18,6 +18,10 @@ class XMTPDebugInformation(
     suspend fun uploadDebugInformation(serverUrl: String = client.environment.getHistorySyncUrl()): String {
         return ffiClient.uploadDebugArchive(serverUrl)
     }
+
+    fun clearAllStatistics() {
+        return ffiClient.clearAllStatistics()
+    }
 }
 
 class ApiStats(

@@ -177,7 +177,8 @@ class Client(
                 nonce = 0.toULong(),
                 legacySignedPrivateKeyProto = null,
                 deviceSyncServerUrl = null,
-                deviceSyncMode = null
+                deviceSyncMode = null,
+                allowOffline = false,
             )
 
             return useClient(ffiClient)
@@ -225,6 +226,7 @@ class Client(
             clientOptions: ClientOptions,
             signingKey: SigningKey? = null,
             inboxId: InboxId? = null,
+            buildOffline: Boolean = false,
         ): Client {
             val recoveredInboxId =
                 inboxId ?: getOrCreateInboxId(clientOptions.api, publicIdentity)
@@ -234,6 +236,7 @@ class Client(
                 recoveredInboxId,
                 clientOptions,
                 clientOptions.appContext,
+                buildOffline
             )
             clientOptions.preAuthenticateToInboxCallback?.let {
                 runBlocking {
@@ -290,7 +293,12 @@ class Client(
             inboxId: InboxId? = null,
         ): Client {
             return try {
-                initializeV3Client(publicIdentity, options, inboxId = inboxId)
+                initializeV3Client(
+                    publicIdentity,
+                    options,
+                    inboxId = inboxId,
+                    buildOffline = inboxId != null
+                )
             } catch (e: Exception) {
                 throw XMTPException("Error creating V3 client: ${e.message}", e)
             }
@@ -301,6 +309,7 @@ class Client(
             inboxId: InboxId,
             options: ClientOptions,
             appContext: Context,
+            buildOffline: Boolean = false,
         ): Pair<FfiXmtpClient, String> {
             val alias = "xmtp-${options.api.env}-$inboxId"
 
@@ -322,7 +331,8 @@ class Client(
                 nonce = 0.toULong(),
                 legacySignedPrivateKeyProto = null,
                 deviceSyncServerUrl = options.historySyncUrl,
-                deviceSyncMode = FfiSyncWorkerMode.ENABLED
+                deviceSyncMode = FfiSyncWorkerMode.ENABLED,
+                allowOffline = buildOffline
             )
             return Pair(ffiClient, dbPath)
         }
