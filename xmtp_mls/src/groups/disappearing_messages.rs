@@ -26,20 +26,19 @@ impl NeedsDbReconnect for DisappearingMessagesCleanerError {
     }
 }
 
-pub struct DisappearingMessagesWorker<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct DisappearingMessagesWorker<Context> {
+    context: Context,
     #[allow(dead_code)]
     init: OnceCell<()>,
 }
 
-struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn create(
         &self,
@@ -56,10 +55,9 @@ where
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for DisappearingMessagesWorker<ApiClient, Db>
+impl<Context> Worker for DisappearingMessagesWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: xmtp_db::XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::DisappearingMessages
@@ -72,21 +70,17 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 }
 
-impl<ApiClient, Db> DisappearingMessagesWorker<ApiClient, Db>
+impl<Context> DisappearingMessagesWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    pub fn new(context: Context) -> Self {
         Self {
             context,
             init: OnceCell::new(),
@@ -94,10 +88,9 @@ where
     }
 }
 
-impl<ApiClient, Db> DisappearingMessagesWorker<ApiClient, Db>
+impl<Context> DisappearingMessagesWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);

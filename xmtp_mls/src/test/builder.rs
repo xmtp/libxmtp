@@ -3,6 +3,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ClientBuilderError;
+use crate::context::XmtpSharedContext;
 use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
@@ -50,7 +51,7 @@ use xmtp_proto::xmtp::identity::associations::{
 use crate::{builder::ClientBuilder, identity::IdentityStrategy};
 use crate::{Client, InboxOwner};
 
-async fn register_client<C: XmtpApi, Db: XmtpDb>(client: &Client<C, Db>, owner: &impl InboxOwner) {
+async fn register_client<C: XmtpSharedContext>(client: &Client<C>, owner: &impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);

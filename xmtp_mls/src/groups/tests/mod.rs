@@ -70,12 +70,12 @@ async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]
-async fn force_add_member<C: xmtp_db::ConnectionExt>(
+async fn force_add_member<S: openmls::storage::StorageProvider>(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
     sender_group: &ConcreteMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
-    sender_provider: &XmtpOpenMlsProvider<C>,
+    sender_provider: &XmtpOpenMlsProvider<S>,
 ) {
     use crate::{
         configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,

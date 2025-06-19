@@ -16,7 +16,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 
 use super::{
@@ -24,7 +24,7 @@ use super::{
     Result, SubscribeError,
 };
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
     groups::MlsGroup,
     subscriptions::process_message::ProcessedMessage,
 };
@@ -63,13 +63,13 @@ pub fn extract_message_cursor(message: &GroupMessage) -> Option<u64> {
 }
 
 pin_project! {
-    pub struct StreamGroupMessages<'a, ApiClient, Db, Subscription, Factory = ProcessMessageFuture<ApiClient, Db>> {
+    pub struct StreamGroupMessages<'a, Context, Subscription, Factory = ProcessMessageFuture<Context>> {
         #[pin] inner: Subscription,
         #[pin] state: State<'a, Subscription>,
         factory: Factory,
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &'a Context,
         groups: GroupList,
-        add_queue: VecDeque<MlsGroup<ApiClient, Db>>,
+        add_queue: VecDeque<MlsGroup<Context>>,
         returned: Vec<u64>,
         got: Vec<u64>
     }
@@ -97,11 +97,9 @@ pin_project! {
 pub(super) type MessagesApiSubscription<'a, ApiClient> =
     <ApiClient as XmtpMlsStreams>::GroupMessageStream;
 
-impl<'a, ApiClient, Db>
-    StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>
+impl<'a, Context> StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Db: XmtpDb + 'a,
+    Context: XmtpSharedContext + 'a,
 {
     /// Creates a new stream for receiving group messages.
     ///
@@ -119,30 +117,25 @@ where
     /// - Querying the latest messages fails
     /// - Message extraction fails
     /// - Creating the subscription fails
-    pub async fn new(
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        groups: Vec<GroupId>,
-    ) -> Result<Self> {
+    pub async fn new(context: &'a Context, groups: Vec<GroupId>) -> Result<Self> {
         Self::new_with_factory(context, groups, ProcessMessageFuture::new(context.clone())).await
     }
 }
 
 #[cfg(test)]
-impl<'a, ApiClient, Db, S> StreamGroupMessages<'a, ApiClient, Db, S> {
+impl<'a, Context, S> StreamGroupMessages<'a, Context, S> {
     pub fn position(&self, group: impl AsRef<[u8]>) -> Option<MessagePosition> {
         self.groups.position(group)
     }
 }
 
-impl<'a, ApiClient, Db, Factory>
-    StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>, Factory>
+impl<'a, C, Factory> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Db: XmtpDb + 'a,
+    C: XmtpSharedContext + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
 {
     pub async fn new_with_factory(
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &'a C,
         groups: Vec<GroupId>,
         factory: Factory,
     ) -> Result<Self> {
@@ -180,7 +173,7 @@ where
     /// # Note
     /// This is an asynchronous operation that transitions the stream to the `Adding` state.
     /// The actual subscription update happens when the stream is polled.
-    pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<ApiClient, Db>) {
+    pub(super) fn add(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         if self.groups.contains(&group.group_id) {
             tracing::debug!("group {} already in stream", hex::encode(&group.group_id));
             return;
@@ -225,27 +218,33 @@ where
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
     async fn subscribe(
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &'a C,
         filters: Vec<GroupFilter>,
         new_group: Vec<u8>,
-    ) -> Result<(MessagesApiSubscription<'a, ApiClient>, Vec<u8>, Option<u64>)> {
+    ) -> Result<(
+        MessagesApiSubscription<'a, C::ApiClient>,
+        Vec<u8>,
+        Option<u64>,
+    )> {
         // get the last synced cursor
         let stream = context.api().subscribe_group_messages(filters).await?;
         Ok((stream, new_group, Some(1)))
     }
 }
 
-impl<'a, ApiClient, Db, Factory> Stream
-    for StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>, Factory>
+impl<'a, C, Factory> Stream
+    for StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Db: XmtpDb + 'a,
+    C: XmtpSharedContext + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
 {
     type Item = Result<StoredGroupMessage>;
 
     #[tracing::instrument(level = "trace", skip_all, name = "poll_next_message")]
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         use ProjectState::*;
         let mut this = self.as_mut().project();
         let state = this.state.as_mut().project();
@@ -307,12 +306,11 @@ where
     }
 }
 
-impl<'a, Api, Db, Factory>
-    StreamGroupMessages<'a, Api, Db, MessagesApiSubscription<'a, Api>, Factory>
+impl<'a, C, Factory> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
-    Api: XmtpApi + XmtpMlsStreams + 'a,
-    Db: XmtpDb + 'a,
+    C: XmtpSharedContext + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
+    C::ApiClient: XmtpMlsStreams + 'a,
 {
     /// Get the current state of the stream as a [`String`]
     fn current_state(self: Pin<&mut Self>) -> String {
@@ -342,7 +340,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     fn on_waiting(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         let next_msg = ready!(self.as_mut().next_message(cx));
         if next_msg.is_none() {
@@ -399,7 +397,7 @@ where
 
     /// Add the group to the group list
     /// and transition the stream to Adding state
-    fn resolve_group_additions(mut self: Pin<&mut Self>, group: MlsGroup<Api, Db>) {
+    fn resolve_group_additions(mut self: Pin<&mut Self>, group: MlsGroup<C>) {
         tracing::debug!(
             "begin establishing new message stream to include group_id={}",
             hex::encode(&group.group_id)
@@ -416,7 +414,7 @@ where
     // iterative skip to avoid overflowing the stack
     fn skip(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut std::task::Context<'_>,
         mut envelope: group_message::V1,
     ) -> Poll<Result<group_message::V1>> {
         // skip the messages
@@ -461,7 +459,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     fn next_message(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<group_message::V1>>> {
         let this = self.as_mut().project();
         if let Some(envelope) = ready!(this.inner.poll_next(cx)) {
@@ -505,7 +503,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     fn resolve_futures(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use ProjectState::*;
         if let Processing { future, .. } = self.as_mut().project().state.project() {

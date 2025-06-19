@@ -41,6 +41,17 @@ impl<C> SqlKeyStore<C> {
     }
 }
 
+impl<D, C> From<D> for SqlKeyStore<D>
+where
+    D: crate::DbQuery<C>,
+    D: ConnectionExt<Connection = C>,
+    C: ConnectionExt,
+{
+    fn from(value: D) -> Self {
+        Self { conn: value }
+    }
+}
+
 // refactor to use diesel directly
 impl<C> SqlKeyStore<C>
 where

@@ -4,11 +4,11 @@ mod tests;
 use std::{
     pin::Pin,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
     subscriptions::stream_messages::MessagesApiSubscription,
 };
 use crate::{groups::welcome_sync::WelcomeService, track};
@@ -35,29 +35,27 @@ use xmtp_db::{consent_record::ConsentState, group::StoredGroup};
 use pin_project_lite::pin_project;
 
 pin_project! {
-    pub(super) struct StreamAllMessages<'a, ApiClient, Db, Conversations, Messages> {
+    pub(super) struct StreamAllMessages<'a, Context, Conversations, Messages> {
         #[pin] conversations: Conversations,
         #[pin] messages: Messages,
-        context: &'a XmtpMlsLocalContext<ApiClient, Db>,
+        context: &'a Context,
         conversation_type: Option<ConversationType>,
         sync_groups: Vec<Vec<u8>>
     }
 }
 
-impl<'a, A, D>
+impl<'a, C>
     StreamAllMessages<
         'a,
-        A,
-        D,
-        StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>,
-        StreamGroupMessages<'a, A, D, MessagesApiSubscription<'a, A>>,
+        C,
+        StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>>,
+        StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>>,
     >
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
-    D: XmtpDb + Send + Sync + 'a,
+    C: XmtpSharedContext + Send + Sync + 'a,
 {
     pub async fn new(
-        context: &'a Arc<XmtpMlsLocalContext<A, D>>,
+        context: &'a C,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
@@ -119,23 +117,24 @@ where
     }
 }
 
-impl<'a, ApiClient, Db, Conversations> Stream
+impl<'a, Context, Conversations> Stream
     for StreamAllMessages<
         'a,
-        ApiClient,
-        Db,
+        Context,
         Conversations,
-        StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>>,
+        StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
     >
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + 'a,
-    Db: XmtpDb + 'a,
-    Conversations: Stream<Item = Result<MlsGroup<ApiClient, Db>>>,
+    Context: XmtpSharedContext + 'a,
+    Conversations: Stream<Item = Result<MlsGroup<Context>>>,
 {
     type Item = Result<StoredGroupMessage>;
 
     #[tracing::instrument(skip_all, level = "trace", name = "poll_next_stream_all")]
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.as_mut().project();
 
@@ -145,6 +144,7 @@ where
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
+                        .context_ref()
                         .worker_events()
                         .send(SyncWorkerEvent::NewSyncGroupMsg);
                     cx.waker().wake_by_ref();

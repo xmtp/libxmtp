@@ -1,5 +1,5 @@
 use crate::client::ClientError;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
+use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
 use crate::mls_store::MlsStore;
 use crate::{
     groups::{GroupError, MlsGroup},
@@ -16,20 +16,19 @@ use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
 
 #[derive(Clone)]
-pub struct WelcomeService<Api, Db> {
-    context: Arc<XmtpMlsLocalContext<Api, Db>>,
+pub struct WelcomeService<Context> {
+    context: Context,
 }
 
-impl<Api, Db> WelcomeService<Api, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<Api, Db>>) -> Self {
+impl<Context> WelcomeService<Context> {
+    pub fn new(context: Context) -> Self {
         Self { context }
     }
 }
 
-impl<Api, Db> WelcomeService<Api, Db>
+impl<Context> WelcomeService<Context>
 where
-    Api: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
@@ -37,7 +36,7 @@ where
     async fn process_new_welcome(
         &self,
         welcome: &welcome_message::V1,
-    ) -> Result<MlsGroup<Api, Db>, GroupError> {
+    ) -> Result<MlsGroup<Context>, GroupError> {
         let result = MlsGroup::create_from_welcome(self.context.clone(), welcome).await;
 
         match result {
@@ -63,14 +62,14 @@ where
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Api, Db>>, GroupError> {
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages(&db).await?;
         let num_envelopes = envelopes.len();
 
         // TODO: Update cursor correctly if some of the welcomes fail and some of the welcomes succeed
-        let groups: Vec<MlsGroup<Api, Db>> = stream::iter(envelopes.into_iter())
+        let groups: Vec<MlsGroup<Context>> = stream::iter(envelopes.into_iter())
             .filter_map(|envelope: WelcomeMessage| async {
                 let welcome_v1 = match envelope.version {
                     Some(welcome_message::Version::V1(v1)) => v1,
@@ -94,7 +93,7 @@ where
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
         if num_envelopes > 0 {
-            self.context.identity.queue_key_rotation(&db).await?;
+            self.context.identity().queue_key_rotation(&db).await?;
         }
 
         Ok(groups)
@@ -104,7 +103,7 @@ where
     /// Only active groups will be synced.
     pub async fn sync_all_groups(
         &self,
-        groups: Vec<MlsGroup<Api, Db>>,
+        groups: Vec<MlsGroup<Context>>,
     ) -> Result<usize, GroupError> {
         let active_group_count = Arc::new(AtomicUsize::new(0));
 

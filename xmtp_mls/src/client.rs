@@ -1,7 +1,7 @@
 use crate::{
     builder::SyncWorkerMode,
     configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
@@ -19,13 +19,13 @@ use crate::{
     XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
+use openmls_traits::OpenMlsProvider;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::prelude::*;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
@@ -36,6 +36,7 @@ use xmtp_db::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     NotFound, StorageError, XmtpDb,
 };
+use xmtp_db::{prelude::*, sql_key_store::SqlKeyStore};
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -146,27 +147,29 @@ impl From<&str> for ClientError {
 }
 
 /// Clients manage access to the network, identity, and data store
-pub struct Client<ApiClient, Db = xmtp_db::DefaultStore> {
-    pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct Client<Context> {
+    pub context: Context,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: WorkerRunner,
 }
 
-impl<XApiClient: XmtpApi, XDb: XmtpDb> XmtpContextProvider for Client<XApiClient, XDb> {
-    type Db = XDb;
+impl<Context: XmtpSharedContext> XmtpContextProvider for Client<Context> {
+    type Db = <Context as XmtpSharedContext>::Db;
 
-    type ApiClient = XApiClient;
+    type ApiClient = <Context as XmtpSharedContext>::ApiClient;
 
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db> {
+    type MlsStorage = <Context as XmtpSharedContext>::MlsStorage;
+
+    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
         &self.context
     }
 
-    fn db(&self) -> <XDb as XmtpDb>::DbQuery {
+    fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 
     fn api(&self) -> &xmtp_api::ApiClientWrapper<Self::ApiClient> {
-        self.context.api()
+        self.context.db()
     }
 
     fn identity(&self) -> &Identity {
@@ -193,7 +196,7 @@ pub struct DeviceSync {
 }
 
 // most of these things are `Arc`'s
-impl<ApiClient, Db> Clone for Client<ApiClient, Db> {
+impl<Context> Clone for Client<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -203,12 +206,11 @@ impl<ApiClient, Db> Clone for Client<ApiClient, Db> {
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
-    pub fn device_sync_client(&self) -> DeviceSyncClient<ApiClient, Db> {
+    pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
         self.context.device_sync_client()
     }
 
@@ -221,11 +223,11 @@ where
         Some(())
     }
 
-    pub fn identity_updates(&self) -> IdentityUpdates<ApiClient, Db> {
+    pub fn identity_updates(&self) -> IdentityUpdates<Context> {
         IdentityUpdates::new(self.context.clone())
     }
 
-    pub fn mls_store(&self) -> MlsStore<ApiClient, Db> {
+    pub fn mls_store(&self) -> MlsStore<Context> {
         MlsStore::new(self.context.clone())
     }
 
@@ -251,10 +253,9 @@ where
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
@@ -273,17 +274,9 @@ where
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db> {
-    /// Gets a reference to the client's store
-    pub fn store(&self) -> &Db {
-        &self.context.store
-    }
-}
-
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb + Send + Sync,
+    Context: XmtpSharedContext,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {
@@ -291,17 +284,12 @@ where
     }
     /// Retrieves the client's inbox ID
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.context.inbox_id()
-    }
-
-    /// Pulls a connection and creates a new MLS Provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<Db as XmtpDb>::Connection> {
-        self.context.mls_provider()
+        self.context.identity().inbox_id()
     }
 
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
-    pub fn db(&self) -> <Db as XmtpDb>::DbQuery {
+    pub fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 
@@ -316,7 +304,7 @@ where
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
-        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
@@ -329,7 +317,7 @@ where
     /// If no `inbox_id` is found, returns None.
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
-        conn: &impl DbQuery<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         identifiers: &[Identifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;
@@ -365,9 +353,12 @@ where
     /// This may not be consistent with the latest state on the backend.
     pub fn inbox_sequence_id(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
     ) -> Result<i64, StorageError> {
-        self.context.inbox_sequence_id(conn).map_err(Into::into)
+        self.context
+            .context_ref()
+            .inbox_sequence_id(conn)
+            .map_err(Into::into)
     }
 
     /// Get the [`AssociationState`] for the client's `inbox_id`
@@ -461,20 +452,15 @@ where
         &self.context.identity
     }
 
-    /// Get a reference (in an Arc) to the client's local context
-    pub fn context(&self) -> &Arc<XmtpMlsLocalContext<ApiClient, Db>> {
-        &self.context
-    }
-
     /// Create a new group with the default settings
     /// Applies a custom [`PolicySet`] to the group if one is specified
     pub fn create_group(
         &self,
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
-        let group: MlsGroup<ApiClient, Db> = MlsGroup::create_and_insert(
+        let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
             permissions_policy_set.unwrap_or_default(),
@@ -504,7 +490,7 @@ where
         account_identifiers: &[Identifier],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
@@ -518,7 +504,7 @@ where
         inbox_ids: &[impl AsIdRef],
         permissions_policy_set: Option<PolicySet>,
         opts: Option<GroupMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
         let group = self.create_group(permissions_policy_set, opts)?;
 
@@ -532,9 +518,9 @@ where
         &self,
         dm_target_inbox_id: InboxId,
         opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating dm with {}", dm_target_inbox_id);
-        let group: MlsGroup<ApiClient, Db> = MlsGroup::create_dm_and_insert(
+        let group: MlsGroup<Context> = MlsGroup::create_dm_and_insert(
             &self.context,
             GroupMembershipState::Allowed,
             dm_target_inbox_id.clone(),
@@ -556,7 +542,7 @@ where
         &self,
         target_identity: Identifier,
         opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("finding or creating dm with address: {target_identity}");
         let inbox_id = match self
             .find_inbox_id_from_identifier(&self.context.db(), target_identity.clone())
@@ -576,7 +562,7 @@ where
         &self,
         inbox_id: impl AsIdRef,
         opts: Option<DMMetadataOptions>,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         let inbox_id = inbox_id.as_ref();
         tracing::info!("finding or creating dm with inbox_id: {}", inbox_id);
         let db = self.context.db();
@@ -599,7 +585,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, ClientError> {
         MlsStore::new(self.context.clone())
             .group(group_id)
             .map_err(Into::into)
@@ -609,7 +595,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    pub fn stitched_group(&self, group_id: &[u8]) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
@@ -622,7 +608,7 @@ where
     pub fn find_duplicate_dms_for_group(
         &self,
         group_id: &[u8],
-    ) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
+    ) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let (group, _) = MlsGroup::new_cached(self.context.clone(), group_id)?;
         group.find_duplicate_dms()
     }
@@ -647,7 +633,7 @@ where
     pub fn dm_group_from_target_inbox(
         &self,
         target_inbox_id: String,
-    ) -> Result<MlsGroup<ApiClient, Db>, ClientError> {
+    ) -> Result<MlsGroup<Context>, ClientError> {
         let conn = self.context.db();
 
         let group = conn
@@ -679,10 +665,7 @@ where
     /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
     /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
     /// - limit: only return the first `limit` groups
-    pub fn find_groups(
-        &self,
-        args: GroupQueryArgs,
-    ) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
+    pub fn find_groups(&self, args: GroupQueryArgs) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         MlsStore::new(self.context.clone())
             .find_groups(args)
             .map_err(Into::into)
@@ -691,7 +674,7 @@ where
     pub fn list_conversations(
         &self,
         args: GroupQueryArgs,
-    ) -> Result<Vec<ConversationListItem<ApiClient, Db>>, ClientError> {
+    ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
         Ok(self
             .context()
             .db()
@@ -794,7 +777,7 @@ where
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient, Db>>, GroupError> {
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_welcomes()
             .await
@@ -804,7 +787,7 @@ where
     /// Only active groups will be synced.
     pub async fn sync_all_groups(
         &self,
-        groups: Vec<MlsGroup<ApiClient, Db>>,
+        groups: Vec<MlsGroup<Context>>,
     ) -> Result<usize, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
@@ -844,7 +827,7 @@ where
      */
     pub async fn validate_credential_against_network(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
         credential: &[u8],
         installation_pub_key: Vec<u8>,
     ) -> Result<InboxId, ClientError> {
@@ -900,7 +883,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
-    use crate::context::XmtpContextProvider;
+    use crate::context::{XmtpContextProvider, XmtpSharedContext};
     use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;
@@ -1319,8 +1302,8 @@ pub(crate) mod tests {
         )
     }
 
-    async fn get_key_package_init_key<ApiClient: XmtpApi, Db: xmtp_db::XmtpDb, Id: AsRef<[u8]>>(
-        client: &Client<ApiClient, Db>,
+    async fn get_key_package_init_key<Context: XmtpSharedContext, Id: AsRef<[u8]>>(
+        client: &Client<Context>,
         installation_id: Id,
     ) -> Result<Vec<u8>, IdentityError> {
         let kps_map = client

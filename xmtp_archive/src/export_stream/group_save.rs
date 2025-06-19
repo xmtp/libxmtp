@@ -2,7 +2,7 @@ use super::*;
 use openmls::group::{GroupId, MlsGroup};
 use openmls_traits::OpenMlsProvider;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
-use xmtp_db::{DbConnection, MlsProviderExt};
+use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
 };
@@ -15,7 +15,7 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
+    fn backup_records<D, C>(
         provider: &XmtpOpenMlsProvider<C>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
@@ -24,6 +24,7 @@ impl BackupRecordProvider for GroupSave {
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C>,
     {
         let mut args = GroupQueryArgs::default();
 
@@ -38,7 +39,6 @@ impl BackupRecordProvider for GroupSave {
 
         let conn = DbConnection::new(provider.key_store().conn());
         let batch = conn.find_groups_by_id_paged(args, cursor)?;
-
         let storage = provider.storage();
         let records = batch
             .into_iter()

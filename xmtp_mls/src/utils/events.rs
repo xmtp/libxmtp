@@ -16,7 +16,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events, EVENTS_ENABLED},
-    ConnectionExt, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+    ConnectionExt, DbQuery, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -288,14 +288,13 @@ macro_rules! track_request {
 }
 
 #[derive(Clone)]
-pub struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn create(
         &self,
@@ -310,17 +309,16 @@ where
     }
 }
 
-pub struct EventWorker<ApiClient, Db> {
+pub struct EventWorker<Context> {
     rx: broadcast::Receiver<Events>,
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    context: Context,
 }
 
-impl<ApiClient, Db> EventWorker<ApiClient, Db>
+impl<Context> EventWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static + Send,
+    XmtpSharedContext: Send + 'static,
 {
-    pub(crate) fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+    pub(crate) fn new(context: Context) -> Self {
         let rx = EVENT_TX.subscribe();
         Self { context, rx }
     }
@@ -334,19 +332,15 @@ where
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-impl<ApiClient, Db> Worker for EventWorker<ApiClient, Db>
+impl<Context> Worker for EventWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + 'static,
 {
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 
@@ -359,11 +353,13 @@ where
     }
 }
 
-pub async fn upload_debug_archive<C: 'static + Send + Sync + ConnectionExt>(
-    provider: &Arc<XmtpOpenMlsProvider<C>>,
+pub async fn upload_debug_archive<C>(
+    db: &impl DbQuery<C>,
     device_sync_server_url: Option<impl AsRef<str>>,
-) -> Result<String, DeviceSyncError> {
-    let provider = provider.clone();
+) -> Result<String, DeviceSyncError>
+where
+    C: ConnectionExt + Send + Sync + 'static,
+{
     let device_sync_server_url = device_sync_server_url
         .map(|url| url.as_ref().to_string())
         .unwrap_or(DeviceSyncUrls::PRODUCTION_ADDRESS.to_string());
@@ -377,7 +373,7 @@ pub async fn upload_debug_archive<C: 'static + Send + Sync + ConnectionExt>(
     let key = xmtp_common::rand_vec::<32>();
 
     // Build the exporter
-    let exporter = ArchiveExporter::new(options, provider.clone(), &key);
+    let exporter = ArchiveExporter::new(options, db, &key);
 
     let url = format!("{device_sync_server_url}/upload");
     let response = exporter.post_to_url(&url).await?;

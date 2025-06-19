@@ -1,6 +1,6 @@
 use super::DeviceSyncError;
 use crate::{
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{group_permissions::PolicySet, MlsGroup},
 };
 use futures::StreamExt;
@@ -14,14 +14,10 @@ use xmtp_db::{
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
-pub async fn insert_importer<ApiClient, Db>(
+pub async fn insert_importer(
     importer: &mut ArchiveImporter,
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-) -> Result<(), DeviceSyncError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+    context: &impl XmtpSharedContext,
+) -> Result<(), DeviceSyncError> {
     while let Some(element) = importer.next().await {
         let element = element?;
         if let Err(err) = insert(element, context) {
@@ -32,14 +28,7 @@ where
     Ok(())
 }
 
-fn insert<ApiClient, Db>(
-    element: BackupElement,
-    context: &XmtpMlsLocalContext<ApiClient, Db>,
-) -> Result<(), DeviceSyncError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+fn insert(element: BackupElement, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
     let Some(element) = element.element else {
         return Ok(());
     };

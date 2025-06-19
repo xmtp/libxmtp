@@ -1,15 +1,20 @@
 #![allow(unused)]
 
+use std::sync::Arc;
+
 use xmtp_api::XmtpApi;
-use xmtp_db::XmtpDb;
+use xmtp_db::{sql_key_store::SqlKeyStore, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
+    context::XmtpMlsLocalContext,
     groups::{GroupError, MlsGroup},
     Client,
 };
 
 use super::group_test_utils::TestError;
+type TestMlsGroup<ApiClient, Db> =
+    MlsGroup<Arc<XmtpMlsLocalContext<ApiClient, Db, SqlKeyStore<<Db as XmtpDb>::Connection>>>>;
 
 // Please ensure that all public functions defined in this module
 // start with `test_`
@@ -23,7 +28,7 @@ where
     pub async fn test_talk_in_dm_with(
         &self,
         other: &Self,
-    ) -> Result<(MlsGroup<ApiClient, Db>, String), TestError> {
+    ) -> Result<(TestMlsGroup<ApiClient, Db>, String), TestError> {
         self.sync_welcomes().await?;
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), None)
@@ -68,9 +73,13 @@ where
         assert_eq!(epoch, other_epoch);
 
         let ratchet_tree = sync_group
-            .load_mls_group_with_lock(self.mls_provider(), |g| Ok(g.export_ratchet_tree()))?;
+            .load_mls_group_with_lock(self.context.mls_provider(), |g| {
+                Ok(g.export_ratchet_tree())
+            })?;
         let other_ratchet_tree = other_sync_group
-            .load_mls_group_with_lock(other.mls_provider(), |g| Ok(g.export_ratchet_tree()))?;
+            .load_mls_group_with_lock(other.context.mls_provider(), |g| {
+                Ok(g.export_ratchet_tree())
+            })?;
         assert_eq!(ratchet_tree, other_ratchet_tree);
 
         Ok(())

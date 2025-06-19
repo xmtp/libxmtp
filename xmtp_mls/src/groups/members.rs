@@ -1,4 +1,4 @@
-use crate::identity_updates::IdentityUpdates;
+use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 use xmtp_api::XmtpApi;
@@ -29,10 +29,9 @@ pub enum PermissionLevel {
     SuperAdmin,
 }
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {

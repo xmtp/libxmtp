@@ -3,7 +3,7 @@ use serde::Serialize;
 use valuable::Valuable;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_mls::{groups::MlsGroup, XmtpApi};
+use xmtp_mls::{context::XmtpSharedContext, groups::MlsGroup, XmtpApi};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 #[derive(Serialize, Debug, Valuable)]
@@ -20,8 +20,8 @@ pub struct SerializableGroup {
 }
 
 impl SerializableGroup {
-    pub async fn from<ApiClient: XmtpApi, Db: xmtp_db::XmtpDb>(
-        group: &MlsGroup<ApiClient, Db>,
+    pub async fn from<Context: XmtpSharedContext>(
+        group: &MlsGroup<Context>,
     ) -> Self {
         let group_id = hex::encode(group.group_id.clone());
         let members = group
