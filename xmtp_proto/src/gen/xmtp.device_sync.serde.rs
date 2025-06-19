@@ -55,6 +55,7 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
             GroupMessage,
             Consent,
             Event,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -81,7 +82,7 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             "groupMessage" | "group_message" => Ok(GeneratedField::GroupMessage),
                             "consent" => Ok(GeneratedField::Consent),
                             "event" => Ok(GeneratedField::Event),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -137,6 +138,9 @@ impl<'de> serde::Deserialize<'de> for BackupElement {
                             }
                             element__ = map_.next_value::<::std::option::Option<_>>()?.map(backup_element::Element::Event)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -293,6 +297,7 @@ impl<'de> serde::Deserialize<'de> for BackupMetadataSave {
             ExportedAtNs,
             StartNs,
             EndNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -318,7 +323,7 @@ impl<'de> serde::Deserialize<'de> for BackupMetadataSave {
                             "exportedAtNs" | "exported_at_ns" => Ok(GeneratedField::ExportedAtNs),
                             "startNs" | "start_ns" => Ok(GeneratedField::StartNs),
                             "endNs" | "end_ns" => Ok(GeneratedField::EndNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -372,6 +377,9 @@ impl<'de> serde::Deserialize<'de> for BackupMetadataSave {
                             end_ns__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -443,6 +451,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
             Elements,
             StartNs,
             EndNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -467,7 +476,7 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                             "elements" => Ok(GeneratedField::Elements),
                             "startNs" | "start_ns" => Ok(GeneratedField::StartNs),
                             "endNs" | "end_ns" => Ok(GeneratedField::EndNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -512,6 +521,9 @@ impl<'de> serde::Deserialize<'de> for BackupOptions {
                             end_ns__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

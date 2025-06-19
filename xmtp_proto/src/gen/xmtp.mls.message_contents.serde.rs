@@ -129,6 +129,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
             TypeId,
             VersionMajor,
             VersionMinor,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -154,7 +155,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
                             "typeId" | "type_id" => Ok(GeneratedField::TypeId),
                             "versionMajor" | "version_major" => Ok(GeneratedField::VersionMajor),
                             "versionMinor" | "version_minor" => Ok(GeneratedField::VersionMinor),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -206,6 +207,9 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
                             version_minor__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -338,6 +342,7 @@ impl<'de> serde::Deserialize<'de> for DmMembers {
         enum GeneratedField {
             DmMemberOne,
             DmMemberTwo,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -361,7 +366,7 @@ impl<'de> serde::Deserialize<'de> for DmMembers {
                         match value {
                             "dmMemberOne" | "dm_member_one" => Ok(GeneratedField::DmMemberOne),
                             "dmMemberTwo" | "dm_member_two" => Ok(GeneratedField::DmMemberTwo),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -395,6 +400,9 @@ impl<'de> serde::Deserialize<'de> for DmMembers {
                                 return Err(serde::de::Error::duplicate_field("dmMemberTwo"));
                             }
                             dm_member_two__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -474,6 +482,7 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
             Fallback,
             Compression,
             Content,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -500,7 +509,7 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
                             "fallback" => Ok(GeneratedField::Fallback),
                             "compression" => Ok(GeneratedField::Compression),
                             "content" => Ok(GeneratedField::Content),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -560,6 +569,9 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(EncodedContent {
@@ -616,6 +628,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembership {
         enum GeneratedField {
             Members,
             FailedInstallations,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -639,7 +652,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembership {
                         match value {
                             "members" => Ok(GeneratedField::Members),
                             "failedInstallations" | "failed_installations" => Ok(GeneratedField::FailedInstallations),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -679,6 +692,9 @@ impl<'de> serde::Deserialize<'de> for GroupMembership {
                                 Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -750,6 +766,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
             MembersRemoved,
             InstallationsAdded,
             InstallationsRemoved,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -775,7 +792,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
                             "membersRemoved" | "members_removed" => Ok(GeneratedField::MembersRemoved),
                             "installationsAdded" | "installations_added" => Ok(GeneratedField::InstallationsAdded),
                             "installationsRemoved" | "installations_removed" => Ok(GeneratedField::InstallationsRemoved),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -823,6 +840,9 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
                                 return Err(serde::de::Error::duplicate_field("installationsRemoved"));
                             }
                             installations_removed__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -898,6 +918,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             CreatorAccountAddress,
             CreatorInboxId,
             DmMembers,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -923,7 +944,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             "creatorAccountAddress" | "creator_account_address" => Ok(GeneratedField::CreatorAccountAddress),
                             "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
                             "dmMembers" | "dm_members" => Ok(GeneratedField::DmMembers),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -971,6 +992,9 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                                 return Err(serde::de::Error::duplicate_field("dmMembers"));
                             }
                             dm_members__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1034,6 +1058,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
             Attributes,
             AdminList,
             SuperAdminList,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1058,7 +1083,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1101,6 +1126,9 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                                 return Err(serde::de::Error::duplicate_field("superAdminList"));
                             }
                             super_admin_list__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1145,6 +1173,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutablePermissionsV1 {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1167,7 +1196,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutablePermissionsV1 {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1194,6 +1223,9 @@ impl<'de> serde::Deserialize<'de> for GroupMutablePermissionsV1 {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1264,6 +1296,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
             AddedInboxes,
             RemovedInboxes,
             MetadataFieldChanges,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1289,7 +1322,7 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             "addedInboxes" | "added_inboxes" => Ok(GeneratedField::AddedInboxes),
                             "removedInboxes" | "removed_inboxes" => Ok(GeneratedField::RemovedInboxes),
                             "metadataFieldChanges" | "metadata_field_changes" => Ok(GeneratedField::MetadataFieldChanges),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1338,6 +1371,9 @@ impl<'de> serde::Deserialize<'de> for GroupUpdated {
                             }
                             metadata_field_changes__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(GroupUpdated {
@@ -1383,6 +1419,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::Inbox {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1405,7 +1442,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::Inbox {
                     {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1432,6 +1469,9 @@ impl<'de> serde::Deserialize<'de> for group_updated::Inbox {
                                 return Err(serde::de::Error::duplicate_field("inboxId"));
                             }
                             inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1493,6 +1533,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
             FieldName,
             OldValue,
             NewValue,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1517,7 +1558,7 @@ impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
                             "fieldName" | "field_name" => Ok(GeneratedField::FieldName),
                             "oldValue" | "old_value" => Ok(GeneratedField::OldValue),
                             "newValue" | "new_value" => Ok(GeneratedField::NewValue),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1558,6 +1599,9 @@ impl<'de> serde::Deserialize<'de> for group_updated::MetadataFieldChange {
                                 return Err(serde::de::Error::duplicate_field("newValue"));
                             }
                             new_value__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1603,6 +1647,7 @@ impl<'de> serde::Deserialize<'de> for Inbox {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1625,7 +1670,7 @@ impl<'de> serde::Deserialize<'de> for Inbox {
                     {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1652,6 +1697,9 @@ impl<'de> serde::Deserialize<'de> for Inbox {
                                 return Err(serde::de::Error::duplicate_field("inboxId"));
                             }
                             inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1695,6 +1743,7 @@ impl<'de> serde::Deserialize<'de> for Inboxes {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InboxIds,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1717,7 +1766,7 @@ impl<'de> serde::Deserialize<'de> for Inboxes {
                     {
                         match value {
                             "inboxIds" | "inbox_ids" => Ok(GeneratedField::InboxIds),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1744,6 +1793,9 @@ impl<'de> serde::Deserialize<'de> for Inboxes {
                                 return Err(serde::de::Error::duplicate_field("inboxIds"));
                             }
                             inbox_ids__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1805,6 +1857,7 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
             InstallationIds,
             AccountAddress,
             InitiatedByAccountAddress,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1829,7 +1882,7 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
                             "installationIds" | "installation_ids" => Ok(GeneratedField::InstallationIds),
                             "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
                             "initiatedByAccountAddress" | "initiated_by_account_address" => Ok(GeneratedField::InitiatedByAccountAddress),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1873,6 +1926,9 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
                                 return Err(serde::de::Error::duplicate_field("initiatedByAccountAddress"));
                             }
                             initiated_by_account_address__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1935,6 +1991,7 @@ impl<'de> serde::Deserialize<'de> for MembershipPolicy {
             Base,
             AndCondition,
             AnyCondition,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1959,7 +2016,7 @@ impl<'de> serde::Deserialize<'de> for MembershipPolicy {
                             "base" => Ok(GeneratedField::Base),
                             "andCondition" | "and_condition" => Ok(GeneratedField::AndCondition),
                             "anyCondition" | "any_condition" => Ok(GeneratedField::AnyCondition),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2000,6 +2057,9 @@ impl<'de> serde::Deserialize<'de> for MembershipPolicy {
                             }
                             kind__ = map_.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AnyCondition)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2042,6 +2102,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2064,7 +2125,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2091,6 +2152,9 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2133,6 +2197,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2155,7 +2220,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2182,6 +2247,9 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2322,6 +2390,7 @@ impl<'de> serde::Deserialize<'de> for MetadataPolicy {
             Base,
             AndCondition,
             AnyCondition,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2346,7 +2415,7 @@ impl<'de> serde::Deserialize<'de> for MetadataPolicy {
                             "base" => Ok(GeneratedField::Base),
                             "andCondition" | "and_condition" => Ok(GeneratedField::AndCondition),
                             "anyCondition" | "any_condition" => Ok(GeneratedField::AnyCondition),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2387,6 +2456,9 @@ impl<'de> serde::Deserialize<'de> for MetadataPolicy {
                             }
                             kind__ = map_.next_value::<::std::option::Option<_>>()?.map(metadata_policy::Kind::AnyCondition)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2429,6 +2501,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AndCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2451,7 +2524,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AndCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2478,6 +2551,9 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AndCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2520,6 +2596,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AnyCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2542,7 +2619,7 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AnyCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2569,6 +2646,9 @@ impl<'de> serde::Deserialize<'de> for metadata_policy::AnyCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2709,6 +2789,7 @@ impl<'de> serde::Deserialize<'de> for PermissionsUpdatePolicy {
             Base,
             AndCondition,
             AnyCondition,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2733,7 +2814,7 @@ impl<'de> serde::Deserialize<'de> for PermissionsUpdatePolicy {
                             "base" => Ok(GeneratedField::Base),
                             "andCondition" | "and_condition" => Ok(GeneratedField::AndCondition),
                             "anyCondition" | "any_condition" => Ok(GeneratedField::AnyCondition),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2774,6 +2855,9 @@ impl<'de> serde::Deserialize<'de> for PermissionsUpdatePolicy {
                             }
                             kind__ = map_.next_value::<::std::option::Option<_>>()?.map(permissions_update_policy::Kind::AnyCondition)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2816,6 +2900,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AndCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2838,7 +2923,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AndCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2865,6 +2950,9 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AndCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -2907,6 +2995,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AnyCondition {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Policies,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2929,7 +3018,7 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AnyCondition {
                     {
                         match value {
                             "policies" => Ok(GeneratedField::Policies),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2956,6 +3045,9 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::AnyCondition {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
                             policies__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -3084,6 +3176,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextEnvelope {
         enum GeneratedField {
             V1,
             V2,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3107,7 +3200,7 @@ impl<'de> serde::Deserialize<'de> for PlaintextEnvelope {
                         match value {
                             "v1" => Ok(GeneratedField::V1),
                             "v2" => Ok(GeneratedField::V2),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -3142,6 +3235,9 @@ impl<'de> serde::Deserialize<'de> for PlaintextEnvelope {
                             }
                             content__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::Content::V2)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -3195,6 +3291,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V1 {
         enum GeneratedField {
             Content,
             IdempotencyKey,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3218,7 +3315,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V1 {
                         match value {
                             "content" => Ok(GeneratedField::Content),
                             "idempotencyKey" | "idempotency_key" => Ok(GeneratedField::IdempotencyKey),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -3254,6 +3351,9 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V1 {
                                 return Err(serde::de::Error::duplicate_field("idempotencyKey"));
                             }
                             idempotency_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -3330,6 +3430,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             DeviceSyncRequest,
             DeviceSyncReply,
             UserPreferenceUpdate,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3356,7 +3457,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             "deviceSyncRequest" | "device_sync_request" => Ok(GeneratedField::DeviceSyncRequest),
                             "deviceSyncReply" | "device_sync_reply" => Ok(GeneratedField::DeviceSyncReply),
                             "userPreferenceUpdate" | "user_preference_update" => Ok(GeneratedField::UserPreferenceUpdate),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -3411,6 +3512,9 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             }
                             message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::UserPreferenceUpdate)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -3500,6 +3604,7 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             AddAdminPolicy,
             RemoveAdminPolicy,
             UpdatePermissionsPolicy,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3527,7 +3632,7 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                             "addAdminPolicy" | "add_admin_policy" => Ok(GeneratedField::AddAdminPolicy),
                             "removeAdminPolicy" | "remove_admin_policy" => Ok(GeneratedField::RemoveAdminPolicy),
                             "updatePermissionsPolicy" | "update_permissions_policy" => Ok(GeneratedField::UpdatePermissionsPolicy),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -3591,6 +3696,9 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                                 return Err(serde::de::Error::duplicate_field("updatePermissionsPolicy"));
                             }
                             update_permissions_policy__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -3725,6 +3833,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperEncryption {
         enum GeneratedField {
             PubKey,
             Algorithm,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3748,7 +3857,7 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperEncryption {
                         match value {
                             "pubKey" | "pub_key" => Ok(GeneratedField::PubKey),
                             "algorithm" => Ok(GeneratedField::Algorithm),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -3784,6 +3893,9 @@ impl<'de> serde::Deserialize<'de> for WelcomeWrapperEncryption {
                                 return Err(serde::de::Error::duplicate_field("algorithm"));
                             }
                             algorithm__ = Some(map_.next_value::<WelcomeWrapperAlgorithm>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

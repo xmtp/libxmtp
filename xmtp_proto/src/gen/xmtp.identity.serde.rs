@@ -31,6 +31,7 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -53,7 +54,7 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                     {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -80,6 +81,9 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                                 return Err(serde::de::Error::duplicate_field("inboxId"));
                             }
                             inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

@@ -22,6 +22,7 @@ impl<'de> serde::Deserialize<'de> for GetSyncCursorRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -42,7 +43,7 @@ impl<'de> serde::Deserialize<'de> for GetSyncCursorRequest {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                            Ok(GeneratedField::__SkipField__)
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -102,6 +103,7 @@ impl<'de> serde::Deserialize<'de> for GetSyncCursorResponse {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             LatestSync,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -124,7 +126,7 @@ impl<'de> serde::Deserialize<'de> for GetSyncCursorResponse {
                     {
                         match value {
                             "latestSync" | "latest_sync" => Ok(GeneratedField::LatestSync),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -151,6 +153,9 @@ impl<'de> serde::Deserialize<'de> for GetSyncCursorResponse {
                                 return Err(serde::de::Error::duplicate_field("latestSync"));
                             }
                             latest_sync__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
