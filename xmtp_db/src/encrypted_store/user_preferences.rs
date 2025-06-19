@@ -1,5 +1,5 @@
 use super::{
-    ConnectionExt, DbConnection,
+    ConnectionExt,
     schema::user_preferences::{self, dsl},
 };
 use crate::{StorageError, Store};
@@ -48,12 +48,12 @@ impl HmacKey {
 }
 
 impl StoredUserPreferences {
-    pub fn load<C: ConnectionExt>(conn: &DbConnection<C>) -> Result<Self, StorageError> {
+    pub fn load(conn: impl ConnectionExt) -> Result<Self, StorageError> {
         let pref = conn.raw_query_read(|conn| dsl::user_preferences.first(conn).optional())?;
         Ok(pref.unwrap_or_default())
     }
 
-    fn store<C: ConnectionExt>(&self, conn: &DbConnection<C>) -> Result<(), StorageError> {
+    fn store<C: ConnectionExt>(&self, conn: &impl crate::DbQuery<C>) -> Result<(), StorageError> {
         conn.raw_query_write(|conn| {
             insert_into(dsl::user_preferences)
                 .values(self)
@@ -67,7 +67,7 @@ impl StoredUserPreferences {
     }
 
     pub fn store_hmac_key<C: ConnectionExt>(
-        conn: &DbConnection<C>,
+        conn: &impl crate::DbQuery<C>,
         key: &[u8],
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {

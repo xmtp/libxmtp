@@ -1,5 +1,4 @@
 use super::*;
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use derive_builder::Builder;
 
 /// Manages a Sqlite db for persisting messages and other objects.
@@ -33,13 +32,9 @@ impl<Db> EncryptedMessageStore<Db>
 where
     Db: XmtpDb,
 {
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<Db::Connection> {
-        XmtpOpenMlsProvider::new(self.conn())
-    }
-
     /// Access to the database queries defined on connections
-    pub fn db(&self) -> DbConnection<Db::Connection> {
-        DbConnection::new(self.db.conn())
+    pub fn db(&self) -> <Db as XmtpDb>::DbQuery {
+        self.db.db()
     }
 
     /// Pulls a new connection from the store
@@ -49,7 +44,7 @@ where
 
     /// Release connection to the database, closing it
     pub fn release_connection(&self) -> Result<(), ConnectionError> {
-        self.disconnect()
+        self.db.disconnect()
     }
 
     /// Reconnect to the database
@@ -63,12 +58,13 @@ where
     Db: XmtpDb,
 {
     type Connection = Db::Connection;
+    type DbQuery = Db::DbQuery;
 
     fn conn(&self) -> Self::Connection {
         self.db.conn()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         self.db.db()
     }
 

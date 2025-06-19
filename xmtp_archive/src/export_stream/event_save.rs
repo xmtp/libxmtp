@@ -5,15 +5,15 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, event_backup::Event
 
 impl BackupRecordProvider for EventSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
-        streamer: &BackupRecordStreamer<Self, C>,
+    fn backup_records<D, C>(
+        streamer: &BackupRecordStreamer<Self, D, C>,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C>,
     {
-        let batch =
-            Events::all_events_paged(streamer.provider.db(), Self::BATCH_SIZE, streamer.cursor)?;
+        let batch = Events::all_events_paged(&streamer.db, Self::BATCH_SIZE, streamer.cursor)?;
 
         let records = batch
             .into_iter()

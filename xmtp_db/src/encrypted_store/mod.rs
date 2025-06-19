@@ -38,8 +38,7 @@ use openmls_traits::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use crate::Store;
-use crate::sql_key_store::SqlKeyStore;
+use crate::{DbQuery, Store};
 
 pub use database::*;
 pub use store::*;
@@ -208,12 +207,19 @@ where
     }
 }
 
-pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
+pub type BoxedDatabase = Box<
+    dyn XmtpDb<
+            Connection = diesel::SqliteConnection,
+            DbQuery = DbConnection<diesel::SqliteConnection>,
+        >,
+>;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery<crate::mock::MockConnection>;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;
+
+    type DbQuery: crate::DbQuery<Self::Connection> + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.validate(opts)?;
@@ -245,7 +251,7 @@ pub trait XmtpDb: Send + Sync {
 
     /// Returns a higher-level wrapeped DbConnection from which high-level queries may be
     /// accessed.
-    fn db(&self) -> DbConnection<Self::Connection>;
+    fn db(&self) -> Self::DbQuery;
 
     /// Reconnect to the database
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -362,8 +368,6 @@ where
 }
 
 pub trait MlsProviderExt: OpenMlsProvider {
-    type Connection: ConnectionExt;
-
     /// Start a new database transaction with the OpenMLS Provider from XMTP
     /// with the provided connection
     /// # Arguments
@@ -378,15 +382,14 @@ pub trait MlsProviderExt: OpenMlsProvider {
     ///     provider.conn().db_operation()?;
     /// })
     /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
     where
-        F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>;
+        F: FnOnce(&XmtpOpenMlsProvider<<Self as OpenMlsProvider>::StorageProvider>) -> Result<T, E>,
+        E: std::error::Error + From<crate::ConnectionError>,
+        C: ConnectionExt,
+        D: DbQuery<C>;
 
-    /// Get the underlying DbConnection this provider is using
-    fn db(&self) -> &DbConnection<Self::Connection>;
-
-    fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
+    fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider;
 }
 
 #[cfg(test)]

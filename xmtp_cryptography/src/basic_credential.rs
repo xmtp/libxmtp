@@ -1,4 +1,5 @@
 use ed25519_dalek::SigningKey;
+use openmls::prelude::SignaturePublicKey;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
 use openmls_traits::{signatures, types::SignatureScheme};
@@ -138,6 +139,12 @@ impl XmtpInstallationCredential {
     #[cfg(feature = "exposed-keys")]
     pub fn private_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
+    }
+}
+
+impl From<XmtpInstallationCredential> for SignaturePublicKey {
+    fn from(value: XmtpInstallationCredential) -> Self {
+        SignaturePublicKey::from(value.verifying_key().as_ref())
     }
 }
 

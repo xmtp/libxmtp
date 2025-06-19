@@ -26,8 +26,34 @@ pub struct StoredKeyPackageHistoryEntry {
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn store_key_package_history_entry(
+pub trait QueryKeyPackageHistory<C: ConnectionExt> {
+    fn store_key_package_history_entry(
+        &self,
+        key_package_hash_ref: Vec<u8>,
+        post_quantum_public_key: Option<Vec<u8>>,
+    ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
+
+    fn find_key_package_history_entry_by_hash_ref(
+        &self,
+        hash_ref: Vec<u8>,
+    ) -> Result<StoredKeyPackageHistoryEntry, StorageError>;
+
+    fn find_key_package_history_entries_before_id(
+        &self,
+        id: i32,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
+
+    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError>;
+
+    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError>;
+
+    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
+
+    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
+}
+
+impl<C: ConnectionExt> QueryKeyPackageHistory<C> for DbConnection<C> {
+    fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
         post_quantum_public_key: Option<Vec<u8>>,
@@ -42,7 +68,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         self.find_key_package_history_entry_by_hash_ref(key_package_hash_ref)
     }
 
-    pub fn find_key_package_history_entry_by_hash_ref(
+    fn find_key_package_history_entry_by_hash_ref(
         &self,
         hash_ref: Vec<u8>,
     ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
@@ -55,7 +81,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(result)
     }
 
-    pub fn find_key_package_history_entries_before_id(
+    fn find_key_package_history_entries_before_id(
         &self,
         id: i32,
     ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
@@ -68,7 +94,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(result)
     }
 
-    pub fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
+    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
         use crate::schema::key_package_history::dsl;
         let delete_at_24_hrs_ns = now_ns() + keys_expiration_interval_ns();
         self.raw_query_write(|conn| {
@@ -84,9 +110,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn get_expired_key_packages(
-        &self,
-    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
         use crate::schema::key_package_history::dsl;
         self.raw_query_read(|conn| {
             dsl::key_package_history
@@ -96,7 +120,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         .map_err(StorageError::from) // convert ConnectionError into StorageError
     }
 
-    pub fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
+    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
@@ -108,7 +132,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(
                 key_package_history::dsl::key_package_history
@@ -123,6 +147,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
 #[cfg(test)]
 mod tests {
+    use crate::prelude::*;
     use crate::test_utils::with_connection;
     use xmtp_common::rand_vec;
     #[cfg(target_arch = "wasm32")]

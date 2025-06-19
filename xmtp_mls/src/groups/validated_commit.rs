@@ -23,7 +23,7 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
     identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
 use xmtp_db::{StorageError, XmtpDb};
@@ -300,17 +300,12 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
-    pub async fn from_staged_commit<ApiClient, Db>(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    pub async fn from_staged_commit(
+        context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError>
-    where
-        ApiClient: XmtpApi,
-        Db: XmtpDb,
-    {
-        let provider = context.mls_provider();
-        let conn = provider.db();
+    ) -> Result<Self, CommitValidationError> {
+        let conn = context.db();
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -418,7 +413,7 @@ impl ValidatedCommit {
                 .ok_or(CommitValidationError::SubjectDoesNotExist)?;
 
             let inbox_state = IdentityUpdates::new(context.clone())
-                .get_association_state(conn, &participant.inbox_id, Some(*to_sequence_id as i64))
+                .get_association_state(&conn, &participant.inbox_id, Some(*to_sequence_id as i64))
                 .await
                 .map_err(InstallationDiffError::from)?;
 
@@ -589,15 +584,11 @@ struct ExpectedDiff {
 }
 
 impl ExpectedDiff {
-    pub(super) async fn from_staged_commit<ApiClient, Db>(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    pub(super) async fn from_staged_commit(
+        context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError>
-    where
-        ApiClient: XmtpApi,
-        Db: XmtpDb,
-    {
+    ) -> Result<Self, CommitValidationError> {
         // Get the immutable and mutable metadata
         let extensions = openmls_group.extensions();
         let immutable_metadata: GroupMetadata = extensions.try_into()?;
@@ -624,19 +615,14 @@ impl ExpectedDiff {
     /// [`GroupMembership`] and the [`GroupMembership`] found in the [`StagedCommit`].
     /// This requires loading the Inbox state from the network.
     /// Satisfies Rule 2
-    async fn extract_expected_diff<ApiClient, Db>(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    async fn extract_expected_diff(
+        context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         existing_group_extensions: &Extensions,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
-    ) -> Result<ExpectedDiff, CommitValidationError>
-    where
-        ApiClient: XmtpApi,
-        Db: XmtpDb,
-    {
-        let provider = context.mls_provider();
-        let conn = provider.db();
+    ) -> Result<ExpectedDiff, CommitValidationError> {
+        let conn = context.db();
         let old_group_membership = extract_group_membership(existing_group_extensions)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);
@@ -661,7 +647,7 @@ impl ExpectedDiff {
         let identity_updates = IdentityUpdates::new(context.clone());
         let expected_installation_diff = identity_updates
             .get_installation_diff(
-                conn,
+                &conn,
                 &old_group_membership,
                 &new_group_membership,
                 &membership_diff,

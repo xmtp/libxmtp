@@ -3,6 +3,7 @@
 
 use crate::{
     client::ClientError,
+    context::XmtpSharedContext,
     groups::{GroupError, MlsGroup},
 };
 use thiserror::Error;
@@ -26,10 +27,9 @@ impl RetryableError for TestError {
     }
 }
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     // Sends a mesage to other group and ensures delivery, returning sent message contents.
     pub async fn test_can_talk_with(&self, other: &Self) -> Result<String, TestError> {
