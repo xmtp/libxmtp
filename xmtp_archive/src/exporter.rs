@@ -2,7 +2,7 @@ use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
 use crate::NONCE_SIZE;
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{StreamExt, pin_mut, task::Context};
+use futures::{pin_mut, task::Context};
 use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
@@ -18,7 +18,7 @@ mod file_export;
 pub struct ArchiveExporter {
     stage: Stage,
     metadata: BackupMetadataSave,
-    stream: BatchExportStream,
+    iterator: BatchExportStream,
     position: usize,
     zstd_encoder: ZstdEncoder<Vec<u8>>,
     encoder_finished: bool,
@@ -98,7 +98,7 @@ impl ArchiveExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            stream: BatchExportStream::new(&options, provider),
+            iterator: BatchExportStream::new(&options, provider),
             metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,
@@ -172,12 +172,11 @@ impl AsyncRead for ArchiveExporter {
                     }
                     .encode_to_vec()
                 }
-                Stage::Elements => match this.stream.poll_next_unpin(cx) {
-                    Poll::Ready(Some(element)) => element
+                Stage::Elements => match this.iterator.next() {
+                    Some(element) => element
                         .map_err(|err| io::Error::other(err.to_string()))?
                         .encode_to_vec(),
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(None) => {
+                    None => {
                         if !this.encoder_finished {
                             this.encoder_finished = true;
                             let fut = this.zstd_encoder.close();
