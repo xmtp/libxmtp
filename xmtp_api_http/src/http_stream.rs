@@ -119,7 +119,7 @@ where
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
         while let Some(item) = deser_stream.next() {
             match item {
-                Ok(GrpcResponse::Ok(response)) => self.items.push_back(response.result),
+                Ok(GrpcResponse::Ok(response)) => self.items.push_back(response),
                 Ok(GrpcResponse::SubscriptionItem(item)) => self.items.push_back(item.result),
                 Ok(GrpcResponse::Err(e)) => {
                     return Err(HttpClientError::Grpc(e));

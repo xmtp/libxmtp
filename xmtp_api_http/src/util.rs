@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
 pub(crate) enum GrpcResponse<T> {
-    Ok(SubscriptionItem<T>),
-    Err(ErrorResponse),
     SubscriptionItem(SubscriptionItem<T>),
+    Ok(T),
+    Err(ErrorResponse),
     Empty {},
 }
 
