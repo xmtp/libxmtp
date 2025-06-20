@@ -167,6 +167,7 @@ pub struct ConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1451,8 +1452,9 @@ where
         let provider = self.context.mls_provider();
         let epoch =
             self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+        let conn = provider.db();
 
-        let stored_group = match provider.db().find_group(&self.group_id)? {
+        let stored_group = match conn.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1461,10 +1463,20 @@ where
             }
         };
 
+        let cursor = conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+        let local_logs = conn.get_group_logs(&self.group_id)?;
+        let mut lines = Vec::new();
+        for log in local_logs.iter() {
+            lines.push(format!("{}", log));
+        }
+        lines.push(format!("Cursor {{ sequence_id: {} }}", cursor));
+        let commit_log = lines.join("\n");
+
         Ok(ConversationDebugInfo {
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
+            local_commit_log: commit_log,
         })
     }
 
