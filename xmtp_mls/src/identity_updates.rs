@@ -32,7 +32,7 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
+use xmtp_api::{test_utils::ApiClient, ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
 
 #[derive(Debug, Error)]
@@ -143,6 +143,38 @@ pub async fn revoke_installations_with_verifier<C: ConnectionExt>(
     }
 
     Ok(builder.build())
+}
+
+/**
+ * Apply a signature request to the client's inbox by publishing the identity update to the network.
+ *
+ * This will error if the signature request is missing signatures, if the signatures are invalid,
+ * if the update fails other verifications, or if the update fails to be published to the network.
+ **/
+pub async fn apply_signature_request_with_verifier<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    api_client: &ApiClientWrapper<ApiClient>,
+    signature_request: SignatureRequest,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<(), ClientError> {
+    let inbox_id = signature_request.inbox_id().to_string();
+    // If the signature request isn't completed, this will error
+    let identity_update = signature_request
+        .build_identity_update()
+        .map_err(IdentityUpdateError::from)?;
+
+    identity_update.to_verified(scw_verifier).await?;
+
+    // We don't need to validate the update, since the server will do this for us
+    api_client.publish_identity_update(identity_update).await?;
+
+    // Load the identity updates for the inbox so that we have a record in our DB
+    retry_async!(
+        Retry::default(),
+        (async { load_identity_updates(api_client, conn, &[inbox_id.as_str()]).await })
+    )?;
+
+    Ok(())
 }
 
 impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
@@ -383,7 +415,7 @@ where
             installation_ids,
             &self.context.scw_verifier,
         )
-        .await;
+        .await?;
 
         let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
 
@@ -420,32 +452,13 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
-        let inbox_id = signature_request.inbox_id().to_string();
-        // If the signature request isn't completed, this will error
-        let identity_update = signature_request
-            .build_identity_update()
-            .map_err(IdentityUpdateError::from)?;
-
-        identity_update
-            .to_verified(self.context.scw_verifier())
-            .await?;
-
-        // We don't need to validate the update, since the server will do this for us
-        self.context
-            .api()
-            .publish_identity_update(identity_update)
-            .await?;
-
-        // Load the identity updates for the inbox so that we have a record in our DB
-        retry_async!(
-            Retry::default(),
-            (async {
-                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
-                    .await
-            })
-        )?;
-
-        Ok(())
+        apply_signature_request_with_verifier(
+            self.context.api(),
+            &self.context.db(),
+            signature_request,
+            self.context.scw_verifier(),
+        )
+        .await
     }
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed

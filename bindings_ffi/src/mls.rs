@@ -117,15 +117,78 @@ pub async fn connect_to_backend(
  */
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn static_revoke_installations(
+    api: Arc<XmtpApiClient>,
+    db: String,
+    encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-    let signature_request = revoke_installations_with_verifier(???DB???, inbox_id, installation_ids, ???SCWVerifier???).await?;
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+
+    let storage_option = StorageOption::Persistent(db);
+
+    let store = match encryption_key {
+        Some(key) => {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            let db = NativeDb::new(&storage_option, key)?;
+            EncryptedMessageStore::new(db)?
+        }
+        None => {
+            let db = NativeDb::new_unencrypted(&storage_option)?;
+            EncryptedMessageStore::new(db)?
+        }
+    };
+
+    let scw_verifier = api.api_client.context.scw_verifier.clone();
+
+    let signature_request =
+        revoke_installations_with_verifier(store, inbox_id, installation_ids, scw_verifier).await?;
 
     Ok(Arc::new(FfiSignatureRequest {
         inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-        scw_verifier: ???SCWVerifier???,
+        scw_verifier: scw_verifier,
     }))
+}
+
+/**
+ * Static apply a signature request
+ */
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn static_apply_signature_request(
+    api: Arc<XmtpApiClient>,
+    db: String,
+    encryption_key: Option<Vec<u8>>,
+    signature_request: Arc<FfiSignatureRequest>,
+) -> Result<(), GenericError> {
+    let mut api =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+
+    let storage_option = StorageOption::Persistent(db);
+
+    let store = match encryption_key {
+        Some(key) => {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            let db = NativeDb::new(&storage_option, key)?;
+            EncryptedMessageStore::new(db)?
+        }
+        None => {
+            let db = NativeDb::new_unencrypted(&storage_option)?;
+            EncryptedMessageStore::new(db)?
+        }
+    };
+
+    let signature_request = signature_request.inner.lock().await;
+    let scw_verifier = api.api_client.context.scw_verifier.clone();
+
+    apply_signature_request_with_verifier(api, store, signature_request.clone(), scw_verifier)
+        .await?;
+
+    Ok(())
 }
 
 /// It returns a new client of the specified `inbox_id`.
@@ -8462,5 +8525,104 @@ mod tests {
         let _alix6 = new_test_client_no_panic(alix_wallet.clone(), None).await;
         let updated_state = alix.inbox_state(true).await.unwrap();
         assert_eq!(updated_state.installations.len(), 5);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_static_revoke_installations() {
+        // Step 1: Generate a shared wallet used for both clients
+        let wallet = generate_local_wallet();
+
+        // Step 2: Create client_1 using the shared wallet
+        let ident = wallet.identifier();
+        let inbox_id = ident.inbox_id(1).unwrap();
+        let ffi_ident: FfiIdentifier = ident.clone().into();
+        let encryption_key = xmtp_db::EncryptedMessageStore::<()>::generate_enc_key();
+
+        let client_1 = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(encryption_key.clone().into()),
+            &inbox_id,
+            ffi_ident.clone(),
+            1,
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Register client_1
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet.clone());
+        register_client_with_wallet(&ffi_inbox_owner, &client_1).await;
+
+        // Step 3: Create client_2 with the same wallet
+        let client_2 = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some(encryption_key.clone().into()),
+            &inbox_id,
+            ffi_ident,
+            2, // nonce
+            None,
+            Some(HISTORY_SYNC_URL.to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        register_client_with_wallet(&ffi_inbox_owner, &client_2).await;
+
+        // Step 4: Verify that both installations are registered
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installations.len(), 2);
+        assert_eq!(client_2_state.installations.len(), 2);
+
+        // Step 5: Create a static signature request to revoke client_2's installation
+        let revoke_request = static_revoke_installations(
+            client_1.api().clone(),
+            client_1.db_path().to_string(),
+            Some(encryption_key.clone().to_vec()),
+            &client_1.inbox_id(),
+            vec![client_2.installation_id()],
+        )
+        .await
+        .unwrap();
+
+        // Step 6: Sign and apply the revoke request
+        revoke_request.add_wallet_signature(&wallet).await;
+        static_apply_signature_request(
+            client_1.api().clone(),
+            client_1.db_path().to_string(),
+            Some(encryption_key.to_vec()),
+            revoke_request,
+        )
+        .await
+        .unwrap();
+
+        // Step 7: Fetch updated inbox state and verify only client_1's installation remains
+        let client_1_state_after = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after = client_2.inbox_state(true).await.unwrap();
+
+        assert_eq!(client_1_state_after.installations.len(), 1);
+        assert_eq!(client_2_state_after.installations.len(), 1);
+
+        let expected_installation_id = client_1.installation_id();
+        assert_eq!(
+            client_1_state_after.installations[0].id,
+            expected_installation_id
+        );
+        assert_eq!(
+            client_2_state_after.installations[0].id,
+            expected_installation_id
+        );
     }
 }
