@@ -1596,6 +1596,7 @@ where
                 sender_inbox_id: None,
                 sender_installation_id: None,
                 commit_type: None,
+                error_message: Some(format!("{error:?}")),
             }
             .store(conn)?;
         }

@@ -9,6 +9,7 @@ pub struct NewLocalCommitLog {
     pub commit_sequence_id: i64,
     pub last_epoch_authenticator: Vec<u8>,
     pub commit_result: CommitResult,
+    pub error_message: Option<String>,
     pub applied_epoch_number: Option<i64>,
     pub applied_epoch_authenticator: Option<Vec<u8>>,
     pub sender_inbox_id: Option<String>,

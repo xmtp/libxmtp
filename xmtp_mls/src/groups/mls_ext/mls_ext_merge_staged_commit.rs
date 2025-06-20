@@ -60,6 +60,7 @@ impl MergeStagedCommitAndLog for MlsGroup {
             sender_inbox_id: Some(validated_commit.actor_inbox_id()),
             sender_installation_id: Some(validated_commit.actor_installation_id()),
             commit_type: Some(format!("{}", commit_type)),
+            error_message: None,
         }
         .store(provider.db())?;
 
