@@ -332,6 +332,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             Metadata,
             MutableMetadata,
             PausedForVersion,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -368,7 +369,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             "metadata" => Ok(GeneratedField::Metadata),
                             "mutableMetadata" | "mutable_metadata" => Ok(GeneratedField::MutableMetadata),
                             "pausedForVersion" | "paused_for_version" => Ok(GeneratedField::PausedForVersion),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -510,6 +511,9 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             }
                             paused_for_version__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(GroupSave {
@@ -566,6 +570,7 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CreatorInboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -588,7 +593,7 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
                     {
                         match value {
                             "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -615,6 +620,9 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
                                 return Err(serde::de::Error::duplicate_field("creatorInboxId"));
                             }
                             creator_inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -675,6 +683,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
             Attributes,
             AdminList,
             SuperAdminList,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -699,7 +708,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -742,6 +751,9 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                                 return Err(serde::de::Error::duplicate_field("superAdminList"));
                             }
                             super_admin_list__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

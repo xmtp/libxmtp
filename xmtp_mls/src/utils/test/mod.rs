@@ -76,7 +76,7 @@ impl ClientBuilder<TestClient> {
             api_client,
             MockSmartContractSignatureVerifier::new(true),
             Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
-            None,
+            Some(SyncWorkerMode::Disabled),
             None,
             None,
         )

@@ -60,6 +60,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             TargetTopic,
             DependsOn,
             IsCommit,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -85,7 +86,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             "targetTopic" | "target_topic" => Ok(GeneratedField::TargetTopic),
                             "dependsOn" | "depends_on" => Ok(GeneratedField::DependsOn),
                             "isCommit" | "is_commit" => Ok(GeneratedField::IsCommit),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -138,6 +139,9 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             }
                             is_commit__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(AuthenticatedData {
@@ -185,6 +189,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TransactionHash,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -207,7 +212,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     {
                         match value {
                             "transactionHash" | "transaction_hash" => Ok(GeneratedField::TransactionHash),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -236,6 +241,9 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                             transaction_hash__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -321,6 +329,7 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
             IdentityUpdate,
             PayerReport,
             PayerReportAttestation,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -349,7 +358,7 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             "identityUpdate" | "identity_update" => Ok(GeneratedField::IdentityUpdate),
                             "payerReport" | "payer_report" => Ok(GeneratedField::PayerReport),
                             "payerReportAttestation" | "payer_report_attestation" => Ok(GeneratedField::PayerReportAttestation),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -420,6 +429,9 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::PayerReportAttestation)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ClientEnvelope {
@@ -465,6 +477,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             NodeIdToSequenceId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -487,7 +500,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                     {
                         match value {
                             "nodeIdToSequenceId" | "node_id_to_sequence_id" => Ok(GeneratedField::NodeIdToSequenceId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -517,6 +530,9 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                                 map_.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, ::pbjson::private::NumberDeserialize<u64>>>()?
                                     .into_iter().map(|(k,v)| (k.0, v.0)).collect()
                             );
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -581,6 +597,7 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
             UnsignedOriginatorEnvelope,
             OriginatorSignature,
             BlockchainProof,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -605,7 +622,7 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                             "unsignedOriginatorEnvelope" | "unsigned_originator_envelope" => Ok(GeneratedField::UnsignedOriginatorEnvelope),
                             "originatorSignature" | "originator_signature" => Ok(GeneratedField::OriginatorSignature),
                             "blockchainProof" | "blockchain_proof" => Ok(GeneratedField::BlockchainProof),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -649,6 +666,9 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                             }
                             proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::BlockchainProof)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -722,6 +742,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
             PayerSignature,
             TargetOriginator,
             MessageRetentionDays,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -747,7 +768,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                             "payerSignature" | "payer_signature" => Ok(GeneratedField::PayerSignature),
                             "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             "messageRetentionDays" | "message_retention_days" => Ok(GeneratedField::MessageRetentionDays),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -801,6 +822,9 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                             message_retention_days__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -889,6 +913,7 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
             EndSequenceId,
             PayersMerkleRoot,
             ActiveNodeIds,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -915,7 +940,7 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
                             "endSequenceId" | "end_sequence_id" => Ok(GeneratedField::EndSequenceId),
                             "payersMerkleRoot" | "payers_merkle_root" => Ok(GeneratedField::PayersMerkleRoot),
                             "activeNodeIds" | "active_node_ids" => Ok(GeneratedField::ActiveNodeIds),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -982,6 +1007,9 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(PayerReport {
@@ -1038,6 +1066,7 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
         enum GeneratedField {
             ReportId,
             Signature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1061,7 +1090,7 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
                         match value {
                             "reportId" | "report_id" => Ok(GeneratedField::ReportId),
                             "signature" => Ok(GeneratedField::Signature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1097,6 +1126,9 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
                             signature__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1207,6 +1239,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
             BaseFeePicodollars,
             CongestionFeePicodollars,
             ExpiryUnixtime,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1235,7 +1268,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             "baseFeePicodollars" | "base_fee_picodollars" => Ok(GeneratedField::BaseFeePicodollars),
                             "congestionFeePicodollars" | "congestion_fee_picodollars" => Ok(GeneratedField::CongestionFeePicodollars),
                             "expiryUnixtime" | "expiry_unixtime" => Ok(GeneratedField::ExpiryUnixtime),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1318,6 +1351,9 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             expiry_unixtime__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

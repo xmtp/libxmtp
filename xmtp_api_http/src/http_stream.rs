@@ -115,7 +115,14 @@ where
     fn on_bytes(&mut self, bytes: bytes::Bytes) -> Result<(), HttpClientError> {
         let bytes = &[self.remaining.as_ref(), bytes.as_ref()].concat();
         self.remaining.clear();
-        let de = Deserializer::from_slice(bytes);
+
+        let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        if let Some(result) = value.as_object_mut().and_then(|v| v.remove("result")) {
+            value = result;
+        }
+        let bytes = serde_json::to_vec(&value).unwrap();
+
+        let de = Deserializer::from_slice(&bytes);
         let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
         while let Some(item) = deser_stream.next() {
             match item {

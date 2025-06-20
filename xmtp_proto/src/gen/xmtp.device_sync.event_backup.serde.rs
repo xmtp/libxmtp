@@ -163,6 +163,7 @@ impl<'de> serde::Deserialize<'de> for EventSave {
             GroupId,
             Level,
             Icon,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -190,7 +191,7 @@ impl<'de> serde::Deserialize<'de> for EventSave {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             "level" => Ok(GeneratedField::Level),
                             "icon" => Ok(GeneratedField::Icon),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -258,6 +259,9 @@ impl<'de> serde::Deserialize<'de> for EventSave {
                                 return Err(serde::de::Error::duplicate_field("icon"));
                             }
                             icon__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

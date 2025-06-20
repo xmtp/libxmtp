@@ -426,6 +426,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             ReferenceId,
             SequenceId,
             OriginatorId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -462,7 +463,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             "referenceId" | "reference_id" => Ok(GeneratedField::ReferenceId),
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
                             "originatorId" | "originator_id" => Ok(GeneratedField::OriginatorId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -607,6 +608,9 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             originator_id__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
