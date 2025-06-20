@@ -22,5 +22,6 @@ CREATE TABLE local_commit_log (
     -- Items below this line are for debugging purposes
     "epoch_number" BIGINT,
     "sender_inbox_id" TEXT,
-    "sender_installation_id" BLOB
+    "sender_installation_id" BLOB,
+    "error_message" TEXT
 );

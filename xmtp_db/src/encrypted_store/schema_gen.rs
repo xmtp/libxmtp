@@ -145,6 +145,7 @@ diesel::table! {
         epoch_number -> Nullable<BigInt>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
+        error_message -> Nullable<Text>,
     }
 }
 
@@ -181,8 +182,8 @@ diesel::table! {
     remote_commit_log (sequence_id) {
         sequence_id -> BigInt,
         group_id -> Binary,
-        last_epoch_authenticator -> Nullable<Binary>,
         epoch_authenticator -> Binary,
+        last_epoch_authenticator -> Nullable<Binary>,
         result -> Integer,
         epoch_number -> Nullable<BigInt>,
     }

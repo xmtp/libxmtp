@@ -26,6 +26,7 @@ pub struct LocalCommitLog {
     pub epoch_number: Option<i64>,
     pub sender_inbox_id: Option<String>,
     pub sender_installation_id: Option<Vec<u8>>,
+    pub error_message: Option<String>,
 }
 
 impl_store!(NewLocalCommitLog, local_commit_log);
