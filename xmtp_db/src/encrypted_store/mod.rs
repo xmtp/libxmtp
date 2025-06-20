@@ -382,7 +382,7 @@ pub trait MlsProviderExt: OpenMlsProvider {
     ///     provider.conn().db_operation()?;
     /// })
     /// ```
-    fn transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
+    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<<Self as OpenMlsProvider>::StorageProvider>) -> Result<T, E>,
         E: std::error::Error + From<crate::ConnectionError>,

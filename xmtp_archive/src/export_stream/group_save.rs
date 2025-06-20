@@ -1,6 +1,5 @@
 use super::*;
 use openmls::group::{GroupId, MlsGroup};
-use openmls_traits::OpenMlsProvider;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
@@ -16,7 +15,7 @@ use xmtp_proto::xmtp::device_sync::{
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
     fn backup_records<D, C>(
-        provider: &XmtpOpenMlsProvider<C>,
+        db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
         cursor: i64,
@@ -37,14 +36,13 @@ impl BackupRecordProvider for GroupSave {
 
         args.limit = Some(Self::BATCH_SIZE);
 
-        let conn = DbConnection::new(provider.key_store().conn());
-        let batch = conn.find_groups_by_id_paged(args, cursor)?;
-        let storage = provider.storage();
+        let batch = db.find_groups_by_id_paged(args, cursor)?;
+        let storage = SqlKeyStore::new(&db);
         let records = batch
             .into_iter()
             .filter_map(|record| {
                 let mls_group =
-                    MlsGroup::load(storage, &GroupId::from_slice(&record.id)).ok()??;
+                    MlsGroup::load(&storage, &GroupId::from_slice(&record.id)).ok()??;
                 let immutable = mls_group.extensions().immutable_metadata()?;
 
                 let immutable_metadata = GroupMetadata::try_from(immutable.metadata()).ok()?;

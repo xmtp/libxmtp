@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, sync::Arc};
-use xmtp_db::{ConnectionExt, StorageError, XmtpOpenMlsProvider, prelude::*};
+use xmtp_db::{ConnectionExt, StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,
@@ -21,7 +21,7 @@ pub(super) struct BatchExportStream {
 impl BatchExportStream {
     pub(super) fn new<C, D>(opts: &BackupOptions, db: Arc<D>) -> Self
     where
-        C: ConnectionExt + Send + Sync + Unpin + 'static,
+        C: ConnectionExt + Send + Sync + 'static,
         D: DbQuery<C> + Send + Sync + 'static,
     {
         let input_streams = opts
@@ -94,7 +94,7 @@ impl Iterator for BatchExportStream {
 pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
     fn backup_records<D, C>(
-        provider: &XmtpOpenMlsProvider<C>,
+        db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
         cursor: i64,
@@ -132,13 +132,13 @@ where
 
 impl<R, D, C> Iterator for BackupRecordStreamer<R, D, C>
 where
-    R: BackupRecordProvider + Unpin + Send,
-    C: ConnectionExt + Unpin,
+    R: BackupRecordProvider + Send,
+    C: ConnectionExt,
     D: DbQuery<C>,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn next(&mut self) -> Option<Self::Item> {
-        let batch = R::backup_records(&self.provider, self.start_ns, self.end_ns, self.cursor);
+        let batch = R::backup_records(self.db.clone(), self.start_ns, self.end_ns, self.cursor);
 
         if let Ok(batch) = &batch {
             if batch.is_empty() {

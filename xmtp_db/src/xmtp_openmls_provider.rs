@@ -25,7 +25,7 @@ where
     S: StorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
-    fn inner_transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
+    fn inner_transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
         E: From<crate::ConnectionError> + std::error::Error,
@@ -76,14 +76,14 @@ where
     S: StorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
+    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
         E: From<crate::ConnectionError> + std::error::Error,
         C: ConnectionExt,
         D: DbQuery<C>,
     {
-        XmtpOpenMlsProvider::inner_transaction(self, fun, conn)
+        XmtpOpenMlsProvider::inner_transaction(self, conn, fun)
     }
 
     fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {
@@ -96,14 +96,14 @@ where
     S: StorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E, C, D>(&self, fun: F, conn: D) -> Result<T, E>
+    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
     where
         F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
         E: std::error::Error + From<crate::ConnectionError>,
         C: ConnectionExt,
         D: DbQuery<C>,
     {
-        XmtpOpenMlsProvider::inner_transaction(self, fun, conn)
+        XmtpOpenMlsProvider::inner_transaction(self, conn, fun)
     }
 
     fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {

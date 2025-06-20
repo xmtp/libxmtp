@@ -687,7 +687,7 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider.transaction(|provider| {
+        let result = provider.transaction(&db, |provider| {
             processed_message = Some(mls_group.process_message(&provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
             Err::<(), StorageError>(StorageError::IntentionalRollback)
@@ -747,7 +747,7 @@ where
             _ => None,
         };
 
-        let identifier = provider.transaction(|provider| {
+        let identifier = provider.transaction(&db, |provider| {
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
@@ -1103,7 +1103,7 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let provider = self.mls_provider();
+        let db = self.context.db();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
         let cursor = envelope.id;
@@ -1123,8 +1123,7 @@ where
             .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = provider
-            .db()
+        let group_cursor = db
             .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
             // early return if the message is already procesed
@@ -1178,7 +1177,7 @@ where
                     .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
                     .await;
                 let provider = XmtpOpenMlsProvider::new(&db);
-                provider.transaction(|provider| {
+                provider.transaction(&db, |provider| {
                         let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -1683,7 +1682,7 @@ where
                         let intent_hash = sha256(payload_slice);
                         // removing this transaction causes missed messages
                         let provider = XmtpOpenMlsProvider::new(&db);
-                        provider.transaction(|_provider| {
+                        provider.transaction(&db, |_provider| {
                             db.set_group_intent_published(
                                 intent.id,
                                 &intent_hash,
@@ -1784,8 +1783,8 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let provider = self.context.mls_provider();
-                let result = provider.transaction(|provider| {
+                let provider = XmtpOpenMlsProvider::new(&db);
+                let result = provider.transaction(&db, |provider| {
                     let bundle = openmls_group.self_update(
                         &provider,
                         &self.context.identity().installation_keys,

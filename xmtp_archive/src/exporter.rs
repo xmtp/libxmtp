@@ -102,7 +102,7 @@ impl ArchiveExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            iterator: BatchExportStream::new(&options, provider),
+            iterator: BatchExportStream::new(&options, Arc::new(db)),
             metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,

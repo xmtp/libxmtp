@@ -33,7 +33,7 @@ use crate::{
     configuration::{
         CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpMlsStorageProvider},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
@@ -60,7 +60,7 @@ use openmls::{
         WireFormatPolicy,
     },
 };
-use openmls_traits::OpenMlsProvider;
+use openmls_traits::{storage::CURRENT_VERSION, OpenMlsProvider};
 use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
@@ -293,10 +293,10 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(provider, operation))]
+    #[tracing::instrument(level = "debug", skip(storage, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
-        provider: impl OpenMlsProvider,
+        storage: &impl XmtpMlsStorageProvider,
         operation: F,
     ) -> Result<R, GroupError>
     where
@@ -308,10 +308,9 @@ where
         // Acquire the lock synchronously using blocking_lock
         let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
-        let mls_group =
-            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(|_| NotFound::MlsGroup)?
-                .ok_or(NotFound::MlsGroup)?;
+        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
+            .map_err(|_| NotFound::MlsGroup)?
+            .ok_or(NotFound::MlsGroup)?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -326,9 +325,16 @@ where
     where
         F: FnOnce(OpenMlsGroup) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: From<GroupMessageProcessingError> + From<crate::StorageError>,
+        E:
+            From<GroupMessageProcessingError>
+                + From<crate::StorageError>
+                + From<
+                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
+                        CURRENT_VERSION,
+                    >>::Error,
+                >,
     {
-        let provider = self.context.mls_provider();
+        let mls_storage = self.context.mls_storage();
         // Get the group ID for locking
         let group_id = self.group_id.clone();
 
@@ -336,12 +342,10 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
-        let mls_group =
-            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(crate::StorageError::from)?
-                .ok_or(StorageError::from(NotFound::GroupById(
-                    self.group_id.to_vec(),
-                )))?;
+        let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
+            .ok_or(StorageError::from(NotFound::GroupById(
+                self.group_id.to_vec(),
+            )))?;
 
         // Perform the operation with the MLS group
         operation(mls_group).await
@@ -542,7 +546,7 @@ where
         };
 
         let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.transaction(|provider| {
+        let result = provider.transaction(&conn, |provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
@@ -564,7 +568,7 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
 
-        provider.transaction(|provider| {
+        provider.transaction(&conn, |provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
@@ -604,7 +608,7 @@ where
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
-                    let current_version_str = context.version_info().pkg_version();
+                    let current_version_str = context.context_ref().version_info().pkg_version();
                     let current_version =
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
@@ -657,7 +661,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
+                    let _ = context.context_ref().worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -1431,9 +1435,9 @@ where
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let db = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(&db);
+        let storage = self.context.mls_storage();
         let epoch =
-            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+            self.load_mls_group_with_lock(storage, |mls_group| Ok(mls_group.epoch().as_u64()))?;
 
         let stored_group = match db.find_group(&self.group_id)? {
             Some(group) => group,

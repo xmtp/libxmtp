@@ -668,7 +668,7 @@ impl Identity {
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                provider.transaction(|_provider| {
+                provider.transaction(&conn, |_provider| {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<(), StorageError>(())
                 })?;

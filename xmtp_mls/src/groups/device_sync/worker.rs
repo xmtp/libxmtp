@@ -364,6 +364,7 @@ where
                 if !updated.is_empty() {
                     let _ = self
                         .context
+                        .context_ref()
                         .local_events
                         .send(LocalEvents::PreferencesChanged(updated));
                 }

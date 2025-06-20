@@ -11,21 +11,38 @@ use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
-use openmls::storage::StorageProvider;
+use openmls_traits::storage::StorageProvider;
+use openmls_traits::storage::CURRENT_VERSION;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::types::InstallationId;
-use xmtp_db::sql_key_store::SqlKeyStore;
+use xmtp_db::sql_key_store::{SqlKeyStore, SqlKeyStoreError};
 use xmtp_db::{prelude::*, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use xmtp_db::{ConnectionExt, DbConnection, MlsProviderExt, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
 
-pub trait XmtpSharedContext: Sized + Clone {
+/// Convenience super trait to constrain the storage provider to a
+/// specific error type and version
+pub trait XmtpMlsStorageProvider:
+    StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+{
+}
+
+impl<T> XmtpMlsStorageProvider for T where
+    T: ?Sized + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+{
+}
+
+pub trait XmtpSharedContext
+where
+    Self: Sized + Clone,
+{
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
-    type MlsStorage: StorageProvider;
+    type MlsStorage: XmtpMlsStorageProvider;
+
     fn context_ref(&self)
         -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>>;
 
@@ -50,8 +67,12 @@ pub trait XmtpSharedContext: Sized + Clone {
     }
 
     /// Creates a new MLS Provider
-    fn mls_provider(&self) -> XmtpOpenMlsProvider<&Self::MlsStorage> {
-        XmtpOpenMlsProvider::new(&self.context_ref().mls_storage)
+    fn mls_provider(&self) -> XmtpOpenMlsProvider<Self::MlsStorage> {
+        XmtpOpenMlsProvider::new(&self.context_ref().mls_storage.clone())
+    }
+
+    fn mls_storage(&self) -> &Self::MlsStorage {
+        &self.context_ref().mls_storage
     }
 
     fn signature_request(&self) -> Option<SignatureRequest> {
@@ -75,7 +96,7 @@ impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiCl
 where
     XApiClient: XmtpApi,
     XDb: XmtpDb,
-    XMls: StorageProvider,
+    XMls: XmtpMlsStorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
@@ -107,7 +128,7 @@ where
 pub trait XmtpContextProvider: Sized {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
-    type MlsStorage: StorageProvider;
+    type MlsStorage: XmtpMlsStorageProvider;
 
     fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>;
 
@@ -136,7 +157,7 @@ impl<XApiClient, XDb, S> XmtpContextProvider for XmtpMlsLocalContext<XApiClient,
 where
     XApiClient: XmtpApi,
     XDb: XmtpDb,
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
@@ -255,7 +276,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     /// XMTP Local Storage
     pub(crate) store: Db,
-    pub(crate) mls_storage: S,
+    pub(crate) mls_storage: Arc<S>,
     pub(crate) mutexes: MutexRegistry,
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
@@ -270,7 +291,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
 where
     Db: XmtpDb,
     ApiClient: XmtpApi,
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
@@ -279,8 +300,8 @@ where
     }
 
     /// Creates a new MLS Provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<&S> {
-        XmtpOpenMlsProvider::new(&self.mls_storage)
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<S> {
+        XmtpOpenMlsProvider::new(self.mls_storage.clone())
     }
 
     pub fn store(&self) -> &Db {

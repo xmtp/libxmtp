@@ -1,6 +1,6 @@
 use crate::{
     client::{Client, DeviceSync},
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpMlsStorageProvider},
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -13,7 +13,6 @@ use crate::{
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi,
 };
-use openmls::storage::StorageProvider;
 use std::{
     marker::PhantomData,
     sync::{atomic::Ordering, Arc},
@@ -149,7 +148,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     where
         ApiClient: XmtpApi + 'static + Send + Sync,
         Db: xmtp_db::XmtpDb + 'static + Send + Sync,
-        S: StorageProvider + 'static + Send + Sync,
+        S: XmtpMlsStorageProvider + 'static + Send + Sync,
     {
         let ClientBuilder {
             mut api_client,
@@ -218,7 +217,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
-            mls_storage,
+            mls_storage: Arc::new(mls_storage),
             store,
             api_client,
             version_info,

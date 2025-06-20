@@ -1,10 +1,11 @@
+use openmls::storage::StorageProvider;
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
 };
-use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+use openmls_traits::OpenMlsProvider;
 use tls_codec::{Deserialize, Serialize};
 
 use crate::{
