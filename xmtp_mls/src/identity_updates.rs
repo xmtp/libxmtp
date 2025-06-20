@@ -32,7 +32,7 @@ use xmtp_id::{
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
-use xmtp_api::{test_utils::ApiClient, ApiClientWrapper, GetIdentityUpdatesV2Filter};
+use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
 
 #[derive(Debug, Error)]
@@ -151,9 +151,9 @@ pub async fn revoke_installations_with_verifier<C: ConnectionExt>(
  * This will error if the signature request is missing signatures, if the signatures are invalid,
  * if the update fails other verifications, or if the update fails to be published to the network.
  **/
-pub async fn apply_signature_request_with_verifier<C: ConnectionExt>(
-    conn: &DbConnection<C>,
+pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi, C: ConnectionExt>(
     api_client: &ApiClientWrapper<ApiClient>,
+    conn: &DbConnection<C>,
     signature_request: SignatureRequest,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<(), ClientError> {

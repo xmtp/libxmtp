@@ -52,6 +52,8 @@ use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
 use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
@@ -145,7 +147,8 @@ pub async fn static_revoke_installations(
     let scw_verifier = api.api_client.context.scw_verifier.clone();
 
     let signature_request =
-        revoke_installations_with_verifier(store, inbox_id, installation_ids, scw_verifier).await?;
+        revoke_installations_with_verifier(&store.db(), inbox_id, installation_ids, scw_verifier)
+            .await?;
 
     Ok(Arc::new(FfiSignatureRequest {
         inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -185,8 +188,13 @@ pub async fn static_apply_signature_request(
     let signature_request = signature_request.inner.lock().await;
     let scw_verifier = api.api_client.context.scw_verifier.clone();
 
-    apply_signature_request_with_verifier(api, store, signature_request.clone(), scw_verifier)
-        .await?;
+    apply_signature_request_with_verifier(
+        &api,
+        &store.db(),
+        signature_request.clone(),
+        scw_verifier,
+    )
+    .await?;
 
     Ok(())
 }
@@ -2987,6 +2995,7 @@ mod tests {
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         mls::test_utils::{LocalBuilder, LocalTester},
+        static_apply_signature_request, static_revoke_installations,
         worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -8537,12 +8546,14 @@ mod tests {
         let inbox_id = ident.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = ident.clone().into();
         let encryption_key = xmtp_db::EncryptedMessageStore::<()>::generate_enc_key();
+        let db_path = tmp_path();
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
 
         let client_1 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(tmp_path()),
+            api_backend.clone(),
+            Some(db_path.clone()),
             Some(encryption_key.clone().into()),
             &inbox_id,
             ffi_ident.clone(),
@@ -8588,9 +8599,9 @@ mod tests {
 
         // Step 5: Create a static signature request to revoke client_2's installation
         let revoke_request = static_revoke_installations(
-            client_1.api().clone(),
-            client_1.db_path().to_string(),
-            Some(encryption_key.clone().to_vec()),
+            api_backend.clone(),
+            db_path.clone(),
+            Some(encryption_key.clone().into()),
             &client_1.inbox_id(),
             vec![client_2.installation_id()],
         )
@@ -8600,9 +8611,9 @@ mod tests {
         // Step 6: Sign and apply the revoke request
         revoke_request.add_wallet_signature(&wallet).await;
         static_apply_signature_request(
-            client_1.api().clone(),
-            client_1.db_path().to_string(),
-            Some(encryption_key.to_vec()),
+            api_backend.clone(),
+            db_path.clone(),
+            Some(encryption_key.clone().into()),
             revoke_request,
         )
         .await
