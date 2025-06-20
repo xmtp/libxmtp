@@ -121,6 +121,30 @@ pub async fn get_association_state_with_verifier<C: ConnectionExt>(
     Ok(association_state)
 }
 
+/// Revoke the given installations from the association state for the client's inbox
+pub async fn revoke_installations_with_verifier<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    inbox_id: &str,
+    installation_ids: Vec<Vec<u8>>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<SignatureRequest, ClientError> {
+    let current_state = retry_async!(
+        Retry::default(),
+        (async { get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await })
+    )?;
+
+    let mut builder = SignatureRequestBuilder::new(inbox_id);
+
+    for installation_id in installation_ids {
+        builder = builder.revoke_association(
+            current_state.recovery_identifier().clone().into(),
+            MemberIdentifier::installation(installation_id),
+        )
+    }
+
+    Ok(builder.build())
+}
+
 impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
 where
     ApiClient: XmtpApi,
@@ -353,26 +377,17 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.context.inbox_id();
 
-        let current_state = retry_async!(
-            Retry::default(),
-            (async {
-                self.get_association_state(&self.context.db(), inbox_id, None)
-                    .await
-            })
-        )?;
-
-        let mut builder = SignatureRequestBuilder::new(inbox_id);
-
-        for installation_id in installation_ids {
-            builder = builder.revoke_association(
-                current_state.recovery_identifier().clone().into(),
-                MemberIdentifier::installation(installation_id),
-            )
-        }
+        let result = revoke_installations_with_verifier(
+            &self.context.db(),
+            inbox_id,
+            installation_ids,
+            &self.context.scw_verifier,
+        )
+        .await;
 
         let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
 
-        Ok(builder.build())
+        Ok(result)
     }
 
     /// Generate a `ChangeRecoveryAddress` signature request using a new identifer

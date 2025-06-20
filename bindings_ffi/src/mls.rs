@@ -112,6 +112,22 @@ pub async fn connect_to_backend(
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
+/**
+ * Static revoke a list of installations
+ */
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn static_revoke_installations(
+    inbox_id: &InboxId,
+    installation_ids: Vec<Vec<u8>>,
+) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    let signature_request = revoke_installations_with_verifier(???DB???, inbox_id, installation_ids, ???SCWVerifier???).await?;
+
+    Ok(Arc::new(FfiSignatureRequest {
+        inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        scw_verifier: ???SCWVerifier???,
+    }))
+}
+
 /// It returns a new client of the specified `inbox_id`.
 /// Note that the `inbox_id` must be either brand new or already associated with the `account_identifier`.
 /// i.e. `inbox_id` cannot be associated with another account address.
