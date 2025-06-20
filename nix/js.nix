@@ -1,5 +1,4 @@
-{ shells
-, stdenv
+{ stdenv
 , darwin
 , mktemp
 , buf
@@ -10,21 +9,10 @@
 , playwright-driver
 , playwright
 , lib
-,
+, mkShell
 }:
-
 let
   inherit (darwin.apple_sdk) frameworks;
-  mkShell =
-    top:
-    (shells.combineShell
-      {
-        otherShells = with shells;
-          [
-            mkLinters
-          ];
-        extraInputs = top;
-      });
 in
 mkShell {
   PLAYWRIGHT_BROWSERS_PATH = "${playwright-driver.browsers}";
@@ -43,10 +31,6 @@ mkShell {
       corepack
     ]
     ++ lib.optionals stdenv.isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      frameworks.ApplicationServices
-      frameworks.AppKit
       darwin.cctools
     ];
   VITE_PROJECT_ID = "2ca676e2e5e9322c40c68f10dca637e5";

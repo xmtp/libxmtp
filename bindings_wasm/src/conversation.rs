@@ -684,6 +684,7 @@ impl Conversation {
       epoch: debug_info.epoch,
       maybe_forked: debug_info.maybe_forked,
       fork_details: debug_info.fork_details,
+      local_commit_log: debug_info.local_commit_log,
     })?)
   }
 

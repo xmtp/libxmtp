@@ -80,10 +80,6 @@ mkShell {
     openssl
   ] ++ lib.optionals stdenv.isDarwin [
     # optional packages if on darwin, in order to check if build passes locally
-    frameworks.CoreServices
-    frameworks.Carbon
-    frameworks.ApplicationServices
-    frameworks.AppKit
     darwin.cctools
   ];
 }

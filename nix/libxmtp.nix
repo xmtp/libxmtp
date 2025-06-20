@@ -1,5 +1,4 @@
-{ shells
-, stdenv
+{ stdenv
 , darwin
 , lib
 , fenix
@@ -12,7 +11,6 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
-, cargo-expand
 , cargo-udeps
 , inferno
 , openssl
@@ -21,57 +19,55 @@
 , corepack
 , lnav
 , zstd
-, google-chrome
 , foundry-bin
 , graphite-cli
 , jq
+, llvmPackages
+, curl
+, buf
+, protobuf
+, protolint
+, mkShell
+, wasm-bindgen-cli_0_2_100
+, wasm-pack
+, binaryen
+, emscripten
 , ...
 }:
 
 let
   inherit (stdenv) isDarwin;
-  inherit (darwin.apple_sdk) frameworks;
-  inherit (shells) combineShell;
-  mkShell =
-    top:
-    (
-      combineShell
-        {
-          otherShells = with shells;
-            [
-              mkLinters
-              mkCargo
-              mkRustWasm
-              mkGrpc
-            ];
-          extraInputs = top;
-        });
   rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  darwinAttrs = {
+    # set the linker for macos
+    # libcxx is needed to find standard library headers (like 'limits.h')
+    CC_wasm32_unknown_unknown = "${llvmPackages.libcxxClang}/bin/clang";
+    AR_wasm32_unknown_unknown = "${llvmPackages.bintools-unwrapped}/bin/llvm-ar";
+  };
 in
-mkShell {
+mkShell ({
   OPENSSL_DIR = "${openssl.dev}";
   # LLVM_PATH = "${llvmPackages_19.stdenv}";
-  # CC_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang";
   # CXX_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/clang++";
   # AS_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-as";
-  # AR_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-ar";
   # STRIP_wasm32_unknown_unknown = "${llvmPackages_20.clang-unwrapped}/bin/llvm-strip";
   # disable -fzerocallusedregs in clang
-  hardeningDisable = [ "zerocallusedregs" ];
+  hardeningDisable = [ "zerocallusedregs" "stackprotector" ];
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
-  nativeBuildInputs = [ pkg-config ];
+  STACK_OVERFLOW_CHECK = 0;
+  nativeBuildInputs = [ pkg-config wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
   buildInputs =
     [
       rust-toolchain
       fenix.rust-analyzer
-      zstd
       foundry-bin
 
       # native libs
       openssl
       sqlite
       sqlcipher
+      zstd
       # emscripten
 
       mktemp
@@ -84,24 +80,24 @@ mkShell {
       # tokio-console
       gnuplot
       flamegraph
-      cargo-flamegraph
       cargo-udeps
-      cargo-expand
+      cargo-flamegraph
       inferno
       lnav
-      google-chrome
       jq
+      curl
 
-      # make sure to use nodePackages! or it will install yarn irrespective of environmental node.
+      # Protobuf
+      buf
+      protobuf
+      protolint
+
+      # yarn/nodejs
       corepack
     ]
     ++ lib.optionals isDarwin [
-      frameworks.CoreServices
-      frameworks.Carbon
-      frameworks.ApplicationServices
-      frameworks.AppKit
       darwin.cctools
     ] ++ lib.optionals stdenv.isLinux [
 
     ];
-}
+} // lib.optionalAttrs isDarwin darwinAttrs)

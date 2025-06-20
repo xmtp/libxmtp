@@ -14,16 +14,16 @@ use serde::{Deserialize, Serialize};
 #[diesel(table_name = remote_commit_log)]
 #[diesel(primary_key(sequence_id))]
 pub struct RemoteCommitLog {
-    pub sequence_id: i64,
-    pub group_id: Option<Vec<u8>>,
-    pub epoch_authenticator: Vec<u8>,
-    pub last_epoch_authenticator: Option<Vec<u8>>,
-    pub result: CommitResult,
-    pub epoch_number: Option<i64>,
+    pub log_sequence_id: i64,
+    pub group_id: Vec<u8>,
+    pub commit_sequence_id: i64,
+    pub commit_result: CommitResult,
+    pub applied_epoch_number: Option<i64>,
+    pub applied_epoch_authenticator: Option<Vec<u8>>,
 }
 
 #[repr(i32)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
+#[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 pub enum CommitResult {
     Unknown = 0,
@@ -31,6 +31,19 @@ pub enum CommitResult {
     WrongEpoch = 2,
     Undecryptable = 3,
     Invalid = 4,
+}
+
+impl std::fmt::Debug for CommitResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            CommitResult::Unknown => "Unknown",
+            CommitResult::Success => "Success",
+            CommitResult::WrongEpoch => "WrongEpoch",
+            CommitResult::Undecryptable => "Undecryptable",
+            CommitResult::Invalid => "Invalid",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 impl ToSql<Integer, Sqlite> for CommitResult

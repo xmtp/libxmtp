@@ -783,7 +783,7 @@ impl FfiXmtpClient {
     /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
     pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
         let provider = Arc::new(self.inner_client.mls_provider());
-        Ok(upload_debug_archive(&provider, server_url).await?)
+        Ok(upload_debug_archive(&provider, Some(server_url)).await?)
     }
 }
 
@@ -1703,21 +1703,28 @@ pub struct FfiConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
 }
 
 impl FfiConversationDebugInfo {
-    fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+    fn new(epoch: u64, maybe_forked: bool, fork_details: String, local_commit_log: String) -> Self {
         Self {
             epoch,
             maybe_forked,
             fork_details,
+            local_commit_log,
         }
     }
 }
 
 impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     fn from(value: ConversationDebugInfo) -> Self {
-        FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
+        FfiConversationDebugInfo::new(
+            value.epoch,
+            value.maybe_forked,
+            value.fork_details,
+            value.local_commit_log,
+        )
     }
 }
 
@@ -4263,7 +4270,9 @@ mod tests {
         message_callbacks.wait_for_delivery(None).await.unwrap();
         assert_eq!(bo.provider.db().intents_published(), 4);
 
-        assert_eq!(message_callbacks.message_count(), 6);
+        wait_for_eq(|| async { message_callbacks.message_count() }, 6)
+            .await
+            .unwrap();
 
         stream_messages.end_and_wait().await.unwrap();
         assert!(stream_messages.is_closed());

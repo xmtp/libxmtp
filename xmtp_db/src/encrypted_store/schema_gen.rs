@@ -1,7 +1,5 @@
 // @generated automatically by Diesel CLI.
 
-use super::schema::conversation_list;
-
 diesel::table! {
     association_state (inbox_id, sequence_id) {
         inbox_id -> Text,
@@ -132,20 +130,23 @@ diesel::table! {
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
         delete_at_ns -> Nullable<BigInt>,
+        post_quantum_public_key -> Nullable<Binary>,
     }
 }
 
 diesel::table! {
-    local_commit_log (id) {
-        id -> Integer,
-        sequence_id -> Nullable<BigInt>,
-        epoch_authenticator -> Nullable<Binary>,
+    local_commit_log (rowid) {
+        rowid -> Integer,
         group_id -> Binary,
-        result -> Integer,
-        epoch_number -> Nullable<BigInt>,
+        commit_sequence_id -> BigInt,
+        last_epoch_authenticator -> Binary,
+        commit_result -> Integer,
+        error_message -> Nullable<Text>,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
-        error_message -> Nullable<Text>,
+        commit_type -> Nullable<Text>,
     }
 }
 
@@ -179,13 +180,14 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_commit_log (sequence_id) {
-        sequence_id -> BigInt,
+    remote_commit_log (rowid) {
+        rowid -> Integer,
+        log_sequence_id -> BigInt,
         group_id -> Binary,
-        epoch_authenticator -> Binary,
-        last_epoch_authenticator -> Nullable<Binary>,
-        result -> Integer,
-        epoch_number -> Nullable<BigInt>,
+        commit_sequence_id -> BigInt,
+        commit_result -> Integer,
+        applied_epoch_number -> Nullable<BigInt>,
+        applied_epoch_authenticator -> Nullable<Binary>,
     }
 }
 
@@ -219,5 +221,4 @@ diesel::allow_tables_to_appear_in_same_query!(
     refresh_state,
     remote_commit_log,
     user_preferences,
-    conversation_list
 );

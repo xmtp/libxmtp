@@ -25,7 +25,6 @@ use crate::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
-    hpke::{encrypt_welcome, HpkeError},
     identity::{parse_credential, IdentityError},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
@@ -41,19 +40,23 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::MergeStagedCommitAndLog,
+    groups::mls_ext::{wrap_welcome, MergeStagedCommitAndLog, WrapWelcomeError},
+    subscriptions::SyncWorkerEvent,
+    track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
-use crate::{subscriptions::SyncWorkerEvent, track};
 use xmtp_api::XmtpApi;
 use xmtp_db::{
+    events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
+    local_commit_log::NewLocalCommitLog,
     refresh_state::EntityKind,
+    remote_commit_log::CommitResult,
     sql_key_store::{self, SqlKeyStore},
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore, XmtpDb,
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
@@ -91,7 +94,7 @@ use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::mls::message_contents::{group_updated, WelcomeWrapperAlgorithm};
+use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -304,14 +307,18 @@ where
         }
 
         // Even if publish fails, continue to receiving
-        if let Err(e) = self.publish_intents().await {
+        let result = self.publish_intents().await;
+        track_err!("Publish intents", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("Sync: error publishing intents {e:?}",);
             summary.add_publish_err(e);
         }
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        match self.receive().await {
+        let result = self.receive().await;
+        track_err!("Receive messages", &result, group: &self.group_id);
+        match result {
             Ok(s) => summary.add_process(s),
             Err(e) => {
                 summary.add_other(e);
@@ -321,7 +328,9 @@ where
             }
         }
 
-        if let Err(e) = self.post_commit().await {
+        let result = self.post_commit().await;
+        track_err!("Post commit", &result, group: &self.group_id);
+        if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
         }
@@ -345,7 +354,15 @@ where
             return Ok(Default::default());
         };
 
-        self.sync_until_intent_resolved(intent.id).await
+        track!(
+            "Syncing Intents",
+            {"num_intents": intents.len()},
+            group: &self.group_id,
+            icon: "🔄"
+        );
+        let result = self.sync_until_intent_resolved(intent.id).await;
+        track_err!("Sync until intent resolved", &result, group: &self.group_id);
+        result
     }
 
     /**
@@ -605,27 +622,27 @@ where
                 intent.id
             );
 
-            if mls_group
-                .merge_staged_commit_and_log(
-                    &provider,
-                    staged_commit,
-                    &validated_commit,
-                    Some(*cursor as i64),
-                )
-                .is_err()
-            {
+            if let Err(err) = mls_group.merge_staged_commit_and_log(
+                &provider,
+                staged_commit,
+                &validated_commit,
+                *cursor as i64,
+            ) {
+                tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             }
-
+            let epoch = mls_group.epoch().as_u64();
             track!(
-                "Epoch Change",
+                "Commit merged",
                 {
+                    "": format!("Epoch {epoch}"),
                     "cursor": cursor,
-                    "prev_epoch": message_epoch.as_u64(),
-                    "new_epoch": mls_group.epoch().as_u64(),
+                    "epoch": epoch,
+                    "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
                     "validated_commit": Some(&validated_commit)
-                        .and_then(|c| serde_json::to_string_pretty(c).ok())
+                        .and_then(|c| serde_json::to_string_pretty(c).ok()),
                 },
+                icon: "⬆️",
                 group: &envelope.group_id
             );
 
@@ -770,16 +787,6 @@ where
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
-                track!(
-                    "Epoch Change",
-                    {
-                        "cursor": *cursor as i64,
-                        "prev_epoch": previous_epoch as i64,
-                        "new_epoch": new_epoch as i64,
-                        "validated_commit": validated_commit.as_ref().and_then(|c| serde_json::to_string_pretty(c).ok())
-                    },
-                    group: &envelope.group_id
-                );
                 tracing::info!(
                     "[{}] externally processed message [{}] advanced epoch from [{}] to [{}]",
                     self.context.inbox_id(),
@@ -1031,8 +1038,23 @@ where
                     &provider,
                     staged_commit,
                     &validated_commit,
-                    Some(*cursor as i64),
+                    *cursor as i64,
                 )?;
+
+                let epoch = mls_group.epoch().as_u64();
+                track!(
+                    "Commit merged",
+                    {
+                        "": format!("Epoch {epoch}"),
+                        "cursor": cursor,
+                        "epoch": epoch,
+                        "epoch_authenticator": hex::encode(mls_group.epoch_authenticator().as_slice()),
+                        "validated_commit": Some(&validated_commit)
+                            .and_then(|c| serde_json::to_string_pretty(c).ok()),
+                    },
+                    icon: "⬆️",
+                    group: &envelope.group_id
+                );
 
                 let msg =
                     self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
@@ -1328,7 +1350,9 @@ where
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
-        let message = match self.process_message(msgv1, true).await {
+        let result = self.process_message(msgv1, true).await;
+        track_err!("Process message", &result, group: &msgv1.group_id);
+        let message = match result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
@@ -1359,8 +1383,23 @@ where
                     msgv1.id,
                     e
                 );
-                self.process_group_message_error_for_fork_detection(msgv1, &e)
-                    .await?;
+                if let Err(accounting_error) =
+                    self.insert_commit_entry_for_failed_commit(msgv1.id, mls_message_in, &e)
+                {
+                    tracing::error!(
+                        "Error inserting commit entry for failed commit: {}",
+                        accounting_error
+                    );
+                }
+                if let Err(accounting_error) = self
+                    .process_group_message_error_for_fork_detection(msgv1, &e)
+                    .await
+                {
+                    tracing::error!(
+                        "Error trying to log fork detection errors: {}",
+                        accounting_error
+                    );
+                }
                 Err(e)
             }
         }?;
@@ -1422,6 +1461,18 @@ where
             .query_group_messages(&self.group_id, provider.db())
             .await?;
         let summary = self.process_messages(messages).await;
+
+        track!(
+            "Fetched messages",
+            {
+                "total": summary.total_messages.len(),
+                "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
+                "new": summary.new_messages.len()
+            },
+            group: &self.group_id,
+            icon: "🐕🦴"
+        );
+
         Ok(summary)
     }
 
@@ -1493,6 +1544,64 @@ where
         Ok(Some(msg))
     }
 
+    fn insert_commit_entry_for_failed_commit(
+        &self,
+        message_cursor: u64,
+        mls_message_in: MlsMessageIn,
+        error: &GroupMessageProcessingError,
+    ) -> Result<(), StorageError> {
+        if error.is_retryable() {
+            return Ok(());
+        }
+        if let MlsMessageBodyIn::PrivateMessage(message) = mls_message_in.extract() {
+            if message.content_type() != openmls::framing::ContentType::Commit {
+                return Ok(());
+            }
+            let provider = self.mls_provider();
+            let conn = provider.db();
+            let mut last_epoch_authenticator = Vec::new();
+            if let Some(latest_log) = conn.get_latest_log_for_group(&self.group_id)? {
+                // Because we don't increment the cursor for non-retryable errors, we may have already logged this commit
+                if latest_log.commit_sequence_id == message_cursor as i64
+                    && latest_log.commit_result != CommitResult::Success
+                {
+                    return Ok(());
+                }
+                // We would prefer to fetch the last_epoch_authenticator directly from the OpenMLS group, but we cannot
+                // fetch it here without race conditions
+                if latest_log.commit_result == CommitResult::Success {
+                    last_epoch_authenticator =
+                        latest_log.applied_epoch_authenticator.unwrap_or_default();
+                } else {
+                    last_epoch_authenticator = latest_log.last_epoch_authenticator;
+                }
+            }
+            let commit_result = match error {
+                GroupMessageProcessingError::OpenMlsProcessMessage(
+                    ProcessMessageError::ValidationError(ValidationError::WrongEpoch),
+                ) => CommitResult::WrongEpoch,
+                GroupMessageProcessingError::CommitValidation(_) => CommitResult::Invalid,
+                GroupMessageProcessingError::OpenMlsProcessMessage(_) => {
+                    CommitResult::Undecryptable
+                }
+                _ => CommitResult::Unknown,
+            };
+            NewLocalCommitLog {
+                group_id: self.group_id.to_vec(),
+                commit_sequence_id: message_cursor as i64,
+                last_epoch_authenticator,
+                commit_result,
+                applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
+                applied_epoch_authenticator: None,
+                sender_inbox_id: None,
+                sender_installation_id: None,
+                commit_type: None,
+            }
+            .store(conn)?;
+        }
+        Ok(())
+    }
+
     async fn process_group_message_error_for_fork_detection(
         &self,
         message: &GroupMessageV1,
@@ -1548,6 +1657,15 @@ where
                     message.id, message_epoch, group_epoch
                 );
                 tracing::error!(fork_details);
+                track!(
+                    "Possible Fork",
+                    {
+                        "message_epoch": message_epoch,
+                        "group_epoch": group_epoch
+                    },
+                    group: &self.group_id,
+                    level: EventLevel::Fault
+                );
                 let _ = self
                     .context()
                     .db()
@@ -2020,22 +2138,26 @@ where
         let welcomes = action
             .installations
             .into_iter()
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                        wrapper_algorithm: WelcomeWrapperAlgorithm::Curve25519.into(),
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+            .map(
+                |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
+                    let installation_key = installation.installation_key;
+                    let algorithm = installation.welcome_wrapper_algorithm;
+                    let wrapped_welcome = wrap_welcome(
+                        &action.welcome_message,
+                        &installation.hpke_public_key,
+                        &algorithm,
+                    )?;
+                    Ok(WelcomeMessageInput {
+                        version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                            installation_key,
+                            data: wrapped_welcome,
+                            hpke_public_key: installation.hpke_public_key,
+                            wrapper_algorithm: algorithm.into(),
+                        })),
+                    })
+                },
+            )
+            .collect::<Result<Vec<WelcomeMessageInput>, WrapWelcomeError>>()?;
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
@@ -2194,7 +2316,7 @@ where
                 Ok(verified_key_package) => {
                     new_installations.push(Installation::from_verified_key_package(
                         &verified_key_package,
-                    ));
+                    )?);
                     new_key_packages.push(verified_key_package.inner.clone());
                 }
                 Err(_) => new_failed_installations.push(installation_id.clone()),
