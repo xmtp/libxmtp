@@ -6,9 +6,9 @@ use futures::{
     Future,
 };
 use pin_project_lite::pin_project;
+use prost::Message;
 use reqwest::Response;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Deserializer;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -68,7 +68,7 @@ pin_project! {
 
 impl<R> Stream for HttpPostStream<'_, R>
 where
-    for<'de> R: Send + Deserialize<'de>,
+    R: Message + Default + Send + 'static,
 {
     type Item = Result<R, ApiClientError<HttpClientError>>;
 
@@ -110,31 +110,68 @@ where
 
 impl<R> HttpPostStream<'_, R>
 where
-    for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
+    R: Message + Default + Send + 'static,
 {
     fn on_bytes(&mut self, bytes: bytes::Bytes) -> Result<(), HttpClientError> {
-        let bytes = &[self.remaining.as_ref(), bytes.as_ref()].concat();
+        // Combine remaining bytes from previous chunk with new bytes
+        let mut buffer = self.remaining.clone();
+        buffer.extend_from_slice(&bytes);
         self.remaining.clear();
-        let de = Deserializer::from_slice(bytes);
-        let mut deser_stream = de.into_iter::<GrpcResponse<R>>();
-        while let Some(item) = deser_stream.next() {
-            match item {
-                Ok(GrpcResponse::Ok(response)) => self.items.push_back(response),
-                Ok(GrpcResponse::SubscriptionItem(item)) => self.items.push_back(item.result),
-                Ok(GrpcResponse::Err(e)) => {
-                    return Err(HttpClientError::Grpc(e));
+
+        let mut offset = 0;
+        while offset < buffer.len() {
+            // Try to decode a protobuf message starting at the current offset
+            match self.try_decode_message(&buffer[offset..]) {
+                Ok(Some((message, consumed))) => {
+                    self.items.push_back(message);
+                    offset += consumed;
+                }
+                Ok(None) => {
+                    // Not enough bytes for a complete message, save remaining bytes
+                    self.remaining = buffer[offset..].to_vec();
+                    break;
                 }
                 Err(e) => {
-                    if e.is_eof() {
-                        self.remaining = bytes[deser_stream.byte_offset()..].to_vec();
-                    } else {
-                        return Err(HttpClientError::from(e));
-                    }
+                    return Err(e);
                 }
-                Ok(GrpcResponse::Empty {}) => continue,
             }
         }
+
         Ok(())
+    }
+
+    fn try_decode_message(&self, buffer: &[u8]) -> Result<Option<(R, usize)>, HttpClientError> {
+        if buffer.is_empty() {
+            return Ok(None);
+        }
+
+        // Try to decode length-delimited message
+        // First, try to read the varint length
+        let mut cursor = std::io::Cursor::new(buffer);
+        let length = match prost::encoding::decode_varint(&mut cursor) {
+            Ok(len) => len as usize,
+            Err(_) => {
+                // Not enough bytes for length varint
+                return Ok(None);
+            }
+        };
+
+        let varint_size = cursor.position() as usize;
+        let total_size = varint_size + length;
+
+        if buffer.len() < total_size {
+            // Not enough bytes for the complete message
+            return Ok(None);
+        }
+
+        // Extract the message bytes
+        let message_bytes = &buffer[varint_size..total_size];
+
+        // Decode the protobuf message
+        match R::decode(message_bytes) {
+            Ok(message) => Ok(Some((message, total_size))),
+            Err(e) => Err(HttpClientError::Decode(e)),
+        }
     }
 }
 
@@ -177,7 +214,7 @@ where
 impl<F, R> Stream for HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
-    for<'de> R: Send + Deserialize<'de> + 'static,
+    R: Message + Default + Send + 'static,
 {
     type Item = Result<R, ApiClientError<HttpClientError>>;
 
@@ -218,7 +255,7 @@ impl<F, R> std::fmt::Debug for HttpStream<'_, F, R> {
 impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
-    for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
+    R: Message + Default + Send + 'static,
 {
     /// Establish the initial HTTP Stream connection
     async fn establish(&mut self) {
@@ -239,7 +276,7 @@ where
 impl<F, R> HttpStream<'_, F, R>
 where
     F: Future<Output = Result<Response, reqwest::Error>>,
-    for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
+    R: Message + Default + Send + 'static,
 {
     async fn establish(&mut self) {
         tracing::debug!("establishing new http stream {}...", self.id);
@@ -257,17 +294,18 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn create_grpc_stream<
-    T: Serialize + Send + 'static,
-    R: DeserializeOwned + Send + 'static,
->(
+pub async fn create_grpc_stream<T, R>(
     request: T,
     endpoint: String,
     http_client: reqwest::Client,
 ) -> Result<
     stream::LocalBoxStream<'static, Result<R, ApiClientError<HttpClientError>>>,
     ApiClientError<HttpClientError>,
-> {
+>
+where
+    T: Message + Send + 'static,
+    R: Message + Default + Send + 'static,
+{
     Ok(create_grpc_stream_inner(request, endpoint, http_client)
         .await?
         .boxed_local())
@@ -283,8 +321,8 @@ pub async fn create_grpc_stream<T, R>(
     ApiClientError<HttpClientError>,
 >
 where
-    T: Serialize + 'static,
-    R: DeserializeOwned + Send + Sync + 'static,
+    T: Message + Send + 'static,
+    R: Message + Default + Send + Sync + 'static,
 {
     Ok(create_grpc_stream_inner(request, endpoint, http_client)
         .await?
@@ -301,10 +339,39 @@ pub async fn create_grpc_stream_inner<T, R>(
     ApiClientError<HttpClientError>,
 >
 where
-    T: Serialize + 'static,
-    R: DeserializeOwned + Send + 'static,
+    T: Message + Send + 'static,
+    R: Message + Default + Send + 'static,
 {
-    let request = http_client.post(endpoint).json(&request).send();
+    // Create protobuf headers (similar to the main client)
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "Content-Type",
+        "application/x-protobuf".parse().map_err(|e| {
+            ApiClientError::new(
+                xmtp_proto::ApiEndpoint::SubscribeGroupMessages, // Default endpoint
+                HttpClientError::from(reqwest::header::InvalidHeaderValue::from(e)),
+            )
+        })?,
+    );
+    headers.insert(
+        "Accept",
+        "application/x-protobuf".parse().map_err(|e| {
+            ApiClientError::new(
+                xmtp_proto::ApiEndpoint::SubscribeGroupMessages, // Default endpoint
+                HttpClientError::from(reqwest::header::InvalidHeaderValue::from(e)),
+            )
+        })?,
+    );
+
+    // Encode the request as protobuf
+    let request_body = request.encode_to_vec();
+
+    let request = http_client
+        .post(endpoint)
+        .headers(headers)
+        .body(request_body)
+        .send();
+
     let mut http = HttpStream::new(request);
     http.establish().await;
     Ok(http)
