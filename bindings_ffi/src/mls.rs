@@ -30,6 +30,7 @@ use xmtp_db::{
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -125,8 +126,7 @@ pub async fn static_revoke_installations(
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-    let mut api =
-        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
 
     let storage_option = StorageOption::Persistent(db);
 
@@ -144,15 +144,21 @@ pub async fn static_revoke_installations(
         }
     };
 
-    let scw_verifier = api.api_client.context.scw_verifier.clone();
+    let scw_verifier = Arc::new(
+        Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
+    );
 
-    let signature_request =
-        revoke_installations_with_verifier(&store.db(), inbox_id, installation_ids, scw_verifier)
-            .await?;
+    let signature_request = revoke_installations_with_verifier(
+        &store.db(),
+        inbox_id,
+        installation_ids,
+        &scw_verifier.clone(),
+    )
+    .await?;
 
     Ok(Arc::new(FfiSignatureRequest {
         inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
-        scw_verifier: scw_verifier,
+        scw_verifier: scw_verifier.clone(),
     }))
 }
 
@@ -166,8 +172,7 @@ pub async fn static_apply_signature_request(
     encryption_key: Option<Vec<u8>>,
     signature_request: Arc<FfiSignatureRequest>,
 ) -> Result<(), GenericError> {
-    let mut api =
-        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
 
     let storage_option = StorageOption::Persistent(db);
 
@@ -186,13 +191,14 @@ pub async fn static_apply_signature_request(
     };
 
     let signature_request = signature_request.inner.lock().await;
-    let scw_verifier = api.api_client.context.scw_verifier.clone();
+    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+        as Box<dyn SmartContractSignatureVerifier>);
 
     apply_signature_request_with_verifier(
-        &api,
+        &api.clone(),
         &store.db(),
         signature_request.clone(),
-        scw_verifier,
+        &scw_verifier,
     )
     .await?;
 
