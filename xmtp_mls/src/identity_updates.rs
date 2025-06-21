@@ -403,7 +403,7 @@ where
         )?;
 
         let result = revoke_installations_with_verifier(
-            &current_state.recovery_identifier().clone().into(),
+            &current_state.recovery_identifier().clone(),
             inbox_id,
             installation_ids,
         )

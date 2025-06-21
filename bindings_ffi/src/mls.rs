@@ -8584,8 +8584,8 @@ mod tests {
         .unwrap();
 
         revoke_request.add_wallet_signature(&wallet_b).await;
-        let revoke_result = static_apply_signature_request(api_backend.clone(), revoke_request)
-            .await;
+        let revoke_result =
+            static_apply_signature_request(api_backend.clone(), revoke_request).await;
 
         assert!(
             revoke_result.is_err(),
