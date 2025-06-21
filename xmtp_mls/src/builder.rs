@@ -220,7 +220,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
         workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);
         workers.register_new_worker::<DisappearingMessagesWorker<ApiClient, Db>, _>(&context);
-        workers.spawn();
+        workers.spawn(&context).await;
+
         let client = Client {
             context,
             local_events: tx,

@@ -419,7 +419,7 @@ impl FfiXmtpClient {
     }
 
     pub async fn db_reconnect(&self) -> Result<(), GenericError> {
-        Ok(self.inner_client.reconnect_db()?)
+        Ok(self.inner_client.reconnect_db().await?)
     }
 
     pub async fn find_inbox_id(
