@@ -15,12 +15,12 @@ impl serde::Serialize for AuthData {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.AuthData", len)?;
         if !self.wallet_addr.is_empty() {
-            struct_ser.serialize_field("walletAddr", &self.wallet_addr)?;
+            struct_ser.serialize_field("wallet_addr", &self.wallet_addr)?;
         }
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+            struct_ser.serialize_field("created_ns", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -42,6 +42,7 @@ impl<'de> serde::Deserialize<'de> for AuthData {
         enum GeneratedField {
             WalletAddr,
             CreatedNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -65,7 +66,7 @@ impl<'de> serde::Deserialize<'de> for AuthData {
                         match value {
                             "walletAddr" | "wallet_addr" => Ok(GeneratedField::WalletAddr),
                             "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -101,6 +102,9 @@ impl<'de> serde::Deserialize<'de> for AuthData {
                             created_ns__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -144,6 +148,7 @@ impl<'de> serde::Deserialize<'de> for BatchQueryRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Requests,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -166,7 +171,7 @@ impl<'de> serde::Deserialize<'de> for BatchQueryRequest {
                     {
                         match value {
                             "requests" => Ok(GeneratedField::Requests),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -193,6 +198,9 @@ impl<'de> serde::Deserialize<'de> for BatchQueryRequest {
                                 return Err(serde::de::Error::duplicate_field("requests"));
                             }
                             requests__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -235,6 +243,7 @@ impl<'de> serde::Deserialize<'de> for BatchQueryResponse {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Responses,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -257,7 +266,7 @@ impl<'de> serde::Deserialize<'de> for BatchQueryResponse {
                     {
                         match value {
                             "responses" => Ok(GeneratedField::Responses),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -284,6 +293,9 @@ impl<'de> serde::Deserialize<'de> for BatchQueryResponse {
                                 return Err(serde::de::Error::duplicate_field("responses"));
                             }
                             responses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -330,6 +342,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Index,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -352,7 +365,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                     {
                         match value {
                             "index" => Ok(GeneratedField::Index),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -380,6 +393,9 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                             }
                             cursor__ = map_.next_value::<::std::option::Option<_>>()?.map(cursor::Cursor::Index)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -410,12 +426,12 @@ impl serde::Serialize for Envelope {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.Envelope", len)?;
         if !self.content_topic.is_empty() {
-            struct_ser.serialize_field("contentTopic", &self.content_topic)?;
+            struct_ser.serialize_field("content_topic", &self.content_topic)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if !self.message.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -444,6 +460,7 @@ impl<'de> serde::Deserialize<'de> for Envelope {
             ContentTopic,
             TimestampNs,
             Message,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -468,7 +485,7 @@ impl<'de> serde::Deserialize<'de> for Envelope {
                             "contentTopic" | "content_topic" => Ok(GeneratedField::ContentTopic),
                             "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
                             "message" => Ok(GeneratedField::Message),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -514,6 +531,9 @@ impl<'de> serde::Deserialize<'de> for Envelope {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Envelope {
@@ -549,7 +569,7 @@ impl serde::Serialize for IndexCursor {
         if self.sender_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderTimeNs", ToString::to_string(&self.sender_time_ns).as_str())?;
+            struct_ser.serialize_field("sender_time_ns", ToString::to_string(&self.sender_time_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -570,6 +590,7 @@ impl<'de> serde::Deserialize<'de> for IndexCursor {
         enum GeneratedField {
             Digest,
             SenderTimeNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -593,7 +614,7 @@ impl<'de> serde::Deserialize<'de> for IndexCursor {
                         match value {
                             "digest" => Ok(GeneratedField::Digest),
                             "senderTimeNs" | "sender_time_ns" => Ok(GeneratedField::SenderTimeNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -631,6 +652,9 @@ impl<'de> serde::Deserialize<'de> for IndexCursor {
                             sender_time_ns__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -692,6 +716,7 @@ impl<'de> serde::Deserialize<'de> for PagingInfo {
             Limit,
             Cursor,
             Direction,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -716,7 +741,7 @@ impl<'de> serde::Deserialize<'de> for PagingInfo {
                             "limit" => Ok(GeneratedField::Limit),
                             "cursor" => Ok(GeneratedField::Cursor),
                             "direction" => Ok(GeneratedField::Direction),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -759,6 +784,9 @@ impl<'de> serde::Deserialize<'de> for PagingInfo {
                                 return Err(serde::de::Error::duplicate_field("direction"));
                             }
                             direction__ = Some(map_.next_value::<SortDirection>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -803,6 +831,7 @@ impl<'de> serde::Deserialize<'de> for PublishRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Envelopes,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -825,7 +854,7 @@ impl<'de> serde::Deserialize<'de> for PublishRequest {
                     {
                         match value {
                             "envelopes" => Ok(GeneratedField::Envelopes),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -852,6 +881,9 @@ impl<'de> serde::Deserialize<'de> for PublishRequest {
                                 return Err(serde::de::Error::duplicate_field("envelopes"));
                             }
                             envelopes__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -886,6 +918,7 @@ impl<'de> serde::Deserialize<'de> for PublishResponse {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -906,7 +939,7 @@ impl<'de> serde::Deserialize<'de> for PublishResponse {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                            Ok(GeneratedField::__SkipField__)
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -956,20 +989,20 @@ impl serde::Serialize for QueryRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.QueryRequest", len)?;
         if !self.content_topics.is_empty() {
-            struct_ser.serialize_field("contentTopics", &self.content_topics)?;
+            struct_ser.serialize_field("content_topics", &self.content_topics)?;
         }
         if self.start_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
+            struct_ser.serialize_field("start_time_ns", ToString::to_string(&self.start_time_ns).as_str())?;
         }
         if self.end_time_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("endTimeNs", ToString::to_string(&self.end_time_ns).as_str())?;
+            struct_ser.serialize_field("end_time_ns", ToString::to_string(&self.end_time_ns).as_str())?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -997,6 +1030,7 @@ impl<'de> serde::Deserialize<'de> for QueryRequest {
             StartTimeNs,
             EndTimeNs,
             PagingInfo,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1022,7 +1056,7 @@ impl<'de> serde::Deserialize<'de> for QueryRequest {
                             "startTimeNs" | "start_time_ns" => Ok(GeneratedField::StartTimeNs),
                             "endTimeNs" | "end_time_ns" => Ok(GeneratedField::EndTimeNs),
                             "pagingInfo" | "paging_info" => Ok(GeneratedField::PagingInfo),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1075,6 +1109,9 @@ impl<'de> serde::Deserialize<'de> for QueryRequest {
                             }
                             paging_info__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(QueryRequest {
@@ -1107,7 +1144,7 @@ impl serde::Serialize for QueryResponse {
             struct_ser.serialize_field("envelopes", &self.envelopes)?;
         }
         if let Some(v) = self.paging_info.as_ref() {
-            struct_ser.serialize_field("pagingInfo", v)?;
+            struct_ser.serialize_field("paging_info", v)?;
         }
         struct_ser.end()
     }
@@ -1128,6 +1165,7 @@ impl<'de> serde::Deserialize<'de> for QueryResponse {
         enum GeneratedField {
             Envelopes,
             PagingInfo,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1151,7 +1189,7 @@ impl<'de> serde::Deserialize<'de> for QueryResponse {
                         match value {
                             "envelopes" => Ok(GeneratedField::Envelopes),
                             "pagingInfo" | "paging_info" => Ok(GeneratedField::PagingInfo),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1185,6 +1223,9 @@ impl<'de> serde::Deserialize<'de> for QueryResponse {
                                 return Err(serde::de::Error::duplicate_field("pagingInfo"));
                             }
                             paging_info__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1294,6 +1335,7 @@ impl<'de> serde::Deserialize<'de> for SubscribeAllRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1314,7 +1356,7 @@ impl<'de> serde::Deserialize<'de> for SubscribeAllRequest {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                            Ok(GeneratedField::__SkipField__)
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -1355,7 +1397,7 @@ impl serde::Serialize for SubscribeRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.SubscribeRequest", len)?;
         if !self.content_topics.is_empty() {
-            struct_ser.serialize_field("contentTopics", &self.content_topics)?;
+            struct_ser.serialize_field("content_topics", &self.content_topics)?;
         }
         struct_ser.end()
     }
@@ -1374,6 +1416,7 @@ impl<'de> serde::Deserialize<'de> for SubscribeRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ContentTopics,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1396,7 +1439,7 @@ impl<'de> serde::Deserialize<'de> for SubscribeRequest {
                     {
                         match value {
                             "contentTopics" | "content_topics" => Ok(GeneratedField::ContentTopics),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1423,6 +1466,9 @@ impl<'de> serde::Deserialize<'de> for SubscribeRequest {
                                 return Err(serde::de::Error::duplicate_field("contentTopics"));
                             }
                             content_topics__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1453,15 +1499,15 @@ impl serde::Serialize for Token {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v1.Token", len)?;
         if let Some(v) = self.identity_key.as_ref() {
-            struct_ser.serialize_field("identityKey", v)?;
+            struct_ser.serialize_field("identity_key", v)?;
         }
         if !self.auth_data_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("authDataBytes", pbjson::private::base64::encode(&self.auth_data_bytes).as_str())?;
+            struct_ser.serialize_field("auth_data_bytes", pbjson::private::base64::encode(&self.auth_data_bytes).as_str())?;
         }
         if let Some(v) = self.auth_data_signature.as_ref() {
-            struct_ser.serialize_field("authDataSignature", v)?;
+            struct_ser.serialize_field("auth_data_signature", v)?;
         }
         struct_ser.end()
     }
@@ -1486,6 +1532,7 @@ impl<'de> serde::Deserialize<'de> for Token {
             IdentityKey,
             AuthDataBytes,
             AuthDataSignature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1510,7 +1557,7 @@ impl<'de> serde::Deserialize<'de> for Token {
                             "identityKey" | "identity_key" => Ok(GeneratedField::IdentityKey),
                             "authDataBytes" | "auth_data_bytes" => Ok(GeneratedField::AuthDataBytes),
                             "authDataSignature" | "auth_data_signature" => Ok(GeneratedField::AuthDataSignature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1553,6 +1600,9 @@ impl<'de> serde::Deserialize<'de> for Token {
                                 return Err(serde::de::Error::duplicate_field("authDataSignature"));
                             }
                             auth_data_signature__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

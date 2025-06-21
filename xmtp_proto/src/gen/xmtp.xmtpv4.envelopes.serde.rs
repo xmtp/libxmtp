@@ -21,18 +21,18 @@ impl serde::Serialize for AuthenticatedData {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.AuthenticatedData", len)?;
         if let Some(v) = self.target_originator.as_ref() {
-            struct_ser.serialize_field("targetOriginator", v)?;
+            struct_ser.serialize_field("target_originator", v)?;
         }
         if !self.target_topic.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("targetTopic", pbjson::private::base64::encode(&self.target_topic).as_str())?;
+            struct_ser.serialize_field("target_topic", pbjson::private::base64::encode(&self.target_topic).as_str())?;
         }
         if let Some(v) = self.depends_on.as_ref() {
-            struct_ser.serialize_field("dependsOn", v)?;
+            struct_ser.serialize_field("depends_on", v)?;
         }
         if self.is_commit {
-            struct_ser.serialize_field("isCommit", &self.is_commit)?;
+            struct_ser.serialize_field("is_commit", &self.is_commit)?;
         }
         struct_ser.end()
     }
@@ -60,6 +60,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
             TargetTopic,
             DependsOn,
             IsCommit,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -85,7 +86,7 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             "targetTopic" | "target_topic" => Ok(GeneratedField::TargetTopic),
                             "dependsOn" | "depends_on" => Ok(GeneratedField::DependsOn),
                             "isCommit" | "is_commit" => Ok(GeneratedField::IsCommit),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -138,6 +139,9 @@ impl<'de> serde::Deserialize<'de> for AuthenticatedData {
                             }
                             is_commit__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(AuthenticatedData {
@@ -166,7 +170,7 @@ impl serde::Serialize for BlockchainProof {
         if !self.transaction_hash.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("transactionHash", pbjson::private::base64::encode(&self.transaction_hash).as_str())?;
+            struct_ser.serialize_field("transaction_hash", pbjson::private::base64::encode(&self.transaction_hash).as_str())?;
         }
         struct_ser.end()
     }
@@ -185,6 +189,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TransactionHash,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -207,7 +212,7 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                     {
                         match value {
                             "transactionHash" | "transaction_hash" => Ok(GeneratedField::TransactionHash),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -236,6 +241,9 @@ impl<'de> serde::Deserialize<'de> for BlockchainProof {
                             transaction_hash__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -268,22 +276,22 @@ impl serde::Serialize for ClientEnvelope {
         if let Some(v) = self.payload.as_ref() {
             match v {
                 client_envelope::Payload::GroupMessage(v) => {
-                    struct_ser.serialize_field("groupMessage", v)?;
+                    struct_ser.serialize_field("group_message", v)?;
                 }
                 client_envelope::Payload::WelcomeMessage(v) => {
-                    struct_ser.serialize_field("welcomeMessage", v)?;
+                    struct_ser.serialize_field("welcome_message", v)?;
                 }
                 client_envelope::Payload::UploadKeyPackage(v) => {
-                    struct_ser.serialize_field("uploadKeyPackage", v)?;
+                    struct_ser.serialize_field("upload_key_package", v)?;
                 }
                 client_envelope::Payload::IdentityUpdate(v) => {
-                    struct_ser.serialize_field("identityUpdate", v)?;
+                    struct_ser.serialize_field("identity_update", v)?;
                 }
                 client_envelope::Payload::PayerReport(v) => {
-                    struct_ser.serialize_field("payerReport", v)?;
+                    struct_ser.serialize_field("payer_report", v)?;
                 }
                 client_envelope::Payload::PayerReportAttestation(v) => {
-                    struct_ser.serialize_field("payerReportAttestation", v)?;
+                    struct_ser.serialize_field("payer_report_attestation", v)?;
                 }
             }
         }
@@ -321,6 +329,7 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
             IdentityUpdate,
             PayerReport,
             PayerReportAttestation,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -349,7 +358,7 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             "identityUpdate" | "identity_update" => Ok(GeneratedField::IdentityUpdate),
                             "payerReport" | "payer_report" => Ok(GeneratedField::PayerReport),
                             "payerReportAttestation" | "payer_report_attestation" => Ok(GeneratedField::PayerReportAttestation),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -420,6 +429,9 @@ impl<'de> serde::Deserialize<'de> for ClientEnvelope {
                             payload__ = map_.next_value::<::std::option::Option<_>>()?.map(client_envelope::Payload::PayerReportAttestation)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ClientEnvelope {
@@ -446,7 +458,7 @@ impl serde::Serialize for Cursor {
         if !self.node_id_to_sequence_id.is_empty() {
             let v: std::collections::HashMap<_, _> = self.node_id_to_sequence_id.iter()
                 .map(|(k, v)| (k, v.to_string())).collect();
-            struct_ser.serialize_field("nodeIdToSequenceId", &v)?;
+            struct_ser.serialize_field("node_id_to_sequence_id", &v)?;
         }
         struct_ser.end()
     }
@@ -465,6 +477,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             NodeIdToSequenceId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -487,7 +500,7 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                     {
                         match value {
                             "nodeIdToSequenceId" | "node_id_to_sequence_id" => Ok(GeneratedField::NodeIdToSequenceId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -518,6 +531,9 @@ impl<'de> serde::Deserialize<'de> for Cursor {
                                     .into_iter().map(|(k,v)| (k.0, v.0)).collect()
                             );
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Cursor {
@@ -546,15 +562,15 @@ impl serde::Serialize for OriginatorEnvelope {
         if !self.unsigned_originator_envelope.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("unsignedOriginatorEnvelope", pbjson::private::base64::encode(&self.unsigned_originator_envelope).as_str())?;
+            struct_ser.serialize_field("unsigned_originator_envelope", pbjson::private::base64::encode(&self.unsigned_originator_envelope).as_str())?;
         }
         if let Some(v) = self.proof.as_ref() {
             match v {
                 originator_envelope::Proof::OriginatorSignature(v) => {
-                    struct_ser.serialize_field("originatorSignature", v)?;
+                    struct_ser.serialize_field("originator_signature", v)?;
                 }
                 originator_envelope::Proof::BlockchainProof(v) => {
-                    struct_ser.serialize_field("blockchainProof", v)?;
+                    struct_ser.serialize_field("blockchain_proof", v)?;
                 }
             }
         }
@@ -581,6 +597,7 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
             UnsignedOriginatorEnvelope,
             OriginatorSignature,
             BlockchainProof,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -605,7 +622,7 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                             "unsignedOriginatorEnvelope" | "unsigned_originator_envelope" => Ok(GeneratedField::UnsignedOriginatorEnvelope),
                             "originatorSignature" | "originator_signature" => Ok(GeneratedField::OriginatorSignature),
                             "blockchainProof" | "blockchain_proof" => Ok(GeneratedField::BlockchainProof),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -650,6 +667,9 @@ impl<'de> serde::Deserialize<'de> for OriginatorEnvelope {
                             proof__ = map_.next_value::<::std::option::Option<_>>()?.map(originator_envelope::Proof::BlockchainProof)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(OriginatorEnvelope {
@@ -685,16 +705,16 @@ impl serde::Serialize for PayerEnvelope {
         if !self.unsigned_client_envelope.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("unsignedClientEnvelope", pbjson::private::base64::encode(&self.unsigned_client_envelope).as_str())?;
+            struct_ser.serialize_field("unsigned_client_envelope", pbjson::private::base64::encode(&self.unsigned_client_envelope).as_str())?;
         }
         if let Some(v) = self.payer_signature.as_ref() {
-            struct_ser.serialize_field("payerSignature", v)?;
+            struct_ser.serialize_field("payer_signature", v)?;
         }
         if self.target_originator != 0 {
-            struct_ser.serialize_field("targetOriginator", &self.target_originator)?;
+            struct_ser.serialize_field("target_originator", &self.target_originator)?;
         }
         if self.message_retention_days != 0 {
-            struct_ser.serialize_field("messageRetentionDays", &self.message_retention_days)?;
+            struct_ser.serialize_field("message_retention_days", &self.message_retention_days)?;
         }
         struct_ser.end()
     }
@@ -722,6 +742,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
             PayerSignature,
             TargetOriginator,
             MessageRetentionDays,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -747,7 +768,7 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                             "payerSignature" | "payer_signature" => Ok(GeneratedField::PayerSignature),
                             "targetOriginator" | "target_originator" => Ok(GeneratedField::TargetOriginator),
                             "messageRetentionDays" | "message_retention_days" => Ok(GeneratedField::MessageRetentionDays),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -802,6 +823,9 @@ impl<'de> serde::Deserialize<'de> for PayerEnvelope {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(PayerEnvelope {
@@ -840,25 +864,25 @@ impl serde::Serialize for PayerReport {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.PayerReport", len)?;
         if self.originator_node_id != 0 {
-            struct_ser.serialize_field("originatorNodeId", &self.originator_node_id)?;
+            struct_ser.serialize_field("originator_node_id", &self.originator_node_id)?;
         }
         if self.start_sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("startSequenceId", ToString::to_string(&self.start_sequence_id).as_str())?;
+            struct_ser.serialize_field("start_sequence_id", ToString::to_string(&self.start_sequence_id).as_str())?;
         }
         if self.end_sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("endSequenceId", ToString::to_string(&self.end_sequence_id).as_str())?;
+            struct_ser.serialize_field("end_sequence_id", ToString::to_string(&self.end_sequence_id).as_str())?;
         }
         if !self.payers_merkle_root.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("payersMerkleRoot", pbjson::private::base64::encode(&self.payers_merkle_root).as_str())?;
+            struct_ser.serialize_field("payers_merkle_root", pbjson::private::base64::encode(&self.payers_merkle_root).as_str())?;
         }
         if !self.active_node_ids.is_empty() {
-            struct_ser.serialize_field("activeNodeIds", &self.active_node_ids)?;
+            struct_ser.serialize_field("active_node_ids", &self.active_node_ids)?;
         }
         struct_ser.end()
     }
@@ -889,6 +913,7 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
             EndSequenceId,
             PayersMerkleRoot,
             ActiveNodeIds,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -915,7 +940,7 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
                             "endSequenceId" | "end_sequence_id" => Ok(GeneratedField::EndSequenceId),
                             "payersMerkleRoot" | "payers_merkle_root" => Ok(GeneratedField::PayersMerkleRoot),
                             "activeNodeIds" | "active_node_ids" => Ok(GeneratedField::ActiveNodeIds),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -982,6 +1007,9 @@ impl<'de> serde::Deserialize<'de> for PayerReport {
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(PayerReport {
@@ -1014,7 +1042,7 @@ impl serde::Serialize for PayerReportAttestation {
         if !self.report_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("reportId", pbjson::private::base64::encode(&self.report_id).as_str())?;
+            struct_ser.serialize_field("report_id", pbjson::private::base64::encode(&self.report_id).as_str())?;
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -1038,6 +1066,7 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
         enum GeneratedField {
             ReportId,
             Signature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1061,7 +1090,7 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
                         match value {
                             "reportId" | "report_id" => Ok(GeneratedField::ReportId),
                             "signature" => Ok(GeneratedField::Signature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1097,6 +1126,9 @@ impl<'de> serde::Deserialize<'de> for PayerReportAttestation {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
                             signature__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1140,37 +1172,37 @@ impl serde::Serialize for UnsignedOriginatorEnvelope {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope", len)?;
         if self.originator_node_id != 0 {
-            struct_ser.serialize_field("originatorNodeId", &self.originator_node_id)?;
+            struct_ser.serialize_field("originator_node_id", &self.originator_node_id)?;
         }
         if self.originator_sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("originatorSequenceId", ToString::to_string(&self.originator_sequence_id).as_str())?;
+            struct_ser.serialize_field("originator_sequence_id", ToString::to_string(&self.originator_sequence_id).as_str())?;
         }
         if self.originator_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("originatorNs", ToString::to_string(&self.originator_ns).as_str())?;
+            struct_ser.serialize_field("originator_ns", ToString::to_string(&self.originator_ns).as_str())?;
         }
         if !self.payer_envelope_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("payerEnvelopeBytes", pbjson::private::base64::encode(&self.payer_envelope_bytes).as_str())?;
+            struct_ser.serialize_field("payer_envelope_bytes", pbjson::private::base64::encode(&self.payer_envelope_bytes).as_str())?;
         }
         if self.base_fee_picodollars != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("baseFeePicodollars", ToString::to_string(&self.base_fee_picodollars).as_str())?;
+            struct_ser.serialize_field("base_fee_picodollars", ToString::to_string(&self.base_fee_picodollars).as_str())?;
         }
         if self.congestion_fee_picodollars != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("congestionFeePicodollars", ToString::to_string(&self.congestion_fee_picodollars).as_str())?;
+            struct_ser.serialize_field("congestion_fee_picodollars", ToString::to_string(&self.congestion_fee_picodollars).as_str())?;
         }
         if self.expiry_unixtime != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("expiryUnixtime", ToString::to_string(&self.expiry_unixtime).as_str())?;
+            struct_ser.serialize_field("expiry_unixtime", ToString::to_string(&self.expiry_unixtime).as_str())?;
         }
         struct_ser.end()
     }
@@ -1207,6 +1239,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
             BaseFeePicodollars,
             CongestionFeePicodollars,
             ExpiryUnixtime,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1235,7 +1268,7 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             "baseFeePicodollars" | "base_fee_picodollars" => Ok(GeneratedField::BaseFeePicodollars),
                             "congestionFeePicodollars" | "congestion_fee_picodollars" => Ok(GeneratedField::CongestionFeePicodollars),
                             "expiryUnixtime" | "expiry_unixtime" => Ok(GeneratedField::ExpiryUnixtime),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1318,6 +1351,9 @@ impl<'de> serde::Deserialize<'de> for UnsignedOriginatorEnvelope {
                             expiry_unixtime__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

@@ -21,16 +21,16 @@ impl serde::Serialize for AddAssociation {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AddAssociation", len)?;
         if let Some(v) = self.new_member_identifier.as_ref() {
-            struct_ser.serialize_field("newMemberIdentifier", v)?;
+            struct_ser.serialize_field("new_member_identifier", v)?;
         }
         if let Some(v) = self.existing_member_signature.as_ref() {
-            struct_ser.serialize_field("existingMemberSignature", v)?;
+            struct_ser.serialize_field("existing_member_signature", v)?;
         }
         if let Some(v) = self.new_member_signature.as_ref() {
-            struct_ser.serialize_field("newMemberSignature", v)?;
+            struct_ser.serialize_field("new_member_signature", v)?;
         }
         if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            struct_ser.serialize_field("relying_party", v)?;
         }
         struct_ser.end()
     }
@@ -58,6 +58,7 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
             ExistingMemberSignature,
             NewMemberSignature,
             RelyingParty,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -83,7 +84,7 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                             "existingMemberSignature" | "existing_member_signature" => Ok(GeneratedField::ExistingMemberSignature),
                             "newMemberSignature" | "new_member_signature" => Ok(GeneratedField::NewMemberSignature),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -132,6 +133,9 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                             }
                             relying_party__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(AddAssociation {
@@ -173,24 +177,24 @@ impl serde::Serialize for AssociationState {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AssociationState", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         if !self.members.is_empty() {
             struct_ser.serialize_field("members", &self.members)?;
         }
         if !self.recovery_identifier.is_empty() {
-            struct_ser.serialize_field("recoveryIdentifier", &self.recovery_identifier)?;
+            struct_ser.serialize_field("recovery_identifier", &self.recovery_identifier)?;
         }
         if !self.seen_signatures.is_empty() {
-            struct_ser.serialize_field("seenSignatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+            struct_ser.serialize_field("seen_signatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         if self.recovery_identifier_kind != 0 {
             let v = IdentifierKind::try_from(self.recovery_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.recovery_identifier_kind)))?;
-            struct_ser.serialize_field("recoveryIdentifierKind", &v)?;
+            struct_ser.serialize_field("recovery_identifier_kind", &v)?;
         }
         if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            struct_ser.serialize_field("relying_party", v)?;
         }
         struct_ser.end()
     }
@@ -223,6 +227,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
             SeenSignatures,
             RecoveryIdentifierKind,
             RelyingParty,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -250,7 +255,7 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                             "seenSignatures" | "seen_signatures" => Ok(GeneratedField::SeenSignatures),
                             "recoveryIdentifierKind" | "recovery_identifier_kind" => Ok(GeneratedField::RecoveryIdentifierKind),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -316,6 +321,9 @@ impl<'de> serde::Deserialize<'de> for AssociationState {
                             }
                             relying_party__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(AssociationState {
@@ -347,10 +355,10 @@ impl serde::Serialize for AssociationStateDiff {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AssociationStateDiff", len)?;
         if !self.new_members.is_empty() {
-            struct_ser.serialize_field("newMembers", &self.new_members)?;
+            struct_ser.serialize_field("new_members", &self.new_members)?;
         }
         if !self.removed_members.is_empty() {
-            struct_ser.serialize_field("removedMembers", &self.removed_members)?;
+            struct_ser.serialize_field("removed_members", &self.removed_members)?;
         }
         struct_ser.end()
     }
@@ -372,6 +380,7 @@ impl<'de> serde::Deserialize<'de> for AssociationStateDiff {
         enum GeneratedField {
             NewMembers,
             RemovedMembers,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -395,7 +404,7 @@ impl<'de> serde::Deserialize<'de> for AssociationStateDiff {
                         match value {
                             "newMembers" | "new_members" => Ok(GeneratedField::NewMembers),
                             "removedMembers" | "removed_members" => Ok(GeneratedField::RemovedMembers),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -430,6 +439,9 @@ impl<'de> serde::Deserialize<'de> for AssociationStateDiff {
                             }
                             removed_members__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(AssociationStateDiff {
@@ -463,18 +475,18 @@ impl serde::Serialize for ChangeRecoveryAddress {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.ChangeRecoveryAddress", len)?;
         if !self.new_recovery_identifier.is_empty() {
-            struct_ser.serialize_field("newRecoveryIdentifier", &self.new_recovery_identifier)?;
+            struct_ser.serialize_field("new_recovery_identifier", &self.new_recovery_identifier)?;
         }
         if let Some(v) = self.existing_recovery_identifier_signature.as_ref() {
-            struct_ser.serialize_field("existingRecoveryIdentifierSignature", v)?;
+            struct_ser.serialize_field("existing_recovery_identifier_signature", v)?;
         }
         if self.new_recovery_identifier_kind != 0 {
             let v = IdentifierKind::try_from(self.new_recovery_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.new_recovery_identifier_kind)))?;
-            struct_ser.serialize_field("newRecoveryIdentifierKind", &v)?;
+            struct_ser.serialize_field("new_recovery_identifier_kind", &v)?;
         }
         if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            struct_ser.serialize_field("relying_party", v)?;
         }
         struct_ser.end()
     }
@@ -502,6 +514,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
             ExistingRecoveryIdentifierSignature,
             NewRecoveryIdentifierKind,
             RelyingParty,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -527,7 +540,7 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                             "existingRecoveryIdentifierSignature" | "existing_recovery_identifier_signature" => Ok(GeneratedField::ExistingRecoveryIdentifierSignature),
                             "newRecoveryIdentifierKind" | "new_recovery_identifier_kind" => Ok(GeneratedField::NewRecoveryIdentifierKind),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -576,6 +589,9 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                             }
                             relying_party__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ChangeRecoveryAddress {
@@ -614,7 +630,7 @@ impl serde::Serialize for CreateInbox {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.CreateInbox", len)?;
         if !self.initial_identifier.is_empty() {
-            struct_ser.serialize_field("initialIdentifier", &self.initial_identifier)?;
+            struct_ser.serialize_field("initial_identifier", &self.initial_identifier)?;
         }
         if self.nonce != 0 {
             #[allow(clippy::needless_borrow)]
@@ -622,15 +638,15 @@ impl serde::Serialize for CreateInbox {
             struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
         }
         if let Some(v) = self.initial_identifier_signature.as_ref() {
-            struct_ser.serialize_field("initialIdentifierSignature", v)?;
+            struct_ser.serialize_field("initial_identifier_signature", v)?;
         }
         if self.initial_identifier_kind != 0 {
             let v = IdentifierKind::try_from(self.initial_identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.initial_identifier_kind)))?;
-            struct_ser.serialize_field("initialIdentifierKind", &v)?;
+            struct_ser.serialize_field("initial_identifier_kind", &v)?;
         }
         if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            struct_ser.serialize_field("relying_party", v)?;
         }
         struct_ser.end()
     }
@@ -660,6 +676,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
             InitialIdentifierSignature,
             InitialIdentifierKind,
             RelyingParty,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -686,7 +703,7 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                             "initialIdentifierSignature" | "initial_identifier_signature" => Ok(GeneratedField::InitialIdentifierSignature),
                             "initialIdentifierKind" | "initial_identifier_kind" => Ok(GeneratedField::InitialIdentifierKind),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -743,6 +760,9 @@ impl<'de> serde::Deserialize<'de> for CreateInbox {
                                 return Err(serde::de::Error::duplicate_field("relyingParty"));
                             }
                             relying_party__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -847,7 +867,7 @@ impl serde::Serialize for IdentityAction {
         if let Some(v) = self.kind.as_ref() {
             match v {
                 identity_action::Kind::CreateInbox(v) => {
-                    struct_ser.serialize_field("createInbox", v)?;
+                    struct_ser.serialize_field("create_inbox", v)?;
                 }
                 identity_action::Kind::Add(v) => {
                     struct_ser.serialize_field("add", v)?;
@@ -856,7 +876,7 @@ impl serde::Serialize for IdentityAction {
                     struct_ser.serialize_field("revoke", v)?;
                 }
                 identity_action::Kind::ChangeRecoveryAddress(v) => {
-                    struct_ser.serialize_field("changeRecoveryAddress", v)?;
+                    struct_ser.serialize_field("change_recovery_address", v)?;
                 }
             }
         }
@@ -884,6 +904,7 @@ impl<'de> serde::Deserialize<'de> for IdentityAction {
             Add,
             Revoke,
             ChangeRecoveryAddress,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -909,7 +930,7 @@ impl<'de> serde::Deserialize<'de> for IdentityAction {
                             "add" => Ok(GeneratedField::Add),
                             "revoke" => Ok(GeneratedField::Revoke),
                             "changeRecoveryAddress" | "change_recovery_address" => Ok(GeneratedField::ChangeRecoveryAddress),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -959,6 +980,9 @@ impl<'de> serde::Deserialize<'de> for IdentityAction {
                             kind__ = map_.next_value::<::std::option::Option<_>>()?.map(identity_action::Kind::ChangeRecoveryAddress)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(IdentityAction {
@@ -993,10 +1017,10 @@ impl serde::Serialize for IdentityUpdate {
         if self.client_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&self.client_timestamp_ns).as_str())?;
+            struct_ser.serialize_field("client_timestamp_ns", ToString::to_string(&self.client_timestamp_ns).as_str())?;
         }
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -1020,6 +1044,7 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
             Actions,
             ClientTimestampNs,
             InboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1044,7 +1069,7 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
                             "actions" => Ok(GeneratedField::Actions),
                             "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1088,6 +1113,9 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
                             }
                             inbox_id__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(IdentityUpdate {
@@ -1116,7 +1144,7 @@ impl serde::Serialize for LegacyDelegatedSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.LegacyDelegatedSignature", len)?;
         if let Some(v) = self.delegated_key.as_ref() {
-            struct_ser.serialize_field("delegatedKey", v)?;
+            struct_ser.serialize_field("delegated_key", v)?;
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
@@ -1140,6 +1168,7 @@ impl<'de> serde::Deserialize<'de> for LegacyDelegatedSignature {
         enum GeneratedField {
             DelegatedKey,
             Signature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1163,7 +1192,7 @@ impl<'de> serde::Deserialize<'de> for LegacyDelegatedSignature {
                         match value {
                             "delegatedKey" | "delegated_key" => Ok(GeneratedField::DelegatedKey),
                             "signature" => Ok(GeneratedField::Signature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1197,6 +1226,9 @@ impl<'de> serde::Deserialize<'de> for LegacyDelegatedSignature {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
                             signature__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1234,17 +1266,17 @@ impl serde::Serialize for Member {
             struct_ser.serialize_field("identifier", v)?;
         }
         if let Some(v) = self.added_by_entity.as_ref() {
-            struct_ser.serialize_field("addedByEntity", v)?;
+            struct_ser.serialize_field("added_by_entity", v)?;
         }
         if let Some(v) = self.client_timestamp_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("client_timestamp_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.added_on_chain_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("addedOnChainId", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("added_on_chain_id", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -1271,6 +1303,7 @@ impl<'de> serde::Deserialize<'de> for Member {
             AddedByEntity,
             ClientTimestampNs,
             AddedOnChainId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1296,7 +1329,7 @@ impl<'de> serde::Deserialize<'de> for Member {
                             "addedByEntity" | "added_by_entity" => Ok(GeneratedField::AddedByEntity),
                             "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
                             "addedOnChainId" | "added_on_chain_id" => Ok(GeneratedField::AddedOnChainId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1349,6 +1382,9 @@ impl<'de> serde::Deserialize<'de> for Member {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Member {
@@ -1377,12 +1413,12 @@ impl serde::Serialize for MemberIdentifier {
         if let Some(v) = self.kind.as_ref() {
             match v {
                 member_identifier::Kind::EthereumAddress(v) => {
-                    struct_ser.serialize_field("ethereumAddress", v)?;
+                    struct_ser.serialize_field("ethereum_address", v)?;
                 }
                 member_identifier::Kind::InstallationPublicKey(v) => {
                     #[allow(clippy::needless_borrow)]
                     #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&v).as_str())?;
+                    struct_ser.serialize_field("installation_public_key", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 member_identifier::Kind::Passkey(v) => {
                     struct_ser.serialize_field("passkey", v)?;
@@ -1411,6 +1447,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
             EthereumAddress,
             InstallationPublicKey,
             Passkey,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1435,7 +1472,7 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                             "ethereumAddress" | "ethereum_address" => Ok(GeneratedField::EthereumAddress),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
                             "passkey" => Ok(GeneratedField::Passkey),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1475,6 +1512,9 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
                             }
                             kind__ = map_.next_value::<::std::option::Option<_>>()?.map(member_identifier::Kind::Passkey)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1525,6 +1565,7 @@ impl<'de> serde::Deserialize<'de> for MemberMap {
         enum GeneratedField {
             Key,
             Value,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1548,7 +1589,7 @@ impl<'de> serde::Deserialize<'de> for MemberMap {
                         match value {
                             "key" => Ok(GeneratedField::Key),
                             "value" => Ok(GeneratedField::Value),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1583,6 +1624,9 @@ impl<'de> serde::Deserialize<'de> for MemberMap {
                             }
                             value__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(MemberMap {
@@ -1615,7 +1659,7 @@ impl serde::Serialize for Passkey {
             struct_ser.serialize_field("key", pbjson::private::base64::encode(&self.key).as_str())?;
         }
         if let Some(v) = self.relying_party.as_ref() {
-            struct_ser.serialize_field("relyingParty", v)?;
+            struct_ser.serialize_field("relying_party", v)?;
         }
         struct_ser.end()
     }
@@ -1636,6 +1680,7 @@ impl<'de> serde::Deserialize<'de> for Passkey {
         enum GeneratedField {
             Key,
             RelyingParty,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1659,7 +1704,7 @@ impl<'de> serde::Deserialize<'de> for Passkey {
                         match value {
                             "key" => Ok(GeneratedField::Key),
                             "relyingParty" | "relying_party" => Ok(GeneratedField::RelyingParty),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1695,6 +1740,9 @@ impl<'de> serde::Deserialize<'de> for Passkey {
                                 return Err(serde::de::Error::duplicate_field("relyingParty"));
                             }
                             relying_party__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1740,6 +1788,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEcdsaSignature {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Bytes,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1762,7 +1811,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEcdsaSignature {
                     {
                         match value {
                             "bytes" => Ok(GeneratedField::Bytes),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1791,6 +1840,9 @@ impl<'de> serde::Deserialize<'de> for RecoverableEcdsaSignature {
                             bytes__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1825,7 +1877,7 @@ impl serde::Serialize for RecoverableEd25519Signature {
         if !self.public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
+            struct_ser.serialize_field("public_key", pbjson::private::base64::encode(&self.public_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -1846,6 +1898,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
         enum GeneratedField {
             Bytes,
             PublicKey,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1869,7 +1922,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
                         match value {
                             "bytes" => Ok(GeneratedField::Bytes),
                             "publicKey" | "public_key" => Ok(GeneratedField::PublicKey),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1908,6 +1961,9 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(RecoverableEd25519Signature {
@@ -1943,7 +1999,7 @@ impl serde::Serialize for RecoverablePasskeySignature {
         if !self.public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
+            struct_ser.serialize_field("public_key", pbjson::private::base64::encode(&self.public_key).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1953,12 +2009,12 @@ impl serde::Serialize for RecoverablePasskeySignature {
         if !self.authenticator_data.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("authenticatorData", pbjson::private::base64::encode(&self.authenticator_data).as_str())?;
+            struct_ser.serialize_field("authenticator_data", pbjson::private::base64::encode(&self.authenticator_data).as_str())?;
         }
         if !self.client_data_json.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("clientDataJson", pbjson::private::base64::encode(&self.client_data_json).as_str())?;
+            struct_ser.serialize_field("client_data_json", pbjson::private::base64::encode(&self.client_data_json).as_str())?;
         }
         struct_ser.end()
     }
@@ -1985,6 +2041,7 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
             Signature,
             AuthenticatorData,
             ClientDataJson,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2010,7 +2067,7 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                             "signature" => Ok(GeneratedField::Signature),
                             "authenticatorData" | "authenticator_data" => Ok(GeneratedField::AuthenticatorData),
                             "clientDataJson" | "client_data_json" => Ok(GeneratedField::ClientDataJson),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2067,6 +2124,9 @@ impl<'de> serde::Deserialize<'de> for RecoverablePasskeySignature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(RecoverablePasskeySignature {
@@ -2096,10 +2156,10 @@ impl serde::Serialize for RevokeAssociation {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RevokeAssociation", len)?;
         if let Some(v) = self.member_to_revoke.as_ref() {
-            struct_ser.serialize_field("memberToRevoke", v)?;
+            struct_ser.serialize_field("member_to_revoke", v)?;
         }
         if let Some(v) = self.recovery_identifier_signature.as_ref() {
-            struct_ser.serialize_field("recoveryIdentifierSignature", v)?;
+            struct_ser.serialize_field("recovery_identifier_signature", v)?;
         }
         struct_ser.end()
     }
@@ -2121,6 +2181,7 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
         enum GeneratedField {
             MemberToRevoke,
             RecoveryIdentifierSignature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2144,7 +2205,7 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
                         match value {
                             "memberToRevoke" | "member_to_revoke" => Ok(GeneratedField::MemberToRevoke),
                             "recoveryIdentifierSignature" | "recovery_identifier_signature" => Ok(GeneratedField::RecoveryIdentifierSignature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2179,6 +2240,9 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
                             }
                             recovery_identifier_signature__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(RevokeAssociation {
@@ -2205,16 +2269,16 @@ impl serde::Serialize for Signature {
         if let Some(v) = self.signature.as_ref() {
             match v {
                 signature::Signature::Erc191(v) => {
-                    struct_ser.serialize_field("erc191", v)?;
+                    struct_ser.serialize_field("erc_191", v)?;
                 }
                 signature::Signature::Erc6492(v) => {
-                    struct_ser.serialize_field("erc6492", v)?;
+                    struct_ser.serialize_field("erc_6492", v)?;
                 }
                 signature::Signature::InstallationKey(v) => {
-                    struct_ser.serialize_field("installationKey", v)?;
+                    struct_ser.serialize_field("installation_key", v)?;
                 }
                 signature::Signature::DelegatedErc191(v) => {
-                    struct_ser.serialize_field("delegatedErc191", v)?;
+                    struct_ser.serialize_field("delegated_erc_191", v)?;
                 }
                 signature::Signature::Passkey(v) => {
                     struct_ser.serialize_field("passkey", v)?;
@@ -2249,6 +2313,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
             InstallationKey,
             DelegatedErc191,
             Passkey,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2275,7 +2340,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "delegatedErc191" | "delegated_erc_191" => Ok(GeneratedField::DelegatedErc191),
                             "passkey" => Ok(GeneratedField::Passkey),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2332,6 +2397,9 @@ impl<'de> serde::Deserialize<'de> for Signature {
                             signature__ = map_.next_value::<::std::option::Option<_>>()?.map(signature::Signature::Passkey)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(Signature {
@@ -2361,12 +2429,12 @@ impl serde::Serialize for SmartContractWalletSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.SmartContractWalletSignature", len)?;
         if !self.account_id.is_empty() {
-            struct_ser.serialize_field("accountId", &self.account_id)?;
+            struct_ser.serialize_field("account_id", &self.account_id)?;
         }
         if self.block_number != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
+            struct_ser.serialize_field("block_number", ToString::to_string(&self.block_number).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -2395,6 +2463,7 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
             AccountId,
             BlockNumber,
             Signature,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2419,7 +2488,7 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                             "accountId" | "account_id" => Ok(GeneratedField::AccountId),
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "signature" => Ok(GeneratedField::Signature),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -2464,6 +2533,9 @@ impl<'de> serde::Deserialize<'de> for SmartContractWalletSignature {
                             signature__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

@@ -30,6 +30,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Requests,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -52,7 +53,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                     {
                         match value {
                             "requests" => Ok(GeneratedField::Requests),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -80,6 +81,9 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                             }
                             requests__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(GetIdentityUpdatesRequest {
@@ -106,12 +110,12 @@ impl serde::Serialize for get_identity_updates_request::Request {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetIdentityUpdatesRequest.Request", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -133,6 +137,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_request::Request {
         enum GeneratedField {
             InboxId,
             SequenceId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -156,7 +161,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_request::Request {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -192,6 +197,9 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_request::Request {
                             sequence_id__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -235,6 +243,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Responses,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -257,7 +266,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
                     {
                         match value {
                             "responses" => Ok(GeneratedField::Responses),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -284,6 +293,9 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
                                 return Err(serde::de::Error::duplicate_field("responses"));
                             }
                             responses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -316,12 +328,12 @@ impl serde::Serialize for get_identity_updates_response::IdentityUpdateLog {
         if self.sequence_id != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sequenceId", ToString::to_string(&self.sequence_id).as_str())?;
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
         }
         if self.server_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("serverTimestampNs", ToString::to_string(&self.server_timestamp_ns).as_str())?;
+            struct_ser.serialize_field("server_timestamp_ns", ToString::to_string(&self.server_timestamp_ns).as_str())?;
         }
         if let Some(v) = self.update.as_ref() {
             struct_ser.serialize_field("update", v)?;
@@ -348,6 +360,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::IdentityUpd
             SequenceId,
             ServerTimestampNs,
             Update,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -372,7 +385,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::IdentityUpd
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
                             "serverTimestampNs" | "server_timestamp_ns" => Ok(GeneratedField::ServerTimestampNs),
                             "update" => Ok(GeneratedField::Update),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -418,6 +431,9 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::IdentityUpd
                             }
                             update__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(get_identity_updates_response::IdentityUpdateLog {
@@ -446,7 +462,7 @@ impl serde::Serialize for get_identity_updates_response::Response {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.GetIdentityUpdatesResponse.Response", len)?;
         if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+            struct_ser.serialize_field("inbox_id", &self.inbox_id)?;
         }
         if !self.updates.is_empty() {
             struct_ser.serialize_field("updates", &self.updates)?;
@@ -470,6 +486,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Response {
         enum GeneratedField {
             InboxId,
             Updates,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -493,7 +510,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Response {
                         match value {
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "updates" => Ok(GeneratedField::Updates),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -527,6 +544,9 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Response {
                                 return Err(serde::de::Error::duplicate_field("updates"));
                             }
                             updates__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -570,6 +590,7 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Requests,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -592,7 +613,7 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsRequest {
                     {
                         match value {
                             "requests" => Ok(GeneratedField::Requests),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -619,6 +640,9 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsRequest {
                                 return Err(serde::de::Error::duplicate_field("requests"));
                             }
                             requests__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -651,7 +675,7 @@ impl serde::Serialize for get_inbox_ids_request::Request {
         if self.identifier_kind != 0 {
             let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -672,6 +696,7 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
         enum GeneratedField {
             Identifier,
             IdentifierKind,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -695,7 +720,7 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
                         match value {
                             "identifier" => Ok(GeneratedField::Identifier),
                             "identifierKind" | "identifier_kind" => Ok(GeneratedField::IdentifierKind),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -729,6 +754,9 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_request::Request {
                                 return Err(serde::de::Error::duplicate_field("identifierKind"));
                             }
                             identifier_kind__ = Some(map_.next_value::<super::super::associations::IdentifierKind>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -772,6 +800,7 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsResponse {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Responses,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -794,7 +823,7 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsResponse {
                     {
                         match value {
                             "responses" => Ok(GeneratedField::Responses),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -821,6 +850,9 @@ impl<'de> serde::Deserialize<'de> for GetInboxIdsResponse {
                                 return Err(serde::de::Error::duplicate_field("responses"));
                             }
                             responses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -854,12 +886,12 @@ impl serde::Serialize for get_inbox_ids_response::Response {
             struct_ser.serialize_field("identifier", &self.identifier)?;
         }
         if let Some(v) = self.inbox_id.as_ref() {
-            struct_ser.serialize_field("inboxId", v)?;
+            struct_ser.serialize_field("inbox_id", v)?;
         }
         if self.identifier_kind != 0 {
             let v = super::super::associations::IdentifierKind::try_from(self.identifier_kind)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.identifier_kind)))?;
-            struct_ser.serialize_field("identifierKind", &v)?;
+            struct_ser.serialize_field("identifier_kind", &v)?;
         }
         struct_ser.end()
     }
@@ -883,6 +915,7 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
             Identifier,
             InboxId,
             IdentifierKind,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -907,7 +940,7 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
                             "identifier" => Ok(GeneratedField::Identifier),
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "identifierKind" | "identifier_kind" => Ok(GeneratedField::IdentifierKind),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -949,6 +982,9 @@ impl<'de> serde::Deserialize<'de> for get_inbox_ids_response::Response {
                             }
                             identifier_kind__ = Some(map_.next_value::<super::super::associations::IdentifierKind>()? as i32);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(get_inbox_ids_response::Response {
@@ -974,7 +1010,7 @@ impl serde::Serialize for PublishIdentityUpdateRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.PublishIdentityUpdateRequest", len)?;
         if let Some(v) = self.identity_update.as_ref() {
-            struct_ser.serialize_field("identityUpdate", v)?;
+            struct_ser.serialize_field("identity_update", v)?;
         }
         struct_ser.end()
     }
@@ -993,6 +1029,7 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateRequest {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             IdentityUpdate,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1015,7 +1052,7 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateRequest {
                     {
                         match value {
                             "identityUpdate" | "identity_update" => Ok(GeneratedField::IdentityUpdate),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1042,6 +1079,9 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateRequest {
                                 return Err(serde::de::Error::duplicate_field("identityUpdate"));
                             }
                             identity_update__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1076,6 +1116,7 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateResponse {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1096,7 +1137,7 @@ impl<'de> serde::Deserialize<'de> for PublishIdentityUpdateResponse {
                     where
                         E: serde::de::Error,
                     {
-                            Err(serde::de::Error::unknown_field(value, FIELDS))
+                            Ok(GeneratedField::__SkipField__)
                     }
                 }
                 deserializer.deserialize_identifier(GeneratedVisitor)
@@ -1146,12 +1187,12 @@ impl serde::Serialize for VerifySmartContractWalletSignatureRequestSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature", len)?;
         if !self.account_id.is_empty() {
-            struct_ser.serialize_field("accountId", &self.account_id)?;
+            struct_ser.serialize_field("account_id", &self.account_id)?;
         }
         if let Some(v) = self.block_number.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("block_number", ToString::to_string(&v).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -1187,6 +1228,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignatureRequestS
             BlockNumber,
             Signature,
             Hash,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1212,7 +1254,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignatureRequestS
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "signature" => Ok(GeneratedField::Signature),
                             "hash" => Ok(GeneratedField::Hash),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1267,6 +1309,9 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignatureRequestS
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(VerifySmartContractWalletSignatureRequestSignature {
@@ -1311,6 +1356,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRequest
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Signatures,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1333,7 +1379,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRequest
                     {
                         match value {
                             "signatures" => Ok(GeneratedField::Signatures),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1360,6 +1406,9 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRequest
                                 return Err(serde::de::Error::duplicate_field("signatures"));
                             }
                             signatures__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1402,6 +1451,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRespons
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Responses,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1424,7 +1474,7 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRespons
                     {
                         match value {
                             "responses" => Ok(GeneratedField::Responses),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1451,6 +1501,9 @@ impl<'de> serde::Deserialize<'de> for VerifySmartContractWalletSignaturesRespons
                                 return Err(serde::de::Error::duplicate_field("responses"));
                             }
                             responses__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1481,12 +1534,12 @@ impl serde::Serialize for verify_smart_contract_wallet_signatures_response::Vali
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse", len)?;
         if self.is_valid {
-            struct_ser.serialize_field("isValid", &self.is_valid)?;
+            struct_ser.serialize_field("is_valid", &self.is_valid)?;
         }
         if let Some(v) = self.block_number.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("block_number", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.error.as_ref() {
             struct_ser.serialize_field("error", v)?;
@@ -1513,6 +1566,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
             IsValid,
             BlockNumber,
             Error,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1537,7 +1591,7 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                             "isValid" | "is_valid" => Ok(GeneratedField::IsValid),
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "error" => Ok(GeneratedField::Error),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1580,6 +1634,9 @@ impl<'de> serde::Deserialize<'de> for verify_smart_contract_wallet_signatures_re
                                 return Err(serde::de::Error::duplicate_field("error"));
                             }
                             error__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

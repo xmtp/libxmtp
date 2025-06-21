@@ -12,7 +12,7 @@ impl serde::Serialize for DeviceSyncAcknowledge {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncAcknowledge", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         struct_ser.end()
     }
@@ -31,6 +31,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncAcknowledge {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -53,7 +54,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncAcknowledge {
                     {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -80,6 +81,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncAcknowledge {
                                 return Err(serde::de::Error::duplicate_field("requestId"));
                             }
                             request_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -115,7 +119,7 @@ impl serde::Serialize for DeviceSyncContent {
                     struct_ser.serialize_field("reply", v)?;
                 }
                 device_sync_content::Content::PreferenceUpdates(v) => {
-                    struct_ser.serialize_field("preferenceUpdates", v)?;
+                    struct_ser.serialize_field("preference_updates", v)?;
                 }
             }
         }
@@ -142,6 +146,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
             Acknowledge,
             Reply,
             PreferenceUpdates,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -167,7 +172,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
                             "acknowledge" => Ok(GeneratedField::Acknowledge),
                             "reply" => Ok(GeneratedField::Reply),
                             "preferenceUpdates" | "preference_updates" => Ok(GeneratedField::PreferenceUpdates),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -217,6 +222,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncContent {
                             content__ = map_.next_value::<::std::option::Option<_>>()?.map(device_sync_content::Content::PreferenceUpdates)
 ;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(DeviceSyncContent {
@@ -244,7 +252,7 @@ impl serde::Serialize for DeviceSyncKeyType {
                 device_sync_key_type::Key::Aes256Gcm(v) => {
                     #[allow(clippy::needless_borrow)]
                     #[allow(clippy::needless_borrows_for_generic_args)]
-                    struct_ser.serialize_field("aes256Gcm", pbjson::private::base64::encode(&v).as_str())?;
+                    struct_ser.serialize_field("aes_256_gcm", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
         }
@@ -265,6 +273,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Aes256Gcm,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -287,7 +296,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
                     {
                         match value {
                             "aes256Gcm" | "aes_256_gcm" => Ok(GeneratedField::Aes256Gcm),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -314,6 +323,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncKeyType {
                                 return Err(serde::de::Error::duplicate_field("aes256Gcm"));
                             }
                             key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| device_sync_key_type::Key::Aes256Gcm(x.0));
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -353,18 +365,18 @@ impl serde::Serialize for DeviceSyncReply {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncReply", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if let Some(v) = self.encryption_key.as_ref() {
-            struct_ser.serialize_field("encryptionKey", v)?;
+            struct_ser.serialize_field("encryption_key", v)?;
         }
         if self.timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
+            struct_ser.serialize_field("timestamp_ns", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
         if self.kind != 0 {
             let v = super::BackupElementSelection::try_from(self.kind)
@@ -403,6 +415,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
             TimestampNs,
             Kind,
             Metadata,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -430,7 +443,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             "timestampNs" | "timestamp_ns" => Ok(GeneratedField::TimestampNs),
                             "kind" => Ok(GeneratedField::Kind),
                             "metadata" => Ok(GeneratedField::Metadata),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -495,6 +508,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncReply {
                             }
                             metadata__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(DeviceSyncReply {
@@ -532,10 +548,10 @@ impl serde::Serialize for DeviceSyncRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.content.DeviceSyncRequest", len)?;
         if !self.request_id.is_empty() {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
+            struct_ser.serialize_field("request_id", &self.request_id)?;
         }
         if !self.pin_code.is_empty() {
-            struct_ser.serialize_field("pinCode", &self.pin_code)?;
+            struct_ser.serialize_field("pin_code", &self.pin_code)?;
         }
         if self.kind != 0 {
             let v = super::BackupElementSelection::try_from(self.kind)
@@ -569,6 +585,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
             PinCode,
             Kind,
             Options,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -594,7 +611,7 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                             "pinCode" | "pin_code" => Ok(GeneratedField::PinCode),
                             "kind" => Ok(GeneratedField::Kind),
                             "options" => Ok(GeneratedField::Options),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -643,6 +660,9 @@ impl<'de> serde::Deserialize<'de> for DeviceSyncRequest {
                             }
                             options__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(DeviceSyncRequest {
@@ -679,7 +699,7 @@ impl serde::Serialize for HmacKeyUpdate {
         if self.cycled_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("cycledAtNs", ToString::to_string(&self.cycled_at_ns).as_str())?;
+            struct_ser.serialize_field("cycled_at_ns", ToString::to_string(&self.cycled_at_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -700,6 +720,7 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
         enum GeneratedField {
             Key,
             CycledAtNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -723,7 +744,7 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
                         match value {
                             "key" => Ok(GeneratedField::Key),
                             "cycledAtNs" | "cycled_at_ns" => Ok(GeneratedField::CycledAtNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -761,6 +782,9 @@ impl<'de> serde::Deserialize<'de> for HmacKeyUpdate {
                             cycled_at_ns__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -813,6 +837,7 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdate {
         enum GeneratedField {
             Consent,
             Hmac,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -836,7 +861,7 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdate {
                         match value {
                             "consent" => Ok(GeneratedField::Consent),
                             "hmac" => Ok(GeneratedField::Hmac),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -871,6 +896,9 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdate {
                             }
                             update__ = map_.next_value::<::std::option::Option<_>>()?.map(preference_update::Update::Hmac)
 ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -913,6 +941,7 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdates {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Updates,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -935,7 +964,7 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdates {
                     {
                         match value {
                             "updates" => Ok(GeneratedField::Updates),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -962,6 +991,9 @@ impl<'de> serde::Deserialize<'de> for PreferenceUpdates {
                                 return Err(serde::de::Error::duplicate_field("updates"));
                             }
                             updates__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -1004,6 +1036,7 @@ impl<'de> serde::Deserialize<'de> for V1UserPreferenceUpdate {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Contents,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1026,7 +1059,7 @@ impl<'de> serde::Deserialize<'de> for V1UserPreferenceUpdate {
                     {
                         match value {
                             "contents" => Ok(GeneratedField::Contents),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -1056,6 +1089,9 @@ impl<'de> serde::Deserialize<'de> for V1UserPreferenceUpdate {
                                 Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
