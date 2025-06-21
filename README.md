@@ -1,11 +1,195 @@
-# LibXMTP
+# libxmtp
+![XMTP](https://avatars.githubusercontent.com/u/82580170?s=48&v=4)
 
-![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)
 ![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)
 ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-LibXMTP is a shared library encapsulating the core functionality of the XMTP
-messaging protocol, such as cryptography, networking, and language bindings.
+**The battle-tested Rust core powering decentralized messaging for Web3**
+
+Build encrypted, wallet-to-wallet messaging into any app. No servers to maintain, no data to leak, no middlemen to trust.
+
+```rust
+// Send encrypted messages between any Ethereum addresses
+let client = Client::create(wallet, env).await?;
+let conversation = client.conversations()
+    .create_group(vec![wallet_address])
+    .await?;
+
+conversation.send("gm! 🌅".as_bytes()).await?;
+```
+
+## Why libxmtp?
+
+**🔐 True End-to-End Encryption** - Messages are encrypted before they leave your device. Even we can't read them.
+
+**🛡️ Perfect Forward Secrecy** - Built on MLS (Messaging Layer Security). Each message uses unique keys, so past conversations stay secure even if current keys are compromised.
+
+**🏗️ Decentralized by Design** - No central servers, no single points of failure. Messages flow through a distributed network.
+
+**⚡ Wallet-Native** - Use your existing Ethereum wallet as your identity. No new accounts, no password recovery.
+
+**📱 Universal Platform Support** - One codebase, everywhere. iOS, Android, React Native, Web, Node.js, and browsers via WebAssembly.
+
+**🔧 Production Ready** - Powers messaging for thousands of users across mobile apps, web dapps, and desktop clients.
+
+**🦀 Rust Foundation** - Memory-safe, reliable core with bindings for JavaScript, Swift, Kotlin, and more.
+
+## Quick Start
+
+```rust
+use libxmtp::Client;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize client with your wallet
+    let client = Client::create(your_wallet, Environment::Production).await?;
+
+    // Start a conversation
+    let conversation = client.conversations()
+        .create_dm(recipient_address)
+        .await?;
+
+    // Send encrypted message
+    conversation.send("Hello, decentralized world!".as_bytes()).await?;
+
+    // Stream incoming messages
+    let mut stream = client.conversations().stream_all_messages().await?;
+    while let Some(message) = stream.next().await {
+        println!("New message: {}", String::from_utf8_lossy(&message.content));
+    }
+
+    Ok(())
+}
+```
+
+## What You Can Build
+
+**💬 Wallet Chat Apps** - Build the next generation of messaging apps where your wallet is your identity
+
+**🤖 Token-Gated Bots** - Create bots that only respond to holders of specific NFTs or tokens
+
+**📱 dApp Notifications** - Send transactional messages directly to user wallets
+
+**🎮 Gaming Communication** - Enable player-to-player messaging in blockchain games
+
+**🏛️ DAO Coordination** - Build governance tools with encrypted member communication
+
+**💼 DeFi Alerts** - Send real-time updates about positions, liquidations, or opportunities
+
+## Core Features
+
+### 🔑 **Identity & Authentication**
+- **Wallet-based identity** - Your Ethereum address is your username
+- **Signature-based auth** - Prove ownership without revealing private keys
+- **Passkey integration** - Seamless authentication with WebAuthn coming soon
+- **Cross-chain support** - Works with Ethereum, Polygon, and other EVM chains
+
+### 💬 **Messaging Primitives**
+- **1:1 conversations** - Direct encrypted messaging between two addresses
+- **Group chats** - Secure group conversations with access control
+- **Message attachments** - Send files, images, and rich media
+- **Message reactions** - React to messages with emojis and custom reactions
+
+### 🔒 **Security & Privacy**
+- **MLS encryption** - Built on the IETF Messaging Layer Security standard
+- **Metadata protection** - Message timing and patterns are obscured
+- **Local key management** - Keys never leave your device
+
+### 🌐 **Network & Infrastructure**
+- **Decentralization roadmap** - Moving from federated to fully decentralized architecture
+- **Offline support** - Queue messages when offline, sync when reconnected
+- **Message persistence** - Reliable delivery with automatic retries
+- **Efficient sync** - Only download messages you haven't seen
+- **Configurable storage** - SQLite, PostgreSQL, or custom backends
+
+## Platform Support
+
+| Platform | Status | Language | Package |
+|----------|--------|----------|---------|
+| **iOS** | ✅ Production | Swift | [`xmtp-ios`](https://github.com/xmtp/xmtp-ios) |
+| **Android** | ✅ Production | Kotlin | [`xmtp-android`](https://github.com/xmtp/xmtp-android) |
+| **React Native** | ✅ Production | JavaScript | [`@xmtp/react-native-sdk`](https://www.npmjs.com/package/@xmtp/react-native-sdk) |
+| **Web/Node.js** | ✅ Production | JavaScript | [`@xmtp/mls-client`](https://www.npmjs.com/package/@xmtp/mls-client) |
+| **WebAssembly** | 🚧 Beta | WASM | [`libxmtp-wasm`](https://github.com/xmtp/libxmtp) |
+
+## Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────────────┐
+│   Your App      │    │    libxmtp      │    │      XMTP Network           │
+│                 │    │                 │    │                             │
+│  ┌───────────┐  │    │  ┌───────────┐  │    │  ┌─────┐  ┌─────┐  ┌─────┐  │
+│  │    UI     │◄─┼────┼─►│  Client   │◄─┼────┼─►│Node │◄─┤Node │◄─┤Node │  │
+│  └───────────┘  │    │  └───────────┘  │    │  └─────┘  └─────┘  └─────┘  │
+│                 │    │        │        │    │     │        │        │     │
+│                 │    │  ┌───────────┐  │    │  ┌─────┐  ┌─────┐  ┌─────┐  │
+│                 │    │  │   Store   │  │    │  │Node │  │Node │  │Node │  │
+│                 │    │  └───────────┘  │    │  └─────┘  └─────┘  └─────┘  │
+└─────────────────┘    └─────────────────┘    └─────────────────────────────┘
+```
+
+## Examples
+
+### Token-Gated Bot
+```rust
+// Only respond to messages from NFT holders
+if client.verify_nft_ownership(sender_address, nft_contract).await? {
+    conversation.send("Welcome, NFT holder! 🎨".as_bytes()).await?;
+}
+```
+
+### DeFi Notifications
+```rust
+// Send liquidation warning
+let conversation = client.conversations()
+    .create_dm(user_wallet)
+    .await?;
+
+conversation.send(format!(
+    "⚠️ Your position is at risk! Current ratio: {:.2}%",
+    collateral_ratio
+).as_bytes()).await?;
+```
+
+### Group Chat with Admins
+```rust
+let group = client.conversations()
+    .create_group_with_permissions(
+        members,
+        GroupPermissions::AdminOnly
+    ).await?;
+```
+
+## Contributing
+
+We're actively looking for contributors! Check out our [Contributing Guide](CONTRIBUTING.md) and [Good First Issues](https://github.com/xmtp/libxmtp/labels/good%20first%20issue).
+
+**Areas where we need help:**
+- 🔧 Protocol optimizations and performance improvements
+- 🌐 Additional language bindings (Python, Go, C++)
+- 📱 Mobile-specific optimizations
+- 🧪 Testing infrastructure and edge case coverage
+- 📚 Documentation and example applications
+
+## Resources
+
+- **📖 [Developer Docs](https://xmtp.org/docs/)** - Complete integration guides
+- **🎮 [Quickstart Tutorial](https://xmtp.org/docs/tutorials/quickstart)** - Build your first XMTP app in 10 minutes
+- **💬 [Discord Community](https://discord.gg/xmtp)** - Get help from the team and community
+- **🐦 [Twitter](https://twitter.com/xmtp_)** - Follow for updates and announcements
+- **🔧 [Example Apps](https://github.com/xmtp/example-apps)** - Reference implementations
+
+## License
+
+**MIT** - Build anything, commercial or open source.
+
+---
+
+**Ready to build the future of communication?**
+
+Star this repo ⭐ and [join our Discord](https://discord.gg/xmtp) to connect with other builders pushing the boundaries of decentralized messaging.
+
+*Made with ❤️ by the XMTP team and contributors worldwide*
 
 ## Requirements
 
