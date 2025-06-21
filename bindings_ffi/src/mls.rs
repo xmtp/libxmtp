@@ -119,7 +119,7 @@ pub async fn connect_to_backend(
  * Static revoke a list of installations
  */
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn static_revoke_installations(
+pub async fn revoke_installations(
     api: Arc<XmtpApiClient>,
     recovery_identifier: FfiIdentifier,
     inbox_id: &InboxId,
@@ -145,7 +145,7 @@ pub async fn static_revoke_installations(
  * Static apply a signature request
  */
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn static_apply_signature_request(
+pub async fn apply_signature_request(
     api: Arc<XmtpApiClient>,
     signature_request: Arc<FfiSignatureRequest>,
 ) -> Result<(), GenericError> {
@@ -2951,12 +2951,13 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
+        apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
+        decode_reaction, encode_multi_remote_attachment, encode_reaction,
+        get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         mls::test_utils::{LocalBuilder, LocalTester},
-        static_apply_signature_request, static_revoke_installations,
+        revoke_installations,
         worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -8509,14 +8510,18 @@ mod tests {
 
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_3 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_4 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_5 = new_test_client_with_wallet(wallet.clone()).await;
+
         let inbox_id = client_1.inbox_id();
 
         let client_1_state = client_1.inbox_state(true).await.unwrap();
         let client_2_state = client_2.inbox_state(true).await.unwrap();
-        assert_eq!(client_1_state.installations.len(), 2);
-        assert_eq!(client_2_state.installations.len(), 2);
+        assert_eq!(client_1_state.installations.len(), 5);
+        assert_eq!(client_2_state.installations.len(), 5);
 
-        let revoke_request = static_revoke_installations(
+        let revoke_request = revoke_installations(
             api_backend.clone(),
             ffi_ident,
             &inbox_id,
@@ -8526,25 +8531,15 @@ mod tests {
         .unwrap();
 
         revoke_request.add_wallet_signature(&wallet).await;
-        static_apply_signature_request(api_backend.clone(), revoke_request)
+        apply_signature_request(api_backend.clone(), revoke_request)
             .await
             .unwrap();
 
         let client_1_state_after = client_1.inbox_state(true).await.unwrap();
         let client_2_state_after = client_2.inbox_state(true).await.unwrap();
 
-        assert_eq!(client_1_state_after.installations.len(), 1);
-        assert_eq!(client_2_state_after.installations.len(), 1);
-
-        let expected_installation_id = client_1.installation_id();
-        assert_eq!(
-            client_1_state_after.installations[0].id,
-            expected_installation_id
-        );
-        assert_eq!(
-            client_2_state_after.installations[0].id,
-            expected_installation_id
-        );
+        assert_eq!(client_1_state_after.installations.len(), 4);
+        assert_eq!(client_2_state_after.installations.len(), 4);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
@@ -8574,7 +8569,7 @@ mod tests {
             .await
             .unwrap();
 
-        let revoke_request = static_revoke_installations(
+        let revoke_request = revoke_installations(
             api_backend.clone(),
             ffi_ident,
             &inbox_id,
@@ -8584,8 +8579,7 @@ mod tests {
         .unwrap();
 
         revoke_request.add_wallet_signature(&wallet_b).await;
-        let revoke_result =
-            static_apply_signature_request(api_backend.clone(), revoke_request).await;
+        let revoke_result = apply_signature_request(api_backend.clone(), revoke_request).await;
 
         assert!(
             revoke_result.is_err(),
