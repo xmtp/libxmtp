@@ -122,22 +122,16 @@ pub async fn get_association_state_with_verifier<C: ConnectionExt>(
 }
 
 /// Revoke the given installations from the association state for the client's inbox
-pub async fn revoke_installations_with_verifier<C: ConnectionExt>(
-    conn: &DbConnection<C>,
+pub async fn revoke_installations_with_verifier(
+    identifier: &Identifier,
     inbox_id: &str,
     installation_ids: Vec<Vec<u8>>,
-    scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<SignatureRequest, ClientError> {
-    let current_state = retry_async!(
-        Retry::default(),
-        (async { get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await })
-    )?;
-
     let mut builder = SignatureRequestBuilder::new(inbox_id);
 
     for installation_id in installation_ids {
         builder = builder.revoke_association(
-            current_state.recovery_identifier().clone().into(),
+            identifier.clone().into(),
             MemberIdentifier::installation(installation_id),
         )
     }
@@ -151,13 +145,11 @@ pub async fn revoke_installations_with_verifier<C: ConnectionExt>(
  * This will error if the signature request is missing signatures, if the signatures are invalid,
  * if the update fails other verifications, or if the update fails to be published to the network.
  **/
-pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi, C: ConnectionExt>(
+pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &DbConnection<C>,
     signature_request: SignatureRequest,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<(), ClientError> {
-    let inbox_id = signature_request.inbox_id().to_string();
     // If the signature request isn't completed, this will error
     let identity_update = signature_request
         .build_identity_update()
@@ -167,12 +159,6 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi, C: Connec
 
     // We don't need to validate the update, since the server will do this for us
     api_client.publish_identity_update(identity_update).await?;
-
-    // Load the identity updates for the inbox so that we have a record in our DB
-    retry_async!(
-        Retry::default(),
-        (async { load_identity_updates(api_client, conn, &[inbox_id.as_str()]).await })
-    )?;
 
     Ok(())
 }
@@ -408,12 +394,18 @@ where
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<SignatureRequest, ClientError> {
         let inbox_id = self.context.inbox_id();
+        let current_state = retry_async!(
+            Retry::default(),
+            (async {
+                self.get_association_state(&self.context.db(), inbox_id, None)
+                    .await
+            })
+        )?;
 
         let result = revoke_installations_with_verifier(
-            &self.context.db(),
+            &current_state.recovery_identifier().clone().into(),
             inbox_id,
             installation_ids,
-            &self.context.scw_verifier,
         )
         .await?;
 
@@ -452,13 +444,25 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
+        let inbox_id = signature_request.inbox_id().to_string();
+
         apply_signature_request_with_verifier(
             self.context.api(),
-            &self.context.db(),
             signature_request,
             self.context.scw_verifier(),
         )
-        .await
+        .await?;
+
+        // Load the identity updates for the inbox so that we have a record in our DB
+        retry_async!(
+            Retry::default(),
+            (async {
+                load_identity_updates(self.context.api(), &self.context.db(), &[inbox_id.as_str()])
+                    .await
+            })
+        )?;
+
+        Ok(())
     }
 
     /// Given two group memberships and the diff, get the list of installations that were added or removed

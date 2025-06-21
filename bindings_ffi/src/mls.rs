@@ -121,40 +121,19 @@ pub async fn connect_to_backend(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn static_revoke_installations(
     api: Arc<XmtpApiClient>,
-    db: String,
-    encryption_key: Option<Vec<u8>>,
+    recovery_identifier: FfiIdentifier,
     inbox_id: &InboxId,
     installation_ids: Vec<Vec<u8>>,
 ) -> Result<Arc<FfiSignatureRequest>, GenericError> {
-    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-
-    let storage_option = StorageOption::Persistent(db);
-
-    let store = match encryption_key {
-        Some(key) => {
-            let key: EncryptionKey = key
-                .try_into()
-                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            let db = NativeDb::new(&storage_option, key)?;
-            EncryptedMessageStore::new(db)?
-        }
-        None => {
-            let db = NativeDb::new_unencrypted(&storage_option)?;
-            EncryptedMessageStore::new(db)?
-        }
-    };
-
+    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
     let scw_verifier = Arc::new(
         Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
     );
+    let ident = recovery_identifier.try_into()?;
 
-    let signature_request = revoke_installations_with_verifier(
-        &store.db(),
-        inbox_id,
-        installation_ids,
-        &scw_verifier.clone(),
-    )
-    .await?;
+    let signature_request =
+        revoke_installations_with_verifier(&ident, inbox_id, installation_ids).await?;
 
     Ok(Arc::new(FfiSignatureRequest {
         inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
@@ -168,39 +147,15 @@ pub async fn static_revoke_installations(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn static_apply_signature_request(
     api: Arc<XmtpApiClient>,
-    db: String,
-    encryption_key: Option<Vec<u8>>,
     signature_request: Arc<FfiSignatureRequest>,
 ) -> Result<(), GenericError> {
     let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
-
-    let storage_option = StorageOption::Persistent(db);
-
-    let store = match encryption_key {
-        Some(key) => {
-            let key: EncryptionKey = key
-                .try_into()
-                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
-            let db = NativeDb::new(&storage_option, key)?;
-            EncryptedMessageStore::new(db)?
-        }
-        None => {
-            let db = NativeDb::new_unencrypted(&storage_option)?;
-            EncryptedMessageStore::new(db)?
-        }
-    };
-
     let signature_request = signature_request.inner.lock().await;
     let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
         as Box<dyn SmartContractSignatureVerifier>);
 
-    apply_signature_request_with_verifier(
-        &api.clone(),
-        &store.db(),
-        signature_request.clone(),
-        &scw_verifier,
-    )
-    .await?;
+    apply_signature_request_with_verifier(&api.clone(), signature_request.clone(), &scw_verifier)
+        .await?;
 
     Ok(())
 }
@@ -8544,88 +8499,37 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_static_revoke_installations() {
-        // Step 1: Generate a shared wallet used for both clients
-        let wallet = generate_local_wallet();
+        let wallet = PrivateKeySigner::random();
 
-        // Step 2: Create client_1 using the shared wallet
         let ident = wallet.identifier();
-        let inbox_id = ident.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = ident.clone().into();
-        let encryption_key = xmtp_db::EncryptedMessageStore::<()>::generate_enc_key();
-        let db_path = tmp_path();
         let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
 
-        let client_1 = create_client(
-            api_backend.clone(),
-            Some(db_path.clone()),
-            Some(encryption_key.clone().into()),
-            &inbox_id,
-            ffi_ident.clone(),
-            1,
-            None,
-            Some(HISTORY_SYNC_URL.to_string()),
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let inbox_id = client_1.inbox_id();
 
-        // Register client_1
-        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet.clone());
-        register_client_with_wallet(&ffi_inbox_owner, &client_1).await;
-
-        // Step 3: Create client_2 with the same wallet
-        let client_2 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-                .await
-                .unwrap(),
-            Some(tmp_path()),
-            Some(encryption_key.clone().into()),
-            &inbox_id,
-            ffi_ident,
-            2, // nonce
-            None,
-            Some(HISTORY_SYNC_URL.to_string()),
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-        register_client_with_wallet(&ffi_inbox_owner, &client_2).await;
-
-        // Step 4: Verify that both installations are registered
         let client_1_state = client_1.inbox_state(true).await.unwrap();
         let client_2_state = client_2.inbox_state(true).await.unwrap();
         assert_eq!(client_1_state.installations.len(), 2);
         assert_eq!(client_2_state.installations.len(), 2);
 
-        // Step 5: Create a static signature request to revoke client_2's installation
         let revoke_request = static_revoke_installations(
             api_backend.clone(),
-            db_path.clone(),
-            Some(encryption_key.clone().into()),
-            &client_1.inbox_id(),
+            ffi_ident,
+            &inbox_id,
             vec![client_2.installation_id()],
         )
         .await
         .unwrap();
 
-        // Step 6: Sign and apply the revoke request
         revoke_request.add_wallet_signature(&wallet).await;
-        static_apply_signature_request(
-            api_backend.clone(),
-            db_path.clone(),
-            Some(encryption_key.clone().into()),
-            revoke_request,
-        )
-        .await
-        .unwrap();
+        static_apply_signature_request(api_backend.clone(), revoke_request)
+            .await
+            .unwrap();
 
-        // Step 7: Fetch updated inbox state and verify only client_1's installation remains
         let client_1_state_after = client_1.inbox_state(true).await.unwrap();
         let client_2_state_after = client_2.inbox_state(true).await.unwrap();
 
