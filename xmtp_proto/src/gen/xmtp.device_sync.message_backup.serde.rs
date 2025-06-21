@@ -310,17 +310,17 @@ impl serde::Serialize for GroupMessageSave {
         if !self.group_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
         if !self.decrypted_message_bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("decryptedMessageBytes", pbjson::private::base64::encode(&self.decrypted_message_bytes).as_str())?;
+            struct_ser.serialize_field("decrypted_message_bytes", pbjson::private::base64::encode(&self.decrypted_message_bytes).as_str())?;
         }
         if self.sent_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sentAtNs", ToString::to_string(&self.sent_at_ns).as_str())?;
+            struct_ser.serialize_field("sent_at_ns", ToString::to_string(&self.sent_at_ns).as_str())?;
         }
         if self.kind != 0 {
             let v = GroupMessageKindSave::try_from(self.kind)
@@ -330,44 +330,44 @@ impl serde::Serialize for GroupMessageSave {
         if !self.sender_installation_id.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("senderInstallationId", pbjson::private::base64::encode(&self.sender_installation_id).as_str())?;
+            struct_ser.serialize_field("sender_installation_id", pbjson::private::base64::encode(&self.sender_installation_id).as_str())?;
         }
         if !self.sender_inbox_id.is_empty() {
-            struct_ser.serialize_field("senderInboxId", &self.sender_inbox_id)?;
+            struct_ser.serialize_field("sender_inbox_id", &self.sender_inbox_id)?;
         }
         if self.delivery_status != 0 {
             let v = DeliveryStatusSave::try_from(self.delivery_status)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.delivery_status)))?;
-            struct_ser.serialize_field("deliveryStatus", &v)?;
+            struct_ser.serialize_field("delivery_status", &v)?;
         }
         if self.content_type != 0 {
             let v = ContentTypeSave::try_from(self.content_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.content_type)))?;
-            struct_ser.serialize_field("contentType", &v)?;
+            struct_ser.serialize_field("content_type", &v)?;
         }
         if self.version_major != 0 {
-            struct_ser.serialize_field("versionMajor", &self.version_major)?;
+            struct_ser.serialize_field("version_major", &self.version_major)?;
         }
         if self.version_minor != 0 {
-            struct_ser.serialize_field("versionMinor", &self.version_minor)?;
+            struct_ser.serialize_field("version_minor", &self.version_minor)?;
         }
         if !self.authority_id.is_empty() {
-            struct_ser.serialize_field("authorityId", &self.authority_id)?;
+            struct_ser.serialize_field("authority_id", &self.authority_id)?;
         }
         if let Some(v) = self.reference_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("referenceId", pbjson::private::base64::encode(&v).as_str())?;
+            struct_ser.serialize_field("reference_id", pbjson::private::base64::encode(&v).as_str())?;
         }
         if let Some(v) = self.sequence_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sequenceId", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.originator_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("originatorId", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("originator_id", ToString::to_string(&v).as_str())?;
         }
         struct_ser.end()
     }
@@ -426,6 +426,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
             ReferenceId,
             SequenceId,
             OriginatorId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -462,7 +463,7 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             "referenceId" | "reference_id" => Ok(GeneratedField::ReferenceId),
                             "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
                             "originatorId" | "originator_id" => Ok(GeneratedField::OriginatorId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -607,6 +608,9 @@ impl<'de> serde::Deserialize<'de> for GroupMessageSave {
                             originator_id__ = 
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

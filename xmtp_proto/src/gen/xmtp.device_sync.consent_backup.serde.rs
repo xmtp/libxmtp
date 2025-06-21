@@ -23,7 +23,7 @@ impl serde::Serialize for ConsentSave {
         if self.entity_type != 0 {
             let v = ConsentTypeSave::try_from(self.entity_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.entity_type)))?;
-            struct_ser.serialize_field("entityType", &v)?;
+            struct_ser.serialize_field("entity_type", &v)?;
         }
         if self.state != 0 {
             let v = ConsentStateSave::try_from(self.state)
@@ -36,7 +36,7 @@ impl serde::Serialize for ConsentSave {
         if self.consented_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("consentedAtNs", ToString::to_string(&self.consented_at_ns).as_str())?;
+            struct_ser.serialize_field("consented_at_ns", ToString::to_string(&self.consented_at_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -62,6 +62,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
             State,
             Entity,
             ConsentedAtNs,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -87,7 +88,7 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             "state" => Ok(GeneratedField::State),
                             "entity" => Ok(GeneratedField::Entity),
                             "consentedAtNs" | "consented_at_ns" => Ok(GeneratedField::ConsentedAtNs),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -137,6 +138,9 @@ impl<'de> serde::Deserialize<'de> for ConsentSave {
                             consented_at_ns__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
