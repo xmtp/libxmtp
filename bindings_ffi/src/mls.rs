@@ -8574,18 +8574,23 @@ mod tests {
             .await
             .unwrap();
 
-        let revoke_result = static_revoke_installations(
+        let revoke_request = static_revoke_installations(
             api_backend.clone(),
             ffi_ident,
             &inbox_id,
             vec![client_a2.installation_id()],
         )
-        .await;
+        .await
+        .unwrap();
 
-        // assert!(
-        //     revoke_result.is_err(),
-        //     "Revocation should fail when using a non-recovery identity"
-        // );
+        revoke_request.add_wallet_signature(&wallet_b).await;
+        let revoke_result = static_apply_signature_request(api_backend.clone(), revoke_request)
+            .await;
+
+        assert!(
+            revoke_result.is_err(),
+            "Revocation should fail when using a non-recovery identity"
+        );
 
         let client_a_state_after = client_a.inbox_state(true).await.unwrap();
         assert_eq!(client_a_state_after.installations.len(), 2);
