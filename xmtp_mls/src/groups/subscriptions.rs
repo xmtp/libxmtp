@@ -4,7 +4,7 @@ use super::MlsGroup;
 use crate::{
     context::XmtpMlsLocalContext,
     subscriptions::{
-        process_message::{ProcessFutureFactory, ProcessMessageFuture},
+        process_message::{Factory as _, ProcessMessage},
         stream_messages::{MessageStreamError, StreamGroupMessages},
         Result, SubscribeError,
     },
@@ -35,7 +35,7 @@ where
         use crate::subscriptions::stream_messages::extract_message_v1;
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())?;
         let msg = extract_message_v1(envelope).ok_or(MessageStreamError::InvalidPayload)?;
-        ProcessMessageFuture::new(self.context.clone())
+        ProcessMessage::new(self.context.clone())
             .create(msg)
             .await?
             .message
