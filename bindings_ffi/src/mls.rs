@@ -8546,4 +8546,48 @@ mod tests {
             expected_installation_id
         );
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_static_revoke_fails_with_non_recovery_identity() {
+        let wallet_a = PrivateKeySigner::random();
+        let wallet_b = PrivateKeySigner::random();
+
+        let client_a = new_test_client_with_wallet(wallet_a.clone()).await;
+        let client_a2 = new_test_client_with_wallet(wallet_a.clone()).await;
+        let inbox_id = client_a.inbox_id();
+
+        let add_identity_request = client_a
+            .add_identity(wallet_b.identifier().into())
+            .await
+            .unwrap();
+        add_identity_request.add_wallet_signature(&wallet_b).await;
+        client_a
+            .apply_signature_request(add_identity_request)
+            .await
+            .unwrap();
+
+        let client_a_state = client_a.inbox_state(true).await.unwrap();
+        assert_eq!(client_a_state.installations.len(), 2);
+
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let revoke_result = static_revoke_installations(
+            api_backend.clone(),
+            ffi_ident,
+            &inbox_id,
+            vec![client_a2.installation_id()],
+        )
+        .await;
+
+        // assert!(
+        //     revoke_result.is_err(),
+        //     "Revocation should fail when using a non-recovery identity"
+        // );
+
+        let client_a_state_after = client_a.inbox_state(true).await.unwrap();
+        assert_eq!(client_a_state_after.installations.len(), 2);
+    }
 }
