@@ -36,10 +36,6 @@ impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
   }
-
-  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
-    &self.signature_requests
-  }
 }
 
 #[napi(string_enum)]

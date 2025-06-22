@@ -1,20 +1,9 @@
-import { v4 } from 'uuid'
-import { toBytes } from 'viem'
-import { describe, expect, it } from 'vitest'
-import {
-  createClient,
-  createRegisteredClient,
-  createUser,
-  encodeTextMessage,
-  sleep,
-} from '@test/helpers'
-import {
-  ConsentEntityType,
-  ConsentState,
-  IdentifierKind,
-  SignatureRequestType,
-  verifySignedWithPublicKey,
-} from '../dist'
+import { v4 } from 'uuid';
+import { toBytes } from 'viem';
+import { describe, expect, it } from 'vitest';
+import { createClient, createRegisteredClient, createUser, encodeTextMessage, sleep } from '@test/helpers';
+import { ConsentEntityType, ConsentState, IdentifierKind, SignatureRequestType, verifySignedWithPublicKey } from '../dist';
+
 
 describe('Client', () => {
   it('should not be registered at first', async () => {
@@ -210,6 +199,55 @@ describe('Client', () => {
 
     expect(inboxState2.installations.length).toBe(1)
     expect(inboxState2.installations[0].id).toBe(client3.installationId())
+  })
+
+  it('should revoke a specific installation using static_revoke_installations', async () => {
+    const user = createUser()
+
+    const client1 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client2 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client3 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client4 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client5 = await createRegisteredClient(user)
+
+    const inboxId = client1.inboxId()
+    const state1 = await client1.inboxState(true)
+    const state2 = await client2.inboxState(true)
+
+    expect(state1.installations.length).toBe(5)
+    expect(state2.installations.length).toBe(5)
+
+    // Revoke just client2's installation
+    const signatureText = await revokeInstallationsSignatureText(client1.accountIdentifier, client1.inboxId, [
+      client2.installationId(),
+    ])
+    expect(signatureText).toBeDefined()
+
+    // Sign with the user's wallet
+    const signature = await user.wallet.signMessage({ message: signatureText })
+
+    await addEcdsaSignature(
+      SignatureRequestType.RevokeInstallations,
+      toBytes(signature)
+    )
+
+    await applySignatureRequest(
+      TEST_API_URL, SignatureRequestType.RevokeInstallations
+    )
+
+    const stateAfter1 = await client1.inboxState(true)
+    const stateAfter2 = await client2.inboxState(true)
+
+    expect(stateAfter1.installations.length).toBe(4)
+    expect(stateAfter2.installations.length).toBe(4)
+
+    // Ensure that the revoked installation is gone
+    const remainingIds = stateAfter1.installations.map((i) => i.id)
+    expect(remainingIds).not.toContain(client2.installationId())
   })
 
   it('should manage consent states', async () => {

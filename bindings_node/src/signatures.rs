@@ -4,11 +4,21 @@ use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
+use std::sync::Arc;
+use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
+use xmtp_id::associations::MemberIdentifier;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context, AccountId,
 };
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+
+static SIGNATURE_REQUESTS: Lazy<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> =
+  Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[napi]
 pub fn verify_signed_with_public_key(
@@ -30,6 +40,144 @@ pub fn verify_signed_with_public_key(
     verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
       .map_err(ErrorWrapper::from)?,
   )
+}
+
+#[napi]
+pub async fn revoke_installations_signature_text(
+  recovery_identifier: Identifier,
+  inbox_id: String,
+  installation_ids: Vec<Uint8Array>,
+) -> Result<String> {
+  let internal_id: MemberIdentifier = recovery_identifier
+    .try_into()
+    .map_err(|_| Error::from_reason("Invalid recovery identifier"))?;
+
+  let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
+
+  let signature_request = revoke_installations_with_verifier(&internal_id, &inbox_id, ids)
+    .await
+    .map_err(|e| Error::from_reason(format!("Failed to revoke: {}", e)))?;
+
+  let signature_text = signature_request.signature_text();
+
+  // Save it in the global map
+  let mut map = SIGNATURE_REQUESTS.lock().await;
+  map.insert(SignatureRequestType::RevokeInstallations, signature_request);
+
+  Ok(signature_text)
+}
+
+#[napi]
+pub async fn apply_signature_request(
+  host: String,
+  signature_type: SignatureRequestType,
+) -> Result<()> {
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier: Arc<dyn SmartContractSignatureVerifier> =
+    Arc::new(RemoteSignatureVerifier::new(api.clone()));
+
+  let mut map = SIGNATURE_REQUESTS.lock().await;
+  let Some(signature_request) = map.remove(&signature_type) else {
+    return Err(Error::from_reason("No signature request found"));
+  };
+
+  apply_signature_request_with_verifier(&api, signature_request, &scw_verifier)
+    .await
+    .map_err(|e| Error::from_reason(format!("Failed to apply signature: {}", e)))?;
+
+  Ok(())
+}
+
+#[napi]
+pub async fn add_ecdsa_signature(
+  signature_type: SignatureRequestType,
+  signature_bytes: Uint8Array,
+) -> Result<()> {
+  let mut map = SIGNATURE_REQUESTS.lock().await;
+  let Some(signature_request) = map.get_mut(&signature_type) else {
+    return Err(Error::from_reason("Signature request not found"));
+  };
+
+  let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
+
+  let verifier: Arc<dyn SmartContractSignatureVerifier> =
+    Arc::new(RemoteSignatureVerifier::default());
+
+  signature_request
+    .add_signature(signature, &verifier)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(())
+}
+
+#[napi]
+pub async fn add_passkey_signature(
+  signature_type: SignatureRequestType,
+  signature: PasskeySignature,
+) -> Result<()> {
+  let mut map = SIGNATURE_REQUESTS.lock().await;
+  let Some(signature_request) = map.get_mut(&signature_type) else {
+    return Err(Error::from_reason("Signature request not found"));
+  };
+
+  let signature = UnverifiedSignature::new_passkey(
+    signature.public_key,
+    signature.signature,
+    signature.authenticator_data,
+    signature.client_data_json,
+  );
+
+  let verifier: Arc<dyn SmartContractSignatureVerifier> =
+    Arc::new(RemoteSignatureVerifier::default());
+
+  signature_request
+    .add_signature(signature, &verifier)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(())
+}
+
+#[napi]
+pub async fn add_scw_signature(
+  signature_type: SignatureRequestType,
+  account_identifier: Identifier,
+  signature_bytes: Uint8Array,
+  chain_id: BigInt,
+  block_number: Option<BigInt>,
+) -> Result<()> {
+  if !matches!(account_identifier.identifier_kind, IdentifierKind::Ethereum) {
+    return Err(Error::from_reason("Identifier must be Ethereum-based."));
+  }
+
+  let ident: XmtpIdentifier = account_identifier.try_into()?;
+  let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
+
+  let signature = NewUnverifiedSmartContractWalletSignature::new(
+    signature_bytes.deref().to_vec(),
+    account_id,
+    block_number.map(|b| b.get_u64().1),
+  );
+
+  let verifier: Arc<dyn SmartContractSignatureVerifier> =
+    Arc::new(RemoteSignatureVerifier::default());
+
+  let mut map = SIGNATURE_REQUESTS.lock().await;
+  let Some(signature_request) = map.get_mut(&signature_type) else {
+    return Err(Error::from_reason("Signature request not found"));
+  };
+
+  signature_request
+    .add_new_unverified_smart_contract_signature(signature, &verifier)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(())
 }
 
 #[napi]
@@ -60,7 +208,7 @@ impl Client {
       None => return Err(Error::from_reason("No signature request found")),
     };
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(SignatureRequestType::CreateInbox, signature_request);
 
@@ -78,7 +226,7 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(SignatureRequestType::AddWallet, signature_request);
 
@@ -96,7 +244,7 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(SignatureRequestType::RevokeWallet, signature_request);
 
@@ -123,7 +271,7 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
@@ -147,7 +295,7 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
 
@@ -166,7 +314,7 @@ impl Client {
       .await
       .map_err(ErrorWrapper::from)?;
     let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     signature_requests.insert(
       SignatureRequestType::ChangeRecoveryIdentifier,
@@ -177,92 +325,8 @@ impl Client {
   }
 
   #[napi]
-  pub async fn add_ecdsa_signature(
-    &self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
-  ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
-
-      signature_request
-        .add_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn add_passkey_signature(
-    &self,
-    signature_type: SignatureRequestType,
-    signature: PasskeySignature,
-  ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_passkey(
-        signature.public_key,
-        signature.signature,
-        signature.authenticator_data,
-        signature.client_data_json,
-      );
-
-      signature_request
-        .add_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn add_scw_signature(
-    &self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
-    chain_id: BigInt,
-    block_number: Option<BigInt>,
-  ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-    let IdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
-      return Err(Error::from_reason(
-        "Account identifier must be an ethereum address.",
-      ));
-    };
-
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident: XmtpIdentifier = self.account_identifier.clone().try_into()?;
-      let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
-      let signature = NewUnverifiedSmartContractWalletSignature::new(
-        signature_bytes.deref().to_vec(),
-        account_id,
-        block_number.as_ref().map(|b| b.get_u64().1),
-      );
-
-      signature_request
-        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
   pub async fn apply_signature_requests(&self) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
+    let mut signature_requests = SIGNATURE_REQUESTS.lock().await;
 
     let request_types: Vec<SignatureRequestType> = signature_requests.keys().cloned().collect();
     for signature_request_type in request_types {
