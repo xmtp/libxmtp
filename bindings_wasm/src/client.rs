@@ -1,3 +1,4 @@
+use crate::signatures::SignatureRequestHandle;
 use js_sys::Uint8Array;
 use std::collections::HashMap;
 use std::sync::Arc;

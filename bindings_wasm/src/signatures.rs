@@ -4,16 +4,18 @@ use crate::{
 };
 use js_sys::Uint8Array;
 use std::sync::Arc;
+use std::sync::Mutex;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
 use xmtp_id::associations::{verify_signed_with_public_context, Identifier as XmtpIdentifier};
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 #[wasm_bindgen]
 pub struct SignatureRequestHandle {
-  inner: Arc<tokio::sync::Mutex<xmtp_id::associations::builder::SignatureRequest>>,
+  inner: Arc<Mutex<xmtp_id::associations::builder::SignatureRequest>>,
   scw_verifier: Arc<dyn SmartContractSignatureVerifier>,
 }
 
@@ -35,6 +37,54 @@ pub fn verify_signed_with_public_key(
 
   verify_signed_with_public_context(signature_text, &signature_bytes, &public_key)
     .map_err(|e| JsError::new(format!("{}", e).as_str()))
+}
+
+#[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
+pub async fn revoke_installations_signature_request(
+  host: String,
+  recovery_identifier: Identifier,
+  inbox_id: String,
+  installation_ids: Vec<Uint8Array>,
+) -> Result<SignatureRequestHandle, JsError> {
+  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
+
+  let ident = recovery_identifier.try_into()?;
+  let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
+
+  let sig_req = revoke_installations_with_verifier(&ident, &inbox_id, ids)
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  Ok(SignatureRequestHandle {
+    inner: Arc::new(tokio::sync::Mutex::new(sig_req)),
+    scw_verifier,
+  })
+}
+
+#[wasm_bindgen(js_name = applySignatureRequest)]
+pub async fn apply_signature_request(
+  host: String,
+  signature_request: &SignatureRequestHandle,
+) -> Result<(), JsError> {
+  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
+
+  let inner = signature_request.inner.lock().await;
+
+  apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  Ok(())
 }
 
 #[wasm_bindgen]
@@ -115,20 +165,22 @@ impl SignatureRequestHandle {
 
 #[wasm_bindgen]
 impl Client {
-  #[wasm_bindgen(js_name = createInboxSignatureText)]
-  pub fn create_inbox_signature_request(&mut self) -> Result<Option<String>, JsError> {
+  #[wasm_bindgen(js_name = createInboxSignatureRequest)]
+  pub fn create_inbox_signature_request(
+    &mut self,
+  ) -> Result<Option<SignatureRequestHandle>, JsError> {
     let signature_request = match self.inner_client().identity().signature_request() {
       Some(signature_req) => signature_req,
       // this should never happen since we're checking for it above in is_registered
       None => return Err(JsError::new("No signature request found")),
     };
-    let signature_text = signature_request.signature_text();
 
-    self
-      .signature_requests
-      .insert(SignatureRequestType::CreateInbox, signature_request);
+    let handle = SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    };
 
-    Ok(Some(signature_text))
+    Ok(Some(handle))
   }
 
   #[wasm_bindgen(js_name = addWalletSignatureRequest)]
