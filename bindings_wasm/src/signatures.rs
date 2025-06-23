@@ -174,10 +174,6 @@ impl SignatureRequestHandle {
 
 #[wasm_bindgen]
 impl Client {
-  pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
-    &self.inner_client
-  }
-
   #[wasm_bindgen(js_name = createInboxSignatureRequest)]
   pub fn create_inbox_signature_request(
     &mut self,
@@ -327,7 +323,7 @@ impl Client {
     let inner = signature_request.inner.lock().await;
 
     self
-      .inner_client
+      .inner_client()
       .register_identity(inner.clone())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
