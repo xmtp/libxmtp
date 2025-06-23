@@ -1194,7 +1194,7 @@ where
                 Some(intent) => {
                     let mut identifier = MessageIdentifierBuilder::from(envelope);
                     identifier.intent_kind(intent.kind);
-                    if intent.state == IntentState::Error{
+                    if intent.state != IntentState::Published{
                         return identifier.build()
                     }
                     let intent_id = intent.id;
@@ -1673,7 +1673,7 @@ where
                 commit_result,
                 applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
                 applied_epoch_authenticator: None,
-                sender_inbox_id: None,
+                sender_inbox_id: Some(error.to_string()),
                 sender_installation_id: None,
                 commit_type: None,
             }
@@ -1741,6 +1741,7 @@ where
                             group_id = hex::encode(&self.group_id),
                     original_error = error.to_string(),
                     fork_details);
+                
                 track!(
                     "Possible Fork",
                     {
@@ -1754,6 +1755,8 @@ where
                     .context()
                     .db()
                     .mark_group_as_maybe_forked(&group_id, fork_details);
+                tracing::error!("###### set to forked");
+                tracing::error!("### logs {:?}", self.debug_info().await.unwrap().local_commit_log);
                 return epoch_validation_result;
             }
 

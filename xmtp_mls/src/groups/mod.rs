@@ -87,6 +87,9 @@ use xmtp_db::{
     MlsProviderExt, NotFound, StorageError,
 };
 use xmtp_db::{Store, StoreOrIgnore};
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult;
+use xmtp_db::remote_commit_log::CommitResult::Success;
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -615,6 +618,36 @@ where
             let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
+            let log_message = format!(
+                concat!(
+                "### from welcome inbox_id = {}, ",
+                "installation_id = {}, ",
+                "msg_epoch = {}, ",
+                "group_id = {}, ",
+                ),
+                context.inbox_id(),
+                context.installation_id(),
+                mls_group.epoch().as_u64(),
+                hex::encode(group_id.clone()),
+            );
+            
+            if provider.db().find_group(group_id.as_slice())?.is_some(){
+                NewLocalCommitLog {
+                    group_id :group_id.to_vec(),
+                    commit_sequence_id: welcome.id as i64,
+                    last_epoch_authenticator: vec![],
+                    commit_result: CommitResult::Invalid,
+                    applied_epoch_number: Some(mls_group.epoch().as_u64() as i64), // For debugging purposes
+                    applied_epoch_authenticator: None,
+                    sender_inbox_id: Some("Rejected, duplicated welcome".to_string()),
+                    sender_installation_id: None,
+                    commit_type: Some("Welcome".into()),
+                }
+                    .store(provider.db())?;
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+            }
+            
+            tracing::error!(log_message);
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
@@ -623,7 +656,7 @@ where
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
                     if required_min_version > current_version {
-                        tracing::warn!(
+                        tracing::error!(
                             "Saving group from welcome as paused since version requirements are not met. \
                             Group ID: {}, \
                             Required version: {}, \
@@ -642,7 +675,7 @@ where
             });
 
             let mut group = StoredGroup::builder();
-            group.id(group_id)
+            group.id(group_id.clone())
                 .created_at_ns(now_ns())
                 .added_by_inbox_id(&added_by_inbox_id)
                 .welcome_id(welcome.id as i64)
@@ -678,12 +711,23 @@ where
                         .build()?
                 },
             };
-
+           
             tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
-
+            NewLocalCommitLog {
+                group_id :group_id.to_vec(),
+                commit_sequence_id: welcome.id as i64,
+                last_epoch_authenticator: vec![],
+                commit_result: Success,
+                applied_epoch_number: Some(mls_group.epoch().as_u64() as i64), // For debugging purposes
+                applied_epoch_authenticator: None,
+                sender_inbox_id: Some(stored_group.clone().added_by_inbox_id),
+                sender_installation_id: None,
+                commit_type: Some("Welcome".into()),
+            }
+                .store(provider.db())?;
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
             track!(
                 "Group Welcome",
@@ -760,6 +804,7 @@ where
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
         }
+       
 
         self.ensure_not_paused().await?;
         let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
@@ -769,7 +814,7 @@ where
         self.update_consent_state(ConsentState::Allowed)?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
-
+       
         Ok(message_id)
     }
 
