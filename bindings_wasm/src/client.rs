@@ -273,7 +273,7 @@ impl Client {
   #[wasm_bindgen(js_name = registerIdentity)]
   pub async fn register_identity(
     &mut self,
-    signature_request: &SignatureRequestHandle,
+    signature_request: SignatureRequestHandle,
   ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
