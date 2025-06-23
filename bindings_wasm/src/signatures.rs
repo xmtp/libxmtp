@@ -22,7 +22,7 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 #[wasm_bindgen]
 pub struct SignatureRequestHandle {
   inner: Arc<Mutex<xmtp_id::associations::builder::SignatureRequest>>,
-  scw_verifier: Arc<dyn SmartContractSignatureVerifier>,
+  scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
 }
 
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
@@ -104,8 +104,8 @@ pub struct PasskeySignature {
 /// Methods on SignatureRequestHandle
 #[wasm_bindgen]
 impl SignatureRequestHandle {
-  pub fn inner(&self) -> &Arc<SignatureRequest> {
-    &self.inner
+  pub fn inner(&self) -> Arc<SignatureRequest> {
+    Arc::clone(&self.inner)
   }
 
   #[wasm_bindgen(js_name = signatureText)]
