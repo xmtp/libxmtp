@@ -11,9 +11,9 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
+import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
-import uniffi.xmtpv3.FfiKeyPackageStatus
 import uniffi.xmtpv3.FfiSyncWorkerMode
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.XmtpApiClient
@@ -24,6 +24,9 @@ import uniffi.xmtpv3.exitDebugWriter
 import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForIdentifier
 import uniffi.xmtpv3.getVersionInfo
+import uniffi.xmtpv3.applySignatureRequest
+import uniffi.xmtpv3.revokeInstallations
+
 import java.io.File
 
 typealias PreEventCallback = suspend () -> Unit
@@ -152,6 +155,20 @@ class Client(
                 inboxId = generateInboxId(rootIdentity, 0.toULong())
             }
             return inboxId
+        }
+
+        suspend fun revokeInstallations(
+            api: ClientOptions.Api,
+            signingKey: SigningKey,
+            inboxId: InboxId,
+            installationIds: List<String>,
+        ) {
+            val apiClient = connectToApiBackend(api)
+            val rootIdentity = signingKey.publicIdentity.ffiPrivate
+            val ids = installationIds.map { it.hexToByteArray() }
+            val signatureRequest = revokeInstallations(apiClient, rootIdentity, inboxId, ids)
+            handleSignature(SignatureRequest(signatureRequest), signingKey)
+            applySignatureRequest(apiClient, signatureRequest)
         }
 
         fun register(codec: ContentCodec<*>) {
@@ -332,7 +349,7 @@ class Client(
                 legacySignedPrivateKeyProto = null,
                 deviceSyncServerUrl = options.historySyncUrl,
                 deviceSyncMode = FfiSyncWorkerMode.ENABLED,
-                allowOffline = buildOffline
+                allowOffline = buildOffline,
             )
             return Pair(ffiClient, dbPath)
         }

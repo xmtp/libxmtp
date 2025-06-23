@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
@@ -1163,5 +1164,46 @@ class ClientTest {
         }
         val updatedState = runBlocking { clients.first().inboxState(true) }
         assertEquals(5, updatedState.installations.size)
+    }
+
+    @Test
+    fun testStaticRevokeOneOfFiveInstallations() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val wallet = PrivateKeyBuilder()
+        val encryptionKey = SecureRandom().generateSeed(32)
+
+        val clients = mutableListOf<Client>()
+        repeat(5) { i ->
+            val client = runBlocking {
+                Client.create(
+                    account = wallet,
+                    options = ClientOptions(
+                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        appContext = context,
+                        dbEncryptionKey = encryptionKey,
+                        dbDirectory = File(context.filesDir, "xmtp_db_$i").absolutePath
+                    )
+                )
+            }
+            clients.add(client)
+        }
+
+        var state = runBlocking { clients.last().inboxState(true) }
+        assertEquals(5, state.installations.size)
+
+        val toRevokeId = clients[1].installationId
+        runBlocking {
+            Client.revokeInstallations(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                wallet,
+                clients.first().inboxId,
+                listOf(toRevokeId)
+            )
+        }
+
+        state = runBlocking { clients.last().inboxState(true) }
+        assertEquals(4, state.installations.size)
+        val remainingIds = state.installations.map { it.installationId }
+        assertFalse(remainingIds.contains(toRevokeId))
     }
 }

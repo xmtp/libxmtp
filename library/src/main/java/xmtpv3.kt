@@ -1167,6 +1167,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1182,7 +1186,9 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_xmtpv3_checksum_func_connect_to_backend(
+    fun uniffi_xmtpv3_checksum_func_apply_signature_request(
+): Short
+fun uniffi_xmtpv3_checksum_func_connect_to_backend(
 ): Short
 fun uniffi_xmtpv3_checksum_func_create_client(
 ): Short
@@ -1205,6 +1211,8 @@ fun uniffi_xmtpv3_checksum_func_generate_inbox_id(
 fun uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier(
 ): Short
 fun uniffi_xmtpv3_checksum_func_get_version_info(
+): Short
+fun uniffi_xmtpv3_checksum_func_revoke_installations(
 ): Short
 fun uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update(
 ): Short
@@ -1858,6 +1866,8 @@ fun uniffi_xmtpv3_fn_clone_xmtpapiclient(`ptr`: Pointer,uniffi_out_err: UniffiRu
 ): Pointer
 fun uniffi_xmtpv3_fn_free_xmtpapiclient(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+fun uniffi_xmtpv3_fn_func_apply_signature_request(`api`: Pointer,`signatureRequest`: Pointer,
+): Long
 fun uniffi_xmtpv3_fn_func_connect_to_backend(`host`: RustBuffer.ByValue,`isSecure`: Byte,
 ): Long
 fun uniffi_xmtpv3_fn_func_create_client(`api`: Pointer,`db`: RustBuffer.ByValue,`encryptionKey`: RustBuffer.ByValue,`inboxId`: RustBuffer.ByValue,`accountIdentifier`: RustBuffer.ByValue,`nonce`: Long,`legacySignedPrivateKeyProto`: RustBuffer.ByValue,`deviceSyncServerUrl`: RustBuffer.ByValue,`deviceSyncMode`: RustBuffer.ByValue,`allowOffline`: RustBuffer.ByValue,
@@ -1882,6 +1892,8 @@ fun uniffi_xmtpv3_fn_func_get_inbox_id_for_identifier(`api`: Pointer,`accountIde
 ): Long
 fun uniffi_xmtpv3_fn_func_get_version_info(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_revoke_installations(`api`: Pointer,`recoveryIdentifier`: RustBuffer.ByValue,`inboxId`: RustBuffer.ByValue,`installationIds`: RustBuffer.ByValue,
+): Long
 fun ffi_xmtpv3_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_xmtpv3_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -2008,6 +2020,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_xmtpv3_checksum_func_apply_signature_request() != 65134.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_connect_to_backend() != 26018.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -2042,6 +2057,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_get_version_info() != 29277.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_revoke_installations() != 23629.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 12532.toShort()) {
@@ -12517,6 +12535,25 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
 
 
 
+        /**
+         * * Static apply a signature request
+         */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `applySignatureRequest`(`api`: XmtpApiClient, `signatureRequest`: FfiSignatureRequest) {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_apply_signature_request(FfiConverterTypeXmtpApiClient.lower(`api`),FfiConverterTypeFfiSignatureRequest.lower(`signatureRequest`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `connectToBackend`(`host`: kotlin.String, `isSecure`: kotlin.Boolean) : XmtpApiClient {
@@ -12685,5 +12722,23 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     )
     }
     
+
+        /**
+         * * Static revoke a list of installations
+         */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `revokeInstallations`(`api`: XmtpApiClient, `recoveryIdentifier`: FfiIdentifier, `inboxId`: kotlin.String, `installationIds`: List<kotlin.ByteArray>) : FfiSignatureRequest {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_revoke_installations(FfiConverterTypeXmtpApiClient.lower(`api`),FfiConverterTypeFfiIdentifier.lower(`recoveryIdentifier`),FfiConverterString.lower(`inboxId`),FfiConverterSequenceByteArray.lower(`installationIds`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+        // lift function
+        { FfiConverterTypeFfiSignatureRequest.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
 
 
