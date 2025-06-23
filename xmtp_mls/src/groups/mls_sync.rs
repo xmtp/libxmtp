@@ -378,9 +378,15 @@ where
         &self,
         intent_id: ID,
     ) -> Result<SyncSummary, GroupError> {
+        let mut summary = SyncSummary::default();
+
+        #[cfg(test)]
+        if self.disable_network {
+            return Ok(summary);
+        }
+
         let provider = self.mls_provider();
         let mut num_attempts = 0;
-        let mut summary = SyncSummary::default();
         // Return the last error to the caller if we fail to sync
         while num_attempts < crate::configuration::MAX_GROUP_SYNC_RETRIES {
             match self.sync_with_conn().await {
