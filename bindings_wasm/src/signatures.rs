@@ -2,6 +2,7 @@ use crate::{
   client::Client,
   identity::{Identifier, IdentifierKind},
 };
+use futures::lock::Mutex;
 use js_sys::Uint8Array;
 use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
@@ -20,7 +21,7 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 
 #[wasm_bindgen]
 pub struct SignatureRequestHandle {
-  inner: Arc<xmtp_id::associations::builder::SignatureRequest>,
+  inner: Arc<Mutex<xmtp_id::associations::builder::SignatureRequest>>,
   scw_verifier: Arc<dyn SmartContractSignatureVerifier>,
 }
 
@@ -66,7 +67,7 @@ pub async fn revoke_installations_signature_request(
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   Ok(SignatureRequestHandle {
-    inner: Arc::new(sig_req),
+    inner: Arc::new(Mutex::new(sig_req)),
     scw_verifier,
   })
 }
@@ -185,7 +186,7 @@ impl Client {
     };
 
     let handle = SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     };
 
@@ -204,7 +205,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     })
   }
@@ -223,7 +224,7 @@ impl Client {
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     })
   }
@@ -250,7 +251,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     })
   }
@@ -270,7 +271,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     })
   }
@@ -287,7 +288,7 @@ impl Client {
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
     Ok(SignatureRequestHandle {
-      inner: Arc::new(signature_request),
+      inner: Arc::new(Mutex::new(signature_request)),
       scw_verifier: self.inner_client().scw_verifier().clone(),
     })
   }
