@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_api::strategies;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
@@ -21,7 +22,7 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 
 #[wasm_bindgen]
 pub struct SignatureRequestHandle {
-  inner: Arc<Mutex<xmtp_id::associations::builder::SignatureRequest>>,
+  inner: Arc<Mutex<SignatureRequest>>,
   scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
 }
 
@@ -68,7 +69,7 @@ pub async fn revoke_installations_signature_request(
 
   Ok(SignatureRequestHandle {
     inner: Arc::new(Mutex::new(sig_req)),
-    scw_verifier,
+    scw_verifier: scw_verifier.clone(),
   })
 }
 
