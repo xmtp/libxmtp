@@ -3,12 +3,15 @@ use crate::identity::{Identifier, IdentifierKind};
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
-use xmtp_id::associations::MemberIdentifier;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context, AccountId,
@@ -16,6 +19,7 @@ use xmtp_id::associations::{
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 
 static SIGNATURE_REQUESTS: Lazy<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> =
   Lazy::new(|| Mutex::new(HashMap::new()));
@@ -48,13 +52,11 @@ pub async fn revoke_installations_signature_text(
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<String> {
-  let internal_id: MemberIdentifier = recovery_identifier
-    .try_into()
-    .map_err(|_| Error::from_reason("Invalid recovery identifier"))?;
+  let ident = recovery_identifier.try_into()?;
 
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
 
-  let signature_request = revoke_installations_with_verifier(&internal_id, &inbox_id, ids)
+  let signature_request = revoke_installations_with_verifier(&ident, &inbox_id, ids)
     .await
     .map_err(|e| Error::from_reason(format!("Failed to revoke: {}", e)))?;
 
@@ -77,8 +79,9 @@ pub async fn apply_signature_request(
     .map_err(ErrorWrapper::from)?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier: Arc<dyn SmartContractSignatureVerifier> =
-    Arc::new(RemoteSignatureVerifier::new(api.clone()));
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
 
   let mut map = SIGNATURE_REQUESTS.lock().await;
   let Some(signature_request) = map.remove(&signature_type) else {
@@ -94,6 +97,7 @@ pub async fn apply_signature_request(
 
 #[napi]
 pub async fn add_ecdsa_signature(
+  host: String,
   signature_type: SignatureRequestType,
   signature_bytes: Uint8Array,
 ) -> Result<()> {
@@ -104,11 +108,17 @@ pub async fn add_ecdsa_signature(
 
   let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
 
-  let verifier: Arc<dyn SmartContractSignatureVerifier> =
-    Arc::new(RemoteSignatureVerifier::default());
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
 
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+
+  let verifier = Arc::new(
+    Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
+  );
   signature_request
-    .add_signature(signature, &verifier)
+    .add_signature(signature, &verifier.clone())
     .await
     .map_err(ErrorWrapper::from)?;
 
@@ -117,6 +127,7 @@ pub async fn add_ecdsa_signature(
 
 #[napi]
 pub async fn add_passkey_signature(
+  host: String,
   signature_type: SignatureRequestType,
   signature: PasskeySignature,
 ) -> Result<()> {
@@ -132,11 +143,17 @@ pub async fn add_passkey_signature(
     signature.client_data_json,
   );
 
-  let verifier: Arc<dyn SmartContractSignatureVerifier> =
-    Arc::new(RemoteSignatureVerifier::default());
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
 
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+
+  let verifier = Arc::new(
+    Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
+  );
   signature_request
-    .add_signature(signature, &verifier)
+    .add_signature(signature, &verifier.clone())
     .await
     .map_err(ErrorWrapper::from)?;
 
@@ -145,6 +162,7 @@ pub async fn add_passkey_signature(
 
 #[napi]
 pub async fn add_scw_signature(
+  host: String,
   signature_type: SignatureRequestType,
   account_identifier: Identifier,
   signature_bytes: Uint8Array,
@@ -164,16 +182,22 @@ pub async fn add_scw_signature(
     block_number.map(|b| b.get_u64().1),
   );
 
-  let verifier: Arc<dyn SmartContractSignatureVerifier> =
-    Arc::new(RemoteSignatureVerifier::default());
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
 
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+
+  let verifier = Arc::new(
+    Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
+  );
   let mut map = SIGNATURE_REQUESTS.lock().await;
   let Some(signature_request) = map.get_mut(&signature_type) else {
     return Err(Error::from_reason("Signature request not found"));
   };
 
   signature_request
-    .add_new_unverified_smart_contract_signature(signature, &verifier)
+    .add_new_unverified_smart_contract_signature(signature, &verifier.clone())
     .await
     .map_err(ErrorWrapper::from)?;
 
