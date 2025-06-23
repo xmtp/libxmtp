@@ -1,11 +1,17 @@
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { v4 } from 'uuid';
-import { createWalletClient, http, toBytes } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { sepolia } from 'viem/chains';
-import { createClient as create, generateInboxId, getInboxIdForIdentifier, IdentifierKind, LogLevel, SyncWorkerMode } from '../dist/index';
-
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { v4 } from 'uuid'
+import { createWalletClient, http, toBytes } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+import { sepolia } from 'viem/chains'
+import {
+  createClient as create,
+  generateInboxId,
+  getInboxIdForIdentifier,
+  IdentifierKind,
+  LogLevel,
+  SyncWorkerMode,
+} from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const TEST_API_URL = 'http://localhost:5556'
@@ -64,9 +70,7 @@ export const createRegisteredClient = async (user: User) => {
       const signature = await user.wallet.signMessage({
         message: await signatureRequest.signatureText(),
       })
-      await signatureRequest.addEcdsaSignature(
-        toBytes(signature)
-      )
+      await signatureRequest.addEcdsaSignature(toBytes(signature))
       await client.registerIdentity(signatureRequest)
     }
   }
