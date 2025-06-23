@@ -11,6 +11,12 @@ use xmtp_id::associations::{
 };
 use xmtp_id::associations::{verify_signed_with_public_context, Identifier as XmtpIdentifier};
 
+#[wasm_bindgen]
+pub struct SignatureRequestHandle {
+  inner: Arc<tokio::sync::Mutex<xmtp_id::associations::builder::SignatureRequest>>,
+  scw_verifier: Arc<dyn SmartContractSignatureVerifier>,
+}
+
 #[wasm_bindgen(js_name = verifySignedWithPublicKey)]
 pub fn verify_signed_with_public_key(
   signature_text: String,
@@ -39,20 +45,78 @@ pub struct PasskeySignature {
   client_data_json: Vec<u8>,
 }
 
+/// Methods on SignatureRequestHandle
 #[wasm_bindgen]
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
-pub enum SignatureRequestType {
-  AddWallet,
-  CreateInbox,
-  RevokeWallet,
-  RevokeInstallations,
-  ChangeRecoveryIdentifier,
+impl SignatureRequestHandle {
+  #[wasm_bindgen(js_name = signatureText)]
+  pub async fn signature_text(&self) -> Result<String, JsError> {
+    Ok(self.inner.lock().await.signature_text())
+  }
+
+  #[wasm_bindgen(js_name = addEcdsaSignature)]
+  pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<(), JsError> {
+    let sig = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
+    self
+      .inner
+      .lock()
+      .await
+      .add_signature(sig, &self.scw_verifier)
+      .await
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = addPasskeySignature)]
+  pub async fn add_passkey_signature(&self, signature: PasskeySignature) -> Result<(), JsError> {
+    let sig = UnverifiedSignature::new_passkey(
+      signature.public_key,
+      signature.signature,
+      signature.authenticator_data,
+      signature.client_data_json,
+    );
+    self
+      .inner
+      .lock()
+      .await
+      .add_signature(sig, &self.scw_verifier)
+      .await
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = addScwSignature)]
+  pub async fn add_scw_signature(
+    &self,
+    account_identifier: Identifier,
+    signature_bytes: Uint8Array,
+    chain_id: u64,
+    block_number: Option<u64>,
+  ) -> Result<(), JsError> {
+    if !matches!(account_identifier.identifier_kind, IdentifierKind::Ethereum) {
+      return Err(JsError::new("Account identifier must be Ethereum-based"));
+    }
+    let ident: XmtpIdentifier = account_identifier.try_into()?;
+    let account_id = AccountId::new_evm(chain_id, ident.to_string());
+    let sig = NewUnverifiedSmartContractWalletSignature::new(
+      signature_bytes.to_vec(),
+      account_id,
+      block_number,
+    );
+    self
+      .inner
+      .lock()
+      .await
+      .add_new_unverified_smart_contract_signature(sig, &self.scw_verifier)
+      .await
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(())
+  }
 }
 
 #[wasm_bindgen]
 impl Client {
   #[wasm_bindgen(js_name = createInboxSignatureText)]
-  pub fn create_inbox_signature_text(&mut self) -> Result<Option<String>, JsError> {
+  pub fn create_inbox_signature_request(&mut self) -> Result<Option<String>, JsError> {
     let signature_request = match self.inner_client().identity().signature_request() {
       Some(signature_req) => signature_req,
       // this should never happen since we're checking for it above in is_registered
@@ -67,32 +131,28 @@ impl Client {
     Ok(Some(signature_text))
   }
 
-  #[wasm_bindgen(js_name = addWalletSignatureText)]
-  pub async fn add_identifier_signature_text(
-    &mut self,
+  #[wasm_bindgen(js_name = addWalletSignatureRequest)]
+  pub async fn add_identifier_signature_request(
+    &self,
     new_identifier: Identifier,
-  ) -> Result<String, JsError> {
-    let ident = new_identifier.try_into()?;
+  ) -> Result<SignatureRequestHandle, JsError> {
     let signature_request = self
       .inner_client()
       .identity_updates()
-      .associate_identity(ident)
+      .associate_identity(new_identifier.try_into()?)
       .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let signature_text = signature_request.signature_text();
-
-    self
-      .signature_requests
-      .insert(SignatureRequestType::AddWallet, signature_request);
-
-    Ok(signature_text)
+      .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
-  #[wasm_bindgen(js_name = revokeWalletSignatureText)]
-  pub async fn revoke_identifier_signature_text(
+  #[wasm_bindgen(js_name = revokeWalletSignatureRequest)]
+  pub async fn revoke_identifier_signature_request(
     &mut self,
     identifier: Identifier,
-  ) -> Result<String, JsError> {
+  ) -> Result<SignatureRequestHandle, JsError> {
     let ident = identifier.try_into()?;
     let signature_request = self
       .inner_client()
@@ -100,17 +160,17 @@ impl Client {
       .revoke_identities(vec![ident])
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let signature_text = signature_request.signature_text();
 
-    self
-      .signature_requests
-      .insert(SignatureRequestType::RevokeWallet, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
-  #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureText)]
-  pub async fn revoke_all_other_installations_signature_text(&mut self) -> Result<String, JsError> {
+  #[wasm_bindgen(js_name = revokeAllOtherInstallationsSignatureRequest)]
+  pub async fn revoke_all_other_installations_signature_request(
+    &mut self,
+  ) -> Result<SignatureRequestHandle, JsError> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
@@ -128,20 +188,17 @@ impl Client {
       .revoke_installations(other_installation_ids)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let signature_text = signature_request.signature_text();
-
-    self
-      .signature_requests
-      .insert(SignatureRequestType::RevokeInstallations, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
-  #[wasm_bindgen(js_name = revokeInstallationsSignatureText)]
-  pub async fn revoke_installations_signature_text(
+  #[wasm_bindgen(js_name = revokeInstallationsSignatureRequest)]
+  pub async fn revoke_installations_signature_request(
     &mut self,
     installation_ids: Vec<Uint8Array>,
-  ) -> Result<String, JsError> {
+  ) -> Result<SignatureRequestHandle, JsError> {
     let installation_ids_bytes: Vec<Vec<u8>> =
       installation_ids.iter().map(|id| id.to_vec()).collect();
 
@@ -151,143 +208,42 @@ impl Client {
       .revoke_installations(installation_ids_bytes)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let signature_text = signature_request.signature_text();
-
-    self
-      .signature_requests
-      .insert(SignatureRequestType::RevokeInstallations, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
-  #[wasm_bindgen(js_name = changeRecoveryIdentifierSignatureText)]
-  pub async fn change_recovery_identifier_signature_text(
+  #[wasm_bindgen(js_name = changeRecoveryIdentifierSignatureRequest)]
+  pub async fn change_recovery_identifier_signature_request(
     &mut self,
     new_recovery_identifier: Identifier,
-  ) -> Result<String, JsError> {
+  ) -> Result<SignatureRequestHandle, JsError> {
     let signature_request = self
       .inner_client()
       .identity_updates()
       .change_recovery_identifier(new_recovery_identifier.try_into()?)
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    let signature_text = signature_request.signature_text();
-
-    self.signature_requests.insert(
-      SignatureRequestType::ChangeRecoveryIdentifier,
-      signature_request,
-    );
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
-  #[wasm_bindgen(js_name = addEcdsaSignature)]
-  pub async fn add_ecdsa_signature(
+  #[wasm_bindgen(js_name = applySignatureRequest)]
+  pub async fn apply_signature_request(
     &mut self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
+    signature_request: &SignatureRequestHandle,
   ) -> Result<(), JsError> {
-    let verifier = Arc::clone(self.inner_client().scw_verifier());
+    let signature_request = signature_request.inner.lock().await;
 
-    if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
-      signature_request
-        .add_signature(signature, verifier)
-        .await
-        .map_err(crate::error)?;
-    } else {
-      return Err(JsError::new("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = addPasskeySignature)]
-  pub async fn add_passkey_signature(
-    &mut self,
-    signature_type: SignatureRequestType,
-    signature: PasskeySignature,
-  ) -> Result<(), JsError> {
-    let verifier = Arc::clone(self.inner_client().scw_verifier());
-
-    if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_passkey(
-        signature.public_key,
-        signature.signature,
-        signature.authenticator_data,
-        signature.client_data_json,
-      );
-      signature_request
-        .add_signature(signature, verifier)
-        .await
-        .map_err(crate::error)?;
-    } else {
-      return Err(JsError::new("Signature request not found"));
-    }
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = addScwSignature)]
-  pub async fn add_scw_signature(
-    &mut self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
-    chain_id: u64,
-    block_number: Option<u64>,
-  ) -> Result<(), JsError> {
-    let IdentifierKind::Ethereum = self.account_identifier().identifier_kind else {
-      return Err(JsError::new(
-        "Account identifier must be an ethereum address.",
-      ));
-    };
-
-    let verifier = Arc::clone(self.inner_client().scw_verifier());
-    let ident: XmtpIdentifier = self.account_identifier().clone().try_into()?;
-    let address = ident.to_string();
-
-    if let Some(signature_request) = self.signature_requests.get_mut(&signature_type) {
-      let account_id = AccountId::new_evm(chain_id, address.clone());
-      let signature = NewUnverifiedSmartContractWalletSignature::new(
-        signature_bytes.to_vec(),
-        account_id,
-        block_number,
-      );
-
-      signature_request
-        .add_new_unverified_smart_contract_signature(signature, &verifier)
-        .await
-        .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-    } else {
-      return Err(JsError::new(&format!(
-        "Signature request for {address} not found",
-      )));
-    }
-
-    Ok(())
-  }
-
-  #[wasm_bindgen(js_name = applySignatureRequests)]
-  pub async fn apply_signature_requests(&mut self) -> Result<(), JsError> {
-    let request_types: Vec<SignatureRequestType> =
-      self.signature_requests.keys().cloned().collect();
-    for signature_request_type in request_types {
-      // ignore the create inbox request since it's applied with register_identity
-      if signature_request_type == SignatureRequestType::CreateInbox {
-        continue;
-      }
-
-      if let Some(signature_request) = self.signature_requests.get(&signature_request_type) {
-        self
-          .inner_client()
-          .identity_updates()
-          .apply_signature_request(signature_request.clone())
-          .await
-          .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-        // remove the signature request after applying it
-        self.signature_requests.remove(&signature_request_type);
-      }
-    }
+    self
+      .inner_client()
+      .identity_updates()
+      .apply_signature_request(signature_request.clone())
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(())
   }

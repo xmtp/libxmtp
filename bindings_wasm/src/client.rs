@@ -10,7 +10,6 @@ use wasm_bindgen::JsValue;
 use xmtp_api::ApiDebugWrapper;
 use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
-use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
@@ -22,7 +21,6 @@ use xmtp_proto::api_client::AggregateStats;
 use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
-use crate::signatures::SignatureRequestType;
 
 pub type RustXmtpClient = MlsClient<ApiDebugWrapper<XmtpHttpApiClient>>;
 pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<XmtpHttpApiClient>, xmtp_db::DefaultStore>;
@@ -31,16 +29,11 @@ pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<XmtpHttpApiClient>, xmtp_db::De
 pub struct Client {
   account_identifier: Identifier,
   inner_client: Arc<RustXmtpClient>,
-  pub(crate) signature_requests: HashMap<SignatureRequestType, SignatureRequest>,
 }
 
 impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
-  }
-
-  pub fn signature_requests(&self) -> &HashMap<SignatureRequestType, SignatureRequest> {
-    &self.signature_requests
   }
 }
 
@@ -219,7 +212,6 @@ pub async fn create_client(
     account_identifier,
     #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
-    signature_requests: HashMap::new(),
   })
 }
 
@@ -278,27 +270,23 @@ impl Client {
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
-  pub async fn register_identity(&mut self) -> Result<(), JsError> {
+  pub async fn register_identity(
+    &mut self,
+    signature_request: &SignatureRequestHandle,
+  ) -> Result<(), JsError> {
     if self.is_registered() {
       return Err(JsError::new(
         "An identity is already registered with this client",
       ));
     }
 
-    let signature_request = self
-      .signature_requests
-      .get(&SignatureRequestType::CreateInbox)
-      .ok_or(JsError::new("No signature request found"))?
-      .clone();
-    self
-      .inner_client
-      .register_identity(signature_request)
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+    let inner = signature_request.inner().lock().await;
 
     self
-      .signature_requests
-      .remove(&SignatureRequestType::CreateInbox);
+      .inner_client
+      .register_identity(inner.clone())
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
     Ok(())
   }
