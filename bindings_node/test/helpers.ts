@@ -5,6 +5,7 @@ import { createWalletClient, http, toBytes } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
 import {
+  addEcdsaSignature,
   createClient as create,
   generateInboxId,
   getInboxIdForIdentifier,
@@ -72,7 +73,8 @@ export const createRegisteredClient = async (user: User) => {
       const signature = await user.wallet.signMessage({
         message: signatureText,
       })
-      await client.addEcdsaSignature(
+      await addEcdsaSignature(
+        TEST_API_URL,
         SignatureRequestType.CreateInbox,
         toBytes(signature)
       )

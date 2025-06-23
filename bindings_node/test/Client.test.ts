@@ -1,8 +1,8 @@
 import { v4 } from 'uuid';
 import { toBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
-import { createClient, createRegisteredClient, createUser, encodeTextMessage, sleep } from '@test/helpers';
-import { ConsentEntityType, ConsentState, IdentifierKind, SignatureRequestType, verifySignedWithPublicKey } from '../dist';
+import { createClient, createRegisteredClient, createUser, encodeTextMessage, sleep, TEST_API_URL } from '@test/helpers';
+import { addEcdsaSignature, applySignatureRequest, ConsentEntityType, ConsentState, IdentifierKind, revokeInstallationsSignatureText, SignatureRequestType, verifySignedWithPublicKey } from '../dist';
 
 
 describe('Client', () => {
@@ -101,7 +101,8 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client.addEcdsaSignature(
+    await addEcdsaSignature(
+      TEST_API_URL,
       SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
@@ -133,7 +134,8 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client.addEcdsaSignature(
+    await addEcdsaSignature(
+      TEST_API_URL,
       SignatureRequestType.AddWallet,
       toBytes(signature2)
     )
@@ -150,7 +152,8 @@ describe('Client', () => {
       message: signatureText2,
     })
 
-    await client.addEcdsaSignature(
+    await addEcdsaSignature(
+      TEST_API_URL,
       SignatureRequestType.RevokeWallet,
       toBytes(signature3)
     )
@@ -190,7 +193,8 @@ describe('Client', () => {
       message: signatureText,
     })
 
-    await client3.addEcdsaSignature(
+    await addEcdsaSignature(
+      TEST_API_URL,
       SignatureRequestType.RevokeInstallations,
       toBytes(signature)
     )
@@ -222,15 +226,18 @@ describe('Client', () => {
     expect(state2.installations.length).toBe(5)
 
     // Revoke just client2's installation
-    const signatureText = await revokeInstallationsSignatureText(client1.accountIdentifier, client1.inboxId, [
-      client2.installationId(),
-    ])
+    const signatureText = await revokeInstallationsSignatureText(
+      client1.accountIdentifier,
+      client1.inboxId(),
+      [client2.installationIdBytes()]
+    )
     expect(signatureText).toBeDefined()
 
     // Sign with the user's wallet
     const signature = await user.wallet.signMessage({ message: signatureText })
 
     await addEcdsaSignature(
+      TEST_API_URL,
       SignatureRequestType.RevokeInstallations,
       toBytes(signature)
     )
