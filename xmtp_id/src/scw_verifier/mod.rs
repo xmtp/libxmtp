@@ -52,7 +52,14 @@ pub trait SmartContractSignatureVerifier: Send + Sync {
 
 #[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait SmartContractSignatureVerifier {
+pub trait SmartContractSignatureVerifier: Send + Sync {
+    /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `signer` - can be the smart wallet address or EOA address.
+    /// * `hash` - Message digest for the signature.
+    /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
     async fn is_valid_signature(
         &self,
         account_id: AccountId,
