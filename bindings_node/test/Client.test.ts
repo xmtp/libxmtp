@@ -2,7 +2,7 @@ import { v4 } from 'uuid';
 import { toBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { createClient, createRegisteredClient, createUser, encodeTextMessage, sleep, TEST_API_URL } from '@test/helpers';
-import { addEcdsaSignature, applySignatureRequest, ConsentEntityType, ConsentState, IdentifierKind, revokeInstallationsSignatureText, SignatureRequestType, verifySignedWithPublicKey } from '../dist';
+import { applySignatureRequest, ConsentEntityType, ConsentState, IdentifierKind, revokeInstallationsSignatureRequest, verifySignedWithPublicKey } from '../dist';
 
 
 describe('Client', () => {
@@ -91,22 +91,20 @@ describe('Client', () => {
     const user = createUser()
     const user2 = createUser()
     const client = await createRegisteredClient(user)
-    const signatureText = await client.addIdentifierSignatureText({
+    const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText).toBeDefined()
+    expect(signatureRequest).toBeDefined()
 
     const signature2 = await user2.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await addEcdsaSignature(
-      TEST_API_URL,
-      SignatureRequestType.AddWallet,
+    await signatureRequest.addEcdsaSignature(
       toBytes(signature2)
     )
-    await client.applySignatureRequests()
+    await client.applySignatureRequests(signatureRequest)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers.length).toEqual(2)
     expect(inboxState.identifiers).toContainEqual({
@@ -123,41 +121,37 @@ describe('Client', () => {
     const user = createUser()
     const user2 = createUser()
     const client = await createRegisteredClient(user)
-    const signatureText = await client.addIdentifierSignatureText({
+    const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText).toBeDefined()
+    expect(signatureRequest).toBeDefined()
 
     // sign message
     const signature2 = await user2.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await addEcdsaSignature(
-      TEST_API_URL,
-      SignatureRequestType.AddWallet,
+    await signatureRequest.addEcdsaSignature(
       toBytes(signature2)
     )
-    await client.applySignatureRequests()
+    await client.applySignatureRequests(signatureRequest)
 
-    const signatureText2 = await client.revokeIdentifierSignatureText({
+    const signatureRequest2 = await client.revokeIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText2).toBeDefined()
+    expect(signatureRequest2).toBeDefined()
 
     // sign message
     const signature3 = await user.wallet.signMessage({
-      message: signatureText2,
+      message: await signatureRequest2.signatureText(),
     })
 
-    await addEcdsaSignature(
-      TEST_API_URL,
-      SignatureRequestType.RevokeWallet,
+    await signatureRequest.addEcdsaSignature(
       toBytes(signature3)
     )
-    await client.applySignatureRequests()
+    await client.applySignatureRequests(signatureRequest)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers).toEqual([
       {
@@ -184,21 +178,19 @@ describe('Client', () => {
     expect(installationIds).toContain(client2.installationId())
     expect(installationIds).toContain(client3.installationId())
 
-    const signatureText =
-      await client3.revokeAllOtherInstallationsSignatureText()
-    expect(signatureText).toBeDefined()
+    const signatureRequest =
+      await client3.revokeAllOtherInstallationsSignatureRequest()
+    expect(signatureRequest).toBeDefined()
 
     // sign message
     const signature = await user.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await addEcdsaSignature(
-      TEST_API_URL,
-      SignatureRequestType.RevokeInstallations,
+    await signatureRequest.addEcdsaSignature(
       toBytes(signature)
     )
-    await client3.applySignatureRequests()
+    await client3.applySignatureRequests(signatureRequest)
     const inboxState2 = await client3.inboxState(true)
 
     expect(inboxState2.installations.length).toBe(1)
@@ -226,25 +218,22 @@ describe('Client', () => {
     expect(state2.installations.length).toBe(5)
 
     // Revoke just client2's installation
-    const signatureText = await revokeInstallationsSignatureText(
+    const signatureRequest = await revokeInstallationsSignatureRequest(
+      TEST_API_URL,
       client1.accountIdentifier,
       client1.inboxId(),
       [client2.installationIdBytes()]
     )
-    expect(signatureText).toBeDefined()
+    expect(signatureRequest).toBeDefined()
 
     // Sign with the user's wallet
-    const signature = await user.wallet.signMessage({ message: signatureText })
+    const signature = await user.wallet.signMessage({ message: await signatureRequest.signatureText() })
 
-    await addEcdsaSignature(
-      TEST_API_URL,
-      SignatureRequestType.RevokeInstallations,
+    await signatureRequest.addEcdsaSignature(
       toBytes(signature)
     )
 
-    await applySignatureRequest(
-      TEST_API_URL, SignatureRequestType.RevokeInstallations
-    )
+    await applySignatureRequest(TEST_API_URL, signatureRequest)
 
     const stateAfter1 = await client1.inboxState(true)
     const stateAfter2 = await client2.inboxState(true)
