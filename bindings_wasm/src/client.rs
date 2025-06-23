@@ -270,28 +270,6 @@ impl Client {
     Ok(crate::to_value(&results)?)
   }
 
-  #[wasm_bindgen(js_name = registerIdentity)]
-  pub async fn register_identity(
-    &mut self,
-    signature_request: SignatureRequestHandle,
-  ) -> Result<(), JsError> {
-    if self.is_registered() {
-      return Err(JsError::new(
-        "An identity is already registered with this client",
-      ));
-    }
-
-    let inner = signature_request.inner().lock().await;
-
-    self
-      .inner_client
-      .register_identity(inner.clone())
-      .await
-      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
-
-    Ok(())
-  }
-
   #[wasm_bindgen(js_name = sendSyncRequest)]
   pub async fn send_sync_request(&self) -> Result<(), JsError> {
     self

@@ -58,7 +58,9 @@ pub async fn revoke_installations_signature_request(
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
-  let scw_verifier = Arc::new(RemoteSignatureVerifier::new(api.clone()));
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
 
   let ident = recovery_identifier.try_into()?;
   let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
@@ -105,10 +107,6 @@ pub struct PasskeySignature {
 /// Methods on SignatureRequestHandle
 #[wasm_bindgen]
 impl SignatureRequestHandle {
-  pub fn inner(&self) -> Arc<SignatureRequest> {
-    Arc::clone(&self.inner)
-  }
-
   #[wasm_bindgen(js_name = signatureText)]
   pub async fn signature_text(&self) -> Result<String, JsError> {
     Ok(self.inner.lock().await.signature_text())
@@ -176,6 +174,10 @@ impl SignatureRequestHandle {
 
 #[wasm_bindgen]
 impl Client {
+  pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
+    &self.inner_client
+  }
+
   #[wasm_bindgen(js_name = createInboxSignatureRequest)]
   pub fn create_inbox_signature_request(
     &mut self,
@@ -305,6 +307,28 @@ impl Client {
       .inner_client()
       .identity_updates()
       .apply_signature_request(signature_request.clone())
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(())
+  }
+
+  #[wasm_bindgen(js_name = registerIdentity)]
+  pub async fn register_identity(
+    &mut self,
+    signature_request: SignatureRequestHandle,
+  ) -> Result<(), JsError> {
+    if self.is_registered() {
+      return Err(JsError::new(
+        "An identity is already registered with this client",
+      ));
+    }
+
+    let inner = signature_request.inner.lock().await;
+
+    self
+      .inner_client
+      .register_identity(inner.clone())
       .await
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 
