@@ -414,7 +414,7 @@ where
         PreferenceSyncService::new(self.context.clone())
             .cycle_hmac()
             .await?;
-        Ok(builder.build())
+        Ok(result)
     }
 
     /// Generate a `ChangeRecoveryAddress` signature request using a new identifer

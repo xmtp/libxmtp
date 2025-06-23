@@ -8472,7 +8472,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_static_revoke_installations() {
-        let wallet = PrivateKeySigner::random();
+        let wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
 
         let ident = wallet.identifier();
         let ffi_ident: FfiIdentifier = ident.clone().into();
@@ -8516,8 +8516,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_static_revoke_fails_with_non_recovery_identity() {
-        let wallet_a = PrivateKeySigner::random();
-        let wallet_b = PrivateKeySigner::random();
+        let wallet_a = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
+        let wallet_b = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
 
         let client_a = new_test_client_with_wallet(wallet_a.clone()).await;
         let client_a2 = new_test_client_with_wallet(wallet_a.clone()).await;
