@@ -6,18 +6,18 @@ use js_sys::Uint8Array;
 use std::sync::Arc;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
+use xmtp_api::strategies;
+use xmtp_api::ApiClientWrapper;
+use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   AccountId,
 };
 use xmtp_id::associations::{verify_signed_with_public_context, Identifier as XmtpIdentifier};
-use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_api_http::XmtpHttpApiClient;
-use xmtp_api::ApiClientWrapper;
-use xmtp_api::strategies;
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
-use xmtp_mls::identity_updates::revoke_installations_with_verifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 
 #[wasm_bindgen]
 pub struct SignatureRequestHandle {
