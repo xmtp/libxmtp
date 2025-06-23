@@ -367,6 +367,30 @@ public final class Client {
 		return inboxId
 	}
 
+	public static func revokeInstallations(
+		api: ClientOptions.Api,
+		signingKey: SigningKey,
+		inboxId: InboxId,
+		installationIds: [String]
+	) async throws {
+		let apiClient = try await connectToApiBackend(api: api)
+		let rootIdentity = signingKey.identity.ffiPrivate
+		let ids = installationIds.map { $0.hexToData }
+		let signatureRequest = try await LibXMTP.revokeInstallations(
+			api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
+			installationIds: ids)
+		do {
+			try await Client.handleSignature(
+				for: signatureRequest,
+				signingKey: signingKey)
+			try await LibXMTP.applySignatureRequest(
+				api: apiClient, signatureRequest: signatureRequest)
+		} catch {
+			throw ClientError.creationError(
+				"Failed to sign the message: \(error.localizedDescription)")
+		}
+	}
+
 	private static func prepareClient(
 		api: ClientOptions.Api,
 		identity: PublicIdentity = PublicIdentity(

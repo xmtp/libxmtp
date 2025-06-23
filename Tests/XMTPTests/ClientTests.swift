@@ -319,7 +319,9 @@ class ClientTests: XCTestCase {
 			options: options
 		)
 
-		XCTAssertEqual(alixClient2.publicIdentity.identifier, alixClient.publicIdentity.identifier)
+		XCTAssertEqual(
+			alixClient2.publicIdentity.identifier,
+			alixClient.publicIdentity.identifier)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
 	}
 
@@ -715,32 +717,34 @@ class ClientTests: XCTestCase {
 	func testPersistentLogging() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let fakeWallet = try PrivateKey.generate()
-		
+
 		// Create a specific log directory for this test
 		let fileManager = FileManager.default
-		let logDirectory = fileManager.temporaryDirectory.appendingPathComponent("xmtp_test_logs")
-		
+		let logDirectory = fileManager.temporaryDirectory
+			.appendingPathComponent("xmtp_test_logs")
+
 		if fileManager.fileExists(atPath: logDirectory.path) {
 			try fileManager.removeItem(at: logDirectory)
 		}
-		try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
-		
+		try fileManager.createDirectory(
+			at: logDirectory, withIntermediateDirectories: true)
+
 		// Clear any existing logs in this directory
 		Client.clearXMTPLogs(customLogDirectory: logDirectory)
-		
+
 		// Make sure logging is deactivated at the end of the test
 		defer {
 			Client.deactivatePersistentLibXMTPLogWriter()
 		}
-		
+
 		// Activate persistent logging with a small number of log files and DEBUG level
 		Client.activatePersistentLibXMTPLogWriter(
-            logLevel: .debug,
+			logLevel: .debug,
 			rotationSchedule: .hourly,
 			maxFiles: 3,
 			customLogDirectory: logDirectory
 		)
-		
+
 		// Create a client
 		let client = try await Client.create(
 			account: fakeWallet,
@@ -749,34 +753,37 @@ class ClientTests: XCTestCase {
 				dbEncryptionKey: key
 			)
 		)
-		
+
 		// Create a group with only the client as a member
 		let group = try await client.conversations.newGroup(with: [])
 		try await client.conversations.sync()
-		
+
 		// Verify the group was created
 		let groups = try await client.conversations.listGroups()
 		XCTAssertEqual(groups.count, 1)
-		
+
 		// Deactivate logging to ensure files are flushed
 		Client.deactivatePersistentLibXMTPLogWriter()
-		
+
 		// Verify logs were created
-		let logFiles = Client.getXMTPLogFilePaths(customLogDirectory: logDirectory)
+		let logFiles = Client.getXMTPLogFilePaths(
+			customLogDirectory: logDirectory)
 		XCTAssertFalse(logFiles.isEmpty, "No log files were created")
-		
+
 		// Print log files content to console and check for inbox ID
 		print("Found \(logFiles.count) log files:")
 		var foundInboxId = false
-		
+
 		for filePath in logFiles {
 			print("\n--- Log file: \(filePath) ---")
 			do {
 				let content = try String(contentsOfFile: filePath)
 				// Print first 1000 chars to avoid overwhelming the console
 				let truncatedContent = content.prefix(1000)
-				print("\(truncatedContent)\(content.count > 1000 ? "...(truncated)" : "")")
-				
+				print(
+					"\(truncatedContent)\(content.count > 1000 ? "...(truncated)" : "")"
+				)
+
 				// Check if the inbox ID appears in the logs
 				if content.contains(client.inboxID) {
 					foundInboxId = true
@@ -786,13 +793,16 @@ class ClientTests: XCTestCase {
 				print("Error reading log file: \(error.localizedDescription)")
 			}
 		}
-		
-		XCTAssertTrue(foundInboxId, "Inbox ID \(client.inboxID) not found in logs")
-		
+
+		XCTAssertTrue(
+			foundInboxId, "Inbox ID \(client.inboxID) not found in logs")
+
 		// Test clearing logs
 		Client.clearXMTPLogs(customLogDirectory: logDirectory)
-		let logFilesAfterClear = Client.getXMTPLogFilePaths(customLogDirectory: logDirectory)
-		XCTAssertEqual(logFilesAfterClear.count, 0, "Logs were not cleared properly")
+		let logFilesAfterClear = Client.getXMTPLogFilePaths(
+			customLogDirectory: logDirectory)
+		XCTAssertEqual(
+			logFilesAfterClear.count, 0, "Logs were not cleared properly")
 	}
 
 	func testNetworkDebugInformation() async throws {
@@ -805,7 +815,7 @@ class ClientTests: XCTestCase {
 				dbEncryptionKey: key
 			)
 		)
-		
+
 		alix.debugInformation.clearAllStatistics()
 		// Start streaming messages
 		let streamTask = Task {
@@ -813,15 +823,15 @@ class ClientTests: XCTestCase {
 				// Just consume the stream
 			}
 		}
-		
+
 		// Create a group and send a message
 		let group = try await alix.conversations.newGroup(with: [])
 		_ = try await group.send(content: "hi")
-		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+		try await Task.sleep(nanoseconds: 2_000_000_000)  // 2 seconds
 
 		let aggregateStats2 = alix.debugInformation.aggregateStatistics
 		print("Aggregate Stats Create:\n\(aggregateStats2)")
-		
+
 		let apiStats2 = alix.debugInformation.apiStatistics
 		XCTAssertEqual(0, apiStats2.uploadKeyPackage)
 		XCTAssertEqual(0, apiStats2.fetchKeyPackage)
@@ -829,17 +839,17 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(0, apiStats2.sendWelcomeMessages)
 		XCTAssertEqual(1, apiStats2.queryWelcomeMessages)
 		XCTAssertEqual(1, apiStats2.subscribeWelcomes)
-		
+
 		let identityStats2 = alix.debugInformation.identityStatistics
 		XCTAssertEqual(0, identityStats2.publishIdentityUpdate)
 		XCTAssertEqual(2, identityStats2.getIdentityUpdatesV2)
 		XCTAssertEqual(0, identityStats2.getInboxIds)
 		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignature)
-		
+
 		// Cancel the streaming task
 		streamTask.cancel()
 	}
-	
+
 	func testUploadArchiveDebugInformation() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alixWallet = try PrivateKey.generate()
@@ -850,62 +860,74 @@ class ClientTests: XCTestCase {
 				dbEncryptionKey: key
 			)
 		)
-		
+
 		let uploadKey = try await alix.debugInformation.uploadDebugInformation()
 		XCTAssertFalse(uploadKey.isEmpty)
 	}
-	
+
 	func testCanSeeKeyPackageStatus() async throws {
 		let fixtures = try await fixtures()
 		let api = ClientOptions.Api(env: .local, isSecure: true)
-		
+
 		try await Client.connectToApiBackend(api: api)
 
-		guard let inboxState = try await Client.inboxStatesForInboxIds(
-			inboxIds: [fixtures.alixClient.inboxID],
-			api: api
-		).first else {
+		guard
+			let inboxState = try await Client.inboxStatesForInboxIds(
+				inboxIds: [fixtures.alixClient.inboxID],
+				api: api
+			).first
+		else {
 			XCTFail("No inbox state found")
 			return
 		}
 
 		let installationIds = inboxState.installations.map { $0.id }
 
-		let keyPackageStatus = try await Client.keyPackageStatusesForInstallationIds(
-			installationIds: installationIds,
-			api: api
-		)
+		let keyPackageStatus =
+			try await Client.keyPackageStatusesForInstallationIds(
+				installationIds: installationIds,
+				api: api
+			)
 
 		for installationId in keyPackageStatus.keys {
 			guard let thisKPStatus = keyPackageStatus[installationId] else {
-				XCTFail("Missing key package status for installationId: \(installationId)")
+				XCTFail(
+					"Missing key package status for installationId: \(installationId)"
+				)
 				continue
 			}
 
 			let notBeforeDate: String
 			if let notBefore = thisKPStatus.lifetime?.notBefore {
-				notBeforeDate = Date(timeIntervalSince1970: TimeInterval(notBefore)).description
+				notBeforeDate =
+					Date(timeIntervalSince1970: TimeInterval(notBefore))
+					.description
 			} else {
 				notBeforeDate = "null"
 			}
 
 			let notAfterDate: String
 			if let notAfter = thisKPStatus.lifetime?.notAfter {
-				notAfterDate = Date(timeIntervalSince1970: TimeInterval(notAfter)).description
+				notAfterDate =
+					Date(timeIntervalSince1970: TimeInterval(notAfter))
+					.description
 			} else {
 				notAfterDate = "null"
 			}
-			print("inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)")
+			print(
+				"inst: \(installationId) - valid from: \(notBeforeDate) to: \(notAfterDate)"
+			)
 			print("error code: \(thisKPStatus.validationError ?? "none")")
 
 			if let notBefore = thisKPStatus.lifetime?.notBefore,
-			   let notAfter = thisKPStatus.lifetime?.notAfter {
+				let notAfter = thisKPStatus.lifetime?.notAfter
+			{
 				let expectedDuration: UInt64 = UInt64(3600 * 24 * 28 * 3 + 3600)
 				XCTAssertEqual(notAfter - notBefore, expectedDuration)
 			}
 		}
 	}
-	
+
 	func testCanBeBuiltOffline() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
@@ -925,20 +947,24 @@ class ClientTests: XCTestCase {
 			inboxId: client.inboxID
 		)
 
-		print("Post-build stats: \(builtClient.debugInformation.aggregateStatistics)")
+		print(
+			"Post-build stats: \(builtClient.debugInformation.aggregateStatistics)"
+		)
 		XCTAssertEqual(client.inboxID, builtClient.inboxID)
 
-		let fixtures = try await fixtures()// Assuming this provides alixClient and boClient
+		let fixtures = try await fixtures()  // Assuming this provides alixClient and boClient
 
 		let group = try await builtClient.conversations.newGroup(
 			with: [fixtures.alixClient.inboxID])
 		try await group.send(content: "howdy")
 
-		let alixDm = try await fixtures.alixClient.conversations.newConversation(with: builtClient.inboxID)
+		let alixDm = try await fixtures.alixClient.conversations
+			.newConversation(with: builtClient.inboxID)
 		try await alixDm.send(content: "howdy")
 
-		let boGroup = try await fixtures.boClient.conversations.newGroupWithIdentities(
-			with: [builtClient.publicIdentity])
+		let boGroup = try await fixtures.boClient.conversations
+			.newGroupWithIdentities(
+				with: [builtClient.publicIdentity])
 		try await boGroup.send(content: "howdy")
 
 		try await builtClient.conversations.syncAllConversations()
@@ -947,7 +973,6 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(convos.count, 3)
 	}
 
-	
 	func testCannotCreateMoreThan5Installations() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
@@ -991,7 +1016,9 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		let group = try await boClient.conversations.newGroup(with: [clients[2].inboxID])
+		let group = try await boClient.conversations.newGroup(with: [
+			clients[2].inboxID
+		])
 		let members = try await group.members
 		let alixMember = members.first { $0.inboxId == clients[0].inboxID }
 		XCTAssertNotNil(alixMember)
@@ -1007,7 +1034,8 @@ class ClientTests: XCTestCase {
 			installationIds: [clients[4].installationID]
 		)
 
-		let stateAfterRevoke = try await clients[0].inboxState(refreshFromNetwork: true)
+		let stateAfterRevoke = try await clients[0].inboxState(
+			refreshFromNetwork: true)
 		XCTAssertEqual(stateAfterRevoke.installations.count, 4)
 
 		let sixthClient = try await Client.create(
@@ -1019,8 +1047,89 @@ class ClientTests: XCTestCase {
 			)
 		)
 
-		let finalState = try await clients[0].inboxState(refreshFromNetwork: true)
+		let finalState = try await clients[0].inboxState(
+			refreshFromNetwork: true)
 		XCTAssertEqual(finalState.installations.count, 5)
 	}
 
+	func testStaticRevokeOneOfFiveInstallations() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let wallet = try PrivateKey.generate()
+
+		var clients: [Client] = []
+
+		for i in 0..<5 {
+			let client = try await Client.create(
+				account: wallet,
+				options: ClientOptions(
+					api: .init(env: .local, isSecure: false),
+					dbEncryptionKey: key,
+					dbDirectory: "xmtp_db_\(i)"
+				)
+			)
+			clients.append(client)
+		}
+
+		var state = try await clients.last!.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(state.installations.count, 5)
+
+		let toRevokeId = clients[1].installationID
+
+		try await Client.revokeInstallations(
+			api: .init(env: .local, isSecure: false),
+			signingKey: wallet,
+			inboxId: clients.first!.inboxID,
+			installationIds: [toRevokeId]
+		)
+
+		state = try await clients.last!.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(state.installations.count, 4)
+
+		let remainingIds = state.installations.map { $0.id }
+		XCTAssertFalse(remainingIds.contains(toRevokeId))
+	}
+
+	func testStaticRevokeAllInstalltions() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let wallet = try PrivateKey.generate()
+
+		var clients: [Client] = []
+
+		for i in 0..<5 {
+			let client = try await Client.create(
+				account: wallet,
+				options: ClientOptions(
+					api: .init(env: .local, isSecure: false),
+					dbEncryptionKey: key,
+					dbDirectory: "xmtp_db_\(i)"
+				)
+			)
+			clients.append(client)
+		}
+
+		var states = try await Client.inboxStatesForInboxIds(
+			inboxIds: [
+				clients.last!.inboxID
+			],
+			api: ClientOptions.Api(env: .local, isSecure: false)
+		)
+		XCTAssertEqual(states.first!.installations.count, 5)
+
+		let toRevokeIds = states.first!.installations.map { $0.id }
+
+		try await Client.revokeInstallations(
+			api: .init(env: .local, isSecure: false),
+			signingKey: wallet,
+			inboxId: clients.first!.inboxID,
+			installationIds: toRevokeIds
+		)
+
+		states = try await Client.inboxStatesForInboxIds(
+			inboxIds: [
+				clients.last!.inboxID
+			],
+			api: ClientOptions.Api(env: .local, isSecure: false)
+		)
+		XCTAssertEqual(states.first!.installations.count, 0)
+	}
 }
