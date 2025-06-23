@@ -8,10 +8,8 @@ import {
   createClient as create,
   generateInboxId,
   getInboxIdForIdentifier,
-  Identifier,
   IdentifierKind,
   LogLevel,
-  SignatureRequestType,
   SyncWorkerMode,
 } from '../dist/index'
 
@@ -67,17 +65,14 @@ export const createClient = async (user: User) => {
 export const createRegisteredClient = async (user: User) => {
   const client = await createClient(user)
   if (!client.isRegistered()) {
-    const signatureText = await client.createInboxSignatureText()
-    if (signatureText) {
+    const signatureRequest = await client.createInboxSignatureRequest()
+    if (signatureRequest) {
       const signature = await user.wallet.signMessage({
-        message: signatureText,
+        message: await signatureRequest.signatureText(),
       })
-      await client.addEcdsaSignature(
-        SignatureRequestType.CreateInbox,
-        toBytes(signature)
-      )
+      await signatureRequest.addEcdsaSignature(toBytes(signature))
+      await client.registerIdentity(signatureRequest)
     }
-    await client.registerIdentity()
   }
   return client
 }
