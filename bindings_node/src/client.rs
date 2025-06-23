@@ -12,7 +12,6 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
-use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -268,7 +267,7 @@ impl Client {
       ));
     }
 
-    let inner = signature_request.inner.lock().await;
+    let inner = signature_request.inner().lock().await;
 
     self
       .inner_client

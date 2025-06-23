@@ -19,7 +19,7 @@ use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 
 #[napi]
 pub struct SignatureRequestHandle {
-  pub inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+  inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
   scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
 }
 
@@ -99,6 +99,10 @@ pub async fn apply_signature_request(
 
 #[napi]
 impl SignatureRequestHandle {
+  pub fn inner(&self) -> &Arc<tokio::sync::Mutex<SignatureRequest>> {
+    &self.inner
+  }
+
   #[napi]
   pub async fn signature_text(&self) -> Result<String> {
     Ok(self.inner.lock().await.signature_text())

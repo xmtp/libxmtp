@@ -67,8 +67,8 @@ export const createRegisteredClient = async (user: User) => {
       await signatureRequest.addEcdsaSignature(
         toBytes(signature)
       )
+      await client.registerIdentity(signatureRequest)
     }
-    await client.registerIdentity()
   }
   return client
 }
