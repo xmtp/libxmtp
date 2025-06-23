@@ -3,7 +3,7 @@ mod web;
 use crate::client::LogLevel;
 use crate::client::{create_client, Client, LogOptions};
 use crate::inbox_id::generate_inbox_id;
-use alloy::signers::SignerSync;
+use ethers::signers::Signer;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
