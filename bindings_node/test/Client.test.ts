@@ -148,10 +148,10 @@ describe('Client', () => {
       message: await signatureRequest2.signatureText(),
     })
 
-    await signatureRequest.addEcdsaSignature(
+    await signatureRequest2.addEcdsaSignature(
       toBytes(signature3)
     )
-    await client.applySignatureRequests(signatureRequest)
+    await client.applySignatureRequests(signatureRequest2)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers).toEqual([
       {
