@@ -45,6 +45,7 @@ pub fn verify_signed_with_public_key(
   )
 }
 
+#[allow(dead_code)]
 #[napi]
 pub async fn revoke_installations_signature_request(
   host: String,
@@ -74,6 +75,7 @@ pub async fn revoke_installations_signature_request(
   })
 }
 
+#[allow(dead_code)]
 #[napi]
 pub async fn apply_signature_request(
   host: String,
