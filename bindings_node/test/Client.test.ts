@@ -7,12 +7,14 @@ import {
   createUser,
   encodeTextMessage,
   sleep,
+  TEST_API_URL,
 } from '@test/helpers'
 import {
+  applySignatureRequest,
   ConsentEntityType,
   ConsentState,
   IdentifierKind,
-  SignatureRequestType,
+  revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
 
@@ -102,21 +104,18 @@ describe('Client', () => {
     const user = createUser()
     const user2 = createUser()
     const client = await createRegisteredClient(user)
-    const signatureText = await client.addIdentifierSignatureText({
+    const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText).toBeDefined()
+    expect(signatureRequest).toBeDefined()
 
     const signature2 = await user2.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await client.addEcdsaSignature(
-      SignatureRequestType.AddWallet,
-      toBytes(signature2)
-    )
-    await client.applySignatureRequests()
+    await signatureRequest.addEcdsaSignature(toBytes(signature2))
+    await client.applySignatureRequest(signatureRequest)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers.length).toEqual(2)
     expect(inboxState.identifiers).toContainEqual({
@@ -133,39 +132,33 @@ describe('Client', () => {
     const user = createUser()
     const user2 = createUser()
     const client = await createRegisteredClient(user)
-    const signatureText = await client.addIdentifierSignatureText({
+    const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText).toBeDefined()
+    expect(signatureRequest).toBeDefined()
 
     // sign message
     const signature2 = await user2.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await client.addEcdsaSignature(
-      SignatureRequestType.AddWallet,
-      toBytes(signature2)
-    )
-    await client.applySignatureRequests()
+    await signatureRequest.addEcdsaSignature(toBytes(signature2))
+    await client.applySignatureRequest(signatureRequest)
 
-    const signatureText2 = await client.revokeIdentifierSignatureText({
+    const signatureRequest2 = await client.revokeIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
-    expect(signatureText2).toBeDefined()
+    expect(signatureRequest2).toBeDefined()
 
     // sign message
     const signature3 = await user.wallet.signMessage({
-      message: signatureText2,
+      message: await signatureRequest2.signatureText(),
     })
 
-    await client.addEcdsaSignature(
-      SignatureRequestType.RevokeWallet,
-      toBytes(signature3)
-    )
-    await client.applySignatureRequests()
+    await signatureRequest2.addEcdsaSignature(toBytes(signature3))
+    await client.applySignatureRequest(signatureRequest2)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers).toEqual([
       {
@@ -192,24 +185,70 @@ describe('Client', () => {
     expect(installationIds).toContain(client2.installationId())
     expect(installationIds).toContain(client3.installationId())
 
-    const signatureText =
-      await client3.revokeAllOtherInstallationsSignatureText()
-    expect(signatureText).toBeDefined()
+    const signatureRequest =
+      await client3.revokeAllOtherInstallationsSignatureRequest()
+    expect(signatureRequest).toBeDefined()
 
     // sign message
     const signature = await user.wallet.signMessage({
-      message: signatureText,
+      message: await signatureRequest.signatureText(),
     })
 
-    await client3.addEcdsaSignature(
-      SignatureRequestType.RevokeInstallations,
-      toBytes(signature)
-    )
-    await client3.applySignatureRequests()
+    await signatureRequest.addEcdsaSignature(toBytes(signature))
+    await client3.applySignatureRequest(signatureRequest)
     const inboxState2 = await client3.inboxState(true)
 
     expect(inboxState2.installations.length).toBe(1)
     expect(inboxState2.installations[0].id).toBe(client3.installationId())
+  })
+
+  it('should revoke a specific installation using static_revoke_installations', async () => {
+    const user = createUser()
+
+    const client1 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client2 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client3 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client4 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client5 = await createRegisteredClient(user)
+
+    const inboxId = client1.inboxId()
+    const state1 = await client1.inboxState(true)
+    const state2 = await client2.inboxState(true)
+
+    expect(state1.installations.length).toBe(5)
+    expect(state2.installations.length).toBe(5)
+
+    // Revoke just client2's installation
+    const signatureRequest = await revokeInstallationsSignatureRequest(
+      TEST_API_URL,
+      client1.accountIdentifier,
+      client1.inboxId(),
+      [client2.installationIdBytes()]
+    )
+    expect(signatureRequest).toBeDefined()
+
+    // Sign with the user's wallet
+    const signature = await user.wallet.signMessage({
+      message: await signatureRequest.signatureText(),
+    })
+
+    await signatureRequest.addEcdsaSignature(toBytes(signature))
+
+    await applySignatureRequest(TEST_API_URL, signatureRequest)
+
+    const stateAfter1 = await client1.inboxState(true)
+    const stateAfter2 = await client2.inboxState(true)
+
+    expect(stateAfter1.installations.length).toBe(4)
+    expect(stateAfter2.installations.length).toBe(4)
+
+    // Ensure that the revoked installation is gone
+    const remainingIds = stateAfter1.installations.map((i) => i.id)
+    expect(remainingIds).not.toContain(client2.installationId())
   })
 
   it('should manage consent states', async () => {

@@ -14,6 +14,7 @@ pub mod signatures;
 pub mod streams;
 mod user_preferences;
 
+#[allow(dead_code)]
 fn error(e: impl std::error::Error) -> JsError {
   JsError::new(&format!("{}", e))
 }

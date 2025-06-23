@@ -3,8 +3,7 @@ mod web;
 use crate::client::LogLevel;
 use crate::client::{create_client, Client, LogOptions};
 use crate::inbox_id::generate_inbox_id;
-use crate::signatures::SignatureRequestType;
-use ethers::signers::Signer;
+use alloy::signers::SignerSync;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
@@ -36,15 +35,13 @@ pub async fn create_test_client(path: Option<String>) -> Client {
   )
   .await
   .unwrap();
-  let text = client.create_inbox_signature_text().unwrap().unwrap();
-  let signature = wallet.sign_message(text.as_bytes()).await.unwrap();
-  client
-    .add_ecdsa_signature(
-      SignatureRequestType::CreateInbox,
-      Uint8Array::from(&signature.to_vec()[..]),
-    )
+  let request = client.create_inbox_signature_request().unwrap().unwrap();
+  let text = request.signature_text().await.unwrap();
+  let signature = wallet.sign_message(text.as_bytes()).unwrap();
+  request
+    .add_ecdsa_signature(Uint8Array::from(&signature.as_bytes()[..]))
     .await
     .unwrap();
-  client.register_identity().await.unwrap();
+  client.register_identity(request).await.unwrap();
   client
 }
