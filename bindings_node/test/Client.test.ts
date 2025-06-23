@@ -115,7 +115,7 @@ describe('Client', () => {
     })
 
     await signatureRequest.addEcdsaSignature(toBytes(signature2))
-    await client.applySignatureRequests(signatureRequest)
+    await client.applySignatureRequest(signatureRequest)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers.length).toEqual(2)
     expect(inboxState.identifiers).toContainEqual({
@@ -144,7 +144,7 @@ describe('Client', () => {
     })
 
     await signatureRequest.addEcdsaSignature(toBytes(signature2))
-    await client.applySignatureRequests(signatureRequest)
+    await client.applySignatureRequest(signatureRequest)
 
     const signatureRequest2 = await client.revokeIdentifierSignatureRequest({
       identifier: user2.account.address,
@@ -158,7 +158,7 @@ describe('Client', () => {
     })
 
     await signatureRequest2.addEcdsaSignature(toBytes(signature3))
-    await client.applySignatureRequests(signatureRequest2)
+    await client.applySignatureRequest(signatureRequest2)
     const inboxState = await client.inboxState(false)
     expect(inboxState.identifiers).toEqual([
       {
@@ -195,7 +195,7 @@ describe('Client', () => {
     })
 
     await signatureRequest.addEcdsaSignature(toBytes(signature))
-    await client3.applySignatureRequests(signatureRequest)
+    await client3.applySignatureRequest(signatureRequest)
     const inboxState2 = await client3.inboxState(true)
 
     expect(inboxState2.installations.length).toBe(1)

@@ -306,7 +306,7 @@ impl Client {
   }
 
   #[napi]
-  pub async fn apply_signature_requests(
+  pub async fn apply_signature_request(
     &self,
     signature_request: &SignatureRequestHandle,
   ) -> Result<()> {
