@@ -37,7 +37,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
   .unwrap();
   let request = client.create_inbox_signature_request().unwrap().unwrap();
   let text = request.signature_text().await.unwrap();
-  let signature = wallet.sign_message(text.as_bytes()).unwrap();
+  let signature = wallet.sign_message(text.as_bytes()).await.unwrap();
   request
     .add_ecdsa_signature(Uint8Array::from(&signature.as_bytes()[..]))
     .await
