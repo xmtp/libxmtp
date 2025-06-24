@@ -85,6 +85,7 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
   }
 }
 
+#[allow(dead_code)]
 #[napi]
 pub async fn inbox_state_from_inbox_ids(
   host: String,

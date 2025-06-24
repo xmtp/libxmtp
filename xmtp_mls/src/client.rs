@@ -260,9 +260,9 @@ pub async fn inbox_addresses_with_verifier<C: ConnectionExt, ApiClient: XmtpApi>
     inbox_ids: Vec<InboxIdRef<'_>>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<AssociationState>, ClientError> {
-    load_identity_updates(api_client, &conn, &inbox_ids).await?;
+    load_identity_updates(api_client, conn, &inbox_ids).await?;
     let state = batch_get_association_state_with_verifier(
-        &conn,
+        conn,
         &inbox_ids.into_iter().map(|i| (i, None)).collect::<Vec<_>>(),
         scw_verifier,
     )
