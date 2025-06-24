@@ -165,6 +165,32 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
     Ok(())
 }
 
+/// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
+/// If the association state is not available in the cache, this falls back to reconstructing the association state
+/// from Identity Updates in the network.
+pub async fn batch_get_association_state_with_verifier<C: ConnectionExt>(
+    conn: &DbConnection<C>,
+    identifiers: &[(impl AsIdRef, Option<i64>)],
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Vec<AssociationState>, ClientError> {
+    let association_states = try_join_all(
+        identifiers
+            .iter()
+            .map(|(inbox_id, to_sequence_id)| {
+                get_association_state_with_verifier(
+                    conn,
+                    inbox_id.as_ref(),
+                    *to_sequence_id,
+                    scw_verifier,
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+
+    Ok(association_states)
+}
+
 impl<'a, ApiClient, Db> IdentityUpdates<ApiClient, Db>
 where
     ApiClient: XmtpApi,
@@ -178,17 +204,8 @@ where
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        let association_states = try_join_all(
-            identifiers
-                .iter()
-                .map(|(inbox_id, to_sequence_id)| {
-                    self.get_association_state(conn, inbox_id.as_ref(), *to_sequence_id)
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await?;
-
-        Ok(association_states)
+        batch_get_association_state_with_verifier(conn, identifiers, &self.context.scw_verifier)
+            .await
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
