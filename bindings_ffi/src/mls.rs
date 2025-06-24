@@ -410,6 +410,13 @@ impl FfiXmtpClient {
         Ok(results)
     }
 
+    pub async fn unknown_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
+        let inner = self.inner_client.as_ref();
+
+        let debug_info = inner.debug_info_for_unknown_group().await?;
+        Ok(debug_info.into())
+    }
+
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner_client.installation_public_key().to_vec()
     }

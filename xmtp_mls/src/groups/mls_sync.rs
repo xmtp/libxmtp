@@ -1741,7 +1741,7 @@ where
                             group_id = hex::encode(&self.group_id),
                     original_error = error.to_string(),
                     fork_details);
-                
+
                 track!(
                     "Possible Fork",
                     {
@@ -1756,7 +1756,10 @@ where
                     .db()
                     .mark_group_as_maybe_forked(&group_id, fork_details);
                 tracing::error!("###### set to forked");
-                tracing::error!("### logs {:?}", self.debug_info().await.unwrap().local_commit_log);
+                tracing::error!(
+                    "### logs {:?}",
+                    self.debug_info().await.unwrap().local_commit_log
+                );
                 return epoch_validation_result;
             }
 

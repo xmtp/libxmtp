@@ -1,5 +1,6 @@
 use crate::client::ClientError;
 use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
+use crate::intents::ProcessIntentError;
 use crate::mls_store::MlsStore;
 use crate::{
     groups::{GroupError, MlsGroup},
@@ -11,8 +12,10 @@ use std::sync::{
     Arc,
 };
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::XmtpDb;
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs};
+use xmtp_db::{Store, XmtpDb};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
 
 #[derive(Clone)]
@@ -45,21 +48,53 @@ where
             Err(err) => {
                 use crate::DuplicateItem::*;
                 use crate::StorageError::*;
-
+                match &err {
+                    GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(
+                        _,
+                        _,
+                        group_id,
+                    )) => {
+                        let _ = NewLocalCommitLog {
+                            group_id: group_id.clone(),
+                            commit_sequence_id: welcome.id as i64,
+                            last_epoch_authenticator: vec![],
+                            commit_result: CommitResult::Invalid,
+                            applied_epoch_number: None,
+                            applied_epoch_authenticator: None,
+                            sender_inbox_id: Some(err.to_string()),
+                            sender_installation_id: None,
+                            commit_type: Some("Welcome Rejected".into()),
+                        }
+                        .store(self.context.mls_provider().db());
+                    }
+                    _ => {
+                        let _ = NewLocalCommitLog {
+                            group_id: vec![1, 1, 1, 2, 2, 2],
+                            commit_sequence_id: welcome.id as i64,
+                            last_epoch_authenticator: vec![],
+                            commit_result: CommitResult::Invalid,
+                            applied_epoch_number: None,
+                            applied_epoch_authenticator: None,
+                            sender_inbox_id: Some(err.to_string()),
+                            sender_installation_id: None,
+                            commit_type: Some("Welcome Rejected".into()),
+                        }
+                        .store(self.context.mls_provider().db());
+                    }
+                }
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                    tracing::warn!(
-                        "failed to create group from welcome due to duplicate welcome ID: {}",
+                    tracing::error!(
+                        "### welcome failed to create group from welcome due to duplicate welcome ID: {}",
                         err
                     );
                 } else {
-                    tracing::error!("failed to create group from welcome: {}", err);
+                    tracing::error!("### welcome failed to create group from welcome: {}", err);
                 }
 
                 Err(err)
             }
         }
     }
-
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "debug", skip_all)]

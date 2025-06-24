@@ -1,4 +1,4 @@
-use crate::conversations::Conversations;
+use crate::conversations::{ConversationDebugInfo, Conversations};
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
@@ -261,6 +261,16 @@ impl Client {
       .collect();
 
     Ok(results)
+  }
+
+  #[napi]
+  pub async fn unknown_debug_info(&self) -> Result<ConversationDebugInfo> {
+    self
+      .inner_client
+      .debug_info_for_unknown_group()
+      .await
+      .map(Into::into)
+      .map_err(|e| napi::Error::from_reason(e.to_string()))
   }
 
   #[napi]

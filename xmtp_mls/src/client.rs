@@ -1,3 +1,4 @@
+use crate::groups::ConversationDebugInfo;
 use crate::{
     builder::SyncWorkerMode,
     configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
@@ -25,6 +26,9 @@ use tokio::sync::broadcast;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::refresh_state::EntityKind;
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
@@ -33,7 +37,7 @@ use xmtp_db::{
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    NotFound, StorageError, XmtpDb,
+    NotFound, StorageError, Store, XmtpDb,
 };
 use xmtp_id::{
     associations::{
@@ -480,6 +484,18 @@ where
             opts.unwrap_or_default(),
         )?;
 
+        NewLocalCommitLog {
+            group_id: group.group_id.clone(),
+            commit_sequence_id: 0 as i64,
+            last_epoch_authenticator: vec![],
+            commit_result: CommitResult::Success,
+            applied_epoch_number: None,
+            applied_epoch_authenticator: None,
+            sender_inbox_id: Some("Self".to_string()),
+            sender_installation_id: None,
+            commit_type: Some("Create".into()),
+        }
+        .store(&self.context.db())?;
         // notify streams of our new group
         let _ = self
             .local_events
@@ -892,6 +908,26 @@ where
         }
 
         Ok(can_message)
+    }
+
+    pub async fn debug_info_for_unknown_group(&self) -> Result<ConversationDebugInfo, GroupError> {
+        let provider = self.context.mls_provider();
+
+        let conn = provider.db();
+
+        let local_logs = conn.get_group_logs(&vec![1, 1, 1, 2, 2, 2])?;
+        let mut lines = Vec::new();
+        for log in local_logs.iter() {
+            lines.push(format!("{}", log));
+        }
+        let commit_log = lines.join("\n");
+
+        Ok(ConversationDebugInfo {
+            epoch: 0u64,
+            maybe_forked: false,
+            fork_details: "".to_string(),
+            local_commit_log: commit_log,
+        })
     }
 }
 

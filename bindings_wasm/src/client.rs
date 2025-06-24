@@ -19,7 +19,7 @@ use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
-use crate::conversations::Conversations;
+use crate::conversations::{ConversationDebugInfo, Conversations};
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 use crate::signatures::SignatureRequestType;
@@ -275,6 +275,26 @@ impl Client {
       .collect();
 
     Ok(crate::to_value(&results)?)
+  }
+
+  #[wasm_bindgen(js_name = debugInfoUknown)]
+  /// Output booleans should be zipped with the index of input identifiers
+  pub async fn debug_info_unknown(
+    &self,
+    account_identifiers: Vec<Identifier>,
+  ) -> Result<JsValue, JsError> {
+    let results = self
+      .inner_client
+      .debug_info_for_unknown_group()
+      .await
+      .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+
+    Ok(crate::to_value(&ConversationDebugInfo {
+      epoch: results.epoch,
+      maybe_forked: results.maybe_forked,
+      fork_details: results.fork_details,
+      local_commit_log: results.local_commit_log,
+    })?)
   }
 
   #[wasm_bindgen(js_name = registerIdentity)]
