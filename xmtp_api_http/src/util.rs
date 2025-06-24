@@ -35,6 +35,10 @@ where
 #[allow(clippy::unwrap_used)]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     type Builder = crate::XmtpHttpApiClientBuilder;
+    fn local_port() -> &'static str {
+        "5055"
+    }
+
     fn create_local_d14n() -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();

@@ -28,9 +28,11 @@ use std::{
         Arc, LazyLock,
     },
 };
-use toxiproxy_rust::proxy::ProxyPack;
+use tokio::{runtime::Handle, sync::OnceCell};
+use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_api_http::{constants::ApiUrls, LOCALHOST_ADDRESS};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
@@ -47,8 +49,7 @@ use xmtp_id::{
 };
 use xmtp_proto::prelude::XmtpTestClient;
 
-static TOXIPROXY: LazyLock<toxiproxy_rust::client::Client> =
-    LazyLock::new(|| toxiproxy_rust::client::Client::new("0.0.0.0:8474"));
+static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
 static TOXI_PORT: AtomicUsize = AtomicUsize::new(22000);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
@@ -62,6 +63,7 @@ where
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    pub proxy: Option<Proxy>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
     pub replace: TestLogReplace,
@@ -130,23 +132,41 @@ where
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
 
-        let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
-        let proxy_addr = format!("localhost:{port}");
-        let result = TOXIPROXY
-            .populate(vec![
-                ProxyPack::new(
-                    format!("Proxy {port}"),
-                    proxy_addr.clone(),
-                    format!("localhost:5555"),
-                )
-                .await,
-            ])
-            .await
-            .unwrap();
-        let proxy = result.into_iter().nth(0).unwrap();
+        let mut api_addr = ApiUrls::LOCAL_ADDRESS.to_string();
+        let mut proxy = None;
 
-        let api_client =
-            ClientBuilder::new_custom_api_client(&format!("http://{proxy_addr}")).await;
+        if self.proxy {
+            let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
+            let proxy_addr = format!("localhost:{}", ClientBuilder::local_port());
+
+            let toxiproxy = TOXIPROXY
+                .get_or_init(|| async {
+                    let toxiproxy = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
+                    toxiproxy.reset().await.unwrap();
+                    toxiproxy
+                })
+                .await;
+
+            let result = toxiproxy
+                .populate(vec![
+                    ProxyPack::new(
+                        format!("Proxy {port}"),
+                        proxy_addr.clone(),
+                        format!("localhost:{}", ClientBuilder::local_port()),
+                    )
+                    .await,
+                ])
+                .await
+                .unwrap();
+
+            let p = result.into_iter().nth(0).unwrap();
+            proxy = Some(p);
+
+            api_addr = format!("http://{proxy_addr}");
+        }
+
+        tracing::error!("{api_addr}");
+        let api_client = ClientBuilder::new_custom_api_client(&api_addr).await;
         let client = build_with_verifier(
             &self.owner,
             api_client,
@@ -174,8 +194,6 @@ where
         }
         client.sync_welcomes().await;
 
-        let a = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
-
         let mut tester = Tester {
             builder: self.clone(),
             client,
@@ -183,6 +201,7 @@ where
             worker,
             replace,
             stream_handle: None,
+            proxy,
         };
 
         if self.stream {
@@ -224,6 +243,10 @@ where
     pub fn worker(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         self.worker.as_ref().unwrap()
     }
+
+    pub fn proxy(&self) -> &Proxy {
+        self.proxy.as_ref().unwrap()
+    }
 }
 
 impl<Owner, Client> Deref for Tester<Owner, Client>
@@ -250,6 +273,7 @@ where
     pub name: Option<String>,
     pub events: bool,
     pub version: Option<VersionInfo>,
+    pub proxy: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -269,6 +293,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             name: None,
             events: false,
             version: None,
+            proxy: false,
         }
     }
 }
@@ -290,6 +315,7 @@ where
             name: self.name,
             events: self.events,
             version: self.version,
+            proxy: self.proxy,
         }
     }
 
@@ -331,6 +357,13 @@ where
     pub fn stream(self) -> Self {
         Self {
             stream: true,
+            ..self
+        }
+    }
+
+    pub fn proxy(self) -> Self {
+        Self {
+            proxy: true,
             ..self
         }
     }

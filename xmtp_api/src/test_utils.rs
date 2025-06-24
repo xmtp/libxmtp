@@ -168,6 +168,7 @@ mod not_wasm {
 
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
+            fn local_port() -> &'static str;
             fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }

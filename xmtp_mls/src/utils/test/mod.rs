@@ -61,6 +61,10 @@ impl<A> ClientBuilder<A> {
 }
 
 impl ClientBuilder<TestClient> {
+    pub fn local_port() -> &'static str {
+        <TestClient as XmtpTestClient>::local_port()
+    }
+
     pub async fn new_custom_api_client(addr: &str) -> TestClient {
         <TestClient as XmtpTestClient>::create_custom(addr)
             .build()

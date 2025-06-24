@@ -63,6 +63,7 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
             worker,
             stream_handle: None,
             replace,
+            proxy: None,
         })
     }
 }
@@ -117,6 +118,7 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
             worker,
             stream_handle: None,
             replace,
+            proxy: None,
         })
     }
 }

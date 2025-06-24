@@ -51,6 +51,10 @@ pub mod tests {
     {
         type Builder = D14nClientBuilder<C::Builder, Payer::Builder>;
 
+        fn local_port() -> &'static str {
+            "5055"
+        }
+
         fn create_custom(_addr: &str) -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_d14n(),
@@ -91,6 +95,10 @@ pub mod tests {
         <<C as XmtpTestClient>::Builder as ApiBuilder>::Output: Client,
     {
         type Builder = V3ClientBuilder<C::Builder>;
+
+        fn local_port() -> &'static str {
+            "5055"
+        }
 
         fn create_custom(addr: &str) -> Self::Builder {
             V3ClientBuilder::new(<C as XmtpTestClient>::create_custom(addr))

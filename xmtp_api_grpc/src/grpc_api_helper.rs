@@ -320,6 +320,11 @@ mod test {
 
     impl XmtpTestClient for Client {
         type Builder = ClientBuilder;
+
+        fn local_port() -> &'static str {
+            "5556"
+        }
+
         fn create_custom(addr: &str) -> Self::Builder {
             let mut client = Client::builder();
             client.set_host(addr.into());
@@ -333,7 +338,7 @@ mod test {
 
         fn create_local_d14n() -> Self::Builder {
             let mut client = Client::builder();
-            Self::create_custom("http://localhost:5050");
+            client.set_host("http://localhost:5050".into());
             client.set_tls(false);
             client
         }

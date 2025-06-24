@@ -162,6 +162,10 @@ mod test {
     impl XmtpTestClient for GrpcClient {
         type Builder = ClientBuilder;
 
+        fn local_port() -> &'static str {
+            "5556"
+        }
+
         fn create_custom(addr: &str) -> Self::Builder {
             let mut client = GrpcClient::builder();
             client.set_host(addr.into());
