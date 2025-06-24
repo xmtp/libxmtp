@@ -7183,11 +7183,11 @@ mod tests {
         assert_eq!(alix_dm_messages.len(), 2);
         assert_eq!(bo_dm_messages.len(), 2);
         assert_eq!(
-            String::from_utf8_lossy(&alix_dm_messages[1].content),
+            String::from_utf8_lossy(&alix_dm_messages[0].content),
             "Hello in DM"
         );
         assert_eq!(
-            String::from_utf8_lossy(&bo_dm_messages[1].content),
+            String::from_utf8_lossy(&bo_dm_messages[0].content),
             "Hello in DM"
         );
 
@@ -7300,8 +7300,12 @@ mod tests {
             .sync_all_conversations(None)
             .await
             .unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
 
-        let alix_dm_messages = client_a
+        let a_dm_messages = client_a
             .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap()[0]
@@ -7309,7 +7313,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        let bo_dm_messages = client_b
+        let b_dm_messages = client_b
             .conversations()
             .list(FfiListConversationsOptions::default())
             .unwrap()[0]
@@ -7317,8 +7321,17 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(alix_dm_messages[1].content, "Hello in DM".as_bytes());
-        assert_eq!(bo_dm_messages[1].content, "Hello in DM".as_bytes());
+        let bo_dm_messages = bo
+            .conversations()
+            .list(FfiListConversationsOptions::default())
+            .unwrap()[0]
+            .conversation
+            .find_messages(FfiListMessagesOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(a_dm_messages[0].content, "Hello in DM".as_bytes());
+        assert_eq!(b_dm_messages[0].content, "Hello in DM".as_bytes());
+        assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
 
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
@@ -8108,8 +8121,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(final_bo_messages.len(), 6, "Bo should see 5 messages");
-        assert_eq!(final_alix_messages.len(), 6, "Alix should see 5 messages");
+        assert_eq!(final_bo_messages.len(), 5, "Bo should see 5 messages");
+        assert_eq!(final_alix_messages.len(), 5, "Alix should see 5 messages");
     }
 
     #[tokio::test]

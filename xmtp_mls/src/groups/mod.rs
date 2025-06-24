@@ -704,9 +704,8 @@ where
                 .members()
                 .filter(|member| member.credential == current_credential)
                 .count();
-            tracing::error!("LOPI {}", other_installations_with_same_inbox);
 
-            if other_installations_with_same_inbox == 0 {
+            if other_installations_with_same_inbox <= 1 && metadata.creator_inbox_id != context.inbox_id() {
                 let current_inbox_id = context.inbox_id().to_string();
                 let added_payload = GroupUpdated {
                     initiated_by_inbox_id: added_by_inbox_id.clone(),
