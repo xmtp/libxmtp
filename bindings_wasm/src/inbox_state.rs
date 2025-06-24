@@ -57,24 +57,29 @@ impl InboxState {
 
 impl From<AssociationState> for InboxState {
   fn from(state: AssociationState) -> Self {
-    let ident: Identifier = state.recovery_identifier().clone().into();
-    Self {
-      inbox_id: state.inbox_id().to_string(),
-      recovery_identifier: ident,
-      installations: state
-        .members()
-        .into_iter()
-        .filter_map(|m| match m.identifier {
-          MemberIdentifier::Installation(ident::Installation(key)) => Some(Installation {
-            bytes: Uint8Array::from(key.as_slice()),
-            client_timestamp_ns: m.client_timestamp_ns,
-            id: hex::encode(key),
-          }),
-          _ => None,
-        })
-        .collect(),
-      account_identifiers: state.identifiers().into_iter().map(Into::into).collect(),
-    }
+      let ident: Identifier = state.recovery_identifier().clone().into();
+
+      // Collect and sort members by timestamp, placing None timestamps last
+      let mut sorted_members: Vec<_> = state.members().into_iter().collect();
+      sorted_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
+
+      Self {
+          inbox_id: state.inbox_id().to_string(),
+          recovery_identifier: ident,
+          installations: sorted_members
+              .into_iter()
+              .filter_map(|m| match m.identifier {
+                  MemberIdentifier::Installation(ident::Installation(key)) => Some(Installation {
+                      bytes: Uint8Array::from(key.as_slice()),
+                      client_timestamp_ns: m.client_timestamp_ns,
+                      id: hex::encode(key),
+                  }),
+                  _ => None,
+              })
+              .collect(),
+
+          account_identifiers: state.identifiers().into_iter().map(Into::into).collect(),
+      }
   }
 }
 

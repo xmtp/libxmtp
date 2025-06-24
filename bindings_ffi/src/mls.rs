@@ -986,24 +986,34 @@ impl From<VerifiedKeyPackageV2> for FfiKeyPackageStatus {
 
 impl From<AssociationState> for FfiInboxState {
     fn from(state: AssociationState) -> Self {
+        let mut sorted_members: Vec<_> = state.members().values().cloned().collect();
+        sorted_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
+
         Self {
             inbox_id: state.inbox_id().to_string(),
             recovery_identity: state.recovery_identifier().clone().into(),
-            installations: state
-                .members()
-                .into_iter()
+            installations: sorted_members
+                .iter()
                 .filter_map(|m| match m.identifier {
-                    MemberIdentifier::Ethereum(_) => None,
-                    MemberIdentifier::Passkey(_) => None,
                     MemberIdentifier::Installation(ident::Installation(id)) => {
                         Some(FfiInstallation {
                             id,
                             client_timestamp_ns: m.client_timestamp_ns,
                         })
                     }
+                    _ => None,
                 })
                 .collect(),
-            account_identities: state.identifiers().into_iter().map(Into::into).collect(),
+
+            account_identities: sorted_members
+                .iter()
+                .filter_map(|m| match &m.identifier {
+                    MemberIdentifier::Ethereum(_) | MemberIdentifier::Passkey(_) => {
+                        Some(m.identifier.clone().into())
+                    }
+                    _ => None,
+                })
+                .collect(),
         }
     }
 }
