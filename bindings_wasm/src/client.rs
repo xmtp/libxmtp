@@ -269,7 +269,6 @@ impl Client {
     Ok(crate::to_value(&results)?)
   }
   #[wasm_bindgen(js_name = debugInfoUknown)]
-  /// Output booleans should be zipped with the index of input identifiers
   pub async fn debug_info_unknown(
     &self,
     account_identifiers: Vec<Identifier>,
