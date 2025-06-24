@@ -69,7 +69,7 @@ chrono = "0.4.38"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
 criterion = { version = "0.6", features = ["html_reports", "async_tokio"] }
-toxiproxy_rust = { git = "https://github.com/codabrink/toxiproxy_rust.git" }
+toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 ctor = "0.4"
 diesel = { version = "2.2", default-features = false }
