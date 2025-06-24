@@ -8591,7 +8591,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_can_get_inbox_state_statically() {
-        let alix_wallet = PrivateKeySigner::random();
+        let alix_wallet = xmtp_cryptography::utils::LocalWallet::new(&mut rng());
         let alix = new_test_client_no_panic(alix_wallet.clone(), None)
             .await
             .unwrap();
