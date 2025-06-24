@@ -4,11 +4,24 @@ use crate::ErrorWrapper;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
-use xmtp_id::associations::Identifier as XmtpIdentifier;
+use std::sync::Arc;
+use xmtp_api::{strategies, ApiClientWrapper};
+use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
   verify_signed_with_public_context, AccountId,
 };
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+use xmtp_mls::identity_updates::revoke_installations_with_verifier;
+
+#[napi]
+pub struct SignatureRequestHandle {
+  inner: Arc<tokio::sync::Mutex<SignatureRequest>>,
+  scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
+}
 
 #[napi]
 pub fn verify_signed_with_public_key(
@@ -32,14 +45,135 @@ pub fn verify_signed_with_public_key(
   )
 }
 
+#[allow(dead_code)]
 #[napi]
-#[derive(Eq, Hash, PartialEq)]
-pub enum SignatureRequestType {
-  AddWallet,
-  CreateInbox,
-  RevokeWallet,
-  RevokeInstallations,
-  ChangeRecoveryIdentifier,
+pub async fn revoke_installations_signature_request(
+  host: String,
+  recovery_identifier: Identifier,
+  inbox_id: String,
+  installation_ids: Vec<Uint8Array>,
+) -> Result<SignatureRequestHandle> {
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
+
+  let ident = recovery_identifier.try_into()?;
+  let ids: Vec<Vec<u8>> = installation_ids.into_iter().map(|i| i.to_vec()).collect();
+
+  let signature_request = revoke_installations_with_verifier(&ident, &inbox_id, ids)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(SignatureRequestHandle {
+    inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+    scw_verifier: scw_verifier.clone(),
+  })
+}
+
+#[allow(dead_code)]
+#[napi]
+pub async fn apply_signature_request(
+  host: String,
+  signature_request: &SignatureRequestHandle,
+) -> Result<()> {
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
+
+  let inner = signature_request.inner.lock().await;
+
+  apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  Ok(())
+}
+
+#[napi]
+impl SignatureRequestHandle {
+  pub fn inner(&self) -> &Arc<tokio::sync::Mutex<SignatureRequest>> {
+    &self.inner
+  }
+
+  #[napi]
+  pub async fn signature_text(&self) -> Result<String> {
+    Ok(self.inner.lock().await.signature_text())
+  }
+
+  #[napi]
+  pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<()> {
+    let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
+    let mut inner = self.inner.lock().await;
+
+    inner
+      .add_signature(signature, &self.scw_verifier)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn add_passkey_signature(&self, signature: PasskeySignature) -> Result<()> {
+    let new_signature = UnverifiedSignature::new_passkey(
+      signature.public_key,
+      signature.signature,
+      signature.authenticator_data,
+      signature.client_data_json,
+    );
+
+    let mut inner = self.inner.lock().await;
+
+    inner
+      .add_signature(new_signature, &self.scw_verifier)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
+
+  #[napi]
+  pub async fn add_scw_signature(
+    &self,
+    account_identifier: Identifier,
+    signature_bytes: Uint8Array,
+    chain_id: BigInt,
+    block_number: Option<BigInt>,
+  ) -> Result<()> {
+    if !matches!(account_identifier.identifier_kind, IdentifierKind::Ethereum) {
+      return Err(Error::from_reason(
+        "Account identifier must be Ethereum-based.",
+      ));
+    }
+
+    let ident: xmtp_id::associations::Identifier = account_identifier.try_into()?;
+    let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
+
+    let signature = NewUnverifiedSmartContractWalletSignature::new(
+      signature_bytes.to_vec(),
+      account_id,
+      block_number.map(|b| b.get_u64().1),
+    );
+
+    let mut inner = self.inner.lock().await;
+
+    inner
+      .add_new_unverified_smart_contract_signature(signature, &self.scw_verifier)
+      .await
+      .map_err(ErrorWrapper::from)?;
+
+    Ok(())
+  }
 }
 
 #[napi(object)]
@@ -53,22 +187,24 @@ pub struct PasskeySignature {
 #[napi]
 impl Client {
   #[napi]
-  pub async fn create_inbox_signature_text(&self) -> Result<Option<String>> {
-    let signature_request = match self.inner_client().identity().signature_request() {
-      Some(signature_req) => signature_req,
-      // this should never happen since we're checking for it above in is_registered
-      None => return Err(Error::from_reason("No signature request found")),
+  pub async fn create_inbox_signature_request(&self) -> Result<Option<SignatureRequestHandle>> {
+    let Some(signature_request) = self.inner_client().identity().signature_request() else {
+      return Ok(None);
     };
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(SignatureRequestType::CreateInbox, signature_request);
+    let handle = SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    };
 
-    Ok(Some(signature_text))
+    Ok(Some(handle))
   }
 
   #[napi]
-  pub async fn add_identifier_signature_text(&self, new_identifier: Identifier) -> Result<String> {
+  pub async fn add_identifier_signature_request(
+    &self,
+    new_identifier: Identifier,
+  ) -> Result<SignatureRequestHandle> {
     let ident = new_identifier.try_into()?;
 
     let signature_request = self
@@ -77,16 +213,18 @@ impl Client {
       .associate_identity(ident)
       .await
       .map_err(ErrorWrapper::from)?;
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
 
-    signature_requests.insert(SignatureRequestType::AddWallet, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
   #[napi]
-  pub async fn revoke_identifier_signature_text(&self, identifier: Identifier) -> Result<String> {
+  pub async fn revoke_identifier_signature_request(
+    &self,
+    identifier: Identifier,
+  ) -> Result<SignatureRequestHandle> {
     let ident = identifier.try_into()?;
 
     let signature_request = self
@@ -95,16 +233,16 @@ impl Client {
       .revoke_identities(vec![ident])
       .await
       .map_err(ErrorWrapper::from)?;
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    signature_requests.insert(SignatureRequestType::RevokeWallet, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
   #[napi]
-  pub async fn revoke_all_other_installations_signature_text(&self) -> Result<String> {
+  pub async fn revoke_all_other_installations_signature_request(
+    &self,
+  ) -> Result<SignatureRequestHandle> {
     let installation_id = self.inner_client().installation_public_key();
     let inbox_state = self
       .inner_client()
@@ -122,19 +260,17 @@ impl Client {
       .revoke_installations(other_installation_ids)
       .await
       .map_err(ErrorWrapper::from)?;
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
   #[napi]
-  pub async fn revoke_installations_signature_text(
+  pub async fn revoke_installations_signature_request(
     &self,
     installation_ids: Vec<Uint8Array>,
-  ) -> Result<String> {
+  ) -> Result<SignatureRequestHandle> {
     let installation_ids_bytes: Vec<Vec<u8>> = installation_ids
       .iter()
       .map(|id| id.deref().to_vec())
@@ -146,143 +282,42 @@ impl Client {
       .revoke_installations(installation_ids_bytes)
       .await
       .map_err(ErrorWrapper::from)?;
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    signature_requests.insert(SignatureRequestType::RevokeInstallations, signature_request);
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
   #[napi]
-  pub async fn change_recovery_identifier_signature_text(
+  pub async fn change_recovery_identifier_signature_request(
     &self,
     new_recovery_identifier: Identifier,
-  ) -> Result<String> {
+  ) -> Result<SignatureRequestHandle> {
     let signature_request = self
       .inner_client()
       .identity_updates()
       .change_recovery_identifier(new_recovery_identifier.try_into()?)
       .await
       .map_err(ErrorWrapper::from)?;
-    let signature_text = signature_request.signature_text();
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    signature_requests.insert(
-      SignatureRequestType::ChangeRecoveryIdentifier,
-      signature_request,
-    );
-
-    Ok(signature_text)
+    Ok(SignatureRequestHandle {
+      inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+      scw_verifier: self.inner_client().scw_verifier().clone(),
+    })
   }
 
   #[napi]
-  pub async fn add_ecdsa_signature(
+  pub async fn apply_signature_request(
     &self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
+    signature_request: &SignatureRequestHandle,
   ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
+    let signature_request = signature_request.inner.lock().await;
 
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.deref().to_vec());
-
-      signature_request
-        .add_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn add_passkey_signature(
-    &self,
-    signature_type: SignatureRequestType,
-    signature: PasskeySignature,
-  ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let signature = UnverifiedSignature::new_passkey(
-        signature.public_key,
-        signature.signature,
-        signature.authenticator_data,
-        signature.client_data_json,
-      );
-
-      signature_request
-        .add_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn add_scw_signature(
-    &self,
-    signature_type: SignatureRequestType,
-    signature_bytes: Uint8Array,
-    chain_id: BigInt,
-    block_number: Option<BigInt>,
-  ) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-    let IdentifierKind::Ethereum = self.account_identifier.identifier_kind else {
-      return Err(Error::from_reason(
-        "Account identifier must be an ethereum address.",
-      ));
-    };
-
-    if let Some(signature_request) = signature_requests.get_mut(&signature_type) {
-      let ident: XmtpIdentifier = self.account_identifier.clone().try_into()?;
-      let account_id = AccountId::new_evm(chain_id.get_u64().1, ident.to_string());
-      let signature = NewUnverifiedSmartContractWalletSignature::new(
-        signature_bytes.deref().to_vec(),
-        account_id,
-        block_number.as_ref().map(|b| b.get_u64().1),
-      );
-
-      signature_request
-        .add_new_unverified_smart_contract_signature(signature, &self.inner_client().scw_verifier())
-        .await
-        .map_err(ErrorWrapper::from)?;
-    } else {
-      return Err(Error::from_reason("Signature request not found"));
-    }
-
-    Ok(())
-  }
-
-  #[napi]
-  pub async fn apply_signature_requests(&self) -> Result<()> {
-    let mut signature_requests = self.signature_requests().lock().await;
-
-    let request_types: Vec<SignatureRequestType> = signature_requests.keys().cloned().collect();
-    for signature_request_type in request_types {
-      // ignore the create inbox request since it's applied with register_identity
-      if signature_request_type == SignatureRequestType::CreateInbox {
-        continue;
-      }
-
-      if let Some(signature_request) = signature_requests.get(&signature_request_type) {
-        self
-          .inner_client()
-          .identity_updates()
-          .apply_signature_request(signature_request.clone())
-          .await
-          .map_err(ErrorWrapper::from)?;
-
-        // remove the signature request after applying it
-        signature_requests.remove(&signature_request_type);
-      }
-    }
+    self
+      .inner_client()
+      .identity_updates()
+      .apply_signature_request(signature_request.clone())
+      .await
+      .map_err(ErrorWrapper::from)?;
 
     Ok(())
   }
