@@ -76,6 +76,35 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
 }
 
 #[napi]
+pub async fn inbox_state_from_inbox_ids(
+  host: String,
+  inbox_ids: Vec<String>,
+) -> Result<Vec<InboxState>> {
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
+
+  let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
+    .map_err(|e| Error::from_reason(e.to_string()))?;
+  let store = EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?;
+
+  let state = inbox_addresses_with_verifier(
+    &api.clone(),
+    &store.db(),
+    inbox_ids.iter().map(String::as_str).collect(),
+    &scw_verifier,
+  )
+  .await?
+  .map_err(ErrorWrapper::from)?;
+  Ok(state.into_iter().map(Into::into).collect())
+}
+
+#[napi]
 impl Client {
   /**
    * Get the client's inbox state.
