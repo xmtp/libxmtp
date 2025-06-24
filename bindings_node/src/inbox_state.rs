@@ -1,9 +1,19 @@
 use std::collections::HashMap;
 
+use crate::client::TonicApiClient;
 use crate::{client::Client, identity::Identifier, ErrorWrapper};
-use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
+use std::sync::Arc;
+use xmtp_api::strategies;
+use xmtp_api::ApiClientWrapper;
+use xmtp_db::EncryptedMessageStore;
+use xmtp_db::NativeDb;
+use xmtp_db::StorageOption;
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[napi(object)]
@@ -99,7 +109,7 @@ pub async fn inbox_state_from_inbox_ids(
     inbox_ids.iter().map(String::as_str).collect(),
     &scw_verifier,
   )
-  .await?
+  .await
   .map_err(ErrorWrapper::from)?;
   Ok(state.into_iter().map(Into::into).collect())
 }

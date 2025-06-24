@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
+use xmtp_mls::client::inbox_addresses_with_verifier;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
