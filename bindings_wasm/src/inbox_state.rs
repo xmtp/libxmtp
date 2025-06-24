@@ -113,6 +113,35 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
   }
 }
 
+#[wasm_bindgen(js_name = inboxStateFromInboxIds)]
+pub async fn inbox_state_from_inbox_ids(
+  host: String,
+  inbox_ids: Vec<String>,
+) -> Result<Vec<InboxState>, JsError> {
+  let api_client = XmtpHttpApiClient::new(host, "0.0.0".into())
+    .await
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
+
+  let db = WasmDb::new(&StorageOption::Ephemeral).await?;
+  let store = EncryptedMessageStore::new(db)
+    .map_err(|e| JsError::new(&format!("Error creating unencrypted message store {e}")))?;
+
+  let state = inbox_addresses_with_verifier(
+    &api.clone(),
+    &store.db(),
+    inbox_ids.iter().map(String::as_str).collect(),
+    &scw_verifier,
+  )
+  .await?
+  .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
+  Ok(state.into_iter().map(Into::into).collect())
+}
+
 #[wasm_bindgen]
 impl Client {
   /**
