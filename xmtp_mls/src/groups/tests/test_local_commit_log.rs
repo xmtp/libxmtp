@@ -4,11 +4,11 @@ use crate::tester;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_local_commit_log_presence() {
-    tester!(alix);
+    tester!(alix, proxy);
     tester!(bo);
     tester!(caro);
 
-    let mut g = alix
+    let g = alix
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
     let g2 = alix
@@ -22,10 +22,11 @@ async fn test_local_commit_log_presence() {
     let bo_g = bo.group(&g.group_id)?;
     let bo_g2 = bo.group(&g2.group_id)?;
 
-    g.disable_network = true;
+    alix.proxy().disable().await?;
     // This will not go out to the network
     g.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
-    g.disable_network = false;
+    alix.proxy().enable().await?;
+
     // This will go out to the network
     g2.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
 

@@ -112,7 +112,7 @@ impl serde::Serialize for EventSave {
         if self.created_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdAtNs", ToString::to_string(&self.created_at_ns).as_str())?;
+            struct_ser.serialize_field("created_at_ns", ToString::to_string(&self.created_at_ns).as_str())?;
         }
         if !self.event.is_empty() {
             struct_ser.serialize_field("event", &self.event)?;
@@ -125,7 +125,7 @@ impl serde::Serialize for EventSave {
         if let Some(v) = self.group_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&v).as_str())?;
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&v).as_str())?;
         }
         if self.level != 0 {
             let v = EventLevelSave::try_from(self.level)
@@ -163,6 +163,7 @@ impl<'de> serde::Deserialize<'de> for EventSave {
             GroupId,
             Level,
             Icon,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -190,7 +191,7 @@ impl<'de> serde::Deserialize<'de> for EventSave {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             "level" => Ok(GeneratedField::Level),
                             "icon" => Ok(GeneratedField::Icon),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -258,6 +259,9 @@ impl<'de> serde::Deserialize<'de> for EventSave {
                                 return Err(serde::de::Error::duplicate_field("icon"));
                             }
                             icon__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

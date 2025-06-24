@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
 pub(crate) enum GrpcResponse<T> {
+    SubscriptionItem(SubscriptionItem<T>),
     Ok(T),
     Err(ErrorResponse),
-    SubscriptionItem(SubscriptionItem<T>),
     Empty {},
 }
 
@@ -35,6 +35,10 @@ where
 #[allow(clippy::unwrap_used)]
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     type Builder = crate::XmtpHttpApiClientBuilder;
+    fn local_port() -> &'static str {
+        "5555"
+    }
+
     fn create_local_d14n() -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
@@ -56,14 +60,18 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
         api
     }
 
-    fn create_local() -> Self::Builder {
+    fn create_custom(addr: &str) -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(crate::constants::ApiUrls::LOCAL_ADDRESS.into());
+        api.set_host(addr.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();
         api
+    }
+
+    fn create_local() -> Self::Builder {
+        Self::create_custom(crate::constants::ApiUrls::LOCAL_ADDRESS)
     }
 
     fn create_dev() -> Self::Builder {

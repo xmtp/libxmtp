@@ -380,11 +380,6 @@ where
     ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
 
-        #[cfg(test)]
-        if self.disable_network {
-            return Ok(summary);
-        }
-
         let provider = self.mls_provider();
         let mut num_attempts = 0;
         // Return the last error to the caller if we fail to sync

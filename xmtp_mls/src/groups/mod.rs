@@ -121,9 +121,6 @@ pub struct MlsGroup<ApiClient, Db> {
     pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
-
-    #[cfg(test)]
-    disable_network: bool,
 }
 
 impl<ApiClient, Db> std::fmt::Debug for MlsGroup<ApiClient, Db>
@@ -161,9 +158,6 @@ impl<ApiClient, Db> Clone for MlsGroup<ApiClient, Db> {
             context: self.context.clone(),
             mutex: self.mutex.clone(),
             mls_commit_lock: self.mls_commit_lock.clone(),
-
-            #[cfg(test)]
-            disable_network: false,
         }
     }
 }
@@ -297,9 +291,6 @@ where
             mutex: mutexes.get_mutex(group_id),
             context: Arc::clone(&context),
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
-
-            #[cfg(test)]
-            disable_network: false,
         }
     }
 
