@@ -56,14 +56,18 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
         api
     }
 
-    fn create_local() -> Self::Builder {
+    fn create_custom(addr: &str) -> Self::Builder {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
-        api.set_host(crate::constants::ApiUrls::LOCAL_ADDRESS.into());
+        api.set_host(addr.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();
         api
+    }
+
+    fn create_local() -> Self::Builder {
+        Self::create_custom(crate::constants::ApiUrls::LOCAL_ADDRESS)
     }
 
     fn create_dev() -> Self::Builder {

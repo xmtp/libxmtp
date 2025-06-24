@@ -8,39 +8,40 @@ version.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
-  "x86_64-unknown-linux-gnu",
-  "wasm32-unknown-unknown",
-  "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+    "aarch64-apple-darwin",
 ]
 
 [features]
 test-utils = [
-  "tracing-subscriber",
-  "xmtp_id/test-utils",
-  "xmtp_db/test-utils",
-  "xmtp_proto/test-utils",
-  "xmtp_api/test-utils",
-  "xmtp_api_http/test-utils",
-  "xmtp_api_grpc/test-utils",
-  "xmtp_common/test-utils",
-  "dep:alloy",
-  "dep:passkey",
-  "dep:coset",
-  "dep:url",
-  "dep:public-suffix",
-  "dep:futures-executor",
-  "dep:mockall",
-  "dep:rstest",
+    "tracing-subscriber",
+    "xmtp_id/test-utils",
+    "xmtp_db/test-utils",
+    "xmtp_proto/test-utils",
+    "xmtp_api/test-utils",
+    "xmtp_api_http/test-utils",
+    "xmtp_api_grpc/test-utils",
+    "xmtp_common/test-utils",
+    "dep:alloy",
+    "dep:passkey",
+    "dep:coset",
+    "dep:url",
+    "dep:public-suffix",
+    "dep:futures-executor",
+    "dep:mockall",
+    "dep:rstest",
+    "dep:toxiproxy_rust",
 ]
 bench = [
-  "test-utils",
-  "indicatif",
-  "tracing-subscriber",
-  "dep:xmtp_api_grpc",
-  "criterion",
-  "dep:fdlimit",
-  "dep:alloy",
-  "xmtp_common/bench",
+    "test-utils",
+    "indicatif",
+    "tracing-subscriber",
+    "dep:xmtp_api_grpc",
+    "criterion",
+    "dep:fdlimit",
+    "dep:alloy",
+    "xmtp_common/bench",
 ]
 default = ["grpc-api"]
 grpc-api = ["dep:xmtp_api_grpc", "xmtp_api_d14n?/grpc-api"]
@@ -72,7 +73,7 @@ sha2.workspace = true
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
 tokio-stream = { workspace = true, default-features = false, features = [
-  "sync",
+    "sync",
 ] }
 tokio-util.workspace = true
 tracing.workspace = true
@@ -106,20 +107,21 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
+toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
-  "env-filter",
-  "fmt",
-  "ansi",
-  "json",
-  "registry",
+    "env-filter",
+    "fmt",
+    "ansi",
+    "json",
+    "registry",
 ], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = [
-  "macros",
-  "tracing",
-  "rt",
-  "rt-multi-thread",
+    "macros",
+    "tracing",
+    "rt",
+    "rt-multi-thread",
 ] }
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
@@ -138,9 +140,9 @@ web-sys.workspace = true
 alloy.workspace = true
 coset = { version = "0.3" }
 diesel = { workspace = true, features = [
-  "returning_clauses_for_sqlite_3_35",
-  "sqlite",
-  "32-column-tables",
+    "returning_clauses_for_sqlite_3_35",
+    "sqlite",
+    "32-column-tables",
 ] }
 fdlimit = { workspace = true }
 futures-executor = { version = "0.3" }
@@ -153,6 +155,7 @@ passkey = { version = "0.4" }
 public-suffix = { version = "0.1.2" }
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse = { workspace = true }
+toxiproxy_rust = { workspace = true }
 url = { workspace = true }
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }

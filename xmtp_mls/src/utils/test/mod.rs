@@ -61,7 +61,13 @@ impl<A> ClientBuilder<A> {
 }
 
 impl ClientBuilder<TestClient> {
-    pub async fn new_api_client() -> TestClient {
+    pub async fn new_custom_api_client(addr: &str) -> TestClient {
+        <TestClient as XmtpTestClient>::create_custom(addr)
+            .build()
+            .await
+            .unwrap()
+    }
+    pub async fn new_localhost_api_client() -> TestClient {
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
@@ -69,7 +75,7 @@ impl ClientBuilder<TestClient> {
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = Self::new_api_client().await;
+        let api_client = Self::new_localhost_api_client().await;
 
         build_with_verifier(
             owner,
@@ -85,7 +91,7 @@ impl ClientBuilder<TestClient> {
 
     /// Test client without anything extra
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = Self::new_api_client().await;
+        let api_client = Self::new_localhost_api_client().await;
 
         build_with_verifier(
             owner,

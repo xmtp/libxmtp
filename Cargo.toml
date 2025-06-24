@@ -1,48 +1,48 @@
 [workspace]
 members = [
-  "examples/cli",
-  "mls_validation_service",
-  "xmtp_cryptography",
-  "xmtp_api_grpc",
-  "xmtp_api_http",
-  "xmtp_proto",
-  "xmtp_mls",
-  "xmtp_api",
-  "xmtp_id",
-  "bindings_wasm",
-  "bindings_node",
-  "bindings_ffi",
-  "xmtp_debug",
-  "xmtp_content_types",
-  "common",
-  "xmtp_api_d14n",
-  "xmtp_macro",
-  "xmtp_db",
-  "xmtp_db_test",
-  "xmtp_archive",
-  "xmtp_mls_common",
+    "examples/cli",
+    "mls_validation_service",
+    "xmtp_cryptography",
+    "xmtp_api_grpc",
+    "xmtp_api_http",
+    "xmtp_proto",
+    "xmtp_mls",
+    "xmtp_api",
+    "xmtp_id",
+    "bindings_wasm",
+    "bindings_node",
+    "bindings_ffi",
+    "xmtp_debug",
+    "xmtp_content_types",
+    "common",
+    "xmtp_api_d14n",
+    "xmtp_macro",
+    "xmtp_db",
+    "xmtp_db_test",
+    "xmtp_archive",
+    "xmtp_mls_common",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
 # Excludes `bindings_wasm` by default, since those bindings only build for the WASM target.
 default-members = [
-  "examples/cli",
-  "mls_validation_service",
-  "xmtp_cryptography",
-  "xmtp_api_grpc",
-  "xmtp_api_http",
-  "xmtp_proto",
-  "xmtp_mls",
-  "xmtp_api",
-  "xmtp_id",
-  "bindings_node",
-  "bindings_ffi",
-  "xmtp_debug",
-  "xmtp_content_types",
-  "common",
-  "xmtp_api_d14n",
-  "xmtp_macro",
-  "xmtp_db",
+    "examples/cli",
+    "mls_validation_service",
+    "xmtp_cryptography",
+    "xmtp_api_grpc",
+    "xmtp_api_http",
+    "xmtp_proto",
+    "xmtp_mls",
+    "xmtp_api",
+    "xmtp_id",
+    "bindings_node",
+    "bindings_ffi",
+    "xmtp_debug",
+    "xmtp_content_types",
+    "common",
+    "xmtp_api_d14n",
+    "xmtp_macro",
+    "xmtp_db",
 ]
 
 # Make the feature resolver explicit.
@@ -58,8 +58,8 @@ alloy = { version = "1.0", default-features = false }
 aes-gcm = { version = "0.10.3", features = ["std"] }
 anyhow = "1.0"
 async-compression = { default-features = false, version = "0.4", features = [
-  "futures-io",
-  "zstd",
+    "futures-io",
+    "zstd",
 ] }
 async-stream = "0.3"
 async-trait = "0.1.77"
@@ -69,6 +69,7 @@ chrono = "0.4.38"
 console_error_panic_hook = "0.1"
 const_format = "0.2"
 criterion = { version = "0.6", features = ["html_reports", "async_tokio"] }
+toxiproxy_rust = { git = "https://github.com/codabrink/toxiproxy_rust.git" }
 p256 = { version = "0.13.2", features = ["ecdsa"] }
 ctor = "0.4"
 diesel = { version = "2.2", default-features = false }
@@ -116,7 +117,7 @@ tls_codec = "0.4.1"
 tokio = { version = "1.43.0", default-features = false }
 tokio-stream = { version = "0.1", default-features = false }
 tokio-util = { version = "0.7", default-features = false, features = [
-  "compat",
+    "compat",
 ] }
 uuid = "1.12"
 vergen-git2 = "1.0.2"

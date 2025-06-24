@@ -48,3 +48,9 @@ services:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    ports:
+      - 8474:8474
+    depends_on:
+      - node

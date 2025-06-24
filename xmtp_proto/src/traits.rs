@@ -289,6 +289,7 @@ pub mod mock {
 
         impl XmtpTestClient for MockClient {
             type Builder = MockApiBuilder;
+            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }

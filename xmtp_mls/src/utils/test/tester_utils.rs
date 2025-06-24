@@ -21,7 +21,14 @@ use passkey::{
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, LazyLock,
+    },
+};
+use toxiproxy_rust::proxy::ProxyPack;
 use url::Url;
 use xmtp_api::XmtpApi;
 use xmtp_common::StreamHandle;
@@ -39,6 +46,10 @@ use xmtp_id::{
     InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
+
+static TOXIPROXY: LazyLock<toxiproxy_rust::client::Client> =
+    LazyLock::new(|| toxiproxy_rust::client::Client::new("0.0.0.0:8474"));
+static TOXI_PORT: AtomicUsize = AtomicUsize::new(22000);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -118,7 +129,24 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-        let api_client = ClientBuilder::new_api_client().await;
+
+        let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
+        let proxy_addr = format!("localhost:{port}");
+        let result = TOXIPROXY
+            .populate(vec![
+                ProxyPack::new(
+                    format!("Proxy {port}"),
+                    proxy_addr.clone(),
+                    format!("localhost:5555"),
+                )
+                .await,
+            ])
+            .await
+            .unwrap();
+        let proxy = result.into_iter().nth(0).unwrap();
+
+        let api_client =
+            ClientBuilder::new_custom_api_client(&format!("http://{proxy_addr}")).await;
         let client = build_with_verifier(
             &self.owner,
             api_client,
@@ -145,6 +173,8 @@ where
             }
         }
         client.sync_welcomes().await;
+
+        let a = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
 
         let mut tester = Tester {
             builder: self.clone(),
