@@ -1,9 +1,23 @@
-import { v4 } from 'uuid';
-import { toBytes } from 'viem';
-import { describe, expect, it } from 'vitest';
-import { createClient, createRegisteredClient, createUser, encodeTextMessage, sleep, TEST_API_URL } from '@test/helpers';
-import { applySignatureRequest, ConsentEntityType, ConsentState, IdentifierKind, inboxStateFromInboxIds, revokeInstallationsSignatureRequest, verifySignedWithPublicKey } from '../dist';
-
+import { v4 } from 'uuid'
+import { toBytes } from 'viem'
+import { describe, expect, it } from 'vitest'
+import {
+  createClient,
+  createRegisteredClient,
+  createUser,
+  encodeTextMessage,
+  sleep,
+  TEST_API_URL,
+} from '@test/helpers'
+import {
+  applySignatureRequest,
+  ConsentEntityType,
+  ConsentState,
+  IdentifierKind,
+  inboxStateFromInboxIds,
+  revokeInstallationsSignatureRequest,
+  verifySignedWithPublicKey,
+} from '../dist'
 
 describe('Client', () => {
   it('should not be registered at first', async () => {
@@ -315,7 +329,7 @@ describe('Client', () => {
     user.uuid = v4()
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
-    
+
     const state = await inboxStateFromInboxIds(TEST_API_URL, [
       client1.inboxId(),
     ])
