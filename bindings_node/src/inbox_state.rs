@@ -1,9 +1,19 @@
 use std::collections::HashMap;
 
+use crate::client::TonicApiClient;
 use crate::{client::Client, identity::Identifier, ErrorWrapper};
-use napi::bindgen_prelude::{BigInt, Result, Uint8Array};
+use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
+use std::sync::Arc;
+use xmtp_api::strategies;
+use xmtp_api::ApiClientWrapper;
+use xmtp_db::EncryptedMessageStore;
+use xmtp_db::NativeDb;
+use xmtp_db::StorageOption;
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[napi(object)]
@@ -73,6 +83,36 @@ impl From<VerifiedKeyPackageV2> for KeyPackageStatus {
       validation_error: None,
     }
   }
+}
+
+#[allow(dead_code)]
+#[napi]
+pub async fn inbox_state_from_inbox_ids(
+  host: String,
+  inbox_ids: Vec<String>,
+) -> Result<Vec<InboxState>> {
+  let api_client = TonicApiClient::create(host, true)
+    .await
+    .map_err(ErrorWrapper::from)?;
+
+  let api = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());
+  let scw_verifier =
+    Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+      as Box<dyn SmartContractSignatureVerifier>);
+
+  let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)
+    .map_err(|e| Error::from_reason(e.to_string()))?;
+  let store = EncryptedMessageStore::new(db).map_err(|e| Error::from_reason(e.to_string()))?;
+
+  let state = inbox_addresses_with_verifier(
+    &api.clone(),
+    &store.db(),
+    inbox_ids.iter().map(String::as_str).collect(),
+    &scw_verifier,
+  )
+  .await
+  .map_err(ErrorWrapper::from)?;
+  Ok(state.into_iter().map(Into::into).collect())
 }
 
 #[napi]

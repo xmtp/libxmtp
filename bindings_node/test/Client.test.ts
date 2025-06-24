@@ -14,6 +14,7 @@ import {
   ConsentEntityType,
   ConsentState,
   IdentifierKind,
+  inboxStateFromInboxIds,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
@@ -319,6 +320,21 @@ describe('Client', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
+  })
+
+  it('should get inbox state statically', async () => {
+    const user = createUser()
+
+    const client1 = await createRegisteredClient(user)
+    user.uuid = v4()
+    const client2 = await createRegisteredClient(user)
+    user.uuid = v4()
+
+    const state = await inboxStateFromInboxIds(TEST_API_URL, [
+      client1.inboxId(),
+    ])
+    expect(state[0].inboxId).toBe(client1.inboxId())
+    expect(state[0].installations.length).toEqual(2)
   })
 
   it('should sign and verify with installation key', async () => {
