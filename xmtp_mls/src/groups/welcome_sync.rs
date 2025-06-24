@@ -85,12 +85,12 @@ where
                     }
                 }
                 if matches!(err, GroupError::Storage(Duplicate(WelcomeId(_)))) {
-                    tracing::error!(
-                        "### welcome failed to create group from welcome due to duplicate welcome ID: {}",
+                    tracing::warn!(
+                        "failed to create group from welcome due to duplicate welcome ID: {}",
                         err
                     );
                 } else {
-                    tracing::error!("### welcome failed to create group from welcome: {}", err);
+                    tracing::error!("failed to create group from welcome: {}", err);
                 }
 
                 Err(err)

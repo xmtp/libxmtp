@@ -539,32 +539,11 @@ where
                         self.context().inbox_id(),
                         intent.id
                     );
-                    let log_message = format!(
-                        concat!(
-                            "self msg -> inbox_id = {}, ",
-                            "installation_id = {}, ",
-                            "group_id = {}, ",
-                            "current_epoch = {}, ",
-                            "msg_epoch = {}, ",
-                            "msg_group_id = {}, ",
-                            "cursor = {}, ",
-                            "extracted sender inbox id: {}"
-                        ),
-                        self.context.inbox_id(),
-                        self.context.installation_id(),
-                        hex::encode(&self.group_id),
-                        mls_group.epoch().as_u64(),
-                        message_epoch.as_u64(),
-                        hex::encode(self.group_id.as_slice()),
-                        cursor,
-                        self.context.inbox_id(),
-                    );
+
                     let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                         &self.context,
                         &staged_commit,
                         mls_group,
-                        &intent.id.to_string(),
-                        &log_message,
                     )
                     .await;
                     let validated_commit = match maybe_validated_commit {
@@ -743,38 +722,12 @@ where
             self.context.inbox_id(),
             sender_inbox_id
         );
-        let log_message = format!(
-            concat!(
-                "inbox_id = {}, ",
-                "installation_id = {}, ",
-                "sender_inbox_id = {}, ",
-                "sender_installation_id = {}, ",
-                "group_id = {}, ",
-                "current_epoch = {}, ",
-                "msg_epoch = {}, ",
-                "msg_group_id = {}, ",
-                "cursor = {}, "
-            ),
-            self.context.inbox_id(),
-            self.context.installation_id(),
-            sender_inbox_id,
-            hex::encode(&sender_installation_id),
-            hex::encode(&self.group_id),
-            mls_group.epoch().as_u64(),
-            processed_message.epoch().as_u64(),
-            hex::encode(processed_message.group_id().as_slice()),
-            cursor
-        );
+
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let result = ValidatedCommit::from_staged_commit(
-                    &self.context,
-                    staged_commit,
-                    mls_group,
-                    &cursor.to_string(),
-                    &log_message,
-                )
-                .await;
+                let result =
+                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
+                        .await;
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
@@ -1767,11 +1720,6 @@ where
                     .context()
                     .db()
                     .mark_group_as_maybe_forked(&group_id, fork_details);
-                tracing::error!("###### set to forked");
-                tracing::error!(
-                    "### logs {:?}",
-                    self.debug_info().await.unwrap().local_commit_log
-                );
                 return epoch_validation_result;
             }
 
@@ -2143,7 +2091,6 @@ where
      * and the group has not been updated to include it.
      */
     pub(super) async fn add_missing_installations(&self) -> Result<(), GroupError> {
-        //todo-> make sure we only take care of our own installations not everyone
         let intent_data = self.get_membership_update_intent(&[], &[]).await?;
 
         // If there is nothing to do, stop here

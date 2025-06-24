@@ -679,7 +679,7 @@ where
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
                     if required_min_version > current_version {
-                        tracing::error!(
+                        tracing::warn!(
                             "Saving group from welcome as paused since version requirements are not met. \
                             Group ID: {}, \
                             Required version: {}, \
