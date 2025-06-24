@@ -50,7 +50,7 @@ use xmtp_id::{
 use xmtp_proto::prelude::XmtpTestClient;
 
 static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
-static TOXI_PORT: AtomicUsize = AtomicUsize::new(22000);
+static TOXI_PORT: AtomicUsize = AtomicUsize::new(40000);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -132,13 +132,10 @@ where
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
 
-        let mut api_addr = ApiUrls::LOCAL_ADDRESS.to_string();
+        let mut api_addr = format!("localhost:{}", ClientBuilder::local_port());
         let mut proxy = None;
 
         if self.proxy {
-            let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
-            let proxy_addr = format!("localhost:{}", ClientBuilder::local_port());
-
             let toxiproxy = TOXIPROXY
                 .get_or_init(|| async {
                     let toxiproxy = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
@@ -147,26 +144,26 @@ where
                 })
                 .await;
 
+            let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
+
             let result = toxiproxy
                 .populate(vec![
                     ProxyPack::new(
                         format!("Proxy {port}"),
-                        proxy_addr.clone(),
-                        format!("localhost:{}", ClientBuilder::local_port()),
+                        format!("[::]:{port}"),
+                        format!("node:{}", ClientBuilder::local_port()),
                     )
                     .await,
                 ])
                 .await
                 .unwrap();
 
-            let p = result.into_iter().nth(0).unwrap();
-            proxy = Some(p);
-
-            api_addr = format!("http://{proxy_addr}");
+            proxy = Some(result.into_iter().nth(0).unwrap());
+            api_addr = format!("localhost:{port}");
         }
 
         tracing::error!("{api_addr}");
-        let api_client = ClientBuilder::new_custom_api_client(&api_addr).await;
+        let api_client = ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
         let client = build_with_verifier(
             &self.owner,
             api_client,

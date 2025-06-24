@@ -36,7 +36,7 @@ where
 impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
     type Builder = crate::XmtpHttpApiClientBuilder;
     fn local_port() -> &'static str {
-        "5055"
+        "5555"
     }
 
     fn create_local_d14n() -> Self::Builder {
