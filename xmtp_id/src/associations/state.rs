@@ -66,7 +66,7 @@ pub struct AssociationState {
 impl std::fmt::Debug for AssociationState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut members = String::new();
-        for member in self.members.keys() {
+        for member in self.members().keys() {
             write!(members, "{:?}", member)?;
             write!(members, ",")?;
         }
@@ -151,7 +151,9 @@ impl AssociationState {
     }
 
     pub fn members(&self) -> Vec<Member> {
-        self.members.values().cloned().collect()
+        let mut sorted_members: Vec<_> = state.members().values().cloned().collect();
+        sorted_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
+        sorted_members
     }
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -163,7 +165,7 @@ impl AssociationState {
     }
 
     pub fn members_by_parent(&self, parent_id: &MemberIdentifier) -> Vec<Member> {
-        self.members
+        self.members()
             .values()
             .filter(|e| e.added_by_entity.eq(&Some(parent_id.clone())))
             .cloned()
@@ -171,7 +173,7 @@ impl AssociationState {
     }
 
     pub fn members_by_kind(&self, kind: MemberKind) -> Vec<Member> {
-        self.members
+        self.members()
             .values()
             .filter(|e| e.kind() == kind)
             .cloned()
@@ -179,7 +181,7 @@ impl AssociationState {
     }
 
     pub fn identifiers(&self) -> Vec<Identifier> {
-        self.members
+        self.members()
             .values()
             .cloned()
             .filter_map(|member| match member.identifier {
@@ -215,14 +217,14 @@ impl AssociationState {
 
     pub fn diff(&self, new_state: &Self) -> AssociationStateDiff {
         let new_members: Vec<MemberIdentifier> = new_state
-            .members
+            .members()
             .keys()
             .filter(|new_member_identifier| !self.members.contains_key(new_member_identifier))
             .cloned()
             .collect();
 
         let removed_members: Vec<MemberIdentifier> = self
-            .members
+            .members()
             .keys()
             .filter(|existing_member_identifier| {
                 !new_state.members.contains_key(existing_member_identifier)
@@ -240,7 +242,7 @@ impl AssociationState {
     /// of the inbox at the current state.
     pub fn as_diff(&self) -> AssociationStateDiff {
         AssociationStateDiff {
-            new_members: self.members.keys().cloned().collect(),
+            new_members: self.members().keys().cloned().collect(),
             removed_members: vec![],
         }
     }
