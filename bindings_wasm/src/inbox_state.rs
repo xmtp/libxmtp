@@ -1,10 +1,17 @@
 use crate::{client::Client, identity::Identifier};
 use js_sys::Uint8Array;
 use std::collections::HashMap;
+use std::sync::Arc;
 use wasm_bindgen::{prelude::wasm_bindgen, JsError, JsValue};
+use xmtp_api::strategies;
+use xmtp_api::ApiClientWrapper;
+use xmtp_api_http::XmtpHttpApiClient;
+use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{ident, AssociationState, MemberIdentifier};
-use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
+use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_mls::client::inbox_addresses_with_verifier;
+use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
