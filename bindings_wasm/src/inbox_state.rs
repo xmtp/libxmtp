@@ -145,7 +145,7 @@ pub async fn inbox_state_from_inbox_ids(
     inbox_ids.iter().map(String::as_str).collect(),
     &scw_verifier,
   )
-  .await?
+  .await
   .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
   Ok(state.into_iter().map(Into::into).collect())
 }
