@@ -699,11 +699,13 @@ where
             );
 
             // Create a GroupUpdated payload
-            let inbox_id = context.inbox_id();
+            let current_credential = context.credential();
             let other_installations_with_same_inbox = mls_group
                 .members()
-                .filter(|member| member.inbox_id == inbox_id && member.installation_id != context.installation_id())
+                .filter(|member| member.credential == current_credential)
                 .count();
+            tracing::error!("LOPI {}", other_installations_with_same_inbox);
+
             if other_installations_with_same_inbox == 0 {
                 let current_inbox_id = context.inbox_id().to_string();
                 let added_payload = GroupUpdated {
