@@ -7,11 +7,14 @@ async fn test_bad_network() {
     tester!(alix, proxy);
     tester!(bo);
 
+    // Cut the network connection and make a group with members
     alix.proxy().disable().await?;
     let result = alix
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await;
 
+    // The group should be created, but an error should be reported from trying to add members
+    // without a network connection.
     assert!(result.is_err());
 
     // The group should still be created, even though the add members request didn't go through.

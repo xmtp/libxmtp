@@ -162,7 +162,6 @@ where
             api_addr = format!("localhost:{port}");
         }
 
-        tracing::error!("{api_addr}");
         let api_client = ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
         let client = build_with_verifier(
             &self.owner,
