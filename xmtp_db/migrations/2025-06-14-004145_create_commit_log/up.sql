@@ -10,6 +10,7 @@ CREATE TABLE local_commit_log (
     -- Whether the commit was successfully applied or not
     -- 1 = Applied, all other values are failures matching the protobuf
     "commit_result" INT NOT NULL,
+    "error_message" TEXT,
     -- Items below this line are only set if the commit was applied
     "applied_epoch_number" BIGINT,
     "applied_epoch_authenticator" BLOB,

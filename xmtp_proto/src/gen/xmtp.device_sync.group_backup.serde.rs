@@ -218,62 +218,62 @@ impl serde::Serialize for GroupSave {
         if self.created_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdAtNs", ToString::to_string(&self.created_at_ns).as_str())?;
+            struct_ser.serialize_field("created_at_ns", ToString::to_string(&self.created_at_ns).as_str())?;
         }
         if self.membership_state != 0 {
             let v = GroupMembershipStateSave::try_from(self.membership_state)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.membership_state)))?;
-            struct_ser.serialize_field("membershipState", &v)?;
+            struct_ser.serialize_field("membership_state", &v)?;
         }
         if self.installations_last_checked != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("installationsLastChecked", ToString::to_string(&self.installations_last_checked).as_str())?;
+            struct_ser.serialize_field("installations_last_checked", ToString::to_string(&self.installations_last_checked).as_str())?;
         }
         if !self.added_by_inbox_id.is_empty() {
-            struct_ser.serialize_field("addedByInboxId", &self.added_by_inbox_id)?;
+            struct_ser.serialize_field("added_by_inbox_id", &self.added_by_inbox_id)?;
         }
         if let Some(v) = self.welcome_id.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("welcomeId", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("welcome_id", ToString::to_string(&v).as_str())?;
         }
         if self.rotated_at_ns != 0 {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("rotatedAtNs", ToString::to_string(&self.rotated_at_ns).as_str())?;
+            struct_ser.serialize_field("rotated_at_ns", ToString::to_string(&self.rotated_at_ns).as_str())?;
         }
         if self.conversation_type != 0 {
             let v = ConversationTypeSave::try_from(self.conversation_type)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.conversation_type)))?;
-            struct_ser.serialize_field("conversationType", &v)?;
+            struct_ser.serialize_field("conversation_type", &v)?;
         }
         if let Some(v) = self.dm_id.as_ref() {
-            struct_ser.serialize_field("dmId", v)?;
+            struct_ser.serialize_field("dm_id", v)?;
         }
         if let Some(v) = self.last_message_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastMessageNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("last_message_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.message_disappear_from_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("messageDisappearFromNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("message_disappear_from_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.message_disappear_in_ns.as_ref() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("messageDisappearInNs", ToString::to_string(&v).as_str())?;
+            struct_ser.serialize_field("message_disappear_in_ns", ToString::to_string(&v).as_str())?;
         }
         if let Some(v) = self.metadata.as_ref() {
             struct_ser.serialize_field("metadata", v)?;
         }
         if let Some(v) = self.mutable_metadata.as_ref() {
-            struct_ser.serialize_field("mutableMetadata", v)?;
+            struct_ser.serialize_field("mutable_metadata", v)?;
         }
         if let Some(v) = self.paused_for_version.as_ref() {
-            struct_ser.serialize_field("pausedForVersion", v)?;
+            struct_ser.serialize_field("paused_for_version", v)?;
         }
         struct_ser.end()
     }
@@ -332,6 +332,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
             Metadata,
             MutableMetadata,
             PausedForVersion,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -368,7 +369,7 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             "metadata" => Ok(GeneratedField::Metadata),
                             "mutableMetadata" | "mutable_metadata" => Ok(GeneratedField::MutableMetadata),
                             "pausedForVersion" | "paused_for_version" => Ok(GeneratedField::PausedForVersion),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -510,6 +511,9 @@ impl<'de> serde::Deserialize<'de> for GroupSave {
                             }
                             paused_for_version__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(GroupSave {
@@ -547,7 +551,7 @@ impl serde::Serialize for ImmutableMetadataSave {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.device_sync.group_backup.ImmutableMetadataSave", len)?;
         if !self.creator_inbox_id.is_empty() {
-            struct_ser.serialize_field("creatorInboxId", &self.creator_inbox_id)?;
+            struct_ser.serialize_field("creator_inbox_id", &self.creator_inbox_id)?;
         }
         struct_ser.end()
     }
@@ -566,6 +570,7 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             CreatorInboxId,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -588,7 +593,7 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
                     {
                         match value {
                             "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -615,6 +620,9 @@ impl<'de> serde::Deserialize<'de> for ImmutableMetadataSave {
                                 return Err(serde::de::Error::duplicate_field("creatorInboxId"));
                             }
                             creator_inbox_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -648,10 +656,10 @@ impl serde::Serialize for MutableMetadataSave {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
         if !self.admin_list.is_empty() {
-            struct_ser.serialize_field("adminList", &self.admin_list)?;
+            struct_ser.serialize_field("admin_list", &self.admin_list)?;
         }
         if !self.super_admin_list.is_empty() {
-            struct_ser.serialize_field("superAdminList", &self.super_admin_list)?;
+            struct_ser.serialize_field("super_admin_list", &self.super_admin_list)?;
         }
         struct_ser.end()
     }
@@ -675,6 +683,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
             Attributes,
             AdminList,
             SuperAdminList,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -699,7 +708,7 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "adminList" | "admin_list" => Ok(GeneratedField::AdminList),
                             "superAdminList" | "super_admin_list" => Ok(GeneratedField::SuperAdminList),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -742,6 +751,9 @@ impl<'de> serde::Deserialize<'de> for MutableMetadataSave {
                                 return Err(serde::de::Error::duplicate_field("superAdminList"));
                             }
                             super_admin_list__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

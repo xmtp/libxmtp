@@ -1,19 +1,17 @@
 use crate::conversations::{ConversationDebugInfo, Conversations};
 use crate::identity::{ApiStats, Identifier, IdentityExt, IdentityStats};
 use crate::inbox_state::InboxState;
-use crate::signatures::SignatureRequestType;
+use crate::signatures::SignatureRequestHandle;
 use crate::ErrorWrapper;
 use napi::bindgen_prelude::{Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
-use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
@@ -28,17 +26,12 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 #[napi]
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
-  signature_requests: Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>>,
   pub account_identifier: Identifier,
 }
 
 impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
-  }
-
-  pub fn signature_requests(&self) -> &Arc<Mutex<HashMap<SignatureRequestType, SignatureRequest>>> {
-    &self.signature_requests
   }
 }
 
@@ -216,7 +209,6 @@ pub async fn create_client(
   Ok(Client {
     inner_client: Arc::new(xmtp_client),
     account_identifier: root_identifier,
-    signature_requests: Arc::new(Mutex::new(HashMap::new())),
   })
 }
 
@@ -274,26 +266,20 @@ impl Client {
   }
 
   #[napi]
-  pub async fn register_identity(&self) -> Result<()> {
+  pub async fn register_identity(&self, signature_request: &SignatureRequestHandle) -> Result<()> {
     if self.is_registered() {
       return Err(Error::from_reason(
         "An identity is already registered with this client",
       ));
     }
 
-    let mut signature_requests = self.signature_requests.lock().await;
-
-    let signature_request = signature_requests
-      .get(&SignatureRequestType::CreateInbox)
-      .ok_or(Error::from_reason("No signature request found"))?;
+    let inner = signature_request.inner().lock().await;
 
     self
       .inner_client
-      .register_identity(signature_request.clone())
+      .register_identity(inner.clone())
       .await
       .map_err(ErrorWrapper::from)?;
-
-    signature_requests.remove(&SignatureRequestType::CreateInbox);
 
     Ok(())
   }

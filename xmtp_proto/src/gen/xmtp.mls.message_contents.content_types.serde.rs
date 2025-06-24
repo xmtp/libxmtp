@@ -30,6 +30,7 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Attachments,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -52,7 +53,7 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                     {
                         match value {
                             "attachments" => Ok(GeneratedField::Attachments),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -79,6 +80,9 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                                 return Err(serde::de::Error::duplicate_field("attachments"));
                             }
                             attachments__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -269,7 +273,7 @@ impl serde::Serialize for ReactionV2 {
             struct_ser.serialize_field("reference", &self.reference)?;
         }
         if !self.reference_inbox_id.is_empty() {
-            struct_ser.serialize_field("referenceInboxId", &self.reference_inbox_id)?;
+            struct_ser.serialize_field("reference_inbox_id", &self.reference_inbox_id)?;
         }
         if self.action != 0 {
             let v = ReactionAction::try_from(self.action)
@@ -309,6 +313,7 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
             Action,
             Content,
             Schema,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -335,7 +340,7 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
                             "action" => Ok(GeneratedField::Action),
                             "content" => Ok(GeneratedField::Content),
                             "schema" => Ok(GeneratedField::Schema),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -391,6 +396,9 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
                             }
                             schema__ = Some(map_.next_value::<ReactionSchema>()? as i32);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ReactionV2 {
@@ -439,7 +447,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.RemoteAttachmentInfo", len)?;
         if !self.content_digest.is_empty() {
-            struct_ser.serialize_field("contentDigest", &self.content_digest)?;
+            struct_ser.serialize_field("content_digest", &self.content_digest)?;
         }
         if !self.secret.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -463,7 +471,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if let Some(v) = self.content_length.as_ref() {
-            struct_ser.serialize_field("contentLength", v)?;
+            struct_ser.serialize_field("content_length", v)?;
         }
         if let Some(v) = self.filename.as_ref() {
             struct_ser.serialize_field("filename", v)?;
@@ -500,6 +508,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             Url,
             ContentLength,
             Filename,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -529,7 +538,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                             "url" => Ok(GeneratedField::Url),
                             "contentLength" | "content_length" => Ok(GeneratedField::ContentLength),
                             "filename" => Ok(GeneratedField::Filename),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -613,6 +622,9 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                                 return Err(serde::de::Error::duplicate_field("filename"));
                             }
                             filename__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }

@@ -15,7 +15,7 @@ impl MlsGroupReload for OpenMlsGroup {
         &mut self,
         provider: &XmtpOpenMlsProvider<C>,
     ) -> Result<(), GroupMessageProcessingError> {
-        *self = OpenMlsGroup::load(provider.key_store(), &self.group_id())?
+        *self = OpenMlsGroup::load(provider.key_store(), self.group_id())?
             .ok_or(StorageError::NotFound(NotFound::MlsGroup))?;
         Ok(())
     }

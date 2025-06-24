@@ -57,7 +57,7 @@ pub trait SmartContractSignatureVerifier: Send + Sync {
 
 #[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-pub trait SmartContractSignatureVerifier {
+pub trait SmartContractSignatureVerifier: Send + Sync {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
     ///
     /// # Arguments

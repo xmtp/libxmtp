@@ -31,6 +31,7 @@ test-utils = [
   "dep:futures-executor",
   "dep:mockall",
   "dep:rstest",
+  "dep:toxiproxy_rust",
 ]
 bench = [
   "test-utils",
@@ -106,6 +107,7 @@ xmtp_api_http = { path = "../xmtp_api_http", optional = true }
 criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
+toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -153,6 +155,7 @@ passkey = { version = "0.4" }
 public-suffix = { version = "0.1.2" }
 rstest = { workspace = true, features = ["async-timeout"] }
 rstest_reuse = { workspace = true }
+toxiproxy_rust = { workspace = true }
 url = { workspace = true }
 wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
