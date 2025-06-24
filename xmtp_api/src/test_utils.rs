@@ -230,6 +230,8 @@ mod wasm {
         #[async_trait::async_trait(?Send)]
         impl XmtpTestClient for ApiClient {
             type Builder = MockApiBuilder;
+            fn local_port() -> &'static str;
+            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_d14n() -> MockApiBuilder { MockApiBuilder }

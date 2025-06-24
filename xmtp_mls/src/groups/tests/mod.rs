@@ -1,6 +1,7 @@
 mod test_consent;
 mod test_dm;
 mod test_key_updates;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 
 #[cfg(target_arch = "wasm32")]
