@@ -767,9 +767,14 @@ where
         );
         let validated_commit = match &processed_message.content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                let result =
-                    ValidatedCommit::from_staged_commit(&self.context, staged_commit, mls_group)
-                        .await;
+                let result = ValidatedCommit::from_staged_commit(
+                    &self.context,
+                    staged_commit,
+                    mls_group,
+                    &cursor.to_string(),
+                    &log_message,
+                )
+                .await;
 
                 let validated_commit = match result {
                     Err(e) if !e.is_retryable() => {
@@ -1220,18 +1225,20 @@ where
                     intent.kind
                 );
 
-                    let message = message.into();
-                    // TODO: the return type of stage_and_validated_commit should be fixed
-                    // We should never be nesting Result types within the error return type, it is
-                    // super confusing. Instead of failing one way, this function can now fail
-                    // in four ways with ambiguous meaning:
-                    //  - Be OK but produce a null pointer (None) -- what does this mean?
-                    //  - Be Ok but produce a staged commit and validated commit
-                    //  - be an Error but produce a valid intent state?
-                    //  - be an error and produce a GroupMessage Processing Error
-                    let maybe_validated_commit = self.stage_and_validate_intent(&mls_group, &intent, &message, envelope).await;
+                let message = message.into();
+                // TODO: the return type of stage_and_validated_commit should be fixed
+                // We should never be nesting Result types within the error return type, it is
+                // super confusing. Instead of failing one way, this function can now fail
+                // in four ways with ambiguous meaning:
+                //  - Be OK but produce a null pointer (None) -- what does this mean?
+                //  - Be Ok but produce a staged commit and validated commit
+                //  - be an Error but produce a valid intent state?
+                //  - be an error and produce a GroupMessage Processing Error
+                let maybe_validated_commit = self
+                    .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
+                    .await;
 
-                    provider.transaction(|provider| {
+                provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",

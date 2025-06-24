@@ -72,7 +72,6 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_db::local_commit_log::NewLocalCommitLog;
-use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::remote_commit_log::CommitResult::Success;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
@@ -581,6 +580,7 @@ where
             commit_sequence_id: welcome.id as i64,
             last_epoch_authenticator: vec![],
             commit_result: Success,
+            error_message: None,
             applied_epoch_number: Some(
                 staged_welcome
                     .public_group()
@@ -602,6 +602,7 @@ where
             commit_sequence_id: welcome.id as i64,
             last_epoch_authenticator: vec![],
             commit_result: Success,
+            error_message: None,
             applied_epoch_number: Some(
                 staged_welcome
                     .public_group()
@@ -742,6 +743,7 @@ where
                 commit_sequence_id: welcome.id as i64,
                 last_epoch_authenticator: vec![],
                 commit_result: Success,
+                error_message: None,
                 applied_epoch_number: Some(mls_group.epoch().as_u64() as i64), // For debugging purposes
                 applied_epoch_authenticator: None,
                 sender_inbox_id: Some(stored_group.clone().added_by_inbox_id),

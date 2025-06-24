@@ -27,7 +27,6 @@ use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::local_commit_log::NewLocalCommitLog;
-use xmtp_db::refresh_state::EntityKind;
 use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -489,6 +488,7 @@ where
             commit_sequence_id: 0 as i64,
             last_epoch_authenticator: vec![],
             commit_result: CommitResult::Success,
+            error_message: None,
             applied_epoch_number: None,
             applied_epoch_authenticator: None,
             sender_inbox_id: Some("Self".to_string()),

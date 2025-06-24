@@ -59,9 +59,10 @@ where
                             commit_sequence_id: welcome.id as i64,
                             last_epoch_authenticator: vec![],
                             commit_result: CommitResult::Invalid,
+                            error_message: Some(err.to_string()),
                             applied_epoch_number: None,
                             applied_epoch_authenticator: None,
-                            sender_inbox_id: Some(err.to_string()),
+                            sender_inbox_id: None,
                             sender_installation_id: None,
                             commit_type: Some("Welcome Rejected".into()),
                         }
@@ -73,9 +74,10 @@ where
                             commit_sequence_id: welcome.id as i64,
                             last_epoch_authenticator: vec![],
                             commit_result: CommitResult::Invalid,
+                            error_message: Some(err.to_string()),
                             applied_epoch_number: None,
                             applied_epoch_authenticator: None,
-                            sender_inbox_id: Some(err.to_string()),
+                            sender_inbox_id: None,
                             sender_installation_id: None,
                             commit_type: Some("Welcome Rejected".into()),
                         }
