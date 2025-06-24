@@ -40,6 +40,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::common::group::DMMetadataOptions;
 use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
@@ -113,6 +114,31 @@ pub async fn connect_to_backend(
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
     let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
+}
+
+/**
+ * Static Get the inbox state for each `inbox_id`.
+ */
+pub async fn inbox_state_from_inbox_ids(
+    api: Arc<XmtpApiClient>,
+    inbox_ids: Vec<String>,
+) -> Result<Vec<FfiInboxState>, GenericError> {
+    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+        as Box<dyn SmartContractSignatureVerifier>);
+
+    let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
+    let store = EncryptedMessageStore::new(db)?;
+
+    let state = inbox_addresses_with_verifier(
+        &api.clone(),
+        &store.db(),
+        inbox_ids.iter().map(String::as_str).collect(),
+        &scw_verifier,
+    )
+    .await?;
+    Ok(state.into_iter().map(Into::into).collect())
 }
 
 /**
@@ -2951,6 +2977,7 @@ mod tests {
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        inbox_state_from_inbox_ids,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
@@ -8560,5 +8587,28 @@ mod tests {
 
         let client_a_state_after = client_a.inbox_state(true).await.unwrap();
         assert_eq!(client_a_state_after.installations.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_can_get_inbox_state_statically() {
+        let alix_wallet = PrivateKeySigner::random();
+        let alix = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+        assert_eq!(state[0].installations.len(), 3);
     }
 }
