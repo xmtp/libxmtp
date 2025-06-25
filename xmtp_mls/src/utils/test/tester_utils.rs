@@ -270,6 +270,7 @@ where
     pub events: bool,
     pub version: Option<VersionInfo>,
     pub proxy: bool,
+    pub fork_recovery_enabled: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -290,6 +291,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             events: false,
             version: None,
             proxy: false,
+            fork_recovery_enabled: false,
         }
     }
 }
@@ -312,6 +314,7 @@ where
             events: self.events,
             version: self.version,
             proxy: self.proxy,
+            fork_recovery_enabled: self.fork_recovery_enabled,
         }
     }
 
@@ -380,6 +383,13 @@ where
 
     pub fn sync_mode(self, sync_mode: SyncWorkerMode) -> Self {
         Self { sync_mode, ..self }
+    }
+
+    pub fn fork_recovery(self) -> Self {
+        Self {
+            fork_recovery_enabled: true,
+            ..self
+        }
     }
 }
 

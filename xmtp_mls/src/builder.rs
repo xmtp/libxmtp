@@ -3,6 +3,7 @@ use crate::{
     context::XmtpMlsLocalContext,
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
+        fork_recovery::worker::ForkRecoveryWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
     },
     identity::{Identity, IdentityStrategy},
@@ -220,6 +221,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
         workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);
         workers.register_new_worker::<DisappearingMessagesWorker<ApiClient, Db>, _>(&context);
+        workers.register_new_worker::<ForkRecoveryWorker<ApiClient, Db>, _>(&context);
         workers.spawn();
         let client = Client {
             context,

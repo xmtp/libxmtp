@@ -14,6 +14,7 @@ pub enum WorkerKind {
     DisappearingMessages,
     KeyPackageCleaner,
     Event,
+    ForkRecovery,
 }
 
 #[derive(Clone, Default)]

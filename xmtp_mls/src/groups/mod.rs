@@ -8,6 +8,7 @@ pub mod members;
 pub mod welcome_sync;
 
 pub mod disappearing_messages;
+pub mod fork_recovery;
 pub mod key_package_cleaner_worker;
 pub(super) mod mls_ext;
 pub(super) mod mls_sync;
