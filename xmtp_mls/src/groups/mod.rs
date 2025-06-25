@@ -1028,10 +1028,14 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
-        inbox_ids: &[S],
+        inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids
+            .as_ref()
+            .iter()
+            .map(AsIdRef::as_ref)
+            .collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;
