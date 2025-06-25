@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -8,7 +6,7 @@ use openmls::{
 };
 use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
 use prost::Message;
-use tls_codec::{Deserialize, Serialize, TlsVecU8};
+use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::mls_v1::WelcomeMetadata;
 
 use crate::{
@@ -151,13 +149,8 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
     }
 }
 
-fn deserialize_welcome_metadata(
-    metadata_bytes: &mut Vec<u8>,
-) -> Result<WelcomeMetadata, ClientError> {
-    let mut cursor = Cursor::new(metadata_bytes);
-    let deserialized = TlsVecU8::<u8>::tls_deserialize(&mut cursor)
-        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
-    let metadata = WelcomeMetadata::decode(deserialized.as_slice())
+fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, ClientError> {
+    let metadata = WelcomeMetadata::decode(metadata_bytes)
         .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
     Ok(metadata)
 }
