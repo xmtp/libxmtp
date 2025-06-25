@@ -54,12 +54,12 @@ impl DecryptedWelcome {
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         if !encrypted_welcome_metadata_bytes.is_empty() {
-            let mut metadata_bytes = unwrap_welcome(
+            let metadata_bytes = unwrap_welcome(
                 encrypted_welcome_metadata_bytes,
                 &private_key,
                 wrapper_ciphersuite,
             )?;
-            welcome_metadata = Some(deserialize_welcome_metadata(&mut metadata_bytes)?);
+            welcome_metadata = Some(deserialize_welcome_metadata(&metadata_bytes)?);
         }
 
         let join_config = build_group_join_config();
