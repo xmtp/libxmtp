@@ -50,7 +50,7 @@ use xmtp_id::{
 use xmtp_proto::prelude::XmtpTestClient;
 
 static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
-static TOXI_PORT: AtomicUsize = AtomicUsize::new(40000);
+static TOXI_PORT: AtomicUsize = AtomicUsize::new(37500);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.

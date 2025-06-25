@@ -52,6 +52,6 @@ services:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     ports:
       - 8474:8474
-      - 40000-40100:40000-40100
+      - 37500-37600:37500-37600
     depends_on:
       - node
