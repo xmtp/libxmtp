@@ -922,8 +922,10 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_identifiers: &[Identifier],
+        account_identifiers: impl AsRef<[Identifier]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
+        let account_identifiers = account_identifiers.as_ref();
+
         // Fetch the associated inbox_ids
         let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<Identifier, String> = self
@@ -961,10 +963,14 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
-        inbox_ids: &[S],
+        inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids
+            .as_ref()
+            .iter()
+            .map(AsIdRef::as_ref)
+            .collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;

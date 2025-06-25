@@ -7150,7 +7150,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 [[package]]
 name = "toxiproxy_rust"
 version = "0.1.6"
-source = "git+https://github.com/ephemeraHQ/toxiproxy_rust.git#7620d968f41052c979cf228fa661ce6a4fa2c7fc"
+source = "git+https://github.com/ephemeraHQ/toxiproxy_rust.git#b82f61cbc44a2ddcca0bcfd31f0406df7fc16af8"
 dependencies = [
  "http 0.2.12",
  "lazy_static",

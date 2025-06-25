@@ -48,4 +48,13 @@ where
 
         Ok(msg)
     }
+
+    pub fn test_last_message_eq(&self, msg_bytes: &[u8]) -> Result<bool, TestError> {
+        let mut msgs = self.find_messages(&MsgQueryArgs::default())?;
+        let Some(last_msg) = msgs.pop() else {
+            return Ok(false);
+        };
+
+        Ok(last_msg.decrypted_message_bytes == msg_bytes)
+    }
 }

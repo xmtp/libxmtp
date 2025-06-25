@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use xmtp_api::XmtpApi;
-use xmtp_db::XmtpDb;
+use xmtp_db::{group_message::MsgQueryArgs, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
@@ -18,6 +18,34 @@ where
     ApiClient: XmtpApi,
     Db: XmtpDb + Send + Sync,
 {
+    pub async fn test_talk_in_new_group_with(
+        &self,
+        others: &[&Self],
+    ) -> Result<(MlsGroup<ApiClient, Db>, Vec<MlsGroup<ApiClient, Db>>), TestError> {
+        let group = self
+            .create_group_with_inbox_ids(
+                &others.iter().map(|s| s.inbox_id()).collect::<Vec<_>>(),
+                None,
+                None,
+            )
+            .await?;
+
+        let text = b"hello there";
+        group.send_message(text).await?;
+
+        let mut other_groups = vec![];
+        for other in others {
+            other.sync_welcomes().await?;
+            let other_g = other.group(&group.group_id)?;
+            other_g.sync().await?;
+            let messages = other_g.find_messages(&MsgQueryArgs::default())?;
+            assert!(messages.iter().any(|m| m.decrypted_message_bytes == text));
+            other_groups.push(other_g);
+        }
+
+        Ok((group, other_groups))
+    }
+
     /// Creates a DM with the other client, sends a message, and ensures delivery,
     /// returning the created dm and sent message contents
     pub async fn test_talk_in_dm_with(
