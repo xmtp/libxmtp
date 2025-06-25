@@ -581,6 +581,7 @@ where
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
+        let should_send = should_send_group_update_message(&context, &staged_welcome).await?;
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -699,13 +700,7 @@ where
             );
 
             // Create a GroupUpdated payload
-            let current_credential = context.credential();
-            let other_installations_with_same_inbox = mls_group
-                .members()
-                .filter(|member| member.credential == current_credential)
-                .count();
-
-            if other_installations_with_same_inbox <= 1 && metadata.creator_inbox_id != context.inbox_id() {
+            if should_send && metadata.creator_inbox_id != context.inbox_id() {
                 let current_inbox_id = context.inbox_id().to_string();
                 let added_payload = GroupUpdated {
                     initiated_by_inbox_id: added_by_inbox_id.clone(),
@@ -2027,6 +2022,75 @@ where
     tracing::info!("Group membership validated");
 
     Ok(())
+}
+
+/// Determines whether the recipient should receive a GroupWelcome message based on their inbox membership status.
+/// - Returns Ok(true) if this inbox is a new addition to the group (send message).
+/// - Returns Ok(false) if only a new installation is being added (no message needed).
+/// - Returns Err if the inbox shouldn't be part of this group at all.
+async fn should_send_group_update_message<ApiClient, Db>(
+    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    staged_welcome: &StagedWelcome,
+) -> Result<bool, GroupError>
+where
+    ApiClient: XmtpApi,
+    Db: XmtpDb,
+{
+    let recipient_inbox_id = context.inbox_id();
+    let provider = context.mls_provider();
+    let conn = provider.db();
+    tracing::info!("Determining if recipient should receive GroupWelcome");
+
+    let extensions = staged_welcome.public_group().group_context().extensions();
+    let membership = extract_group_membership(extensions)?;
+
+    // If recipient's inbox is not in the membership list, they shouldn't be getting this welcome
+    let Some(sequence_id) = membership.members.get(recipient_inbox_id) else {
+        return Ok(false);
+    };
+
+    // Update identity state for this inbox if needed
+    let needs_update =
+        conn.filter_inbox_ids_needing_updates(&[(recipient_inbox_id, *sequence_id as i64)])?;
+    if !needs_update.is_empty() {
+        load_identity_updates(context.api(), conn, &[recipient_inbox_id]).await?;
+    }
+
+    // Get known installations for this inbox at or before the recorded sequence
+    let identity_updates = IdentityUpdates::new(context.clone());
+    let association_state = identity_updates
+        .get_association_state(conn, recipient_inbox_id, Some(*sequence_id as i64))
+        .await?;
+
+    // Expected installations from known identity state
+    let mut expected_installation_ids: HashSet<Vec<u8>> =
+        association_state.installation_ids().into_iter().collect();
+
+    // Remove failed installations
+    expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
+
+    // Actual members in the current public group
+    let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
+        .public_group()
+        .members()
+        .map(|member| member.signature_key)
+        .collect();
+
+    // If no known installations, this inbox is newly added — send message
+    if expected_installation_ids.is_empty() {
+        tracing::info!("Inbox is newly added to group — should send GroupWelcome");
+        return Ok(true);
+    }
+
+    // If known installations exist, but new installations present — updated member, no message needed
+    if !actual_installation_ids.is_subset(&expected_installation_ids) {
+        tracing::info!("New installation(s) for existing inbox — no GroupWelcome message needed");
+        return Ok(false);
+    }
+
+    // Otherwise, nothing new — no message needed
+    tracing::info!("No changes to known installations — no GroupWelcome message needed");
+    Ok(false)
 }
 
 fn validate_dm_group(
