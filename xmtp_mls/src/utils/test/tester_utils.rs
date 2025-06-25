@@ -21,9 +21,18 @@ use passkey::{
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, LazyLock,
+    },
+};
+use tokio::{runtime::Handle, sync::OnceCell};
+use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
+use xmtp_api_http::{constants::ApiUrls, LOCALHOST_ADDRESS};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
@@ -40,6 +49,9 @@ use xmtp_id::{
 };
 use xmtp_proto::prelude::XmtpTestClient;
 
+static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
+static TOXI_PORT: AtomicUsize = AtomicUsize::new(21100);
+
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 pub struct Tester<Owner, Client>
@@ -51,6 +63,7 @@ where
     pub provider: Arc<XmtpOpenMlsProvider>,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
+    pub proxy: Option<Proxy>,
     /// Replacement names for this tester
     /// Replacements are removed on drop
     pub replace: TestLogReplace,
@@ -118,7 +131,38 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-        let api_client = ClientBuilder::new_api_client().await;
+
+        let mut api_addr = format!("localhost:{}", ClientBuilder::local_port());
+        let mut proxy = None;
+
+        if self.proxy {
+            let toxiproxy = TOXIPROXY
+                .get_or_init(|| async {
+                    let toxiproxy = toxiproxy_rust::client::Client::new("0.0.0.0:8474");
+                    toxiproxy.reset().await.unwrap();
+                    toxiproxy
+                })
+                .await;
+
+            let port = TOXI_PORT.fetch_add(1, Ordering::SeqCst);
+
+            let result = toxiproxy
+                .populate(vec![
+                    ProxyPack::new(
+                        format!("Proxy {port}"),
+                        format!("[::]:{port}"),
+                        format!("node:{}", ClientBuilder::local_port()),
+                    )
+                    .await,
+                ])
+                .await
+                .unwrap();
+
+            proxy = Some(result.into_iter().nth(0).unwrap());
+            api_addr = format!("localhost:{port}");
+        }
+
+        let api_client = ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
         let client = build_with_verifier(
             &self.owner,
             api_client,
@@ -153,6 +197,7 @@ where
             worker,
             replace,
             stream_handle: None,
+            proxy,
         };
 
         if self.stream {
@@ -194,6 +239,10 @@ where
     pub fn worker(&self) -> &Arc<WorkerMetrics<SyncMetric>> {
         self.worker.as_ref().unwrap()
     }
+
+    pub fn proxy(&self) -> &Proxy {
+        self.proxy.as_ref().unwrap()
+    }
 }
 
 impl<Owner, Client> Deref for Tester<Owner, Client>
@@ -220,6 +269,7 @@ where
     pub name: Option<String>,
     pub events: bool,
     pub version: Option<VersionInfo>,
+    pub proxy: bool,
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -239,6 +289,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             name: None,
             events: false,
             version: None,
+            proxy: false,
         }
     }
 }
@@ -260,6 +311,7 @@ where
             name: self.name,
             events: self.events,
             version: self.version,
+            proxy: self.proxy,
         }
     }
 
@@ -301,6 +353,13 @@ where
     pub fn stream(self) -> Self {
         Self {
             stream: true,
+            ..self
+        }
+    }
+
+    pub fn proxy(self) -> Self {
+        Self {
+            proxy: true,
             ..self
         }
     }

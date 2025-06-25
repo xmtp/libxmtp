@@ -289,6 +289,8 @@ pub mod mock {
 
         impl XmtpTestClient for MockClient {
             type Builder = MockApiBuilder;
+            fn local_port() -> &'static str;
+            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }
@@ -321,6 +323,8 @@ pub mod mock {
 
         impl XmtpTestClient for MockClient {
             type Builder = MockApiBuilder;
+            fn local_port() -> &'static str;
+            fn create_custom(addr: &str) -> MockApiBuilder { MockApiBuilder }
             fn create_local() -> MockApiBuilder { MockApiBuilder }
             fn create_dev() -> MockApiBuilder { MockApiBuilder }
             fn create_local_payer() -> MockApiBuilder { MockApiBuilder }

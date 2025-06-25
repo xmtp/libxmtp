@@ -45,7 +45,7 @@
     "@xmtp/content-type-group-updated": "^2.0.2",
     "@xmtp/content-type-text": "^2.0.2",
     "fast-glob": "^3.3.3",
-    "prettier": "^3.5.0",
+    "prettier": "^3.6.0",
     "prettier-plugin-packagejson": "^2.5.8",
     "tsx": "^4.20.3",
     "typescript": "^5.8.2",
