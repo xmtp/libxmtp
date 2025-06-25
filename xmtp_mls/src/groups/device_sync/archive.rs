@@ -7,10 +7,9 @@ use futures::StreamExt;
 use std::sync::Arc;
 use xmtp_api::XmtpApi;
 pub use xmtp_archive::*;
-use xmtp_db::{
-    consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, MlsProviderExt, StoreOrIgnore, XmtpDb,
-};
+use xmtp_db::{consent_record::StoredConsentRecord, group::GroupMembershipState, group_message::StoredGroupMessage, MlsProviderExt, Store, StoreOrIgnore, XmtpDb};
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
 
@@ -61,6 +60,20 @@ where
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
+            NewLocalCommitLog {
+                group_id: save.id.clone(),
+                commit_sequence_id: 0 as i64,
+                last_epoch_authenticator: vec![],
+                commit_result: CommitResult::Success,
+                error_message: None,
+                applied_epoch_number: None,
+                applied_epoch_authenticator: None,
+                sender_inbox_id: Some("Self".to_string()),
+                sender_installation_id: None,
+                commit_type: Some("Imported".into()),
+            }
+                .store(&context.db())?;
+            
             MlsGroup::insert(
                 context,
                 Some(&save.id),

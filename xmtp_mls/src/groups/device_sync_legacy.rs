@@ -22,6 +22,8 @@ use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
 use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::{
@@ -347,6 +349,19 @@ where
         for syncable in payload {
             match syncable {
                 Syncable::Group(group) => {
+                    NewLocalCommitLog {
+                        group_id: group.id.clone(),
+                        commit_sequence_id: 0 as i64,
+                        last_epoch_authenticator: vec![],
+                        commit_result: CommitResult::Success,
+                        error_message: None,
+                        applied_epoch_number: None,
+                        applied_epoch_authenticator: None,
+                        sender_inbox_id: Some("Self".to_string()),
+                        sender_installation_id: None,
+                        commit_type: Some("Restored".into()),
+                    }
+                        .store(&self.context.db())?;
                     self.context.db().insert_or_replace_group(group)?;
                 }
                 Syncable::GroupMessage(group_message) => {

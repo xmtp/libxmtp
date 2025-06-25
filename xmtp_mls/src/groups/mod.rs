@@ -350,6 +350,7 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
+        //todo: question: why this is not failing on the restored/imported group?
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(crate::StorageError::from)?
@@ -666,8 +667,10 @@ where
                 hex::encode(group_id.clone()),
             );
 
-            if provider.db().find_group(group_id.as_slice())?.is_some() {
-                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id, "rejected welcome".to_string(), group_id.to_vec()).into());
+            if let Some(group) =  provider.db().find_group(group_id.as_slice())?{
+                if group.membership_state == GroupMembershipState::Allowed {
+                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id, "rejected welcome".to_string(), group_id.to_vec()).into());
+                }
             }
 
             tracing::error!(log_message);
