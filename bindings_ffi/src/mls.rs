@@ -3021,7 +3021,9 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::EncryptionKey;
-    use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
+    use xmtp_id::associations::{
+        test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
+    };
     use xmtp_mls::{
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
@@ -8641,7 +8643,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn test_sorts_members_by_created_at() {
+    async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
         let ffi_inbox_owner = FfiWalletInboxOwner::new();
         let ident = ffi_inbox_owner.identifier();
         let nonce = 1;
@@ -8674,62 +8676,72 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().db();
-        let state = client
-            .inner_client
-            .identity_updates()
-            .get_latest_association_state(&conn, &inbox_id)
+        let initial_state = client
+            .get_latest_inbox_state(inbox_id.clone())
             .await
-            .expect("could not get state");
-
-        assert_eq!(state.members().len(), 2);
-
-        // Add second wallet
-        let wallet_to_add = generate_local_wallet();
-        let new_account_address = wallet_to_add.identifier();
-        println!("second address: {}", new_account_address);
-
-        let signature_request = client
-            .add_identity(new_account_address.into())
-            .await
-            .expect("could not add wallet");
-
-        signature_request.add_wallet_signature(&wallet_to_add).await;
-
-        client
-            .apply_signature_request(signature_request)
-            .await
-            .unwrap();
-
-        let updated_state = client
-            .inner_client
-            .identity_updates()
-            .get_latest_association_state(&conn, &inbox_id)
-            .await
-            .expect("could not get state");
-
-        assert_eq!(updated_state.members().len(), 3);
-
-        let identifiers = updated_state.identifiers();
-        println!("Ordered Identifiers: {:?}", identifiers);
-
-        assert_eq!(identifiers.len(), 2);
-
-        let timestamps: Vec<_> = updated_state
-            .members()
-            .into_iter()
-            .map(|m| m.client_timestamp_ns.unwrap_or(u64::MAX))
-            .collect();
-
-        let sorted_timestamps = {
-            let mut ts = timestamps.clone();
-            ts.sort();
-            ts
-        };
+            .expect("Failed to fetch inbox state");
 
         assert_eq!(
-            timestamps, sorted_timestamps,
-            "Identifiers are not ordered by timestamp"
+            initial_state.account_identities.len(),
+            1,
+            "Should have 1 identity initially"
+        );
+
+        for i in 0..5 {
+            let wallet_to_add = generate_local_wallet();
+            let new_account_address = wallet_to_add.identifier();
+
+            let signature_request = client
+                .add_identity(new_account_address.into())
+                .await
+                .expect("could not add wallet");
+
+            signature_request.add_wallet_signature(&wallet_to_add).await;
+
+            client
+                .apply_signature_request(signature_request)
+                .await
+                .unwrap();
+
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let updated_ffi_state = client
+            .get_latest_inbox_state(inbox_id.clone())
+            .await
+            .expect("Failed to fetch updated inbox state");
+
+        assert_eq!(
+            updated_ffi_state.account_identities.len(),
+            1 + 5,
+            "Expected 1 initial identity + 5 added"
+        );
+
+        let association_state = client
+            .inner_client
+            .identity_updates()
+            .get_latest_association_state(&client.inner_client.store().db(), &inbox_id)
+            .await
+            .expect("Failed to fetch association state");
+
+        let expected_order: Vec<_> = association_state
+            .members()
+            .iter()
+            .filter_map(|m| match &m.identifier {
+                MemberIdentifier::Ethereum(addr) => Some(addr.to_string()),
+                _ => None,
+            })
+            .collect();
+
+        let ffi_identities: Vec<_> = updated_ffi_state
+            .account_identities
+            .iter()
+            .map(|id| id.identifier.clone())
+            .collect();
+
+        assert_eq!(
+            ffi_identities, expected_order,
+            "FFI identifiers are not ordered by creation timestamp"
         );
     }
 }
