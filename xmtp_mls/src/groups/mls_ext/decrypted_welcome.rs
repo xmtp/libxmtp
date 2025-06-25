@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -5,7 +7,9 @@ use openmls::{
     },
 };
 use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
-use tls_codec::{Deserialize, Serialize};
+use prost::Message;
+use tls_codec::{Deserialize, Serialize, TlsVecU8};
+use xmtp_proto::mls_v1::WelcomeMetadata;
 
 use crate::{
     client::ClientError,
@@ -35,15 +39,30 @@ impl DecryptedWelcome {
         provider: &XmtpOpenMlsProvider<C>,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
+        encrypted_welcome_metadata_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
-    ) -> Result<DecryptedWelcome, GroupError> {
+    ) -> Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
-        let welcome_bytes =
-            unwrap_welcome(encrypted_welcome_bytes, &private_key, wrapper_ciphersuite)?;
 
+        let mut welcome_metadata = None;
+
+        let welcome_bytes = unwrap_welcome(
+            encrypted_welcome_bytes,
+            &private_key,
+            wrapper_ciphersuite.clone(),
+        )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
+
+        if !encrypted_welcome_metadata_bytes.is_empty() {
+            let mut metadata_bytes = unwrap_welcome(
+                encrypted_welcome_metadata_bytes,
+                &private_key,
+                wrapper_ciphersuite,
+            )?;
+            welcome_metadata = Some(deserialize_welcome_metadata(&mut metadata_bytes)?);
+        }
 
         let join_config = build_group_join_config();
 
@@ -62,10 +81,13 @@ impl DecryptedWelcome {
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
 
-        Ok(DecryptedWelcome {
-            staged_welcome,
-            added_by_inbox_id,
-        })
+        Ok((
+            DecryptedWelcome {
+                staged_welcome,
+                added_by_inbox_id,
+            },
+            welcome_metadata,
+        ))
     }
 }
 
@@ -127,4 +149,15 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
             "unexpected message type in welcome".to_string(),
         )),
     }
+}
+
+fn deserialize_welcome_metadata(
+    metadata_bytes: &mut Vec<u8>,
+) -> Result<WelcomeMetadata, ClientError> {
+    let mut cursor = Cursor::new(metadata_bytes);
+    let deserialized = TlsVecU8::<u8>::tls_deserialize(&mut cursor)
+        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
+    let metadata = WelcomeMetadata::decode(deserialized.as_slice())
+        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
+    Ok(metadata)
 }

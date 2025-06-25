@@ -101,12 +101,15 @@ use xmtp_mls_common::{
         MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
-        content_types::ReactionV2,
-        plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
+use xmtp_proto::{
+    mls_v1::WelcomeMetadata,
+    xmtp::mls::{
+        api::v1::welcome_message,
+        message_contents::{
+            content_types::ReactionV2,
+            plaintext_envelope::{Content, V1},
+            EncodedContent, PlaintextEnvelope,
+        },
     },
 };
 
@@ -554,12 +557,15 @@ where
             return Ok(group);
         };
 
-        let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
+        let mut decrypted_welcome: Option<
+            Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError>,
+        > = None;
         let result = provider.transaction(|provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             );
             decrypted_welcome = Some(result);
@@ -571,7 +577,8 @@ where
             return Err(result?);
         };
 
-        let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
+        let (DecryptedWelcome { staged_welcome, .. }, welcome_metadata) =
+            decrypted_welcome.expect("Set to some")?;
 
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
@@ -582,13 +589,14 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             )?;
-            let DecryptedWelcome {
+            let (DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
                 ..
-            } = decrypted_welcome;
+            }, _) = decrypted_welcome;
 
             tracing::debug!(
                 "calling update cursor for welcome {}",
@@ -706,7 +714,8 @@ where
             }
 
             // Set the message cursor
-            provider.db().update_cursor(&group.group_id, EntityKind::Group, welcome.message_cursor as i64)?;
+            let cursor = welcome_metadata.map(|m| m.message_cursor as i64).unwrap_or_default();
+            provider.db().update_cursor(&group.group_id, EntityKind::Group, cursor)?;
 
             Ok(group)
         })

@@ -91,7 +91,6 @@ use xmtp_db::{
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
-use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -106,6 +105,7 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
+use xmtp_proto::{mls_v1::WelcomeMetadata, xmtp::mls::message_contents::group_updated};
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -2139,6 +2139,16 @@ where
                 |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
                     let installation_key = installation.installation_key;
                     let algorithm = installation.welcome_wrapper_algorithm;
+
+                    let welcome_metadadta = WelcomeMetadata {
+                        message_cursor: message_cursor.unwrap_or(0) as u64,
+                    };
+                    let wrapped_welcome_metadata = wrap_welcome(
+                        &welcome_metadadta.encode_to_vec(),
+                        &installation.hpke_public_key,
+                        &algorithm,
+                    )?;
+
                     let wrapped_welcome = wrap_welcome(
                         &action.welcome_message,
                         &installation.hpke_public_key,
@@ -2150,7 +2160,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            message_cursor: message_cursor.unwrap_or(0) as u64,
+                            welcome_metadata: wrapped_welcome_metadata,
                         })),
                     })
                 },

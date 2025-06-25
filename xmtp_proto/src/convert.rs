@@ -277,6 +277,7 @@ impl TryFrom<OriginatorEnvelope> for WelcomeMessage {
             data: welcome_in.data,
             hpke_public_key: welcome_in.hpke_public_key,
             wrapper_algorithm: welcome_in.wrapper_algorithm,
+            welcome_metadata: welcome_in.welcome_metadata,
         });
 
         Ok(mls_v1::WelcomeMessage {
@@ -289,7 +290,6 @@ impl AuthenticatedData {
     #[allow(deprecated)]
     pub fn with_topic(topic: Vec<u8>) -> AuthenticatedData {
         AuthenticatedData {
-            target_originator: None,
             target_topic: topic,
             depends_on: None,
             is_commit: false,
