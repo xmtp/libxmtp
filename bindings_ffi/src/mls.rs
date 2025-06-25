@@ -30,6 +30,7 @@ use xmtp_db::{
 use xmtp_id::associations::{
     ident, verify_signed_with_public_context, DeserializationError, Identifier,
 };
+use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
     associations::{
@@ -39,6 +40,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::common::group::DMMetadataOptions;
 use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
@@ -52,6 +54,8 @@ use xmtp_mls::groups::device_sync::archive::BackupMetadata;
 use xmtp_mls::groups::device_sync::DeviceSyncError;
 use xmtp_mls::groups::device_sync_legacy::ENC_KEY_SIZE;
 use xmtp_mls::groups::ConversationDebugInfo;
+use xmtp_mls::identity_updates::apply_signature_request_with_verifier;
+use xmtp_mls::identity_updates::revoke_installations_with_verifier;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::verified_key_package_v2::{VerifiedKeyPackageV2, VerifiedLifetime};
 use xmtp_mls::{
@@ -110,6 +114,76 @@ pub async fn connect_to_backend(
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
     let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
+}
+
+/**
+ * Static Get the inbox state for each `inbox_id`.
+ */
+pub async fn inbox_state_from_inbox_ids(
+    api: Arc<XmtpApiClient>,
+    inbox_ids: Vec<String>,
+) -> Result<Vec<FfiInboxState>, GenericError> {
+    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+        as Box<dyn SmartContractSignatureVerifier>);
+
+    let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
+    let store = EncryptedMessageStore::new(db)?;
+
+    let state = inbox_addresses_with_verifier(
+        &api.clone(),
+        &store.db(),
+        inbox_ids.iter().map(String::as_str).collect(),
+        &scw_verifier,
+    )
+    .await?;
+    Ok(state.into_iter().map(Into::into).collect())
+}
+
+/**
+ * Static revoke a list of installations
+ */
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn revoke_installations(
+    api: Arc<XmtpApiClient>,
+    recovery_identifier: FfiIdentifier,
+    inbox_id: &InboxId,
+    installation_ids: Vec<Vec<u8>>,
+) -> Result<Arc<FfiSignatureRequest>, GenericError> {
+    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(
+        Box::new(RemoteSignatureVerifier::new(api)) as Box<dyn SmartContractSignatureVerifier>
+    );
+    let ident = recovery_identifier.try_into()?;
+
+    let signature_request =
+        revoke_installations_with_verifier(&ident, inbox_id, installation_ids).await?;
+
+    Ok(Arc::new(FfiSignatureRequest {
+        inner: Arc::new(tokio::sync::Mutex::new(signature_request)),
+        scw_verifier: scw_verifier.clone(),
+    }))
+}
+
+/**
+ * Static apply a signature request
+ */
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn apply_signature_request(
+    api: Arc<XmtpApiClient>,
+    signature_request: Arc<FfiSignatureRequest>,
+) -> Result<(), GenericError> {
+    let api = ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let signature_request = signature_request.inner.lock().await;
+    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+        as Box<dyn SmartContractSignatureVerifier>);
+
+    apply_signature_request_with_verifier(&api.clone(), signature_request.clone(), &scw_verifier)
+        .await?;
+
+    Ok(())
 }
 
 /// It returns a new client of the specified `inbox_id`.
@@ -2908,11 +2982,14 @@ mod tests {
         FfiPreferenceUpdate, FfiXmtpClient,
     };
     use crate::{
-        connect_to_backend, decode_multi_remote_attachment, decode_reaction,
-        encode_multi_remote_attachment, encode_reaction, get_inbox_id_for_identifier,
+        apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
+        decode_reaction, encode_multi_remote_attachment, encode_reaction,
+        get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        inbox_state_from_inbox_ids,
         mls::test_utils::{LocalBuilder, LocalTester},
+        revoke_installations,
         worker::FfiSyncWorkerMode,
         FfiConsent, FfiConsentEntityType, FfiConsentState, FfiContentType, FfiConversation,
         FfiConversationCallback, FfiConversationMessageKind, FfiCreateDMOptions,
@@ -8506,5 +8583,120 @@ mod tests {
         let _alix6 = new_test_client_no_panic(alix_wallet.clone(), None).await;
         let updated_state = alix.inbox_state(true).await.unwrap();
         assert_eq!(updated_state.installations.len(), 5);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_static_revoke_installations() {
+        let wallet = PrivateKeySigner::random();
+
+        let ident = wallet.identifier();
+        let ffi_ident: FfiIdentifier = ident.clone().into();
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let client_1 = new_test_client_with_wallet(wallet.clone()).await;
+        let client_2 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_3 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_4 = new_test_client_with_wallet(wallet.clone()).await;
+        let _client_5 = new_test_client_with_wallet(wallet.clone()).await;
+
+        let inbox_id = client_1.inbox_id();
+
+        let client_1_state = client_1.inbox_state(true).await.unwrap();
+        let client_2_state = client_2.inbox_state(true).await.unwrap();
+        assert_eq!(client_1_state.installations.len(), 5);
+        assert_eq!(client_2_state.installations.len(), 5);
+
+        let revoke_request = revoke_installations(
+            api_backend.clone(),
+            ffi_ident,
+            &inbox_id,
+            vec![client_2.installation_id()],
+        )
+        .await
+        .unwrap();
+
+        revoke_request.add_wallet_signature(&wallet).await;
+        apply_signature_request(api_backend.clone(), revoke_request)
+            .await
+            .unwrap();
+
+        let client_1_state_after = client_1.inbox_state(true).await.unwrap();
+        let client_2_state_after = client_2.inbox_state(true).await.unwrap();
+
+        assert_eq!(client_1_state_after.installations.len(), 4);
+        assert_eq!(client_2_state_after.installations.len(), 4);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_static_revoke_fails_with_non_recovery_identity() {
+        let wallet_a = PrivateKeySigner::random();
+        let wallet_b = PrivateKeySigner::random();
+
+        let client_a = new_test_client_with_wallet(wallet_a.clone()).await;
+        let client_a2 = new_test_client_with_wallet(wallet_a.clone()).await;
+        let inbox_id = client_a.inbox_id();
+
+        let add_identity_request = client_a
+            .add_identity(wallet_b.identifier().into())
+            .await
+            .unwrap();
+        add_identity_request.add_wallet_signature(&wallet_b).await;
+        client_a
+            .apply_signature_request(add_identity_request)
+            .await
+            .unwrap();
+
+        let client_a_state = client_a.inbox_state(true).await.unwrap();
+        assert_eq!(client_a_state.installations.len(), 2);
+
+        let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let revoke_request = revoke_installations(
+            api_backend.clone(),
+            ffi_ident,
+            &inbox_id,
+            vec![client_a2.installation_id()],
+        )
+        .await
+        .unwrap();
+
+        revoke_request.add_wallet_signature(&wallet_b).await;
+        let revoke_result = apply_signature_request(api_backend.clone(), revoke_request).await;
+
+        assert!(
+            revoke_result.is_err(),
+            "Revocation should fail when using a non-recovery identity"
+        );
+
+        let client_a_state_after = client_a.inbox_state(true).await.unwrap();
+        assert_eq!(client_a_state_after.installations.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_can_get_inbox_state_statically() {
+        let alix_wallet = PrivateKeySigner::random();
+        let alix = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+        assert_eq!(state[0].installations.len(), 3);
     }
 }
