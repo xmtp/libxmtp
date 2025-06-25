@@ -328,7 +328,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         })? == ConversationType::Dm;
 
         // If DM, retain only one GroupUpdated message (the oldest)
-        let messages = if is_dm {
+        let messages = if is_dm && args.limit.is_none() {
             let mut grouped: Vec<StoredGroupMessage> = Vec::with_capacity(messages.len());
             let mut oldest_group_updated: Option<StoredGroupMessage> = None;
 
@@ -342,12 +342,12 @@ impl<C: ConnectionExt> DbConnection<C> {
                         oldest_group_updated = Some(msg);
                     }
                 } else {
-                    grouped.push(msg);
+                    grouped.insert(0, msg);
                 }
             }
 
             if let Some(msg) = oldest_group_updated {
-                grouped.push(msg);
+                grouped.insert(0, msg);
             }
 
             grouped
