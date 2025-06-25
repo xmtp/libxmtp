@@ -184,12 +184,7 @@ impl AssociationState {
         let mut address_members: Vec<_> = self
             .members
             .values()
-            .filter(|member| {
-                matches!(
-                    member.identifier,
-                    MemberIdentifier::Ethereum(_) | MemberIdentifier::Passkey(_)
-                )
-            })
+            .filter(|member| !matches!(member.identifier, MemberIdentifier::Installation(_)))
             .cloned()
             .collect();
 

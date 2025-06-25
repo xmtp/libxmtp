@@ -8687,7 +8687,7 @@ mod tests {
             "Should have 1 identity initially"
         );
 
-        for i in 0..5 {
+        for _i in 0..5 {
             let wallet_to_add = generate_local_wallet();
             let new_account_address = wallet_to_add.identifier();
 
