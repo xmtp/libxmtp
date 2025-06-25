@@ -181,12 +181,7 @@ impl AssociationState {
     }
 
     pub fn identifiers(&self) -> Vec<Identifier> {
-        let mut address_members: Vec<_> = self
-            .members
-            .values()
-            .filter(|member| !matches!(member.identifier, MemberIdentifier::Installation(_)))
-            .cloned()
-            .collect();
+        let mut address_members: Vec<_> = self.members.values().cloned().collect();
 
         address_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
 
