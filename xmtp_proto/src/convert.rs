@@ -277,9 +277,6 @@ impl TryFrom<OriginatorEnvelope> for WelcomeMessage {
             data: welcome_in.data,
             hpke_public_key: welcome_in.hpke_public_key,
             wrapper_algorithm: welcome_in.wrapper_algorithm,
-
-            // TODO: extend originator envelope to contain this info
-            message_cursor: 0,
         });
 
         Ok(mls_v1::WelcomeMessage {

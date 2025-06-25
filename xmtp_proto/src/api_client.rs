@@ -22,6 +22,8 @@ use xmtp_common::RetryableError;
 #[cfg(any(test, feature = "test-utils"))]
 pub trait XmtpTestClient {
     type Builder: ApiBuilder;
+    fn local_port() -> &'static str;
+    fn create_custom(addr: &str) -> Self::Builder;
     fn create_local() -> Self::Builder;
     fn create_local_d14n() -> Self::Builder;
     fn create_local_payer() -> Self::Builder;

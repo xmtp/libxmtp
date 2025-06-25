@@ -1,165 +1,4 @@
 // @generated
-impl serde::Serialize for Call {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.to.is_empty() {
-            len += 1;
-        }
-        if !self.data.is_empty() {
-            len += 1;
-        }
-        if !self.value.is_empty() {
-            len += 1;
-        }
-        if !self.gas.is_empty() {
-            len += 1;
-        }
-        if !self.metadata.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.Call", len)?;
-        if !self.to.is_empty() {
-            struct_ser.serialize_field("to", &self.to)?;
-        }
-        if !self.data.is_empty() {
-            struct_ser.serialize_field("data", &self.data)?;
-        }
-        if !self.value.is_empty() {
-            struct_ser.serialize_field("value", &self.value)?;
-        }
-        if !self.gas.is_empty() {
-            struct_ser.serialize_field("gas", &self.gas)?;
-        }
-        if !self.metadata.is_empty() {
-            struct_ser.serialize_field("metadata", &self.metadata)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for Call {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "to",
-            "data",
-            "value",
-            "gas",
-            "metadata",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            To,
-            Data,
-            Value,
-            Gas,
-            Metadata,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "to" => Ok(GeneratedField::To),
-                            "data" => Ok(GeneratedField::Data),
-                            "value" => Ok(GeneratedField::Value),
-                            "gas" => Ok(GeneratedField::Gas),
-                            "metadata" => Ok(GeneratedField::Metadata),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Call;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.content_types.Call")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Call, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut to__ = None;
-                let mut data__ = None;
-                let mut value__ = None;
-                let mut gas__ = None;
-                let mut metadata__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::To => {
-                            if to__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("to"));
-                            }
-                            to__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Data => {
-                            if data__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("data"));
-                            }
-                            data__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Value => {
-                            if value__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("value"));
-                            }
-                            value__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Gas => {
-                            if gas__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("gas"));
-                            }
-                            gas__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Metadata => {
-                            if metadata__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("metadata"));
-                            }
-                            metadata__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, _>>()?
-                            );
-                        }
-                    }
-                }
-                Ok(Call {
-                    to: to__.unwrap_or_default(),
-                    data: data__.unwrap_or_default(),
-                    value: value__.unwrap_or_default(),
-                    gas: gas__.unwrap_or_default(),
-                    metadata: metadata__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.content_types.Call", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for MultiRemoteAttachment {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -191,6 +30,7 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Attachments,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -213,7 +53,7 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                     {
                         match value {
                             "attachments" => Ok(GeneratedField::Attachments),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -240,6 +80,9 @@ impl<'de> serde::Deserialize<'de> for MultiRemoteAttachment {
                                 return Err(serde::de::Error::duplicate_field("attachments"));
                             }
                             attachments__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
@@ -430,7 +273,7 @@ impl serde::Serialize for ReactionV2 {
             struct_ser.serialize_field("reference", &self.reference)?;
         }
         if !self.reference_inbox_id.is_empty() {
-            struct_ser.serialize_field("referenceInboxId", &self.reference_inbox_id)?;
+            struct_ser.serialize_field("reference_inbox_id", &self.reference_inbox_id)?;
         }
         if self.action != 0 {
             let v = ReactionAction::try_from(self.action)
@@ -470,6 +313,7 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
             Action,
             Content,
             Schema,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -496,7 +340,7 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
                             "action" => Ok(GeneratedField::Action),
                             "content" => Ok(GeneratedField::Content),
                             "schema" => Ok(GeneratedField::Schema),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -552,6 +396,9 @@ impl<'de> serde::Deserialize<'de> for ReactionV2 {
                             }
                             schema__ = Some(map_.next_value::<ReactionSchema>()? as i32);
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(ReactionV2 {
@@ -600,7 +447,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.RemoteAttachmentInfo", len)?;
         if !self.content_digest.is_empty() {
-            struct_ser.serialize_field("contentDigest", &self.content_digest)?;
+            struct_ser.serialize_field("content_digest", &self.content_digest)?;
         }
         if !self.secret.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -624,7 +471,7 @@ impl serde::Serialize for RemoteAttachmentInfo {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if let Some(v) = self.content_length.as_ref() {
-            struct_ser.serialize_field("contentLength", v)?;
+            struct_ser.serialize_field("content_length", v)?;
         }
         if let Some(v) = self.filename.as_ref() {
             struct_ser.serialize_field("filename", v)?;
@@ -661,6 +508,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             Url,
             ContentLength,
             Filename,
+            __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -690,7 +538,7 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                             "url" => Ok(GeneratedField::Url),
                             "contentLength" | "content_length" => Ok(GeneratedField::ContentLength),
                             "filename" => Ok(GeneratedField::Filename),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                            _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
                 }
@@ -775,6 +623,9 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
                             }
                             filename__ = map_.next_value()?;
                         }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
                 Ok(RemoteAttachmentInfo {
@@ -790,167 +641,5 @@ impl<'de> serde::Deserialize<'de> for RemoteAttachmentInfo {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.content_types.RemoteAttachmentInfo", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for WalletSendCalls {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.version.is_empty() {
-            len += 1;
-        }
-        if !self.chain_id.is_empty() {
-            len += 1;
-        }
-        if !self.from.is_empty() {
-            len += 1;
-        }
-        if !self.calls.is_empty() {
-            len += 1;
-        }
-        if !self.capabilities.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.content_types.WalletSendCalls", len)?;
-        if !self.version.is_empty() {
-            struct_ser.serialize_field("version", &self.version)?;
-        }
-        if !self.chain_id.is_empty() {
-            struct_ser.serialize_field("chainId", &self.chain_id)?;
-        }
-        if !self.from.is_empty() {
-            struct_ser.serialize_field("from", &self.from)?;
-        }
-        if !self.calls.is_empty() {
-            struct_ser.serialize_field("calls", &self.calls)?;
-        }
-        if !self.capabilities.is_empty() {
-            struct_ser.serialize_field("capabilities", &self.capabilities)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for WalletSendCalls {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "version",
-            "chain_id",
-            "chainId",
-            "from",
-            "calls",
-            "capabilities",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Version,
-            ChainId,
-            From,
-            Calls,
-            Capabilities,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "version" => Ok(GeneratedField::Version),
-                            "chainId" | "chain_id" => Ok(GeneratedField::ChainId),
-                            "from" => Ok(GeneratedField::From),
-                            "calls" => Ok(GeneratedField::Calls),
-                            "capabilities" => Ok(GeneratedField::Capabilities),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = WalletSendCalls;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.content_types.WalletSendCalls")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WalletSendCalls, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut version__ = None;
-                let mut chain_id__ = None;
-                let mut from__ = None;
-                let mut calls__ = None;
-                let mut capabilities__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Version => {
-                            if version__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("version"));
-                            }
-                            version__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::ChainId => {
-                            if chain_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("chainId"));
-                            }
-                            chain_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::From => {
-                            if from__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("from"));
-                            }
-                            from__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Calls => {
-                            if calls__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("calls"));
-                            }
-                            calls__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Capabilities => {
-                            if capabilities__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("capabilities"));
-                            }
-                            capabilities__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, _>>()?
-                            );
-                        }
-                    }
-                }
-                Ok(WalletSendCalls {
-                    version: version__.unwrap_or_default(),
-                    chain_id: chain_id__.unwrap_or_default(),
-                    from: from__.unwrap_or_default(),
-                    calls: calls__.unwrap_or_default(),
-                    capabilities: capabilities__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.content_types.WalletSendCalls", FIELDS, GeneratedVisitor)
     }
 }
