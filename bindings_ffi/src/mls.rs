@@ -8639,4 +8639,97 @@ mod tests {
             .unwrap();
         assert_eq!(state[0].installations.len(), 3);
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_sorts_members_by_created_at() {
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(path.clone()),
+            Some(key),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let signature_request = client.signature_request().unwrap().clone();
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
+
+        let conn = client.inner_client.store().db();
+        let state = client
+            .inner_client
+            .identity_updates()
+            .get_latest_association_state(&conn, &inbox_id)
+            .await
+            .expect("could not get state");
+
+        assert_eq!(state.members().len(), 2);
+
+        // Add second wallet
+        let wallet_to_add = generate_local_wallet();
+        let new_account_address = wallet_to_add.identifier();
+        println!("second address: {}", new_account_address);
+
+        let signature_request = client
+            .add_identity(new_account_address.into())
+            .await
+            .expect("could not add wallet");
+
+        signature_request.add_wallet_signature(&wallet_to_add).await;
+
+        client
+            .apply_signature_request(signature_request)
+            .await
+            .unwrap();
+
+        let updated_state = client
+            .inner_client
+            .identity_updates()
+            .get_latest_association_state(&conn, &inbox_id)
+            .await
+            .expect("could not get state");
+
+        assert_eq!(updated_state.members().len(), 3);
+
+        let identifiers = updated_state.identifiers();
+        println!("Ordered Identifiers: {:?}", identifiers);
+
+        assert_eq!(identifiers.len(), 2);
+
+        let timestamps: Vec<_> = updated_state
+            .members()
+            .into_iter()
+            .map(|m| m.client_timestamp_ns.unwrap_or(u64::MAX))
+            .collect();
+
+        let sorted_timestamps = {
+            let mut ts = timestamps.clone();
+            ts.sort();
+            ts
+        };
+
+        assert_eq!(
+            timestamps, sorted_timestamps,
+            "Identifiers are not ordered by timestamp"
+        );
+    }
 }
