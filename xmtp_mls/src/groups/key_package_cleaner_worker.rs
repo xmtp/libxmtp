@@ -16,10 +16,16 @@ pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Error)]
 pub enum KeyPackagesCleanerError {
-    #[error("storage error: {0}")]
+    #[error("generic storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("client error: {0}")]
     Client(#[from] ClientError),
+    #[error("metadata error: {0}")]
+    Metadata(StorageError),
+    #[error("deletion error: {0}")]
+    Deletion(StorageError),
+    #[error("rotation error: {0}")]
+    Rotation(IdentityError),
 }
 
 impl KeyPackagesCleanerError {
@@ -27,6 +33,9 @@ impl KeyPackagesCleanerError {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Client(s) => s.db_needs_connection(),
+            Self::Metadata(s) => s.db_needs_connection(),
+            Self::Deletion(s) => s.db_needs_connection(),
+            Self::Rotation(s) => s.needs_db_reconnect(),
         }
     }
 }
@@ -113,6 +122,7 @@ where
 
         match conn.get_expired_key_packages() {
             Ok(expired_kps) if !expired_kps.is_empty() => {
+                tracing::info!("Deleting {} expired key packages", expired_kps.len());
                 // Delete from local db
                 for kp in &expired_kps {
                     if let Err(err) = self.delete_key_package(kp.key_package_hash_ref.clone()) {
@@ -122,13 +132,15 @@ where
 
                 // Delete from database using the max expired ID
                 if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
-                    conn.delete_key_package_history_up_to_id(max_id)?;
+                    conn.delete_key_package_history_up_to_id(max_id)
+                        .map_err(KeyPackagesCleanerError::Deletion)?;
                     tracing::info!(
                         "Deleted {} expired key packages (up to ID {}) from local DB and state",
                         expired_kps.len(),
                         max_id
                     );
                 }
+                tracing::info!("Key package deletion successful");
             }
             Ok(_) => {
                 tracing::debug!("No expired key packages to delete");

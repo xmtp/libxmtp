@@ -638,8 +638,10 @@ mod test {
             .await
             .unwrap();
 
-        let group = stream.next().await.unwrap();
-        assert!(group.is_ok());
+        let group_result = stream.next().await.unwrap();
+        if let Err(error) = group_result {
+            panic!("Error streaming group: {:?}", error);
+        }
     }
 
     #[rstest::rstest]
