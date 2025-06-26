@@ -171,6 +171,29 @@ class Client(
             applySignatureRequest(apiClient, signatureRequest)
         }
 
+        @DelicateApi("This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeInstallations()` instead")
+        suspend fun ffiRevokeInstallations(
+            api: ClientOptions.Api,
+            publicIdentity: PublicIdentity,
+            inboxId: InboxId,
+            installationIds: List<String>,
+        ): SignatureRequest {
+            val apiClient = connectToApiBackend(api)
+            val rootIdentity = publicIdentity.ffiPrivate
+            val ids = installationIds.map { it.hexToByteArray() }
+            val signatureRequest = revokeInstallations(apiClient, rootIdentity, inboxId, ids)
+            return SignatureRequest(signatureRequest)
+        }
+
+        @DelicateApi("This function is delicate and should be used with caution. Should only be used if trying to manage the signature flow independently otherwise use `revokeInstallations()` instead")
+        suspend fun ffiApplySignatureRequest(
+            api: ClientOptions.Api,
+            signatureRequest: SignatureRequest,
+        ) {
+            val apiClient = connectToApiBackend(api)
+            applySignatureRequest(apiClient, signatureRequest.ffiSignatureRequest)
+        }
+
         fun register(codec: ContentCodec<*>) {
             codecRegistry.register(codec = codec)
         }
