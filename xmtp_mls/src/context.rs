@@ -11,6 +11,7 @@ use crate::{
     identity::{Identity, IdentityError},
     mutex_registry::MutexRegistry,
 };
+use openmls::prelude::Credential as OpenMlsCredential;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
@@ -269,6 +270,10 @@ impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db> {
     /// Get the account address of the blockchain account associated with this client
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
         self.identity.inbox_id()
+    }
+
+    pub fn credential(&self) -> OpenMlsCredential {
+        self.identity.credential()
     }
 
     /// Get sequence id, may not be consistent with the backend
