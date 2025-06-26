@@ -4,6 +4,7 @@ use crate::{
 };
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
+use std::fmt::Debug;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
 
 pub mod metrics;
@@ -117,7 +118,7 @@ pub trait Worker {
                         tracing::warn!("Pool disconnected. task will restart on reconnect");
                         break;
                     } else {
-                        tracing::error!("Worker error: {err:?}");
+                        tracing::error!("{:?} worker error: {:?}", self.kind(), err);
                         xmtp_common::time::sleep(WORKER_RESTART_DELAY).await;
                         tracing::info!("Restarting {:?} worker...", self.kind());
                     }
