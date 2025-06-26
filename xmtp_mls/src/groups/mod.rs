@@ -617,7 +617,7 @@ where
             });
 
             if let Some(group) = provider.db().find_group(group_id.as_slice())?{
-                if group.membership_state == GroupMembershipState::Allowed {
+                if group.membership_state != GroupMembershipState::Restored && mls_group.is_active() {
                     tracing::warn!("Skipping welcome {} because we are already in group {}", welcome.id, hex::encode(group_id.clone()));
                     return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
                 }
