@@ -602,7 +602,7 @@ where
                 welcome.id as i64,
             )?;
             if !requires_processing {
-                // TODO(rich): Consider unifying WelcomeAlreadyProcessed logic
+                tracing::error!("Skipping already processed welcome {}", welcome.id);
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
@@ -618,6 +618,7 @@ where
 
             if let Some(group) = provider.db().find_group(group_id.as_slice())?{
                 if group.membership_state == GroupMembershipState::Allowed {
+                    tracing::warn!("Skipping welcome {} because we are already in group {}", welcome.id, hex::encode(group_id.clone()));
                     return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
                 }
             }

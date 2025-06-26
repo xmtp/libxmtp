@@ -296,7 +296,7 @@ where
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
 
-        if !self.is_active().map_err(|e| SyncSummary::other(e))? {
+        if !self.is_active().map_err(SyncSummary::other)? {
             return Err(SyncSummary::other(GroupError::GroupInactive));
         }
 
