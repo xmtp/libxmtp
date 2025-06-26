@@ -71,6 +71,8 @@ use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult::Success;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -348,6 +350,7 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
+        //todo: question: why this is not failing on the restored/imported group?
         let mls_group =
             OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
                 .map_err(crate::StorageError::from)?
@@ -573,11 +576,47 @@ where
         };
 
         let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
-
+        NewLocalCommitLog {
+            group_id: staged_welcome.public_group().group_id().to_vec(),
+            commit_sequence_id: welcome.id as i64,
+            last_epoch_authenticator: vec![],
+            commit_result: Success,
+            error_message: None,
+            applied_epoch_number: Some(
+                staged_welcome
+                    .public_group()
+                    .group_context()
+                    .epoch()
+                    .as_u64() as i64,
+            ), // For debugging purposes
+            applied_epoch_authenticator: None,
+            sender_inbox_id: None,
+            sender_installation_id: None,
+            commit_type: Some("Welcome after first decryption".into()),
+        }
+        .store(provider.db())?;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
-
+        NewLocalCommitLog {
+            group_id: staged_welcome.public_group().group_id().to_vec(),
+            commit_sequence_id: welcome.id as i64,
+            last_epoch_authenticator: vec![],
+            commit_result: Success,
+            error_message: None,
+            applied_epoch_number: Some(
+                staged_welcome
+                    .public_group()
+                    .group_context()
+                    .epoch()
+                    .as_u64() as i64,
+            ), // For debugging purposes
+            applied_epoch_authenticator: None,
+            sender_inbox_id: None,
+            sender_installation_id: None,
+            commit_type: Some("Welcome After Validation".into()),
+        }
+        .store(provider.db())?;
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
                 provider,
@@ -603,7 +642,7 @@ where
                 welcome.id as i64,
             )?;
             if !requires_processing {
-                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id, "".to_string(), vec![]).into());
             }
 
             let mls_group = staged_welcome.into_group(provider)?;
@@ -615,6 +654,26 @@ where
             let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
+            let log_message = format!(
+                concat!(
+                "### from welcome inbox_id = {}, ",
+                "installation_id = {}, ",
+                "msg_epoch = {}, ",
+                "group_id = {}, ",
+                ),
+                context.inbox_id(),
+                context.installation_id(),
+                mls_group.epoch().as_u64(),
+                hex::encode(group_id.clone()),
+            );
+
+            if let Some(group) =  provider.db().find_group(group_id.as_slice())?{
+                if group.membership_state == GroupMembershipState::Allowed {
+                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id, "rejected welcome".to_string(), group_id.to_vec()).into());
+                }
+            }
+
+            tracing::error!(log_message);
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
@@ -633,7 +692,7 @@ where
                             current_version_str
                         );
                         Some(min_version)
-            } else {
+                    } else {
                         None
                     }
                 } else {
@@ -642,7 +701,7 @@ where
             });
 
             let mut group = StoredGroup::builder();
-            group.id(group_id)
+            group.id(group_id.clone())
                 .created_at_ns(now_ns())
                 .added_by_inbox_id(&added_by_inbox_id)
                 .welcome_id(welcome.id as i64)
@@ -652,14 +711,13 @@ where
                 .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
 
 
-
             let to_store = match conversation_type {
                 ConversationType::Group => {
                     group
                         .membership_state(GroupMembershipState::Pending)
                         .paused_for_version(paused_for_version)
                         .build()?
-                },
+                }
                 ConversationType::Dm => {
                     validate_dm_group(&context, &mls_group, &added_by_inbox_id)?;
                     group
@@ -676,14 +734,26 @@ where
                     group
                         .membership_state(GroupMembershipState::Allowed)
                         .build()?
-                },
+                }
             };
 
             tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
-
+            NewLocalCommitLog {
+                group_id: group_id.to_vec(),
+                commit_sequence_id: welcome.id as i64,
+                last_epoch_authenticator: vec![],
+                commit_result: Success,
+                error_message: None,
+                applied_epoch_number: Some(mls_group.epoch().as_u64() as i64), // For debugging purposes
+                applied_epoch_authenticator: None,
+                sender_inbox_id: Some(stored_group.clone().added_by_inbox_id),
+                sender_installation_id: None,
+                commit_type: Some("Welcome".into()),
+            }
+                .store(provider.db())?;
             StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
             track!(
                 "Group Welcome",
@@ -762,14 +832,13 @@ where
         }
 
         self.ensure_not_paused().await?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
-
         let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(update_interval_ns).await?;
 
         Ok(message_id)
     }
@@ -778,12 +847,12 @@ where
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
+        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
+        self.maybe_update_installations(update_interval_ns).await?;
 
         Ok(())
     }

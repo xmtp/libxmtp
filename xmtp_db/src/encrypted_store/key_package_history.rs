@@ -96,6 +96,17 @@ impl<C: ConnectionExt> DbConnection<C> {
         .map_err(StorageError::from) // convert ConnectionError into StorageError
     }
 
+    pub fn get_all_kps(
+        &self,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+        use crate::schema::key_package_history::dsl;
+        self.raw_query_read(|conn| {
+            dsl::key_package_history
+                .load::<StoredKeyPackageHistoryEntry>(conn)
+        })
+            .map_err(StorageError::from) // convert ConnectionError into StorageError
+    }
+
     pub fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             diesel::delete(

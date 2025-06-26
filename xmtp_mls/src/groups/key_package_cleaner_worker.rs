@@ -136,6 +136,7 @@ where
         let mls_provider = self.context.mls_provider();
         let key_store = mls_provider.key_store();
 
+        // todo: delete the public key as well
         key_store.delete_key_package(&openmls_hash_ref)?;
 
         if let Some(pq_pub_key) = pq_pub_key {
@@ -156,7 +157,12 @@ where
     fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let provider = self.context.mls_provider();
         let conn = provider.db();
-
+        let kps = conn.get_all_kps()?;
+        tracing::error!(
+            "### kps installation: {} , {:?}",
+            hex::encode(self.context.installation_id().to_vec()),
+            kps
+        );
         match conn.get_expired_key_packages() {
             Ok(expired_kps) if !expired_kps.is_empty() => {
                 // Delete from local db

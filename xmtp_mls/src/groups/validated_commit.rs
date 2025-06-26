@@ -389,7 +389,6 @@ impl ValidatedCommit {
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff =
             ExpectedDiff::from_staged_commit(context, staged_commit, openmls_group).await?;
-
         let ExpectedDiff {
             new_group_membership,
             expected_installation_diff,

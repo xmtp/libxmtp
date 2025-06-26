@@ -18,7 +18,7 @@ pub enum ProcessIntentError {
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
     MessageAlreadyProcessed(MessageIdentifier),
     #[error("welcome with cursor [{0}] already processed")]
-    WelcomeAlreadyProcessed(u64),
+    WelcomeAlreadyProcessed(u64, String, Vec<u8>),
     #[error("storage error: {0}")]
     Storage(#[from] xmtp_db::StorageError),
 }
@@ -27,7 +27,7 @@ impl RetryableError for ProcessIntentError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::MessageAlreadyProcessed(_) => false,
-            Self::WelcomeAlreadyProcessed(_) => false,
+            Self::WelcomeAlreadyProcessed(_, _, _) => false,
             Self::Storage(err) => err.is_retryable(),
         }
     }

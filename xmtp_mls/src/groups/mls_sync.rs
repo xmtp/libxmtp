@@ -244,8 +244,8 @@ where
                 other_dm.dm_id.clone(),
                 other_dm.created_at_ns,
             );
-            other_dm.maybe_update_installations(None).await?;
             other_dm.sync_with_conn().await?;
+            other_dm.maybe_update_installations(None).await?;
         }
 
         let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
@@ -297,6 +297,10 @@ where
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
+
+        if !self.is_active().map_err(|e| SyncSummary::other(e))? {
+            return Err(SyncSummary::other(GroupError::GroupInactive));
+        }
 
         if let Err(e) = self.handle_group_paused() {
             if matches!(e, GroupError::GroupPausedUntilUpdate(_)) {
@@ -546,7 +550,6 @@ where
                         mls_group,
                     )
                     .await;
-
                     let validated_commit = match maybe_validated_commit {
                         Err(err) => {
                             tracing::error!(
@@ -1639,7 +1642,7 @@ where
                 commit_result,
                 applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
                 applied_epoch_authenticator: None,
-                sender_inbox_id: None,
+                sender_inbox_id: Some(error.to_string()),
                 sender_installation_id: None,
                 commit_type: None,
                 error_message: Some(format!("{error:?}")),
@@ -1703,13 +1706,11 @@ where
                     "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
                     message.id, message_epoch, group_epoch
                 );
-                tracing::error!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
+                tracing::error!( inbox_id = self.context.inbox_id(),
+                            installation_id = %self.context.installation_id(),
+                            group_id = hex::encode(&self.group_id),
                     original_error = error.to_string(),
-                    fork_details
-                );
+                    fork_details);
                 track!(
                     "Possible Fork",
                     {
@@ -2041,6 +2042,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
+                        tracing::error!("### action {:?}, {:?}", action.installations, action.welcome_message);
                         self.send_welcomes(action).await?;
                     }
                 }
