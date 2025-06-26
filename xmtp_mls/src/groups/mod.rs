@@ -577,7 +577,7 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
         let group_id = staged_welcome.public_group().group_id();
-        if let Some(_) = provider.db().find_group(group_id.as_slice())? {
+        if provider.db().find_group(group_id.as_slice())?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
             let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
             // Check the group epoch as well, because we may not have synced the latest is_active state
