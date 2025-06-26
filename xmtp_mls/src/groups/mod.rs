@@ -577,13 +577,9 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
         let group_id = staged_welcome.public_group().group_id();
-        if let Some(stored_group) = provider.db().find_group(group_id.as_slice())? {
+        if let Some(_) = provider.db().find_group(group_id.as_slice())? {
             // Fetch the original MLS group, rather than the one from the welcome
             let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
-            if group.is_active()? {
-                // Sync the group first to check if we have been removed
-                group.receive().await?;
-            }
             if group.is_active()? {
                 tracing::warn!(
                     "Skipping welcome {} because we are already in group {}",
