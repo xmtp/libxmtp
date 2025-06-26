@@ -122,8 +122,8 @@ impl GenerateMessages {
             let client = app::client_from_identity(&identity, &network).await?;
             client.sync_welcomes().await?;
             let group = client.group(&group.id.into())?;
-            group.maybe_update_installations(None).await?;
             group.sync_with_conn().await?;
+            group.maybe_update_installations(None).await?;
             let words = rng.gen_range(0..*max_message_size);
             let words = lipsum::lipsum_words_with_rng(&mut *rng, words as usize);
             let message = content_type::new_message(words);

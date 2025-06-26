@@ -1098,7 +1098,6 @@ pub(crate) mod tests {
         alice_dm.send_message(b"Welcome from 1").await?;
 
         // This message will set bob's dm as the primary DM for all clients
-        // bob_dm.sync().await?;
         bob_dm.send_message(b"Bob says hi 1").await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
@@ -1375,7 +1374,9 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync().await.unwrap();
+        if let Err(err) = bola_group.sync().await {
+            panic!("Error syncing group: {:?}", err);
+        }
         // Find Bola's updated list of messages
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message

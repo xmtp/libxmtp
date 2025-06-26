@@ -263,8 +263,8 @@ where
         })?;
         for StoredGroup { id, .. } in groups.into_iter() {
             let group = self.mls_store.group(&id)?;
-            group.maybe_update_installations(None).await?;
             Box::pin(group.sync_with_conn()).await?;
+            group.maybe_update_installations(None).await?;
         }
 
         if let Some(handle) = self.worker_handle() {

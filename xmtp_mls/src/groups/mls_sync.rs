@@ -239,8 +239,8 @@ where
                 other_dm.dm_id.clone(),
                 other_dm.created_at_ns,
             );
-            other_dm.maybe_update_installations(None).await?;
             other_dm.sync_with_conn().await?;
+            other_dm.maybe_update_installations(None).await?;
         }
 
         let sync_summary = self.sync_with_conn().await.map_err(GroupError::from)?;
@@ -292,6 +292,10 @@ where
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
+
+        if !self.is_active().map_err(SyncSummary::other)? {
+            return Err(SyncSummary::other(GroupError::GroupInactive));
+        }
 
         if let Err(e) = self.handle_group_paused() {
             if matches!(e, GroupError::GroupPausedUntilUpdate(_)) {

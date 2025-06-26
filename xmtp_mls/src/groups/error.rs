@@ -163,6 +163,8 @@ pub enum GroupError {
     FailedToVerifyInstallations,
     #[error("no welcomes to send")]
     NoWelcomesToSend,
+    #[error("Result was not initialized")]
+    UninitializedResult,
 }
 
 impl From<SyncSummary> for GroupError {
@@ -269,7 +271,8 @@ impl RetryableError for GroupError {
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
-            | Self::NoWelcomesToSend => false,
+            | Self::NoWelcomesToSend
+            | Self::UninitializedResult => false,
         }
     }
 }
