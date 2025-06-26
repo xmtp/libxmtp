@@ -1080,8 +1080,8 @@ pub(crate) mod tests {
 
         alice_dm.send_message(b"Welcome from 1").await?;
 
+        bob_dm.update_installations().await?;
         // This message will set bob's dm as the primary DM for all clients
-        // bob_dm.sync().await?;
         bob_dm.send_message(b"Bob says hi 1").await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
