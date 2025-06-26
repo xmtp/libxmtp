@@ -95,3 +95,5 @@ lint/tmp/
 
 # OSX
 .DS_Store
+
+.kotlin
