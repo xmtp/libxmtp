@@ -1132,4 +1132,72 @@ class ClientTests: XCTestCase {
 		)
 		XCTAssertEqual(states.first!.installations.count, 0)
 	}
+
+	func testStaticRevokeInstallationsManually() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
+		let alixWallet = try PrivateKey.generate()
+
+		let dbDirPath = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db").path
+		let dbDirPath2 = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db2").path
+		let dbDirPath3 = FileManager.default.temporaryDirectory
+			.appendingPathComponent("xmtp_db3").path
+
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath, withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath2, withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(
+			atPath: dbDirPath3, withIntermediateDirectories: true)
+
+		let alix = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath
+			)
+		)
+
+		let alix2 = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath2
+			)
+		)
+
+		let alix3 = try await Client.create(
+			account: alixWallet,
+			options: ClientOptions(
+				api: .init(env: .local, isSecure: false),
+				dbEncryptionKey: key,
+				dbDirectory: dbDirPath3
+			)
+		)
+
+		var inboxState = try await alix3.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.installations.count, 3)
+
+		let sigRequest = try await Client.ffiRevokeInstallations(
+			api: .init(env: .local, isSecure: false),
+			publicIdentity: alixWallet.identity,
+			inboxId: alix.inboxID,
+			installationIds: [
+				alix2.installationID
+			])
+		let signedMessage = try await alixWallet.sign(
+			sigRequest.signatureText()
+		).rawData
+
+		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
+		try await Client.ffiApplySignatureRequest(
+			api: .init(env: .local, isSecure: false),
+			signatureRequest: sigRequest)
+
+		inboxState = try await alix.inboxState(refreshFromNetwork: true)
+		XCTAssertEqual(inboxState.installations.count, 2)
+	}
 }

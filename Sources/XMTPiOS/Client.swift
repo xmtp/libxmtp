@@ -391,6 +391,53 @@ public final class Client {
 		}
 	}
 
+	@available(
+		*,
+		deprecated,
+		message: """
+			This function is delicate and should be used with caution. 
+			Should only be used if trying to manage the signature flow independently; 
+			otherwise use `revokeInstallations()` instead.
+			"""
+	)
+	public static func ffiApplySignatureRequest(
+		api: ClientOptions.Api,
+		signatureRequest: SignatureRequest
+	)
+		async throws
+	{
+		let apiClient = try await connectToApiBackend(api: api)
+		try await LibXMTP.applySignatureRequest(
+			api: apiClient,
+			signatureRequest: signatureRequest.ffiSignatureRequest)
+	}
+
+	@available(
+		*,
+		deprecated,
+		message: """
+			This function is delicate and should be used with caution. 
+			Should only be used if trying to manage the signature flow independently; 
+			otherwise use `revokeInstallations()` instead.
+			"""
+	)
+	public static func ffiRevokeInstallations(
+		api: ClientOptions.Api,
+		publicIdentity: PublicIdentity,
+		inboxId: InboxId,
+		installationIds: [String]
+	) async throws
+		-> SignatureRequest
+	{
+		let apiClient = try await connectToApiBackend(api: api)
+		let rootIdentity = publicIdentity.ffiPrivate
+		let ids = installationIds.map { $0.hexToData }
+		let signatureRequest = try await LibXMTP.revokeInstallations(
+			api: apiClient, recoveryIdentifier: rootIdentity, inboxId: inboxId,
+			installationIds: ids)
+		return SignatureRequest(ffiSignatureRequest: signatureRequest)
+	}
+
 	private static func prepareClient(
 		api: ClientOptions.Api,
 		identity: PublicIdentity = PublicIdentity(
