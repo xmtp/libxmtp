@@ -581,7 +581,7 @@ where
             // Fetch the original MLS group, rather than the one from the welcome
             let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
             if group.is_active()? {
-                tracing::warn!(
+                tracing::error!(
                     "Skipping welcome {} because we are already in group {}",
                     welcome.id,
                     hex::encode(group_id.as_slice())
