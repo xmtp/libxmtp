@@ -25,7 +25,7 @@ pub enum KeyPackagesCleanerError {
     #[error("deletion error: {0}")]
     Deletion(StorageError),
     #[error("rotation error: {0}")]
-    Rotation(IdentityError),
+    Rotation(ClientError),
 }
 
 impl KeyPackagesCleanerError {
@@ -35,7 +35,7 @@ impl KeyPackagesCleanerError {
             Self::Client(s) => s.db_needs_connection(),
             Self::Metadata(s) => s.db_needs_connection(),
             Self::Deletion(s) => s.db_needs_connection(),
-            Self::Rotation(s) => s.needs_db_reconnect(),
+            Self::Rotation(s) => s.db_needs_connection(),
         }
     }
 }
