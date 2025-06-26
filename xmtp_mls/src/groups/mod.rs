@@ -580,7 +580,16 @@ where
         if let Some(_) = provider.db().find_group(group_id.as_slice())? {
             // Fetch the original MLS group, rather than the one from the welcome
             let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
-            if group.is_active()? {
+            // Check the group epoch as well, because we may not have synced the latest is_active state
+            // TODO(rich): Design a better way to detect if incoming welcomes are valid
+            if group.is_active()?
+                && staged_welcome
+                    .public_group()
+                    .group_context()
+                    .epoch()
+                    .as_u64()
+                    <= group.epoch().await?
+            {
                 tracing::error!(
                     "Skipping welcome {} because we are already in group {}",
                     welcome.id,

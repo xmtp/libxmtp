@@ -620,9 +620,6 @@ mod test {
             .await
             .unwrap();
         futures::pin_mut!(stream);
-        // TODO(rich): The next welcome to re-add Bo will currently be discarded, unless
-        // we sync first and detect that Bo has been removed from the group.
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
         alix_group
             .add_members_by_inbox_id(&[bo.inbox_id().to_string()])
             .await
