@@ -602,6 +602,7 @@ where
                 welcome.id as i64,
             )?;
             if !requires_processing {
+                // TODO(rich): Consider unifying WelcomeAlreadyProcessed logic
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
@@ -614,6 +615,12 @@ where
             let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
+
+            if let Some(group) = provider.db().find_group(group_id.as_slice())?{
+                if group.membership_state == GroupMembershipState::Allowed {
+                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+                }
+            }
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
@@ -761,12 +768,13 @@ where
         }
 
         self.ensure_not_paused().await?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
 
         let message_id = self.prepare_message(message, |now| Self::into_envelope(message, now))?;
 
         self.sync_until_last_intent_resolved().await?;
+        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+            .await?;
+
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
 
@@ -777,9 +785,9 @@ where
     /// which publishes all pending intents and reads them back from the network.
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
         self.sync_until_last_intent_resolved().await?;
+        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+            .await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
