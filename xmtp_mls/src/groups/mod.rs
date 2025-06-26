@@ -551,31 +551,48 @@ where
                 )))?;
             let group = Self::new(context, group.id, group.dm_id, group.created_at_ns);
 
+            tracing::warn!("Skipping old welcome {}", welcome.id);
             return Ok(group);
         };
 
-        let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.transaction(|provider| {
-            let result = DecryptedWelcome::from_encrypted_bytes(
+        let mut decrypt_result: Result<DecryptedWelcome, GroupError> =
+            Err(GroupError::UninitializedResult);
+        let transaction_result = provider.transaction(|provider| {
+            decrypt_result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
                 welcome.wrapper_algorithm.into(),
             );
-            decrypted_welcome = Some(result);
             Err(StorageError::IntentionalRollback)
         });
 
         // TODO: Move cursor forward on non-retriable errors, but not on retriable errors
-        let Err(StorageError::IntentionalRollback) = result else {
-            return Err(result?);
+        let Err(StorageError::IntentionalRollback) = transaction_result else {
+            return Err(transaction_result?);
         };
 
-        let DecryptedWelcome { staged_welcome, .. } = decrypted_welcome.expect("Set to some")?;
-
+        let DecryptedWelcome { staged_welcome, .. } = decrypt_result?;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
+        let group_id = staged_welcome.public_group().group_id();
+        if let Some(stored_group) = provider.db().find_group(group_id.as_slice())? {
+            // Fetch the original MLS group, rather than the one from the welcome
+            let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
+            if group.is_active()? {
+                // Sync the group first to check if we have been removed
+                group.receive().await?;
+            }
+            if group.is_active()? {
+                tracing::warn!(
+                    "Skipping welcome {} because we are already in group {}",
+                    welcome.id,
+                    hex::encode(group_id.as_slice())
+                );
+                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+            }
+        }
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -616,12 +633,6 @@ where
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
 
-            if let Some(group) = provider.db().find_group(group_id.as_slice())?{
-                if group.membership_state != GroupMembershipState::Restored && mls_group.is_active() {
-                    tracing::warn!("Skipping welcome {} because we are already in group {}", welcome.id, hex::encode(group_id.clone()));
-                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
-                }
-            }
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {

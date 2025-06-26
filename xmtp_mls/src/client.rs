@@ -1327,7 +1327,9 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync().await.unwrap();
+        if let Err(err) = bola_group.sync().await {
+            panic!("Error syncing group: {:?}", err);
+        }
         // Find Bola's updated list of messages
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message

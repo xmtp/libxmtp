@@ -166,6 +166,8 @@ pub enum GroupError {
     WrapWelcome(#[from] WrapWelcomeError),
     #[error(transparent)]
     UnwrapWelcome(#[from] UnwrapWelcomeError),
+    #[error("Result was not initialized")]
+    UninitializedResult,
 }
 
 impl From<SyncSummary> for GroupError {
@@ -273,7 +275,8 @@ impl RetryableError for GroupError {
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
-            | Self::NoWelcomesToSend => false,
+            | Self::NoWelcomesToSend
+            | Self::UninitializedResult => false,
         }
     }
 }
