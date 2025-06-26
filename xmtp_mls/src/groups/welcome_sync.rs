@@ -11,6 +11,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use tls_codec::Serialize;
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::local_commit_log::NewLocalCommitLog;
 use xmtp_db::remote_commit_log::CommitResult;
@@ -69,6 +70,7 @@ where
                         .store(self.context.mls_provider().db());
                     }
                     _ => {
+                        let serialized_hpke_public_key = &welcome.hpke_public_key.tls_serialize_detached()?;
                         let _ = NewLocalCommitLog {
                             group_id: vec![1, 1, 1, 2, 2, 2],
                             commit_sequence_id: welcome.id as i64,
@@ -77,7 +79,7 @@ where
                             error_message: Some(err.to_string()),
                             applied_epoch_number: None,
                             applied_epoch_authenticator: None,
-                            sender_inbox_id: Some(hex::encode(&welcome.hpke_public_key)),
+                            sender_inbox_id: Some(hex::encode(serialized_hpke_public_key)),
                             sender_installation_id: Some(self.context.installation_id().to_vec()),
                             commit_type: Some("Welcome Rejected".into()),
                         }
