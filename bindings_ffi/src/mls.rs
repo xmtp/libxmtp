@@ -5206,9 +5206,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(caro_messages.len(), 6);
+        assert_eq!(caro_messages.len(), 5);
         assert_eq!(alix_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 6);
+        assert_eq!(bo_messages.len(), 5);
         // Bo 2 only sees three messages since it joined after the first 2 were sent
         assert_eq!(bo2_messages.len(), 3);
     }
@@ -7212,11 +7212,11 @@ mod tests {
         assert_eq!(alix_dm_messages.len(), 2);
         assert_eq!(bo_dm_messages.len(), 2);
         assert_eq!(
-            String::from_utf8_lossy(&alix_dm_messages[0].content),
+            String::from_utf8_lossy(&alix_dm_messages[1].content),
             "Hello in DM"
         );
         assert_eq!(
-            String::from_utf8_lossy(&bo_dm_messages[0].content),
+            String::from_utf8_lossy(&bo_dm_messages[1].content),
             "Hello in DM"
         );
 
@@ -7358,9 +7358,9 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(a_dm_messages[0].content, "Hello in DM".as_bytes());
-        assert_eq!(b_dm_messages[0].content, "Hello in DM".as_bytes());
-        assert_eq!(bo_dm_messages[0].content, "Hello in DM".as_bytes());
+        assert_eq!(a_dm_messages[1].content, "Hello in DM".as_bytes());
+        assert_eq!(b_dm_messages[1].content, "Hello in DM".as_bytes());
+        assert_eq!(bo_dm_messages[1].content, "Hello in DM".as_bytes());
 
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();

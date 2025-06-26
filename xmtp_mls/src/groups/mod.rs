@@ -2039,12 +2039,12 @@ where
     let recipient_inbox_id = context.inbox_id();
     let provider = context.mls_provider();
     let conn = provider.db();
-    tracing::info!("Determining if recipient should receive GroupWelcome");
+    tracing::info!("Determining if recipient should receive GroupUpdate");
 
     let extensions = staged_welcome.public_group().group_context().extensions();
     let membership = extract_group_membership(extensions)?;
 
-    // If recipient's inbox is not in the membership list, they shouldn't be getting this welcome
+    // If recipient's inbox is not in the membership list, they shouldn't be getting this update
     let Some(sequence_id) = membership.members.get(recipient_inbox_id) else {
         return Ok(false);
     };
@@ -2076,20 +2076,28 @@ where
         .map(|member| member.signature_key)
         .collect();
 
-    // If no known installations, this inbox is newly added — send message
-    if expected_installation_ids.is_empty() {
-        tracing::info!("Inbox is newly added to group — should send GroupWelcome");
+    // Determine installation IDs for this specific inbox in the public group
+    let relevant_installation_ids: HashSet<Vec<u8>> = actual_installation_ids
+        .difference(&expected_installation_ids)
+        .cloned()
+        .collect();
+
+    let known_installation_count = expected_installation_ids.len();
+    let new_installation_count = relevant_installation_ids.len();
+
+    if known_installation_count == 0 && new_installation_count > 0 {
+        tracing::info!("First time seeing this inbox — should send GroupWelcome");
         return Ok(true);
     }
 
-    // If known installations exist, but new installations present — updated member, no message needed
-    if !actual_installation_ids.is_subset(&expected_installation_ids) {
-        tracing::info!("New installation(s) for existing inbox — no GroupWelcome message needed");
-        return Ok(false);
+    if known_installation_count > 0 && new_installation_count == 1 {
+        tracing::info!("Existing inbox, single new installation — send GroupWelcome");
+        return Ok(true);
     }
 
-    // Otherwise, nothing new — no message needed
-    tracing::info!("No changes to known installations — no GroupWelcome message needed");
+    tracing::info!(
+        "Existing inbox with multiple installations or no new installations — skip GroupWelcome"
+    );
     Ok(false)
 }
 
