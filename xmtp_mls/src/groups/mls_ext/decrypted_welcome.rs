@@ -1,3 +1,4 @@
+use futures_util::TryStreamExt;
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -77,8 +78,11 @@ pub(super) fn find_key_package_hash_ref<C: ConnectionExt>(
 
     Ok(provider
         .storage()
-        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
-        .ok_or(NotFound::KeyPackageReference)?)
+        .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)
+        .map_err(|e| NotFound::KeyPackageReference(e.to_string()))?
+        .ok_or(NotFound::KeyPackageReference(
+            "ActNotFound".to_string(),
+        ))?)
 }
 
 /// For Curve25519 keys, we can just get the private key from the key package bundle

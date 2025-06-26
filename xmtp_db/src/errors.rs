@@ -96,7 +96,7 @@ pub enum NotFound {
     #[error("Sync Group for installation {0} not found")]
     SyncGroup(InstallationId),
     #[error("Key Package Reference not found")]
-    KeyPackageReference,
+    KeyPackageReference(String),
     #[error("MLS Group Not Found")]
     MlsGroup,
     #[error("Post Quantum Key Pair not found")]

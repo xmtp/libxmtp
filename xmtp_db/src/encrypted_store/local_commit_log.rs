@@ -56,6 +56,7 @@ impl std::fmt::Display for LocalCommitLog {
     }
 }
 
+
 impl<C: ConnectionExt> DbConnection<C> {
     pub fn get_group_logs(
         &self,

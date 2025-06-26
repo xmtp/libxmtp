@@ -24,7 +24,7 @@ use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tls_codec::SecretVLBytes;
-use tracing::debug;
+use tracing::{debug, trace};
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{retryable, RetryableError};
@@ -38,6 +38,8 @@ use xmtp_db::sql_key_store::{
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::local_commit_log::NewLocalCommitLog;
+use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
@@ -771,7 +773,22 @@ fn store_key_package_references(
     // For dumb legacy reasons that are probably my fault, we keep the key package references
     // keyed by the TLS serialized public init key instead of the slice version.
     let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
-
+    
+    tracing::error!("### storing key package reference: {:?}", hex::encode(public_init_key.clone()));
+    
+    let _ = NewLocalCommitLog {
+        group_id: vec![1, 1, 1, 2, 2, 2],
+        commit_sequence_id: 0,
+        last_epoch_authenticator: vec![],
+        commit_result: CommitResult::Invalid,
+        error_message: Some(hex::encode(public_init_key.clone())),
+        applied_epoch_number: None,
+        applied_epoch_authenticator: None,
+        sender_inbox_id: None,
+        sender_installation_id: None,
+        commit_type: Some("Storing HashRef".into()),
+    }
+        .store(provider.db());
     let hash_ref = serialize_key_package_hash_ref(kp, &provider)?;
     let storage = provider.key_store();
     // Write the normal init key to the key package references

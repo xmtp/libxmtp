@@ -2042,6 +2042,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
+                        tracing::error!("### action {:?}, {:?}", action.installations, action.welcome_message);
                         self.send_welcomes(action).await?;
                     }
                 }

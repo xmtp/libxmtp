@@ -77,8 +77,8 @@ where
                             error_message: Some(err.to_string()),
                             applied_epoch_number: None,
                             applied_epoch_authenticator: None,
-                            sender_inbox_id: None,
-                            sender_installation_id: None,
+                            sender_inbox_id: Some(hex::encode(&welcome.hpke_public_key)),
+                            sender_installation_id: Some(self.context.installation_id().to_vec()),
                             commit_type: Some("Welcome Rejected".into()),
                         }
                         .store(self.context.mls_provider().db());
