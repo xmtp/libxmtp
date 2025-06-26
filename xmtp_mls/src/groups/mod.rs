@@ -579,23 +579,31 @@ where
         let group_id = staged_welcome.public_group().group_id();
         if provider.db().find_group(group_id.as_slice())?.is_some() {
             // Fetch the original MLS group, rather than the one from the welcome
-            let (group, _) = MlsGroup::new_cached(context.clone(), group_id.as_slice())?;
-            // Check the group epoch as well, because we may not have synced the latest is_active state
-            // TODO(rich): Design a better way to detect if incoming welcomes are valid
-            if group.is_active()?
-                && staged_welcome
-                    .public_group()
-                    .group_context()
-                    .epoch()
-                    .as_u64()
-                    <= group.epoch().await?
-            {
+            let result = MlsGroup::new_cached(context.clone(), group_id.as_slice());
+            if result.is_err() {
                 tracing::error!(
-                    "Skipping welcome {} because we are already in group {}",
-                    welcome.id,
-                    hex::encode(group_id.as_slice())
+                    "Error fetching group while validating welcome: {:?}",
+                    result.err()
                 );
-                return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+            } else {
+                let (group, _) = result.unwrap();
+                // Check the group epoch as well, because we may not have synced the latest is_active state
+                // TODO(rich): Design a better way to detect if incoming welcomes are valid
+                if group.is_active()?
+                    && staged_welcome
+                        .public_group()
+                        .group_context()
+                        .epoch()
+                        .as_u64()
+                        <= group.epoch().await?
+                {
+                    tracing::error!(
+                        "Skipping welcome {} because we are already in group {}",
+                        welcome.id,
+                        hex::encode(group_id.as_slice())
+                    );
+                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
+                }
             }
         }
 
