@@ -40,6 +40,7 @@ use xmtp_id::{
     },
     InboxId,
 };
+use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::common::group::DMMetadataOptions;
 use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
@@ -113,6 +114,31 @@ pub async fn connect_to_backend(
     api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
     let api_client = api_client.build().await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
+}
+
+/**
+ * Static Get the inbox state for each `inbox_id`.
+ */
+pub async fn inbox_state_from_inbox_ids(
+    api: Arc<XmtpApiClient>,
+    inbox_ids: Vec<String>,
+) -> Result<Vec<FfiInboxState>, GenericError> {
+    let api: ApiClientWrapper<Arc<TonicApiClient>> =
+        ApiClientWrapper::new(Arc::new(api.0.clone()), strategies::exponential_cooldown());
+    let scw_verifier = Arc::new(Box::new(RemoteSignatureVerifier::new(api.clone()))
+        as Box<dyn SmartContractSignatureVerifier>);
+
+    let db = NativeDb::new_unencrypted(&StorageOption::Ephemeral)?;
+    let store = EncryptedMessageStore::new(db)?;
+
+    let state = inbox_addresses_with_verifier(
+        &api.clone(),
+        &store.db(),
+        inbox_ids.iter().map(String::as_str).collect(),
+        &scw_verifier,
+    )
+    .await?;
+    Ok(state.into_iter().map(Into::into).collect())
 }
 
 /**
@@ -2963,6 +2989,7 @@ mod tests {
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
+        inbox_state_from_inbox_ids,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
@@ -3001,7 +3028,9 @@ mod tests {
     };
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::EncryptionKey;
-    use xmtp_id::associations::{test_utils::WalletTestExt, unverified::UnverifiedSignature};
+    use xmtp_id::associations::{
+        test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
+    };
     use xmtp_mls::{
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
@@ -8595,5 +8624,131 @@ mod tests {
 
         let client_a_state_after = client_a.inbox_state(true).await.unwrap();
         assert_eq!(client_a_state_after.installations.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_can_get_inbox_state_statically() {
+        let alix_wallet = PrivateKeySigner::random();
+        let alix = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+        let _alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
+            .await
+            .unwrap();
+
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
+            .await
+            .unwrap();
+        assert_eq!(state[0].installations.len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_sorts_members_by_created_at_using_ffi_identifiers() {
+        let ffi_inbox_owner = FfiWalletInboxOwner::new();
+        let ident = ffi_inbox_owner.identifier();
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let path = tmp_path();
+        let key = static_enc_key().to_vec();
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(path.clone()),
+            Some(key),
+            &inbox_id,
+            ffi_inbox_owner.identifier(),
+            nonce,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let signature_request = client.signature_request().unwrap().clone();
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        signature_request
+            .add_wallet_signature(&ffi_inbox_owner.wallet)
+            .await;
+
+        let initial_state = client
+            .get_latest_inbox_state(inbox_id.clone())
+            .await
+            .expect("Failed to fetch inbox state");
+
+        assert_eq!(
+            initial_state.account_identities.len(),
+            1,
+            "Should have 1 identity initially"
+        );
+
+        for _i in 0..5 {
+            let wallet_to_add = generate_local_wallet();
+            let new_account_address = wallet_to_add.identifier();
+
+            let signature_request = client
+                .add_identity(new_account_address.into())
+                .await
+                .expect("could not add wallet");
+
+            signature_request.add_wallet_signature(&wallet_to_add).await;
+
+            client
+                .apply_signature_request(signature_request)
+                .await
+                .unwrap();
+
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let updated_ffi_state = client
+            .get_latest_inbox_state(inbox_id.clone())
+            .await
+            .expect("Failed to fetch updated inbox state");
+
+        assert_eq!(
+            updated_ffi_state.account_identities.len(),
+            1 + 5,
+            "Expected 1 initial identity + 5 added"
+        );
+
+        let association_state = client
+            .inner_client
+            .identity_updates()
+            .get_latest_association_state(&client.inner_client.store().db(), &inbox_id)
+            .await
+            .expect("Failed to fetch association state");
+
+        let expected_order: Vec<_> = association_state
+            .members()
+            .iter()
+            .filter_map(|m| match &m.identifier {
+                MemberIdentifier::Ethereum(addr) => Some(addr.to_string()),
+                _ => None,
+            })
+            .collect();
+
+        let ffi_identities: Vec<_> = updated_ffi_state
+            .account_identities
+            .iter()
+            .map(|id| id.identifier.clone())
+            .collect();
+
+        assert_eq!(
+            ffi_identities, expected_order,
+            "FFI identifiers are not ordered by creation timestamp"
+        );
     }
 }

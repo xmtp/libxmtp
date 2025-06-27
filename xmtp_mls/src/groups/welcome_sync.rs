@@ -52,7 +52,11 @@ where
                         err
                     );
                 } else {
-                    tracing::error!("failed to create group from welcome: {}", err);
+                    tracing::error!(
+                        "failed to create group from welcome created at {}: {}",
+                        welcome.created_ns,
+                        err
+                    );
                 }
 
                 Err(err)
@@ -125,9 +129,8 @@ where
                         })
                         .await?;
                     if is_active {
-                        group.maybe_update_installations(None).await?;
-
                         group.sync_with_conn().await?;
+                        group.maybe_update_installations(None).await?;
                         active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
 

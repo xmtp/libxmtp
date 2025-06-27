@@ -151,7 +151,9 @@ impl AssociationState {
     }
 
     pub fn members(&self) -> Vec<Member> {
-        self.members.values().cloned().collect()
+        let mut sorted_members: Vec<_> = self.members.values().cloned().collect();
+        sorted_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
+        sorted_members
     }
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -179,9 +181,12 @@ impl AssociationState {
     }
 
     pub fn identifiers(&self) -> Vec<Identifier> {
-        self.members
-            .values()
-            .cloned()
+        let mut address_members: Vec<_> = self.members.values().cloned().collect();
+
+        address_members.sort_by_key(|m| m.client_timestamp_ns.unwrap_or(u64::MAX));
+
+        address_members
+            .into_iter()
             .filter_map(|member| match member.identifier {
                 MemberIdentifier::Ethereum(eth) => Some(Identifier::Ethereum(eth)),
                 MemberIdentifier::Passkey(pk) => Some(Identifier::Passkey(pk)),

@@ -1,3 +1,4 @@
+use crate::identity_updates::batch_get_association_state_with_verifier;
 use crate::{
     builder::SyncWorkerMode,
     configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
@@ -22,9 +23,11 @@ use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
+use xmtp_api::ApiClientWrapper;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::ConnectionExt;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
@@ -248,6 +251,23 @@ where
     pub fn version_info(&self) -> &VersionInfo {
         &self.context.version_info
     }
+}
+
+/// Get the [`AssociationState`] for each `inbox_id`
+pub async fn inbox_addresses_with_verifier<C: ConnectionExt, ApiClient: XmtpApi>(
+    api_client: &ApiClientWrapper<ApiClient>,
+    conn: &DbConnection<C>,
+    inbox_ids: Vec<InboxIdRef<'_>>,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Vec<AssociationState>, ClientError> {
+    load_identity_updates(api_client, conn, &inbox_ids).await?;
+    let state = batch_get_association_state_with_verifier(
+        conn,
+        &inbox_ids.into_iter().map(|i| (i, None)).collect::<Vec<_>>(),
+        scw_verifier,
+    )
+    .await?;
+    Ok(state)
 }
 
 impl<ApiClient, Db> Client<ApiClient, Db>
@@ -1061,7 +1081,6 @@ pub(crate) mod tests {
         alice_dm.send_message(b"Welcome from 1").await?;
 
         // This message will set bob's dm as the primary DM for all clients
-        // bob_dm.sync().await?;
         bob_dm.send_message(b"Bob says hi 1").await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
@@ -1308,7 +1327,9 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync().await.unwrap();
+        if let Err(err) = bola_group.sync().await {
+            panic!("Error syncing group: {:?}", err);
+        }
         // Find Bola's updated list of messages
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message
