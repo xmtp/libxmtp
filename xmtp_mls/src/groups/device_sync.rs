@@ -1,9 +1,10 @@
-use super::{summary::SyncSummary, welcomes::syncing::WelcomeService, GroupError, MlsGroup};
+use super::{summary::SyncSummary, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
+    welcomes::syncing::WelcomeService,
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;

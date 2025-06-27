@@ -6,7 +6,7 @@ use xmtp_api::XmtpApi;
 use xmtp_db::XmtpDb;
 
 use crate::context::{XmtpContextProvider, XmtpMlsLocalContext};
-use crate::groups::extract_group_membership;
+use crate::groups::validated_commit::extract_group_membership;
 use crate::groups::MlsGroup;
 use crate::identity_updates::load_identity_updates;
 use crate::identity_updates::IdentityUpdates;

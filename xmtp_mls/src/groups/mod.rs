@@ -5,7 +5,6 @@ pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
-pub mod welcomes;
 
 pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;
@@ -26,22 +25,22 @@ use self::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
-    validated_commit::extract_group_membership,
 };
 use crate::{
     client::ClientError,
     configuration::{
         CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
+    context::XmtpContextProvider,
     context::XmtpMlsLocalContext,
-    groups::welcomes::validation::validate_no_existing_group,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
+    subscriptions::SyncWorkerEvent,
+    track,
     utils::id::calculate_message_id,
+    welcomes::validation::{validate_initial_group_membership, validate_no_existing_group},
+    GroupCommitLock,
 };
-use crate::context::XmtpContextProvider;
-use crate::{groups::welcomes::validation::validate_initial_group_membership, GroupCommitLock};
-use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
@@ -56,8 +55,7 @@ use openmls::{
     group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
     prelude::{
-        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup,
-        WireFormatPolicy,
+        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;

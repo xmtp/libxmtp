@@ -6,7 +6,6 @@ use crate::{
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
-        welcomes::syncing::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
@@ -16,6 +15,7 @@ use crate::{
     track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    welcomes::syncing::WelcomeService,
     worker::{metrics::WorkerMetrics, WorkerRunner},
     XmtpApi,
 };

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::{stream_conversations::ConversationStreamError, Result};
-use crate::groups::welcomes::syncing::WelcomeService;
+use crate::welcomes::syncing::WelcomeService;
 use crate::{context::XmtpMlsLocalContext, groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::sync::Arc;
 use xmtp_api::XmtpApi;
