@@ -35,12 +35,11 @@ use crate::{
     },
     context::XmtpMlsLocalContext,
     groups::welcomes::validation::validate_no_existing_group,
-    identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
     utils::id::calculate_message_id,
 };
-use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
+use crate::context::XmtpContextProvider;
 use crate::{groups::welcomes::validation::validate_initial_group_membership, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
@@ -57,7 +56,7 @@ use openmls::{
     group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
     prelude::{
-        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
+        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup,
         WireFormatPolicy,
     },
 };
