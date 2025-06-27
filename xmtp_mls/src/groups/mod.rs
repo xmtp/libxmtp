@@ -5,7 +5,7 @@ pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
-pub mod welcome_sync;
+pub mod welcomes;
 
 pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;

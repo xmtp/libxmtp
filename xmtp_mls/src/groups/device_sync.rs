@@ -1,4 +1,4 @@
-use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
+use super::{summary::SyncSummary, welcomes::sync::WelcomeService, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
     context::XmtpMlsLocalContext,
