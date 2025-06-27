@@ -39,7 +39,7 @@ use crate::{
     subscriptions::SyncWorkerEvent,
     track,
     utils::id::calculate_message_id,
-    welcomes::validation::{validate_initial_group_membership, validate_no_existing_group},
+    welcomes::validate::{validate_initial_group_membership, validate_no_existing_group},
     GroupCommitLock,
 };
 use device_sync::preference_sync::PreferenceUpdate;

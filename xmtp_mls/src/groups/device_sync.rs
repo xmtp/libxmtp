@@ -4,7 +4,7 @@ use crate::{
     context::XmtpMlsLocalContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
-    welcomes::syncing::WelcomeService,
+    welcomes::sync::WelcomeService,
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;

@@ -15,7 +15,7 @@ use crate::{
     track,
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    welcomes::syncing::WelcomeService,
+    welcomes::sync::WelcomeService,
     worker::{metrics::WorkerMetrics, WorkerRunner},
     XmtpApi,
 };
