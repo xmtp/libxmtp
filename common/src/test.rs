@@ -99,14 +99,14 @@ where
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
                             if field.name() == "message" {
-                                let mut message = format!("{:?}", value);
+                                let mut message = format!("{value:?}");
                                 let ids = REPLACE_IDS.lock();
                                 for (id, name) in ids.iter() {
                                     message = message.replace(id, name);
                                     message = message.replace(&crate::fmt::truncate_hex(id), name);
                                 }
 
-                                write!(writer, "{}", message)?;
+                                write!(writer, "{message}")?;
                             }
                             Ok(())
                         })
@@ -181,7 +181,7 @@ pub fn rand_hexstring() -> String {
         .map(|_| hex_chars.chars().choose(&mut rng).unwrap())
         .collect();
 
-    format!("0x{}", v)
+    format!("0x{v}")
 }
 
 pub fn rand_account_address() -> String {
