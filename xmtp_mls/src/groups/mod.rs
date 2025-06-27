@@ -28,19 +28,20 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
-use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
     configuration::{
         CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
     context::XmtpMlsLocalContext,
+    groups::welcomes::validation::validate_no_existing_group,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
     utils::id::calculate_message_id,
 };
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
+use crate::{groups::welcomes::validation::validate_initial_group_membership, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
@@ -576,36 +577,7 @@ where
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
-        let group_id = staged_welcome.public_group().group_id();
-        if provider.db().find_group(group_id.as_slice())?.is_some() {
-            // Fetch the original MLS group, rather than the one from the welcome
-            let result = MlsGroup::new_cached(context.clone(), group_id.as_slice());
-            if result.is_err() {
-                tracing::error!(
-                    "Error fetching group while validating welcome: {:?}",
-                    result.err()
-                );
-            } else {
-                let (group, _) = result.unwrap();
-                // Check the group epoch as well, because we may not have synced the latest is_active state
-                // TODO(rich): Design a better way to detect if incoming welcomes are valid
-                if group.is_active()?
-                    && staged_welcome
-                        .public_group()
-                        .group_context()
-                        .epoch()
-                        .as_u64()
-                        <= group.epoch().await?
-                {
-                    tracing::error!(
-                        "Skipping welcome {} because we are already in group {}",
-                        welcome.id,
-                        hex::encode(group_id.as_slice())
-                    );
-                    return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
-                }
-            }
-        }
+        validate_no_existing_group(&context, &staged_welcome, welcome.id).await?;
 
         provider.transaction(|provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
@@ -1927,63 +1899,6 @@ fn build_group_config(
         .max_past_epochs(MAX_PAST_EPOCHS)
         .use_ratchet_tree_extension(true)
         .build())
-}
-
-/**
- * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
- */
-async fn validate_initial_group_membership<ApiClient, Db>(
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    staged_welcome: &StagedWelcome,
-) -> Result<(), GroupError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
-    let provider = context.mls_provider();
-    let conn = provider.db();
-    tracing::info!("Validating initial group membership");
-    let extensions = staged_welcome.public_group().group_context().extensions();
-    let membership = extract_group_membership(extensions)?;
-    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
-    if !needs_update.is_empty() {
-        let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        load_identity_updates(context.api(), conn, ids.as_slice()).await?;
-    }
-
-    let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
-
-    let identity_updates = IdentityUpdates::new(context.clone());
-    let futures: Vec<_> = membership
-        .members
-        .iter()
-        .map(|(inbox_id, sequence_id)| {
-            identity_updates.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
-        })
-        .collect();
-
-    let results = futures::future::try_join_all(futures).await?;
-
-    for association_state in results {
-        expected_installation_ids.extend(association_state.installation_ids());
-    }
-
-    let actual_installation_ids: HashSet<Vec<u8>> = staged_welcome
-        .public_group()
-        .members()
-        .map(|member| member.signature_key)
-        .collect();
-
-    // exclude failed installations
-    expected_installation_ids.retain(|id| !membership.failed_installations.contains(id));
-
-    if expected_installation_ids != actual_installation_ids {
-        return Err(GroupError::InvalidGroupMembership);
-    }
-
-    tracing::info!("Group membership validated");
-
-    Ok(())
 }
 
 fn validate_dm_group(
