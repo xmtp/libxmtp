@@ -1,2 +1,2 @@
-pub mod sync;
+pub mod syncing;
 pub mod validation;

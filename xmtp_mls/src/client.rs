@@ -6,7 +6,7 @@ use crate::{
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
-        welcomes::sync::WelcomeService,
+        welcomes::syncing::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
     },
     identity::{parse_credential, Identity, IdentityError},
