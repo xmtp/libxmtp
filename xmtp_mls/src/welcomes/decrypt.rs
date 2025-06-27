@@ -17,7 +17,7 @@ use xmtp_db::{
     ConnectionExt, NotFound,
 };
 
-use super::WrapperAlgorithm;
+use super::mls_ext::WrapperAlgorithm;
 
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,

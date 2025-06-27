@@ -26,7 +26,7 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
-use crate::welcomes::mls_ext::DecryptedWelcome;
+use crate::welcomes::decrypt::DecryptedWelcome;
 use crate::{
     client::ClientError,
     configuration::{
