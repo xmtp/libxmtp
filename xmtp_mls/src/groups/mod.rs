@@ -5,10 +5,10 @@ pub mod group_membership;
 pub mod group_permissions;
 pub mod intents;
 pub mod members;
+mod reload;
 
 pub mod disappearing_messages;
 pub mod key_package_cleaner_worker;
-pub(super) mod mls_ext;
 pub(super) mod mls_sync;
 pub(super) mod subscriptions;
 pub mod summary;
@@ -26,6 +26,7 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+use crate::welcomes::mls_ext::DecryptedWelcome;
 use crate::{
     client::ClientError,
     configuration::{
@@ -44,7 +45,6 @@ use crate::{
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
 use intents::{SendMessageIntentData, UpdateGroupMembershipResult};
-use mls_ext::DecryptedWelcome;
 use mls_sync::GroupMessageProcessingError;
 use openmls::{
     credentials::CredentialType,

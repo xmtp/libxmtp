@@ -8,10 +8,8 @@ use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
 use tls_codec::{Deserialize, Serialize};
 
 use crate::{
-    client::ClientError,
-    configuration::MAX_PAST_EPOCHS,
-    groups::{mls_ext::unwrap_welcome, GroupError},
-    identity::parse_credential,
+    client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError,
+    identity::parse_credential, welcomes::mls_ext::unwrap_welcome,
 };
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},

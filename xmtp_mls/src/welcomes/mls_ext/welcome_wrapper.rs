@@ -141,7 +141,7 @@ mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        groups::mls_ext::{find_key_package_hash_ref, find_private_key},
+        welcomes::mls_ext::{find_key_package_hash_ref, find_private_key},
         identity::NewKeyPackageResult,
     };
 

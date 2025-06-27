@@ -1,8 +1,8 @@
 use crate::configuration::{
     CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX,
 };
-use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
+use crate::welcomes::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
@@ -808,7 +808,7 @@ fn store_key_package_references(
 #[cfg(test)]
 mod tests {
     use crate::context::XmtpContextProvider;
-    use crate::groups::mls_ext::WrapperAlgorithm;
+    use crate::welcomes::mls_ext::WrapperAlgorithm;
     use crate::{
         builder::ClientBuilder,
         groups::key_package_cleaner_worker::KeyPackagesCleanerWorker,
