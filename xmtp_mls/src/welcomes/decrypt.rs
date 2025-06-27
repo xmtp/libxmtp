@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -6,15 +8,17 @@ use openmls::{
 };
 use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
 use tls_codec::{Deserialize, Serialize};
+use xmtp_api::XmtpApi;
+use xmtp_proto::mls_v1::welcome_message;
 
 use crate::{
-    client::ClientError, configuration::MAX_PAST_EPOCHS, groups::GroupError,
-    identity::parse_credential, welcomes::mls_ext::unwrap_welcome,
+    client::ClientError, configuration::MAX_PAST_EPOCHS, context::XmtpMlsLocalContext,
+    groups::GroupError, identity::parse_credential, welcomes::mls_ext::unwrap_welcome,
 };
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    ConnectionExt, NotFound,
+    ConnectionExt, MlsProviderExt, NotFound, StorageError, XmtpDb,
 };
 
 use super::mls_ext::WrapperAlgorithm;
@@ -25,6 +29,34 @@ pub(crate) struct DecryptedWelcome {
 }
 
 impl DecryptedWelcome {
+    // Decrypt a welcome message without any side effects such as updating the database.
+    pub async fn peek<ApiClient, Db>(
+        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        welcome: &welcome_message::V1,
+    ) -> Result<DecryptedWelcome, GroupError>
+    where
+        ApiClient: XmtpApi,
+        Db: XmtpDb,
+    {
+        let provider = context.mls_provider();
+        let mut decrypt_result: Result<DecryptedWelcome, GroupError> =
+            Err(GroupError::UninitializedResult);
+        let transaction_result = provider.transaction(|provider| {
+            decrypt_result = DecryptedWelcome::from_encrypted_bytes(
+                provider,
+                &welcome.hpke_public_key,
+                &welcome.data,
+                welcome.wrapper_algorithm.into(),
+            );
+            Err(StorageError::IntentionalRollback)
+        });
+
+        let Err(StorageError::IntentionalRollback) = transaction_result else {
+            return Err(transaction_result?);
+        };
+        decrypt_result
+    }
+
     /// Decrypt a welcome message using the specified [WrapperAlgorithm].
     ///
     /// This function will find the appropriate private key for the algorithm from the database and use it

@@ -141,8 +141,8 @@ mod tests {
 
     use crate::{
         builder::ClientBuilder,
-        welcomes::mls_ext::{find_key_package_hash_ref, find_private_key},
         identity::NewKeyPackageResult,
+        welcomes::decrypt::{find_key_package_hash_ref, find_private_key},
     };
 
     use super::*;
