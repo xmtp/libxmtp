@@ -1,10 +1,10 @@
 use super::group_permissions::GroupMutablePermissionsError;
-use super::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use super::mls_sync::GroupMessageProcessingError;
 use super::summary::SyncSummary;
 use super::{intents::IntentError, validated_commit::CommitValidationError};
 use crate::identity::IdentityError;
 use crate::mls_store::MlsStoreError;
+use crate::welcomes::mls_ext::{UnwrapWelcomeError, WrapWelcomeError};
 use crate::{
     client::ClientError, identity_updates::InstallationDiffError, intents::ProcessIntentError,
     subscriptions::LocalEventError,

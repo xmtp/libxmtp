@@ -11,7 +11,7 @@ use crate::{
     context::{XmtpContextProvider, XmtpMlsLocalContext},
     subscriptions::stream_messages::MessagesApiSubscription,
 };
-use crate::{groups::welcome_sync::WelcomeService, track};
+use crate::{track, welcomes::sync::WelcomeService};
 
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs},

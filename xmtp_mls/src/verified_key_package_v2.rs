@@ -1,6 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use crate::{configuration::MLS_PROTOCOL_VERSION, groups::mls_ext::WrapperEncryptionExtension};
+use crate::{configuration::MLS_PROTOCOL_VERSION, welcomes::mls_ext::WrapperEncryptionExtension};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential},
     key_packages::Lifetime,

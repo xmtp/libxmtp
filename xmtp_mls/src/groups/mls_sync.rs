@@ -10,7 +10,7 @@ use super::{
     GroupError, HmacKey, MlsGroup,
 };
 use crate::{
-    client::ClientError, groups::mls_ext::MlsGroupReload, mls_store::MlsStore,
+    client::ClientError, groups::reload::MlsGroupReload, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
@@ -40,10 +40,10 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{wrap_welcome, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    welcomes::mls_ext::{wrap_welcome, WrapWelcomeError},
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
