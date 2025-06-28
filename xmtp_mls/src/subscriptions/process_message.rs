@@ -17,14 +17,15 @@ use xmtp_common::FutureWrapper;
 use xmtp_db::{group_message::StoredGroupMessage, XmtpDb};
 use xmtp_proto::xmtp::mls::api::v1::group_message;
 
-/// Creates a future that processes sa single message
-pub trait ProcessFutureFactory<'a> {
+/// Creates a future that processes a single message
+pub trait Factory<'a> {
+    /// Create a future
     fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>>;
     /// Try to retrieve a message
     fn retrieve(&self, msg: &group_message::V1) -> Result<Option<StoredGroupMessage>>;
 }
 
-impl<'a, ApiClient, Db> ProcessFutureFactory<'a> for ProcessMessageFuture<ApiClient, Db>
+impl<'a, ApiClient, Db> Factory<'a> for ProcessMessage<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'a,
     Db: XmtpDb + 'a,
@@ -45,11 +46,11 @@ where
 }
 
 /// Future that processes a group message from the network
-pub struct ProcessMessageFuture<ApiClient, Db> {
+pub struct ProcessMessage<ApiClient, Db> {
     context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
 }
 
-impl<ApiClient, Db> Clone for ProcessMessageFuture<ApiClient, Db> {
+impl<ApiClient, Db> Clone for ProcessMessage<ApiClient, Db> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -65,12 +66,12 @@ pub struct ProcessedMessage {
     pub tried_to_process: u64,
 }
 
-impl<ApiClient, Db> ProcessMessageFuture<ApiClient, Db>
+impl<ApiClient, Db> ProcessMessage<ApiClient, Db>
 where
     ApiClient: XmtpApi,
     Db: XmtpDb,
 {
-    /// Creates a new `ProcessMessageFuture` to handle processing of an MLS group message.
+    /// Creates a new `ProcessMessage` to handle processing of an MLS group message.
     ///
     /// This function initializes the future with the client and message that needs processing.
     /// It's the entry point for handling messages received from a stream.
@@ -81,16 +82,14 @@ where
     /// * `msg` - The group message to be processed (V1 version)
     ///
     /// # Returns
-    /// * `Result<ProcessMessageFuture<C>>` - A new future for processing the message, or an error if initialization fails
+    /// * `Result<ProcessMessage<C>>` - A new future for processing the message, or an error if initialization fails
     ///
     /// # Example
     /// ```no_run
-    /// let future = ProcessMessageFuture::new(client, incoming_message)?;
+    /// let future = ProcessMessage::new(client, incoming_message)?;
     /// let processed = future.process().await?;
     /// ```
-    pub fn new(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> ProcessMessageFuture<ApiClient, Db> {
+    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> ProcessMessage<ApiClient, Db> {
         Self { context }
     }
 }
