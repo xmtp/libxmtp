@@ -397,7 +397,7 @@ pub(crate) mod tests {
     }
 
     fn retryable_with_args(foo: usize, name: String, list: &Vec<String>) -> Result<(), SomeError> {
-        println!("I am {} of {} with items {:?}", foo, name, list);
+        println!("I am {foo} of {name} with items {list:?}");
         Err(SomeError::ARetryableError)
     }
 

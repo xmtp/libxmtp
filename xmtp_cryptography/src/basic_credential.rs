@@ -25,7 +25,7 @@ impl std::fmt::Display for SignerError {
         match self.inner {
             SigningError => write!(f, "signing error"),
             InvalidSignature => write!(f, "invalid signature"),
-            CryptoError(c) => write!(f, "{}", c),
+            CryptoError(c) => write!(f, "{c}"),
         }
     }
 }
@@ -258,7 +258,7 @@ impl<'de> serde::Deserialize<'de> for XmtpInstallationCredential {
         } = SignatureKeyPairRemote::deserialize(deserializer)?;
 
         Self::from_raw(private.as_slice(), public.as_slice())
-            .map_err(|e| <D as serde::Deserializer<'_>>::Error::custom(format!("{}", e)))
+            .map_err(|e| <D as serde::Deserializer<'_>>::Error::custom(format!("{e}")))
     }
 }
 

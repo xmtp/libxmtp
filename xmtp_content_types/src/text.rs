@@ -43,8 +43,7 @@ impl ContentCodec<String> for TextCodec {
             .map_or(TextCodec::ENCODING_UTF8, String::as_str);
         if encoding != TextCodec::ENCODING_UTF8 {
             return Err(CodecError::Decode(format!(
-                "Unsupported text encoding {}",
-                encoding
+                "Unsupported text encoding {encoding}"
             )));
         }
         let text = std::str::from_utf8(&content.content)
