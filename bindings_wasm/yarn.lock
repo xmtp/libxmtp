@@ -2587,10 +2587,10 @@ __metadata:
   linkType: hard
 
 "zx@npm:^8.4.0":
-  version: 8.5.0
-  resolution: "zx@npm:8.5.0"
+  version: 8.6.0
+  resolution: "zx@npm:8.6.0"
   bin:
     zx: build/cli.js
-  checksum: 10/820a2f0765e47356cd6f9bceb620cc3cb6675981b57301e778cf91d8c04e74ae06c5f39e219b552669f12906b54c490714fdcf7c4663f5c7df4f97015c471d9f
+  checksum: 10/f208b7076cf17d2bd5c4e38c1899561b59db73dabd78ea0869a7da7596f53ef3a40e794c61f39bb4ecc98f53c1535fa97d2a6bd66877c751d197bc616599a396
   languageName: node
   linkType: hard
