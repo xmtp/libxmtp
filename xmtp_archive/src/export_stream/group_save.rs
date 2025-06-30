@@ -15,7 +15,10 @@ use xmtp_proto::xmtp::device_sync::{
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
     fn backup_records<C>(
-        streamer: &BackupRecordStreamer<Self, C>,
+        provider: &XmtpOpenMlsProvider<C>,
+        start_ns: Option<i64>,
+        end_ns: Option<i64>,
+        cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
@@ -23,21 +26,18 @@ impl BackupRecordProvider for GroupSave {
     {
         let mut args = GroupQueryArgs::default();
 
-        if let Some(start_ns) = streamer.start_ns {
+        if let Some(start_ns) = start_ns {
             args.created_after_ns = Some(start_ns);
         }
-        if let Some(end_ns) = streamer.end_ns {
+        if let Some(end_ns) = end_ns {
             args.created_before_ns = Some(end_ns);
         }
 
         args.limit = Some(Self::BATCH_SIZE);
 
-        let batch = streamer
-            .provider
-            .db()
-            .find_groups_by_id_paged(args, streamer.cursor)?;
+        let batch = provider.db().find_groups_by_id_paged(args, cursor)?;
 
-        let storage = streamer.provider.storage();
+        let storage = provider.storage();
         let records = batch
             .into_iter()
             .filter_map(|record| {
