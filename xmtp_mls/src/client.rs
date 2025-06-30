@@ -1095,7 +1095,7 @@ pub(crate) mod tests {
         group.sync().await?;
         let messages = group.find_messages(&MsgQueryArgs::default())?;
 
-        assert_eq!(messages.len(), 6);
+        assert_eq!(messages.len(), 4);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
         let new_alice_dm = alice.stitched_group(&alice_dm.group_id)?;
