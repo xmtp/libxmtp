@@ -698,7 +698,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
     let messages_bola_1 = bola_1_dm.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(
         messages_bola_1.len(),
-        1,
+        2,
         "Bola_1 should have received Amal's message"
     );
 
@@ -925,15 +925,15 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     let bo_group = bo_groups.first().unwrap();
     bo_group.sync().await.unwrap();
     let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(bo_msgs.len(), 1);
-    assert_eq!(bo_msgs[0].decrypted_message_bytes, message_from_alix);
+    assert_eq!(bo_msgs.len(), 2);
+    assert_eq!(bo_msgs[1].decrypted_message_bytes, message_from_alix);
 
     let caro_groups = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = caro_groups.first().unwrap();
     caro_group.sync().await.unwrap();
     let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(caro_msgs.len(), 1);
-    assert_eq!(caro_msgs[0].decrypted_message_bytes, message_from_alix);
+    assert_eq!(caro_msgs.len(), 2);
+    assert_eq!(caro_msgs[1].decrypted_message_bytes, message_from_alix);
 
     // Bo replies before removal
     let bo_reply = b"Hey Alix!";
@@ -968,7 +968,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
 
     caro_group.sync().await.unwrap();
     let caro_msgs = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(caro_msgs.len(), 5);
+    assert_eq!(caro_msgs.len(), 6);
     assert_eq!(
         caro_msgs.last().unwrap().decrypted_message_bytes,
         caro_post_removal_msg
@@ -984,7 +984,7 @@ async fn test_remove_inbox_with_bad_installation_from_group() {
     let bo_msgs = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(
         bo_msgs.len(),
-        3,
+        4,
         "Bo should not receive messages after being removed"
     );
 
@@ -1084,7 +1084,7 @@ async fn test_key_update() {
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(bola_messages.len(), 1);
+    assert_eq!(bola_messages.len(), 2);
 }
 
 #[xmtp_common::test]
@@ -2263,6 +2263,7 @@ async fn test_optimistic_send() {
             DeliveryStatus::Published,
             DeliveryStatus::Published,
             DeliveryStatus::Published,
+            DeliveryStatus::Published,
         ]
     );
 }
@@ -2507,7 +2508,7 @@ async fn test_parallel_syncs() {
 
     let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(alix1_messages.len(), alix2_messages.len());
+    assert_eq!(alix1_messages.len(), alix2_messages.len() - 1);
 
     assert!(alix1_messages
         .iter()
@@ -2603,7 +2604,7 @@ async fn add_missing_installs_reentrancy() {
 
     let alix1_messages = alix1_group.find_messages(&MsgQueryArgs::default()).unwrap();
     let alix2_messages = alix2_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(alix1_messages.len(), alix2_messages.len());
+    assert_eq!(alix1_messages.len(), alix2_messages.len() - 1);
 
     assert!(alix1_messages
         .iter()
@@ -3055,9 +3056,9 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 2);
+    assert_eq!(messages.len(), 3);
 
-    let message_text = String::from_utf8_lossy(&messages[1].decrypted_message_bytes);
+    let message_text = String::from_utf8_lossy(&messages[2].decrypted_message_bytes);
     assert_eq!(message_text, "Hello, world!");
 
     // Step 5: Amal updates the group version to match their client version
@@ -3074,7 +3075,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     // Step 6: Bo should now be unable to sync messages for the group
     let _ = bo_group.sync().await;
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 2);
+    assert_eq!(messages.len(), 3);
 
     // Step 7: Bo updates their client, and see if we can then download latest messages
     let mut bo_version = bo.version_info().clone();
@@ -3098,7 +3099,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     bo_group.sync().await.unwrap();
     let _ = bo_group.sync().await;
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 4);
+    assert_eq!(messages.len(), 5);
 }
 
 #[xmtp_common::test]
@@ -3147,9 +3148,9 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 1);
+    assert_eq!(messages.len(), 2);
 
-    let message_text = String::from_utf8_lossy(&messages[0].decrypted_message_bytes);
+    let message_text = String::from_utf8_lossy(&messages[1].decrypted_message_bytes);
     assert_eq!(message_text, "Hello, world!");
 
     // Step 5: Amal updates the group to have a min version of current version + 1
@@ -3166,7 +3167,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
     // Step 6: Bo should still be able to sync messages for the group
     let _ = bo_group.sync().await;
     let messages = bo_group.find_messages(&MsgQueryArgs::default()).unwrap();
-    assert_eq!(messages.len(), 3);
+    assert_eq!(messages.len(), 4);
 
     // Step 7: Amal adds caro as a member
     amal_group

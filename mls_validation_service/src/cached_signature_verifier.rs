@@ -100,7 +100,7 @@ mod tests {
         )
         .unwrap();
 
-        let account_id = AccountId::new_evm(chain_id, format!("{:?}", sw_address));
+        let account_id = AccountId::new_evm(chain_id, format!("{sw_address:?}"));
 
         // Testing ERC-6492 signatures with deployed ERC-1271.
         assert!(

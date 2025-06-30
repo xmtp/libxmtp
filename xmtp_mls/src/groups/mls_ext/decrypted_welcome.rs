@@ -98,7 +98,7 @@ pub(super) fn find_key_package_hash_ref<C: ConnectionExt>(
     Ok(provider
         .storage()
         .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
-        .ok_or(NotFound::KeyPackageReference)?)
+        .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
 
 /// For Curve25519 keys, we can just get the private key from the key package bundle

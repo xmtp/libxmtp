@@ -51,10 +51,16 @@ where
 
 #[derive(Debug, Error)]
 pub enum KeyPackagesCleanerError {
-    #[error("storage error: {0}")]
+    #[error("generic storage error: {0}")]
     Storage(#[from] StorageError),
-    #[error("identity error: {0}")]
+    #[error("generic identity error: {0}")]
     Identity(#[from] IdentityError),
+    #[error("metadata error: {0}")]
+    Metadata(StorageError),
+    #[error("deletion error: {0}")]
+    Deletion(StorageError),
+    #[error("rotation error: {0}")]
+    Rotation(IdentityError),
 }
 
 impl NeedsDbReconnect for KeyPackagesCleanerError {
@@ -62,6 +68,9 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Identity(s) => s.needs_db_reconnect(),
+            Self::Metadata(s) => s.db_needs_connection(),
+            Self::Deletion(s) => s.db_needs_connection(),
+            Self::Rotation(s) => s.needs_db_reconnect(),
         }
     }
 }
@@ -159,25 +168,32 @@ where
 
         match conn.get_expired_key_packages() {
             Ok(expired_kps) if !expired_kps.is_empty() => {
+                tracing::info!("Deleting {} expired key packages", expired_kps.len());
                 // Delete from local db
                 for kp in &expired_kps {
                     if let Err(err) = self.delete_key_package(
                         kp.key_package_hash_ref.clone(),
                         kp.post_quantum_public_key.clone(),
                     ) {
-                        tracing::error!("Couldn't delete KeyPackage: {:?}", err);
+                        tracing::error!(
+                            "Couldn't delete KeyPackage {:?}: {:?}",
+                            hex::encode(&kp.key_package_hash_ref),
+                            err
+                        );
                     }
                 }
 
                 // Delete from database using the max expired ID
                 if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
-                    conn.delete_key_package_history_up_to_id(max_id)?;
+                    conn.delete_key_package_history_up_to_id(max_id)
+                        .map_err(KeyPackagesCleanerError::Deletion)?;
                     tracing::info!(
                         "Deleted {} expired key packages (up to ID {}) from local DB and state",
                         expired_kps.len(),
                         max_id
                     );
                 }
+                tracing::info!("Key package deletion successful");
             }
             Ok(_) => {
                 tracing::debug!("No expired key packages to delete");
@@ -195,7 +211,11 @@ where
         let provider = self.context.mls_provider();
         let conn = provider.db();
 
-        if conn.is_identity_needs_rotation()? {
+        if conn
+            .is_identity_needs_rotation()
+            .map_err(KeyPackagesCleanerError::Metadata)?
+        {
+            tracing::info!("Rotating key package");
             self.context
                 .identity()
                 .rotate_and_upload_key_package(
@@ -203,7 +223,9 @@ where
                     self.context.api(),
                     CREATE_PQ_KEY_PACKAGE_EXTENSION,
                 )
-                .await?;
+                .await
+                .map_err(KeyPackagesCleanerError::Rotation)?;
+            tracing::info!("Key package rotation successful");
             return Ok(());
         }
 

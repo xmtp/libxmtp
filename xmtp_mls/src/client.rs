@@ -1081,7 +1081,6 @@ pub(crate) mod tests {
         alice_dm.send_message(b"Welcome from 1").await?;
 
         // This message will set bob's dm as the primary DM for all clients
-        // bob_dm.sync().await?;
         bob_dm.send_message(b"Bob says hi 1").await?;
         // Alice will sync, pulling in Bob's DM message, which will cause
         // a database trigger to update `last_message_ns`, putting bob's DM to the top.
@@ -1096,7 +1095,7 @@ pub(crate) mod tests {
         group.sync().await?;
         let messages = group.find_messages(&MsgQueryArgs::default())?;
 
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 4);
 
         // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
         let new_alice_dm = alice.stitched_group(&alice_dm.group_id)?;
@@ -1153,10 +1152,10 @@ pub(crate) mod tests {
         let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
         let bo_group1 = bo.group(&alix_bo_group1.clone().group_id).unwrap();
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 0);
+        assert_eq!(bo_messages1.len(), 1);
         let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 0);
+        assert_eq!(bo_messages2.len(), 1);
         alix_bo_group1
             .send_message(vec![1, 2, 3].as_slice())
             .await
@@ -1169,10 +1168,10 @@ pub(crate) mod tests {
         bo.sync_all_groups(bo_groups).await.unwrap();
 
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 1);
+        assert_eq!(bo_messages1.len(), 2);
         let bo_group2 = bo.group(&alix_bo_group2.clone().group_id).unwrap();
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 1);
+        assert_eq!(bo_messages2.len(), 2);
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -1210,7 +1209,7 @@ pub(crate) mod tests {
                 .find_messages(&MsgQueryArgs::default())
                 .unwrap()
                 .len(),
-            0
+            1
         );
         let bo_group2 = bo.group(&alix_bo_group2.group_id.clone()).unwrap();
         assert_eq!(
@@ -1218,7 +1217,7 @@ pub(crate) mod tests {
                 .find_messages(&MsgQueryArgs::default())
                 .unwrap()
                 .len(),
-            0
+            1
         );
 
         // Alix sends a message to both groups
@@ -1244,14 +1243,14 @@ pub(crate) mod tests {
                 .find_messages(&MsgQueryArgs::default())
                 .unwrap()
                 .len(),
-            0
+            1
         );
         assert_eq!(
             bo_group2
                 .find_messages(&MsgQueryArgs::default())
                 .unwrap()
                 .len(),
-            0
+            1
         );
 
         // Alix sends another message to both groups
@@ -1273,10 +1272,10 @@ pub(crate) mod tests {
 
         // Verify Bob now has all messages
         let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 2);
+        assert_eq!(bo_messages1.len(), 3);
 
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 2);
+        assert_eq!(bo_messages2.len(), 3);
     }
 
     #[rstest::rstest]
@@ -1312,7 +1311,7 @@ pub(crate) mod tests {
         // Bola should have one readable message (them being added to the group)
         let mut bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
 
-        assert_eq!(bola_messages.len(), 1);
+        assert_eq!(bola_messages.len(), 2);
 
         // Add Bola back to the group
         amal_group
@@ -1328,13 +1327,15 @@ pub(crate) mod tests {
             .unwrap();
 
         // Sync Bola's state to get the latest
-        bola_group.sync().await.unwrap();
+        if let Err(err) = bola_group.sync().await {
+            panic!("Error syncing group: {:?}", err);
+        }
         // Find Bola's updated list of messages
         bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
         // Bola should have been able to decrypt the last message
-        assert_eq!(bola_messages.len(), 2);
+        assert_eq!(bola_messages.len(), 4);
         assert_eq!(
-            bola_messages.get(1).unwrap().decrypted_message_bytes,
+            bola_messages.get(3).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
     }

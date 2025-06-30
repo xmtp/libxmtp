@@ -42,10 +42,7 @@ impl Client for GrpcClient {
             .ready()
             .await
             .map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e),
-                )
+                tonic::Status::new(tonic::Code::Unknown, format!("Service was not ready: {e}"))
             })
             .map_err(GrpcError::from)?;
 
