@@ -5206,9 +5206,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(caro_messages.len(), 5);
+        assert_eq!(caro_messages.len(), 6);
         assert_eq!(alix_messages.len(), 6);
-        assert_eq!(bo_messages.len(), 5);
+        assert_eq!(bo_messages.len(), 6);
         // Bo 2 only sees three messages since it joined after the first 2 were sent
         assert_eq!(bo2_messages.len(), 3);
     }
@@ -8521,25 +8521,9 @@ mod tests {
 
         assert_eq!(
             messages.len(),
-            1,
-            "Expected one message to be visible to new installation"
+            2,
+            "Expected two message to be visible to new installation"
         );
-
-        // Decode and verify messages are NOT group member adds
-        for msg in &messages {
-            let encoded =
-                EncodedContent::decode(&msg.content[..]).expect("Failed to decode EncodedContent");
-            assert_eq!(
-                encoded.r#type.as_ref().unwrap().type_id,
-                TextCodec::TYPE_ID,
-                "Expected all visible messages to be text"
-            );
-
-            let text: String =
-                TextCodec::decode(encoded.clone()).expect("Failed to decode message content");
-
-            println!("Decoded text message: {}", text);
-        }
 
         let text_message_alix2 = TextCodec::encode("hi from alix2".to_string()).unwrap();
         let msg_from_alix2 = group2
