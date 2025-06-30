@@ -4,6 +4,9 @@ license.workspace = true
 name = "xmtp_api_http"
 version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 async-trait.workspace = true
 bytes = "1.9"
