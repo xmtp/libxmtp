@@ -586,7 +586,7 @@ where
                     result.err()
                 );
             } else {
-                let (group, _) = result.unwrap();
+                let (group, _) = result.expect("checked for error");
                 // Check the group epoch as well, because we may not have synced the latest is_active state
                 // TODO(rich): Design a better way to detect if incoming welcomes are valid
                 if group.is_active()?

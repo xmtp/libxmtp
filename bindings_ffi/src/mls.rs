@@ -1518,6 +1518,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -1532,6 +1533,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -1546,6 +1548,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -1602,6 +1605,7 @@ impl FfiConversations {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
             },
+            move || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -1610,13 +1614,14 @@ impl FfiConversations {
     /// Get notified when there is a new consent update either locally or is synced from another device
     /// allowing the user to re-render the new state appropriately
     pub async fn stream_consent(&self, callback: Arc<dyn FfiConsentCallback>) -> FfiStreamCloser {
-        let handle =
-            RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
-                match msg {
-                    Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
-                    Err(e) => callback.on_error(e.into()),
-                }
-            });
+        let handle = RustXmtpClient::stream_consent_with_callback(
+            self.inner_client.clone(),
+            move |msg| match msg {
+                Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
+                Err(e) => callback.on_error(e.into()),
+            },
+            move || {},
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -1635,6 +1640,7 @@ impl FfiConversations {
                 ),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || {},
         );
 
         FfiStreamCloser::new(handle)
@@ -2317,13 +2323,15 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle =
-            MlsGroup::stream_with_callback(self.inner.context.clone(), self.id(), move |message| {
-                match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                }
-            });
+        let handle = MlsGroup::stream_with_callback(
+            self.inner.context.clone(),
+            self.id(),
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
+            move || {},
+        );
 
         FfiStreamCloser::new(handle)
     }
