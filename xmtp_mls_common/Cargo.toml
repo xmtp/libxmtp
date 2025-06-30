@@ -4,6 +4,9 @@ edition = "2024"
 license.workspace = true
 version.workspace = true
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [dependencies]
 openmls.workspace = true
 prost.workspace = true

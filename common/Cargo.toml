@@ -4,6 +4,9 @@ edition = "2024"
 version.workspace = true
 license.workspace = true
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [dependencies]
 async-trait.workspace = true
 bytes.workspace = true
