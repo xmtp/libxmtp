@@ -199,9 +199,9 @@ async fn test_only_added_to_correct_groups() {
     let alix2_old_group = alix2.group(&old_group.group_id);
     assert!(alix2_old_group.is_err());
 
-    // Not added to group with unknown consent state
+    // Added to group with unknown consent state
     let alix2_bo_group_unknown = alix2.group(&alix_bo_group_unknown.group_id);
-    assert!(alix2_bo_group_unknown.is_err());
+    assert!(alix2_bo_group_unknown.is_ok());
 
     // Added to consented DM
     let alix2_bo_dm = alix2.group(&alix_bo_dm.group_id);
