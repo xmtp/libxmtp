@@ -660,7 +660,7 @@ async fn get_encrypted_store(
 
 fn pretty_delta(now: u64, then: u64) -> String {
     let f = timeago::Formatter::new();
-    let diff = if now > then { now - then } else { then - now };
+    let diff = now.abs_diff(then);
     f.convert(Duration::from_nanos(diff))
 }
 
