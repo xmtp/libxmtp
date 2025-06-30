@@ -186,12 +186,13 @@ impl NativeDb {
 
 impl XmtpDb for NativeDb {
     type Connection = Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 

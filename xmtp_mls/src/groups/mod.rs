@@ -28,7 +28,6 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
-use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
     configuration::{
@@ -41,6 +40,7 @@ use crate::{
     utils::id::calculate_message_id,
 };
 use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
+use crate::{context::XmtpSharedContext, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
@@ -60,7 +60,7 @@ use openmls::{
         WireFormatPolicy,
     },
 };
-use openmls_traits::OpenMlsProvider;
+use openmls_traits::{storage::CURRENT_VERSION, OpenMlsProvider};
 use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
@@ -74,6 +74,7 @@ use xmtp_content_types::should_push;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
@@ -86,6 +87,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
     MlsProviderExt, NotFound, StorageError,
 };
+use xmtp_db::{prelude::*, ConnectionExt};
 use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
@@ -114,19 +116,18 @@ const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
-pub struct MlsGroup<ApiClient, Db> {
+pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
     pub created_at_ns: i64,
-    pub context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+    pub context: Context,
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
 
-impl<ApiClient, Db> std::fmt::Debug for MlsGroup<ApiClient, Db>
+impl<Context> std::fmt::Debug for MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let id = xmtp_common::fmt::truncate_hex(hex::encode(&self.group_id));
@@ -144,12 +145,12 @@ where
     }
 }
 
-pub struct ConversationListItem<ApiClient, Db> {
-    pub group: MlsGroup<ApiClient, Db>,
+pub struct ConversationListItem<Context> {
+    pub group: MlsGroup<Context>,
     pub last_message: Option<StoredGroupMessage>,
 }
 
-impl<ApiClient, Db> Clone for MlsGroup<ApiClient, Db> {
+impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
     fn clone(&self) -> Self {
         Self {
             group_id: self.group_id.clone(),
@@ -234,14 +235,13 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration
 /// and validations.
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         group_id: Vec<u8>,
         dm_id: Option<String>,
         created_at_ns: i64,
@@ -256,7 +256,7 @@ where
     ///
     /// Returns the Group and the stored group information as a tuple.
     pub fn new_cached(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         group_id: &[u8],
     ) -> Result<(Self, StoredGroup), StorageError> {
         let conn = context.db();
@@ -277,37 +277,27 @@ where
     }
 
     pub(crate) fn new_from_arc(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         group_id: Vec<u8>,
         dm_id: Option<String>,
         created_at_ns: i64,
     ) -> Self {
-        let mut mutexes = context.mutexes.clone();
+        let mut mutexes = context.context_ref().mutexes.clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
-            context: Arc::clone(&context),
+            context: context.clone(),
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
-    pub(self) fn context(&self) -> Arc<XmtpMlsLocalContext<ApiClient, Db>> {
-        self.context.clone()
-    }
-
-    /// Instantiate a new [`XmtpOpenMlsProvider`] pulling a connection from the database.
-    /// prefer to use an already-instantiated mls provider if possible.
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider<<Db as XmtpDb>::Connection> {
-        self.context.mls_provider()
-    }
-
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(provider, operation))]
+    #[tracing::instrument(level = "debug", skip(storage, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
-        provider: impl OpenMlsProvider,
+        storage: &impl XmtpMlsStorageProvider,
         operation: F,
     ) -> Result<R, GroupError>
     where
@@ -319,10 +309,9 @@ where
         // Acquire the lock synchronously using blocking_lock
         let _lock = self.mls_commit_lock.get_lock_sync(group_id.clone());
         // Load the MLS group
-        let mls_group =
-            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(|_| NotFound::MlsGroup)?
-                .ok_or(NotFound::MlsGroup)?;
+        let mls_group = OpenMlsGroup::load(storage, &GroupId::from_slice(&self.group_id))
+            .map_err(|_| NotFound::MlsGroup)?
+            .ok_or(NotFound::MlsGroup)?;
 
         // Perform the operation with the MLS group
         operation(mls_group)
@@ -337,9 +326,16 @@ where
     where
         F: FnOnce(OpenMlsGroup) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: From<GroupMessageProcessingError> + From<crate::StorageError>,
+        E:
+            From<GroupMessageProcessingError>
+                + From<crate::StorageError>
+                + From<
+                    <Context::MlsStorage as openmls_traits::storage::StorageProvider<
+                        CURRENT_VERSION,
+                    >>::Error,
+                >,
     {
-        let provider = self.mls_provider();
+        let mls_storage = self.context.mls_storage();
         // Get the group ID for locking
         let group_id = self.group_id.clone();
 
@@ -347,12 +343,10 @@ where
         let _lock = self.mls_commit_lock.get_lock_async(group_id.clone()).await;
 
         // Load the MLS group
-        let mls_group =
-            OpenMlsGroup::load(provider.storage(), &GroupId::from_slice(&self.group_id))
-                .map_err(crate::StorageError::from)?
-                .ok_or(StorageError::from(NotFound::GroupById(
-                    self.group_id.to_vec(),
-                )))?;
+        let mls_group = OpenMlsGroup::load(mls_storage, &GroupId::from_slice(&self.group_id))?
+            .ok_or(StorageError::from(NotFound::GroupById(
+                self.group_id.to_vec(),
+            )))?;
 
         // Perform the operation with the MLS group
         operation(mls_group).await
@@ -360,7 +354,7 @@ where
 
     // Create a new group and save it to the DB
     pub(crate) fn create_and_insert(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
@@ -385,7 +379,7 @@ where
     }
 
     pub(crate) fn insert(
-        context: &XmtpMlsLocalContext<ApiClient, Db>,
+        context: &Context,
         group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
@@ -413,18 +407,18 @@ where
                 &group_config,
                 GroupId::from_slice(group_id),
                 CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
+                    credential: context.identity().credential(),
+                    signature_key: context.identity().installation_keys.public_slice().into(),
                 },
             )?
         } else {
             OpenMlsGroup::new(
                 &provider,
-                &context.identity.installation_keys,
+                &context.identity().installation_keys,
                 &group_config,
                 CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
+                    credential: context.identity().credential(),
+                    signature_key: context.identity().installation_keys.public_slice().into(),
                 },
             )?
         };
@@ -443,14 +437,14 @@ where
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
             .build()?;
 
-        stored_group.store_or_ignore(provider.db())?;
+        stored_group.store_or_ignore(&context.db())?;
 
         Ok(stored_group)
     }
 
     // Create a new DM and save it to the DB
     pub(crate) fn create_dm_and_insert(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: &Context,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
         opts: DMMetadataOptions,
@@ -476,11 +470,11 @@ where
 
         let mls_group = OpenMlsGroup::new(
             &provider,
-            &context.identity.installation_keys,
+            &context.identity().installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
+                credential: context.identity().credential(),
+                signature_key: context.identity().installation_keys.public_slice().into(),
             },
         )?;
 
@@ -499,13 +493,13 @@ where
             .dm_id(Some(
                 DmMembers {
                     member_one_inbox_id: dm_target_inbox_id,
-                    member_two_inbox_id: context.identity.inbox_id().to_string(),
+                    member_two_inbox_id: context.identity().inbox_id().to_string(),
                 }
                 .to_string(),
             ))
             .build()?;
 
-        stored_group.store(provider.db())?;
+        stored_group.store(&context.db())?;
         let new_group = Self::new_from_arc(
             context.clone(),
             group_id.clone(),
@@ -532,18 +526,16 @@ where
     ///   processing from potentially out-of-order sources like streams.
     #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn create_from_welcome(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         welcome: &welcome_message::V1,
     ) -> Result<Self, GroupError> {
+        let conn = context.db();
         let provider = context.mls_provider();
         // Check if this welcome was already processed. Return the existing group if so.
-        if provider
-            .db()
-            .get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?
+        if conn.get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?
             >= welcome.id as i64
         {
-            let group = provider
-                .db()
+            let group = conn
                 .find_group_by_welcome_id(welcome.id as i64)?
                 // The welcome previously errored out, e.g. HPKE error, so it's not in the DB
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
@@ -555,7 +547,7 @@ where
         };
 
         let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.transaction(|provider| {
+        let result = provider.transaction(&conn, |provider| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
@@ -577,7 +569,7 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
 
-        provider.transaction(|provider| {
+        provider.transaction(&conn, |provider| {
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
@@ -596,7 +588,7 @@ where
             );
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
-            let requires_processing = provider.db().update_cursor(
+            let requires_processing = conn.update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
                 welcome.id as i64,
@@ -617,7 +609,7 @@ where
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
-                    let current_version_str = context.version_info().pkg_version();
+                    let current_version_str = context.context_ref().version_info().pkg_version();
                     let current_version =
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
@@ -670,7 +662,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
+                    let _ = context.context_ref().worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -681,9 +673,9 @@ where
             tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-            let stored_group = provider.db().insert_or_replace_group(to_store)?;
+            let stored_group = conn.insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            StoredConsentRecord::persist_consent(&conn, &stored_group)?;
             track!(
                 "Group Welcome",
                 {
@@ -710,8 +702,8 @@ where
     }
 
     pub(crate) fn create_and_insert_sync_group(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    ) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
+        context: Context,
+    ) -> Result<MlsGroup<Context>, GroupError> {
         let provider = context.mls_provider();
 
         let protected_metadata =
@@ -741,7 +733,7 @@ where
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
-            provider.db(),
+            &context.db(),
             group_id,
             now_ns(),
             GroupMembershipState::Allowed,
@@ -836,7 +828,6 @@ where
     where
         F: FnOnce(i64) -> PlaintextEnvelope,
     {
-        let provider = self.mls_provider();
         let now = now_ns();
         let plain_envelope = envelope(now);
         let mut encoded_envelope = vec![];
@@ -861,8 +852,8 @@ where
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
             kind: GroupMessageKind::Application,
-            sender_installation_id: self.context().installation_public_key().into(),
-            sender_inbox_id: self.context().inbox_id().to_string(),
+            sender_installation_id: self.context.installation_id().into(),
+            sender_inbox_id: self.context.inbox_id().to_string(),
             delivery_status: DeliveryStatus::Unpublished,
             content_type: queryable_content_fields.content_type,
             version_major: queryable_content_fields.version_major,
@@ -872,7 +863,7 @@ where
             sequence_id: None,
             originator_id: None,
         };
-        group_message.store(provider.db())?;
+        group_message.store(&self.context.db())?;
 
         Ok(message_id)
     }
@@ -892,7 +883,7 @@ where
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let conn = self.context().db();
+        let conn = self.context.db();
         let messages = conn.get_group_messages(&self.group_id, args)?;
         Ok(messages)
     }
@@ -903,7 +894,7 @@ where
         &self,
         args: &MsgQueryArgs,
     ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
-        let conn = self.context().db();
+        let conn = self.context.db();
         let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
         Ok(messages)
     }
@@ -1079,7 +1070,7 @@ where
     /// Updates min version of the group to match this client's version.
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let version = self.context.version_info().pkg_version();
+        let version = self.context.context_ref().version_info().pkg_version();
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1278,16 +1269,12 @@ where
 
     /// If group is not paused, will return None, otherwise will return the version that the group is paused for
     pub fn paused_for_version(&self) -> Result<Option<String>, GroupError> {
-        let paused_for_version = self
-            .mls_provider()
-            .db()
-            .get_group_paused_version(&self.group_id)?;
+        let paused_for_version = self.context.db().get_group_paused_version(&self.group_id)?;
         Ok(paused_for_version)
     }
 
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
-        let provider = self.context().mls_provider();
-        if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
+        if let Some(min_version) = self.context.db().get_group_paused_version(&self.group_id)? {
             Err(GroupError::GroupPausedUntilUpdate(min_version))
         } else {
             Ok(())
@@ -1380,7 +1367,7 @@ where
 
     /// Find the `inbox_id` of the group member who added the member to the group
     pub fn added_by_inbox_id(&self) -> Result<String, GroupError> {
-        let conn = self.context().store().db();
+        let conn = self.context.db();
         let group = conn
             .find_group(&self.group_id)?
             .ok_or_else(|| NotFound::GroupById(self.group_id.clone()))?;
@@ -1389,7 +1376,7 @@ where
 
     /// Find the `consent_state` of the group
     pub fn consent_state(&self) -> Result<ConsentState, GroupError> {
-        let conn = self.context().db();
+        let conn = self.context.db();
         let record = conn.get_consent_record(
             hex::encode(self.group_id.clone()),
             ConsentType::ConversationId,
@@ -1406,7 +1393,7 @@ where
         &self,
         state: ConsentState,
     ) -> Result<Vec<StoredConsentRecord>, GroupError> {
-        let conn = self.context().db();
+        let conn = self.context.db();
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
             state,
@@ -1448,11 +1435,12 @@ where
     }
 
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
+        let storage = self.context.mls_storage();
         let epoch =
-            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+            self.load_mls_group_with_lock(storage, |mls_group| Ok(mls_group.epoch().as_u64()))?;
 
-        let stored_group = match provider.db().find_group(&self.group_id)? {
+        let stored_group = match db.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1480,8 +1468,7 @@ where
     /// If the current user has been kicked out of the group, `is_active` will return `false`
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
-        let provider = self.mls_provider();
-        let Some(stored_group) = provider.db().find_group(&self.group_id)? else {
+        let Some(stored_group) = self.context.db().find_group(&self.group_id)? else {
             return Err(GroupError::NotFound(NotFound::GroupById(
                 self.group_id.clone(),
             )));
@@ -1493,7 +1480,9 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(provider, |mls_group| Ok(mls_group.is_active()))
+        self.load_mls_group_with_lock(self.context.mls_provider(), |mls_group| {
+            Ok(mls_group.is_active())
+        })
     }
 
     /// Get the `GroupMetadata` of the group.
@@ -1510,7 +1499,7 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let provider = self.mls_provider();
+        let provider = self.context.mls_provider();
         self.load_mls_group_with_lock(provider, |mls_group| {
             Ok(GroupMutableMetadata::try_from(&mls_group)
                 .map_err(MetadataPermissionsError::from)?)
@@ -1544,7 +1533,7 @@ where
     }
 
     /// Find all the duplicate dms for this group
-    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<ApiClient, Db>>, ClientError> {
+    pub fn find_duplicate_dms(&self) -> Result<Vec<MlsGroup<Context>>, ClientError> {
         let duplicates = self.context.db().other_dms(&self.group_id)?;
 
         let mls_groups = duplicates
@@ -1569,7 +1558,7 @@ where
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
         let conn = context.store().conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let provider = XmtpOpenMlsProvider::new(&conn);
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
@@ -1621,7 +1610,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(provider.db())?;
+        stored_group.store(&conn)?;
         Ok(Self::new_from_arc(
             context,
             group_id,
@@ -1899,23 +1888,18 @@ fn build_group_config(
 /**
  * Ensures that the membership in the MLS tree matches the inboxes specified in the `GroupMembership` extension.
  */
-async fn validate_initial_group_membership<ApiClient, Db>(
-    context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+async fn validate_initial_group_membership(
+    context: impl XmtpSharedContext,
     staged_welcome: &StagedWelcome,
-) -> Result<(), GroupError>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
-    let provider = context.mls_provider();
-    let conn = provider.db();
+) -> Result<(), GroupError> {
+    let db = context.db();
     tracing::info!("Validating initial group membership");
     let extensions = staged_welcome.public_group().group_context().extensions();
     let membership = extract_group_membership(extensions)?;
-    let needs_update = conn.filter_inbox_ids_needing_updates(membership.to_filters().as_slice())?;
+    let needs_update = filter_inbox_ids_needing_updates(&db, membership.to_filters().as_slice())?;
     if !needs_update.is_empty() {
         let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-        load_identity_updates(context.api(), conn, ids.as_slice()).await?;
+        load_identity_updates(context.api(), &db, ids.as_slice()).await?;
     }
 
     let mut expected_installation_ids = HashSet::<Vec<u8>>::new();
@@ -1925,7 +1909,7 @@ where
         .members
         .iter()
         .map(|(inbox_id, sequence_id)| {
-            identity_updates.get_association_state(conn, inbox_id, Some(*sequence_id as i64))
+            identity_updates.get_association_state(&db, inbox_id, Some(*sequence_id as i64))
         })
         .collect();
 
@@ -1953,8 +1937,31 @@ where
     Ok(())
 }
 
+pub fn filter_inbox_ids_needing_updates<'a, C: ConnectionExt>(
+    conn: &impl DbQuery<C>,
+    filters: &[(&'a str, i64)],
+) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
+    let existing_sequence_ids =
+        conn.get_latest_sequence_id(&filters.iter().map(|f| f.0).collect::<Vec<&str>>())?;
+
+    let needs_update = filters
+        .iter()
+        .filter_map(|filter| {
+            let existing_sequence_id = existing_sequence_ids.get(filter.0);
+            if let Some(sequence_id) = existing_sequence_id {
+                if sequence_id.ge(&filter.1) {
+                    return None;
+                }
+            }
+
+            Some(filter.0)
+        })
+        .collect::<Vec<&str>>();
+    Ok(needs_update)
+}
+
 fn validate_dm_group(
-    context: impl XmtpContextProvider,
+    context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
 ) -> Result<(), MetadataPermissionsError> {

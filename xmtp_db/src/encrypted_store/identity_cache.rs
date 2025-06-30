@@ -33,9 +33,26 @@ pub enum StoredIdentityKind {
 impl_store!(IdentityCache, identity_cache);
 impl_fetch!(IdentityCache, identity_cache);
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub trait QueryIdentityCache<C: ConnectionExt> {
     /// Returns a HashMap of WalletAddress -> InboxId
-    pub fn fetch_cached_inbox_ids<T>(
+    fn fetch_cached_inbox_ids<T>(
+        &self,
+        identifiers: &[T],
+    ) -> Result<HashMap<String, String>, StorageError>
+    where
+        T: std::fmt::Display,
+        for<'a> &'a T: Into<StoredIdentityKind>;
+
+    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
+    where
+        T: std::fmt::Display,
+        S: ToString,
+        for<'a> &'a T: Into<StoredIdentityKind>;
+}
+
+impl<C: ConnectionExt> QueryIdentityCache<C> for DbConnection<C> {
+    /// Returns a HashMap of WalletAddress -> InboxId
+    fn fetch_cached_inbox_ids<T>(
         &self,
         identifiers: &[T],
     ) -> Result<HashMap<String, String>, StorageError>
@@ -62,13 +79,10 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(result)
     }
 
-    pub fn cache_inbox_id<T>(
-        &self,
-        identifier: &T,
-        inbox_id: impl ToString,
-    ) -> Result<(), StorageError>
+    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
     where
         T: std::fmt::Display,
+        S: ToString,
         for<'a> &'a T: Into<StoredIdentityKind>,
     {
         IdentityCache {
@@ -106,7 +120,9 @@ where
 #[cfg(test)]
 pub(crate) mod tests {
     use super::IdentityCache;
-    use crate::{Store, identity_cache::StoredIdentityKind, test_utils::with_connection};
+    use crate::{
+        Store, identity_cache::StoredIdentityKind, prelude::*, test_utils::with_connection,
+    };
 
     #[derive(Clone)]
     struct MockIdentity {

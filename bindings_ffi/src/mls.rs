@@ -4226,8 +4226,8 @@ mod tests {
         bo_group.conversation.sync().await.unwrap();
 
         // alix published + processed group creation and name update
-        assert_eq!(alix.provider.db().intents_published(), 2);
-        assert_eq!(alix.provider.db().intents_processed(), 2);
+        assert_eq!(alix.context.db().intents_published(), 2);
+        assert_eq!(alix.context.db().intents_processed(), 2);
 
         bo_group
             .conversation
@@ -4235,11 +4235,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 1);
+        assert_eq!(bo.context.db().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix.provider.db().intents_published(), 3);
+        assert_eq!(alix.context.db().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -4251,7 +4251,7 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 3);
+        assert_eq!(bo.context.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -4261,7 +4261,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 4);
+        assert_eq!(bo.context.db().intents_published(), 4);
 
         wait_for_eq(|| async { message_callbacks.message_count() }, 6)
             .await
@@ -5932,7 +5932,7 @@ mod tests {
         alix_group.sync().await.unwrap();
 
         // Verify the settings were applied
-        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
+        let group_from_db = alix.context.db().find_group(&alix_group.id()).unwrap();
         assert_eq!(
             group_from_db
                 .clone()

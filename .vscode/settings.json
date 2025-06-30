@@ -3,7 +3,7 @@
   "rust-analyzer.check.command": "clippy",
   "rust-analyzer.linkedProjects": ["Cargo.toml"],
   "rust-analyzer.cargo.allTargets": true,
-  "rust-analyzer.procMacro.enable": true,
+  "rust-analyzer.procMacro.enable": false,
   "rust-analyzer.diagnostics.enable": true,
   "rust-analyzer.check.extraArgs": ["--exclude bindings_wasm"],
   "rust-analyzer.diagnostics.disabled": [

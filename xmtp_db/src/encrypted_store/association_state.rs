@@ -1,9 +1,10 @@
 use diesel::prelude::*;
 
 use super::{
-    ConnectionExt, DbConnection,
+    ConnectionExt,
     schema::association_state::{self, dsl},
 };
+use crate::DbQuery;
 use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 use prost::Message;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
@@ -24,7 +25,7 @@ impl_store_or_ignore!(StoredAssociationState, association_state);
 // and then have a re-usable cache object instead of re-implementing it on every db type.
 impl StoredAssociationState {
     pub fn write_to_cache<C>(
-        conn: &DbConnection<C>,
+        conn: &impl DbQuery<C>,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
@@ -51,7 +52,7 @@ impl StoredAssociationState {
     }
 
     pub fn read_from_cache<T, C: ConnectionExt>(
-        conn: &DbConnection<C>,
+        conn: &impl DbQuery<C>,
         inbox_id: impl AsRef<str>,
         sequence_id: i64,
     ) -> Result<Option<T>, StorageError>
@@ -79,7 +80,7 @@ impl StoredAssociationState {
     }
 
     pub fn batch_read_from_cache<T, C: ConnectionExt>(
-        conn: &DbConnection<C>,
+        conn: &impl DbQuery<C>,
         identifiers: Vec<(String, i64)>,
     ) -> Result<Vec<T>, StorageError>
     where

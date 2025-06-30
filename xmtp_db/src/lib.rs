@@ -26,15 +26,42 @@ pub use errors::*;
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
 
-impl<C: ConnectionExt> DbConnection<C> {
+pub mod prelude {
+    pub use super::ReadOnly;
+    pub use super::consent_record::QueryConsentRecord;
+    pub use super::conversation_list::QueryConversationList;
+    pub use super::group::QueryDms;
+    pub use super::group::QueryGroup;
+    pub use super::group::QueryGroupVersion;
+    pub use super::group_intent::QueryGroupIntent;
+    pub use super::group_message::QueryGroupMessage;
+    pub use super::identity::QueryIdentity;
+    pub use super::identity_cache::QueryIdentityCache;
+    pub use super::identity_update::QueryIdentityUpdates;
+    pub use super::key_package_history::QueryKeyPackageHistory;
+    pub use super::key_store_entry::QueryKeyStoreEntry;
+    pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
+    pub use super::refresh_state::QueryRefreshState;
+    pub use super::traits::*;
+}
+
+pub trait ReadOnly<C: ConnectionExt> {
     #[allow(unused)]
-    pub(crate) fn enable_readonly(&self) -> Result<(), StorageError> {
+    fn enable_readonly(&self) -> Result<(), StorageError>;
+
+    #[allow(unused)]
+    fn disable_readonly(&self) -> Result<(), StorageError>;
+}
+
+impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
+    #[allow(unused)]
+    fn enable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
         Ok(())
     }
 
     #[allow(unused)]
-    pub(crate) fn disable_readonly(&self) -> Result<(), StorageError> {
+    fn disable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }

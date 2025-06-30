@@ -1,11 +1,7 @@
 use super::*;
 use crate::{Client, XmtpApi};
 
-impl<ApiClient, Db> Client<ApiClient, Db>
-where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-{
+impl<Context: XmtpSharedContext> Client<Context> {
     pub(super) fn syncable_consent_records(&self) -> Result<Vec<Syncable>, DeviceSyncError> {
         let consent_records = self
             .context
@@ -46,7 +42,7 @@ pub(crate) mod tests {
 
         // Ensure that consent record now exists.
         let syncable_consent_records = amal_a
-            .syncable_consent_records(amal_a.provider.db())
+            .syncable_consent_records(amal_a.context.db())
             .unwrap();
         assert_eq!(syncable_consent_records.len(), 1);
 
@@ -60,7 +56,7 @@ pub(crate) mod tests {
             .unwrap();
 
         let consent_records_b = amal_b
-            .syncable_consent_records(amal_b.provider.db())
+            .syncable_consent_records(amal_b.context.db())
             .unwrap();
         assert_eq!(consent_records_b.len(), 0);
 

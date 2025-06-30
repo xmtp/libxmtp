@@ -38,9 +38,7 @@ impl WorkerRunner {
 impl WorkerRunner {
     pub fn register_new_worker<W: Worker, C>(&mut self, ctx: C)
     where
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
         let factory = W::factory(ctx);
         self.factories.push(Arc::new(factory))
@@ -92,9 +90,7 @@ pub trait Worker {
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static;
+        C: XmtpSharedContext + Send + Sync + 'static;
 
     /// Box the worker, erasing its type
     fn boxed(self) -> Box<dyn Worker>

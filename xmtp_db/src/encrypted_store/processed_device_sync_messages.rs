@@ -29,8 +29,12 @@ impl_store_or_ignore!(
     processed_device_sync_messages
 );
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+pub trait QueryDeviceSyncMessages<C: ConnectionExt> {
+    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError>;
+}
+
+impl<C: ConnectionExt> QueryDeviceSyncMessages<C> for DbConnection<C> {
+    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let result = self.raw_query_read(|conn| {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
@@ -52,6 +56,7 @@ mod tests {
         Store,
         group::{ConversationType, tests::generate_group},
         group_message::tests::generate_message,
+        prelude::*,
         processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
         test_utils::with_connection,
     };
