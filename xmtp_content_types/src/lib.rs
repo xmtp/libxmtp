@@ -56,7 +56,7 @@ impl TryFrom<&str> for ContentType {
             transaction_reference::TransactionReferenceCodec::TYPE_ID => {
                 Ok(Self::TransactionReference)
             }
-            _ => Err(format!("Unknown content type ID: {}", type_id)),
+            _ => Err(format!("Unknown content type ID: {type_id}")),
         }
     }
 }
