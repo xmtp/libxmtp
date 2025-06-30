@@ -18,22 +18,11 @@ use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::types::InstallationId;
 use xmtp_db::sql_key_store::{SqlKeyStore, SqlKeyStoreError};
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{prelude::*, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use xmtp_db::{ConnectionExt, DbConnection, MlsProviderExt, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
-
-/// Convenience super trait to constrain the storage provider to a
-/// specific error type and version
-pub trait XmtpMlsStorageProvider:
-    StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
-{
-}
-
-impl<T> XmtpMlsStorageProvider for T where
-    T: ?Sized + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
-{
-}
 
 pub trait XmtpSharedContext
 where

@@ -47,8 +47,8 @@ impl ArchiveExporter {
         key: &[u8],
     ) -> Result<(), crate::ArchiveError>
     where
-        C: ConnectionExt + Send + Sync + Unpin + 'static,
-        D: DbQuery<C> + Send + Sync + Unpin + 'static,
+        C: ConnectionExt + Send + Sync + 'static,
+        D: DbQuery<C> + Send + Sync + 'static,
     {
         let mut exporter = Self::new(options, db, key);
         exporter.write_to_file(path).await?;
@@ -92,8 +92,8 @@ impl ArchiveExporter {
 
     pub fn new<C, D>(options: BackupOptions, db: D, key: &[u8]) -> Self
     where
-        C: ConnectionExt + Send + Sync + Unpin + 'static,
-        D: DbQuery<C> + Send + Sync + Unpin + 'static,
+        C: ConnectionExt + Send + Sync + 'static,
+        D: DbQuery<C> + Send + Sync + 'static,
     {
         let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();

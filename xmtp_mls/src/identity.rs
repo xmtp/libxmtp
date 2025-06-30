@@ -357,22 +357,21 @@ impl Identity {
             }
 
             // get sequence_id from identity updates and loaded into the DB
-            load_identity_updates(api_client, provider.db(), &[associated_inbox_id.as_str()])
+            load_identity_updates(api_client, conn, &[associated_inbox_id.as_str()])
                 .await
                 .map_err(|e| {
                     IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
                 })?;
 
-            let state = get_association_state_with_verifier(
-                provider.db(),
-                &inbox_id,
-                None,
-                &scw_signature_verifier,
-            )
-            .await
-            .map_err(|err| {
-                IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
-            })?;
+            let state =
+                get_association_state_with_verifier(conn, &inbox_id, None, &scw_signature_verifier)
+                    .await
+                    .map_err(|err| {
+                        IdentityError::NewIdentity(format!(
+                            "Error resolving identity state: {}",
+                            err
+                        ))
+                    })?;
 
             let current_installation_count = state.installation_ids().len();
             if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {

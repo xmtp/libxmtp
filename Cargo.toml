@@ -91,6 +91,7 @@ js-sys = "0.3"
 mockall = { version = "0.13" }
 color-eyre = "0.6"
 once_cell = "1.2"
+openmls_memory_storage = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60", default-features = false }
 openmls = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60", default-features = false }
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60" }
 openmls_libcrux_crypto = { git = "https://github.com/xmtp/openmls", rev = "b18f5ca4cfc15a390fa914980267cc5028fc6b60" }

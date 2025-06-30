@@ -84,7 +84,7 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext + 'static,
+        C: Send + Sync + XmtpSharedContext + 'static,
     {
         Factory { context }
     }

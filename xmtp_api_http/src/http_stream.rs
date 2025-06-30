@@ -217,7 +217,7 @@ impl<F, R> std::fmt::Debug for HttpStream<'_, F, R> {
 #[cfg(not(target_arch = "wasm32"))]
 impl<F, R> HttpStream<'_, F, R>
 where
-    F: Future<Output = Result<Response, reqwest::Error>> + Unpin,
+    F: Future<Output = Result<Response, reqwest::Error>>,
     for<'de> R: Deserialize<'de> + DeserializeOwned + Send + 'static,
 {
     /// Establish the initial HTTP Stream connection

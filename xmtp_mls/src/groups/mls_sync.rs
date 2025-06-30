@@ -10,8 +10,8 @@ use super::{
     GroupError, HmacKey, MlsGroup,
 };
 use crate::{
-    client::ClientError, groups::mls_ext::MlsGroupReload, context::XmtpSharedContext, mls_store::MlsStore,
-    subscriptions::stream_messages::extract_message_cursor,
+    client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
+    mls_store::MlsStore, subscriptions::stream_messages::extract_message_cursor,
 };
 use crate::{
     configuration::sync_update_installations_interval_ns, identity_updates::IdentityUpdates,
@@ -20,7 +20,6 @@ use crate::{
     configuration::{
         GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
     },
-    context::XmtpMlsLocalContext,
     groups::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
@@ -46,6 +45,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_api::XmtpApi;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, StoredGroup},
@@ -673,7 +673,7 @@ where
         }
 
         let db = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(&db);
+        let provider = XmtpOpenMlsProvider::new(self.context.db());
 
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -1123,8 +1123,7 @@ where
             .find_group_intent_by_payload_hash(&sha256(envelope.data.as_slice()))
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db
-            .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
+        let group_cursor = db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
             // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
@@ -1751,7 +1750,8 @@ where
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<Option<PublishIntentData>, GroupError> {
-        let provider = self.context.mls_provider();
+        let db = self.context.db();
+        let provider = XmtpOpenMlsProvider::new(&db);
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
                 let intent_data =
@@ -1783,7 +1783,6 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let provider = XmtpOpenMlsProvider::new(&db);
                 let result = provider.transaction(&db, |provider| {
                     let bundle = openmls_group.self_update(
                         &provider,

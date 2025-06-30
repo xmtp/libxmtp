@@ -88,3 +88,5 @@ impl<C: crate::ConnectionExt, T: ?Sized> DbQuery<C> for T where
         + IntoConnection<Connection = C>
 {
 }
+
+pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

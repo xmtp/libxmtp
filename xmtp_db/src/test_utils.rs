@@ -2,6 +2,9 @@
 
 use crate::{DbConnection, EncryptedMessageStore, StorageOption};
 mod impls;
+mod mls_memory_storage;
+
+pub use mls_memory_storage::*;
 
 pub type TestDb = EncryptedMessageStore<crate::DefaultDatabase>;
 

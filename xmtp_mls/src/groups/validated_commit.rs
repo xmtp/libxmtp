@@ -6,7 +6,7 @@ use super::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::{XmtpContextProvider, XmtpSharedContext},
     identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
 use openmls::{
@@ -27,21 +27,6 @@ use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{associations::MemberIdentifier, InboxId};
-use xmtp_proto::xmtp::{
-    identity::MlsCredential,
-    mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
-        GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
-    },
-};
-
-use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
-    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
-};
-use xmtp_db::{StorageError, XmtpDb};
-
-use xmtp_common::{retry::RetryableError, retryable};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{

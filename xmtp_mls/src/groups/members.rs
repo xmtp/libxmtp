@@ -36,8 +36,8 @@ where
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let db = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(&db);
-        let group_membership = self.load_mls_group_with_lock(&provider, |mls_group| {
+        let storage = self.context.mls_storage();
+        let group_membership = self.load_mls_group_with_lock(storage, |mls_group| {
             Ok(extract_group_membership(mls_group.extensions())?)
         })?;
         let requests = group_membership

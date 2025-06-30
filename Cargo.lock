@@ -8591,6 +8591,7 @@ dependencies = [
  "mockall",
  "openmls",
  "openmls_basic_credential",
+ "openmls_memory_storage",
  "openmls_rust_crypto",
  "openmls_traits",
  "parking_lot 0.12.4",

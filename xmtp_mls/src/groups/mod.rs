@@ -33,7 +33,7 @@ use crate::{
     configuration::{
         CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    context::{XmtpMlsLocalContext, XmtpMlsStorageProvider},
+    context::XmtpMlsLocalContext,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
@@ -74,6 +74,7 @@ use xmtp_content_types::should_push;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},

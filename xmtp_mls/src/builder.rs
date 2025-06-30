@@ -1,6 +1,6 @@
 use crate::{
     client::{Client, DeviceSync},
-    context::{XmtpMlsLocalContext, XmtpMlsStorageProvider},
+    context::XmtpMlsLocalContext,
     groups::{
         device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker,
         key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -13,6 +13,7 @@ use crate::{
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi,
 };
+use xmtp_db::XmtpMlsStorageProvider;
 use std::{
     marker::PhantomData,
     sync::{atomic::Ordering, Arc},

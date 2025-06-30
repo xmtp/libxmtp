@@ -1,28 +1,46 @@
 use crate::MlsProviderExt;
+use crate::sql_key_store::SqlKeyStoreError;
 use crate::{ConnectionExt, DbQuery};
 use diesel::Connection;
 use diesel::connection::TransactionManager;
-use openmls::storage::StorageProvider;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
+use openmls_traits::storage::CURRENT_VERSION;
+use openmls_traits::storage::StorageProvider;
+
+/// Convenience super trait to constrain the storage provider to a
+/// specific error type and version
+/// This storage provider is likewise implemented on both &T and T references,
+/// to allow creating a referenced or owned provider.
+// constraining the error type here will avoid leaking
+// the associated type parameter, so we don't need to define it on every function.
+pub trait XmtpMlsStorageProvider:
+    StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+{
+}
+
+impl<'a, T> XmtpMlsStorageProvider for T where
+    T: ?Sized + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
+{
+}
 
 pub struct XmtpOpenMlsProvider<S> {
     crypto: RustCrypto,
-    key_store: S,
+    mls_storage: S,
 }
 
 impl<S> XmtpOpenMlsProvider<S> {
-    pub fn new(key_store: S) -> Self {
+    pub fn new(mls_storage: S) -> Self {
         Self {
             crypto: RustCrypto::default(),
-            key_store,
+            mls_storage,
         }
     }
 }
 
 impl<S> XmtpOpenMlsProvider<S>
 where
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
     fn inner_transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
@@ -73,7 +91,7 @@ impl<S> XmtpOpenMlsProvider<S> {
 
 impl<S> MlsProviderExt for XmtpOpenMlsProvider<S>
 where
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
     fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
@@ -87,13 +105,13 @@ where
     }
 
     fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {
-        &self.key_store
+        &self.mls_storage
     }
 }
 
 impl<S> MlsProviderExt for &XmtpOpenMlsProvider<S>
 where
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     #[tracing::instrument(level = "debug", skip_all)]
     fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
@@ -107,13 +125,13 @@ where
     }
 
     fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {
-        &self.key_store
+        &self.mls_storage
     }
 }
 
 impl<S> OpenMlsProvider for XmtpOpenMlsProvider<S>
 where
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -127,13 +145,13 @@ where
     }
 
     fn storage(&self) -> &Self::StorageProvider {
-        &self.key_store
+        &self.mls_storage
     }
 }
 
 impl<S> OpenMlsProvider for &XmtpOpenMlsProvider<S>
 where
-    S: StorageProvider,
+    S: XmtpMlsStorageProvider,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -148,6 +166,18 @@ where
     }
 
     fn storage(&self) -> &Self::StorageProvider {
-        &self.key_store
+        &self.mls_storage
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openmls_memory_storage::MemoryStorage;
+    /*
+        fn create_provider_with_reference() {
+            let storage = MemoryStorage::default();
+            XmtpOpenMlsProvider::new(storage)
+        }
+    */
 }

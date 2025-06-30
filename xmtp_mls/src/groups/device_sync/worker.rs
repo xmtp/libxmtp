@@ -291,7 +291,7 @@ where
         handle: &WorkerMetrics<SyncMetric>,
     ) -> Result<(), DeviceSyncError>
     where
-        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
         let unprocessed_messages = self.context.db().unprocessed_sync_group_messages()?;
         let installation_id = self.installation_id();
@@ -326,7 +326,7 @@ where
         content: ContentProto,
     ) -> Result<(), DeviceSyncError>
     where
-        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
         let conn = self.context.db();
         let installation_id = self.context.installation_id();
@@ -427,7 +427,7 @@ where
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<(), DeviceSyncError>>,
-        <Context::Db as xmtp_db::XmtpDb>::Connection: 'static,
+        Context::Db: 'static,
     {
         if let Some(request) = &request {
             if request.kind() != BackupElementSelection::Unspecified {
