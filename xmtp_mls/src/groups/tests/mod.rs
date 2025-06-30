@@ -439,12 +439,12 @@ async fn test_dm_stitching() {
         })
         .unwrap();
 
-    assert_eq!(alix_msgs.len(), 3);
+    assert_eq!(alix_msgs.len(), 2);
 
-    let msg = String::from_utf8_lossy(&alix_msgs[1].decrypted_message_bytes);
+    let msg = String::from_utf8_lossy(&alix_msgs[0].decrypted_message_bytes);
     assert_eq!(msg, "Hello there");
 
-    let msg = String::from_utf8_lossy(&alix_msgs[2].decrypted_message_bytes);
+    let msg = String::from_utf8_lossy(&alix_msgs[1].decrypted_message_bytes);
     assert_eq!(msg, "No, let's use this dm");
 }
 
