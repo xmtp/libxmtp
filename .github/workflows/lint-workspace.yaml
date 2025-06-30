@@ -46,6 +46,6 @@ jobs:
             .
       - name: Run clippy and fail on warnings
         # Exclude bindings_wasm since it only compiles for wasm32
-        run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings -A clippy::uninlined-format-args
+        run: cargo clippy --locked --workspace --all-features --all-targets --no-deps --exclude bindings_wasm -- -D warnings
       - name: Run format check
         run: cargo fmt --check
