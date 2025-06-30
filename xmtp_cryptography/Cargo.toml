@@ -5,9 +5,6 @@ rust-version = "1.70"
 version.workspace = true
 license.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 [package.metadata.docs.rs]
 targets = [
   "x86_64-unknown-linux-gnu",

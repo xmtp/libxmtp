@@ -8,9 +8,6 @@ readme = "README.md"
 repository = "https://github.com/xmtp/libxmtp"
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 [[bin]]
 name = "xmtp_cli"
 path = "cli-client.rs"

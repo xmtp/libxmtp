@@ -4,9 +4,6 @@ name = "xmtp_content_types"
 version.workspace = true
 license.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 [dependencies]
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true, features = ["derive"] }

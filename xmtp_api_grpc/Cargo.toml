@@ -4,9 +4,6 @@ license.workspace = true
 name = "xmtp_api_grpc"
 version.workspace = true
 
-[lints.clippy]
-uninlined_format_args = "allow"
-
 [dependencies]
 async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
