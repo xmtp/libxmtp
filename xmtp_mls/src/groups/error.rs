@@ -17,6 +17,7 @@ use openmls::{
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::retry::RetryableError;
+use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::sql_key_store;
 use xmtp_db::NotFound;
@@ -162,6 +163,8 @@ pub enum GroupError {
     FailedToVerifyInstallations,
     #[error("no welcomes to send")]
     NoWelcomesToSend,
+    #[error("Codec error: {0}")]
+    CodecError(#[from] CodecError),
     #[error(transparent)]
     WrapWelcome(#[from] WrapWelcomeError),
     #[error(transparent)]
@@ -248,6 +251,7 @@ impl RetryableError for GroupError {
             Self::LocalEvent(err) => err.is_retryable(),
             Self::LockUnavailable => true,
             Self::SyncFailedToWait(_) => true,
+            Self::CodecError(_) => true,
             Self::Sync(s) => s.is_retryable(),
             Self::Db(e) => e.is_retryable(),
             Self::MlsStore(e) => e.is_retryable(),
