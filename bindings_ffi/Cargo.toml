@@ -4,6 +4,9 @@ name = "xmtpv3"
 version.workspace = true
 license.workspace = true
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
