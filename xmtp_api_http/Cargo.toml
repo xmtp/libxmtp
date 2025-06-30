@@ -4,8 +4,8 @@ license.workspace = true
 name = "xmtp_api_http"
 version.workspace = true
 
-[lints]
-workspace = true
+[lints.clippy]
+uninlined_format_args = "allow"
 
 [dependencies]
 async-trait.workspace = true
