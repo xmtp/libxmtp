@@ -60,6 +60,8 @@ where
         XmtpOpenMlsProvider::new(&self.context_ref().mls_storage.clone())
     }
 
+    /// a reference to the MLS Storage Type
+    /// This can be related to 'db()' but may also be separate
     fn mls_storage(&self) -> &Self::MlsStorage {
         &self.context_ref().mls_storage
     }

@@ -44,6 +44,7 @@ use crate::{
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
+use update_group_membership::apply_update_group_membership_intent;
 use xmtp_api::XmtpApi;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
@@ -108,6 +109,7 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
+pub mod update_group_membership;
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -673,7 +675,7 @@ where
         }
 
         let db = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(self.context.db());
+        let provider = self.context.mls_provider();
 
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -698,7 +700,7 @@ where
         let processed_message = processed_message.expect("Was just set to Some")?;
 
         // Reload the mlsgroup to clear the it's internal cache
-        mls_group.reload(&provider)?;
+        mls_group.reload(provider.storage())?;
 
         let (sender_inbox_id, sender_installation_id) =
             extract_message_sender(mls_group, &processed_message, envelope_timestamp_ns)?;
@@ -728,7 +730,7 @@ where
                         match &e {
                             CommitValidationError::ProtocolVersionTooLow(_) => {}
                             _ => {
-                                provider.db().update_cursor(
+                                db.update_cursor(
                                     &envelope.group_id,
                                     EntityKind::Group,
                                     *cursor as i64,
@@ -1175,8 +1177,7 @@ where
                 let maybe_validated_commit = self
                     .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
                     .await;
-                let provider = XmtpOpenMlsProvider::new(&db);
-                provider.transaction(&db, |provider| {
+                self.context.mls_provider().transaction(&db, |provider| {
                         let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -1620,7 +1621,7 @@ where
                     level: EventLevel::Fault
                 );
                 let _ = self
-                    .context()
+                    .context
                     .db()
                     .mark_group_as_maybe_forked(&group_id, fork_details);
                 return epoch_validation_result;
@@ -1680,8 +1681,7 @@ where
                         let has_staged_commit = staged_commit.is_some();
                         let intent_hash = sha256(payload_slice);
                         // removing this transaction causes missed messages
-                        let provider = XmtpOpenMlsProvider::new(&db);
-                        provider.transaction(&db, |_provider| {
+                       self.context.mls_provider().transaction(&db, |_provider| {
                             db.set_group_intent_published(
                                 intent.id,
                                 &intent_hash,
@@ -1751,7 +1751,7 @@ where
         intent: &StoredGroupIntent,
     ) -> Result<Option<PublishIntentData>, GroupError> {
         let db = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(&db);
+        let provider = self.context.mls_provider();
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
                 let intent_data =
@@ -1789,13 +1789,14 @@ where
                         &self.context.identity().installation_keys,
                         LeafNodeParameters::default(),
                     )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+                    let staged_commit =
+                        get_and_clear_pending_commit(openmls_group, provider.storage())?;
                     Ok::<_, GroupError>((bundle, staged_commit))
                 });
                 let (bundle, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        openmls_group.reload(&provider)?;
+                        openmls_group.reload(provider.storage())?;
                         return Err(e);
                     }
                 };
@@ -1815,20 +1816,21 @@ where
                 )?;
 
                 let provider = self.context.mls_provider();
-                let result = provider.transaction(|provider| {
+                let result = provider.transaction(&db, |provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
                         &self.context.identity().installation_keys,
                     )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+                    let staged_commit =
+                        get_and_clear_pending_commit(openmls_group, provider.storage())?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        openmls_group.reload(&provider)?;
+                        openmls_group.reload(provider.storage())?;
                         return Err(e);
                     }
                 };
@@ -1851,20 +1853,21 @@ where
                 )?;
 
                 let provider = self.context.mls_provider();
-                let result = provider.transaction(|provider| {
+                let result = provider.transaction(&db, |provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
                         &self.context.identity().installation_keys,
                     )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+                    let staged_commit =
+                        get_and_clear_pending_commit(openmls_group, provider.storage())?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        openmls_group.reload(&provider)?;
+                        openmls_group.reload(provider.storage())?;
                         return Err(e);
                     }
                 };
@@ -1887,20 +1890,21 @@ where
                 )?;
 
                 let provider = self.context.mls_provider();
-                let result = provider.transaction(|provider| {
+                let result = provider.transaction(&db, |provider| {
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         group_permissions_extensions,
                         &self.context.identity().installation_keys,
                     )?;
-                    let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?;
+                    let staged_commit =
+                        get_and_clear_pending_commit(openmls_group, provider.storage())?;
 
                     Ok::<_, GroupError>((commit, staged_commit))
                 });
                 let (commit, staged_commit) = match result {
                     Ok(res) => res,
                     Err(e) => {
-                        openmls_group.reload(&provider)?;
+                        openmls_group.reload(provider.storage())?;
                         return Err(e);
                     }
                 };
@@ -2382,16 +2386,16 @@ fn get_removed_leaf_nodes(
         .collect()
 }
 
-fn get_and_clear_pending_commit<C: ConnectionExt>(
+fn get_and_clear_pending_commit(
     openmls_group: &mut OpenMlsGroup,
-    provider: impl OpenMlsProvider<StorageProvider = SqlKeyStore<C>>,
+    s: &impl XmtpMlsStorageProvider,
 ) -> Result<Option<Vec<u8>>, GroupError> {
     let commit = openmls_group
         .pending_commit()
         .as_ref()
         .map(xmtp_db::db_serialize)
         .transpose()?;
-    openmls_group.clear_pending_commit(provider.storage())?;
+    openmls_group.clear_pending_commit(s)?;
     Ok(commit)
 }
 

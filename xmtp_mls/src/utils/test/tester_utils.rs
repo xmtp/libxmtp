@@ -27,7 +27,7 @@ use xmtp_api::XmtpApi;
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
-use xmtp_db::{group_message::StoredGroupMessage, XmtpOpenMlsProvider};
+use xmtp_db::{group_message::StoredGroupMessage, sql_key_store::SqlKeyStore, XmtpOpenMlsProvider};
 use xmtp_id::{
     associations::{
         ident,
@@ -40,6 +40,9 @@ use xmtp_id::{
 };
 use xmtp_proto::prelude::XmtpTestClient;
 
+type XmtpMlsProvider =
+    XmtpOpenMlsProvider<SqlKeyStore<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>;
+
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
 pub struct Tester<Owner, Client>
@@ -48,7 +51,7 @@ where
 {
     pub builder: TesterBuilder<Owner>,
     pub client: Arc<Client>,
-    pub provider: Arc<XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>,
+    pub provider: Arc<XmtpMlsProvider>,
     pub worker: Option<Arc<WorkerMetrics<SyncMetric>>>,
     pub stream_handle: Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>>>>,
     /// Replacement names for this tester
@@ -184,7 +187,8 @@ where
 
     fn provider(
         &self,
-    ) -> XmtpOpenMlsProvider<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection> {
+    ) -> XmtpOpenMlsProvider<SqlKeyStore<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>
+    {
         self.client.mls_provider()
     }
 }

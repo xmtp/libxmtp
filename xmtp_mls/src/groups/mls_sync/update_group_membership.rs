@@ -57,7 +57,8 @@ pub async fn apply_update_group_membership_intent(
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    let (commit, post_commit_action, staged_commit) = provider.transaction(|provider| {
+    let db = context.db();
+    let (commit, post_commit_action, staged_commit) = provider.transaction(&db, |provider| {
         // Create the commit
         let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
             &provider,
@@ -75,7 +76,7 @@ pub async fn apply_update_group_membership_intent(
             None => None,
         };
 
-        let staged_commit = get_and_clear_pending_commit(openmls_group, provider)?
+        let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
             .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
         Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
@@ -179,4 +180,3 @@ mod tests {
         */
     }
 }
->>>>>>> d3e4a28c (intent unit tests)
