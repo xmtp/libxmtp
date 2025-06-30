@@ -3,6 +3,9 @@ edition = "2021"
 name = "bindings_wasm"
 version.workspace = true
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
