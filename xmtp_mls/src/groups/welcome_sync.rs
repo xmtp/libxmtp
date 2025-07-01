@@ -148,29 +148,37 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
-    /// Sync all unread welcome messages and then sync all groups.
-    /// Returns the total number of active groups synced.
+    /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
+    /// Returns (number of active groups successfully synced, number of groups that failed to sync).
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
+        batch_size: usize,
     ) -> Result<usize, GroupError> {
         let provider = self.context.mls_provider();
+
+        // Step 1: Sync welcomes
         self.sync_welcomes().await?;
+
+        // Step 2: Fetch ordered conversation list
         let query_args = GroupQueryArgs {
             consent_states,
             include_duplicate_dms: true,
             include_sync_groups: true,
             ..GroupQueryArgs::default()
         };
-        let groups = provider
-            .db()
-            .find_groups(query_args)?
-            .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
-            .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
 
-        Ok(active_groups_count)
+        let conversations = provider.db().fetch_conversation_list(query_args)?;
+
+        let groups: Vec<MlsGroup<Api, Db>> = conversations
+            .into_iter()
+            .map(|c| MlsGroup::new(self.context.clone(), c.id, c.dm_id, c.created_at_ns))
+            .collect();
+
+        // Step 3: Sync in batches
+        let success_count = self.sync_groups_in_batches(groups, batch_size).await?;
+
+        Ok(success_count)
     }
 
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
@@ -185,5 +193,65 @@ where
         let active_groups_count = self.sync_all_groups(groups).await?;
 
         Ok(active_groups_count)
+    }
+
+    /// Sync groups in batches to limit concurrency. Returns (success count, failure count).
+    pub async fn sync_groups_in_batches(
+        &self,
+        groups: Vec<MlsGroup<Api, Db>>,
+        batch_size: usize,
+    ) -> Result<usize, GroupError> {
+        let active_group_count = Arc::new(AtomicUsize::new(0));
+        let failed_group_count = Arc::new(AtomicUsize::new(0));
+
+        for chunk in groups.chunks(batch_size) {
+            let sync_futures = chunk
+                .iter()
+                .map(|group| {
+                    let group = group.clone();
+                    let active_group_count = Arc::clone(&active_group_count);
+                    let failed_group_count = Arc::clone(&failed_group_count);
+
+                    async move {
+                        tracing::info!(
+                            inbox_id = self.context.inbox_id(),
+                            "[{}] syncing group",
+                            self.context.inbox_id()
+                        );
+
+                        let is_active = group
+                            .load_mls_group_with_lock_async(|mls_group| async move {
+                                Ok::<bool, GroupError>(mls_group.is_active())
+                            })
+                            .await?;
+
+                        if is_active {
+                            if let Err(err) = group.sync_with_conn().await {
+                                tracing::warn!(?err, "sync_with_conn failed");
+                                failed_group_count.fetch_add(1, Ordering::SeqCst);
+                                return Ok(());
+                            }
+
+                            if let Err(err) = group.maybe_update_installations(None).await {
+                                tracing::warn!(?err, "maybe_update_installations failed");
+                                failed_group_count.fetch_add(1, Ordering::SeqCst);
+                                return Ok(());
+                            }
+
+                            active_group_count.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Ok::<(), GroupError>(())
+                    }
+                })
+                .collect::<FuturesUnordered<_>>();
+
+            sync_futures
+                .collect::<Vec<Result<_, _>>>()
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+
+        Ok(active_group_count.load(Ordering::SeqCst))
     }
 }

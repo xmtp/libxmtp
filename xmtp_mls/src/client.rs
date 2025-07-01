@@ -837,9 +837,12 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
+        batch_size: Option<usize>,
     ) -> Result<usize, GroupError> {
+        let effective_batch_size = batch_size.unwrap_or(10);
+
         WelcomeService::new(self.context.clone())
-            .sync_all_welcomes_and_groups(consent_states)
+            .sync_all_welcomes_and_groups(consent_states, effective_batch_size)
             .await
     }
 
@@ -1197,7 +1200,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Initial sync (None): Bob should fetch both groups
-        let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        let bob_received_groups = bo.sync_all_welcomes_and_groups(None, None).await.unwrap();
         assert_eq!(bob_received_groups, 2);
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
@@ -1232,7 +1235,7 @@ pub(crate) mod tests {
 
         // Sync with `Unknown`: Bob should not fetch new messages
         let bob_received_groups_unknown = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()))
+            .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()), None)
             .await
             .unwrap();
         assert_eq!(bob_received_groups_unknown, 0);
@@ -1265,7 +1268,7 @@ pub(crate) mod tests {
 
         // Sync with `None`: Bob should fetch all messages
         let bob_received_groups_all = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()))
+            .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()), None)
             .await
             .unwrap();
         assert_eq!(bob_received_groups_all, 2);
@@ -1276,6 +1279,62 @@ pub(crate) mod tests {
 
         let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
         assert_eq!(bo_messages2.len(), 3);
+    }
+
+    #[xmtp_common::test]
+    async fn test_sync_100_allowed_groups_performance() {
+        tester!(alix);
+        tester!(bo, passkey);
+
+        let group_count = 100;
+        let mut groups = Vec::with_capacity(group_count);
+
+        // Create 100 groups and add Bob
+        for _ in 0..group_count {
+            let group = alix.create_group(None, None).unwrap();
+            group
+                .add_members_by_inbox_id(&[bo.inbox_id()])
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        // Ensure welcomes exist before syncing
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+
+        // Time Bob's full sync
+        let start = std::time::Instant::now();
+        let synced_count = alix
+            .sync_all_welcomes_and_groups(Some(vec![ConsentState::Allowed]), Some(10))
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        // Assert all groups synced successfully
+        assert_eq!(
+            synced_count, group_count,
+            "Expected {} groups synced, got {}",
+            group_count, synced_count
+        );
+
+        // Optional: Verify message presence in one random group
+        let test_group = groups.first().unwrap();
+        let bo_group = alix.group(&test_group.group_id).unwrap();
+        assert_eq!(
+            bo_group
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            1,
+            "Expected 1 welcome message synced"
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
     }
 
     #[rstest::rstest]
