@@ -3474,6 +3474,9 @@ impl serde::Serialize for welcome_message::V1 {
         if self.wrapper_algorithm != 0 {
             len += 1;
         }
+        if !self.welcome_metadata.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessage.V1", len)?;
         if self.id != 0 {
             #[allow(clippy::needless_borrow)]
@@ -3505,6 +3508,11 @@ impl serde::Serialize for welcome_message::V1 {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
             struct_ser.serialize_field("wrapper_algorithm", &v)?;
         }
+        if !self.welcome_metadata.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("welcome_metadata", pbjson::private::base64::encode(&self.welcome_metadata).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -3525,6 +3533,8 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             "hpkePublicKey",
             "wrapper_algorithm",
             "wrapperAlgorithm",
+            "welcome_metadata",
+            "welcomeMetadata",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3535,6 +3545,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             Data,
             HpkePublicKey,
             WrapperAlgorithm,
+            WelcomeMetadata,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3563,6 +3574,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                             "data" => Ok(GeneratedField::Data),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             "wrapperAlgorithm" | "wrapper_algorithm" => Ok(GeneratedField::WrapperAlgorithm),
+                            "welcomeMetadata" | "welcome_metadata" => Ok(GeneratedField::WelcomeMetadata),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3588,6 +3600,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                 let mut data__ = None;
                 let mut hpke_public_key__ = None;
                 let mut wrapper_algorithm__ = None;
+                let mut welcome_metadata__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -3636,6 +3649,14 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                             }
                             wrapper_algorithm__ = Some(map_.next_value::<super::super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
                         }
+                        GeneratedField::WelcomeMetadata => {
+                            if welcome_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeMetadata"));
+                            }
+                            welcome_metadata__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3648,6 +3669,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                     data: data__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                     wrapper_algorithm: wrapper_algorithm__.unwrap_or_default(),
+                    welcome_metadata: welcome_metadata__.unwrap_or_default(),
                 })
             }
         }
@@ -3774,6 +3796,9 @@ impl serde::Serialize for welcome_message_input::V1 {
         if self.wrapper_algorithm != 0 {
             len += 1;
         }
+        if !self.welcome_metadata.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessageInput.V1", len)?;
         if !self.installation_key.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -3795,6 +3820,11 @@ impl serde::Serialize for welcome_message_input::V1 {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.wrapper_algorithm)))?;
             struct_ser.serialize_field("wrapper_algorithm", &v)?;
         }
+        if !self.welcome_metadata.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("welcome_metadata", pbjson::private::base64::encode(&self.welcome_metadata).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -3812,6 +3842,8 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             "hpkePublicKey",
             "wrapper_algorithm",
             "wrapperAlgorithm",
+            "welcome_metadata",
+            "welcomeMetadata",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3820,6 +3852,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             Data,
             HpkePublicKey,
             WrapperAlgorithm,
+            WelcomeMetadata,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3846,6 +3879,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                             "data" => Ok(GeneratedField::Data),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             "wrapperAlgorithm" | "wrapper_algorithm" => Ok(GeneratedField::WrapperAlgorithm),
+                            "welcomeMetadata" | "welcome_metadata" => Ok(GeneratedField::WelcomeMetadata),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3869,6 +3903,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                 let mut data__ = None;
                 let mut hpke_public_key__ = None;
                 let mut wrapper_algorithm__ = None;
+                let mut welcome_metadata__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
@@ -3901,6 +3936,14 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                             }
                             wrapper_algorithm__ = Some(map_.next_value::<super::super::message_contents::WelcomeWrapperAlgorithm>()? as i32);
                         }
+                        GeneratedField::WelcomeMetadata => {
+                            if welcome_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeMetadata"));
+                            }
+                            welcome_metadata__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3911,9 +3954,110 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                     data: data__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                     wrapper_algorithm: wrapper_algorithm__.unwrap_or_default(),
+                    welcome_metadata: welcome_metadata__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("xmtp.mls.api.v1.WelcomeMessageInput.V1", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WelcomeMetadata {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.message_cursor != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMetadata", len)?;
+        if self.message_cursor != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("message_cursor", ToString::to_string(&self.message_cursor).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WelcomeMetadata {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "message_cursor",
+            "messageCursor",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            MessageCursor,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "messageCursor" | "message_cursor" => Ok(GeneratedField::MessageCursor),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WelcomeMetadata;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.api.v1.WelcomeMetadata")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WelcomeMetadata, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut message_cursor__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::MessageCursor => {
+                            if message_cursor__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("messageCursor"));
+                            }
+                            message_cursor__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WelcomeMetadata {
+                    message_cursor: message_cursor__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.api.v1.WelcomeMetadata", FIELDS, GeneratedVisitor)
     }
 }
