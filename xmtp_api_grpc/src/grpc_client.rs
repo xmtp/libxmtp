@@ -10,7 +10,7 @@ use xmtp_proto::{
     traits::{ApiClientError, Client},
 };
 
-use crate::{create_tls_channel, GrpcBuilderError, GrpcError};
+use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
 
 impl From<GrpcError> for ApiClientError<GrpcError> {
     fn from(source: GrpcError) -> ApiClientError<GrpcError> {
@@ -143,7 +143,9 @@ impl ApiBuilder for ClientBuilder {
         };
 
         Ok(GrpcClient {
-            inner: tonic::client::Grpc::new(channel),
+            inner: tonic::client::Grpc::new(channel)
+                .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
+                .max_encoding_message_size(GRPC_PAYLOAD_LIMIT),
             app_version: self
                 .app_version
                 .unwrap_or(MetadataValue::try_from("0.0.0")?),
