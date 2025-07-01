@@ -218,13 +218,6 @@ where
     }
 }
 
-#[cfg(test)]
-impl<'a, ApiClient, Db, S> StreamGroupMessages<'a, ApiClient, Db, S> {
-    pub fn position(&self, group: impl AsRef<[u8]>) -> Option<MessagePosition> {
-        self.groups.position(group)
-    }
-}
-
 impl<'a, ApiClient, Db, Factory>
     StreamGroupMessages<'a, ApiClient, Db, MessagesApiSubscription<'a, ApiClient>, Factory>
 where

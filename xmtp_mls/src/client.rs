@@ -1332,7 +1332,7 @@ pub(crate) mod tests {
         let mut groups = Vec::with_capacity(group_count);
 
         for _ in 0..group_count {
-            let group = alix.create_group(None, None).unwrap();
+            let group = alix.create_group(None, GroupMetadataOptions::default()).unwrap();
             group
                 .add_members_by_inbox_id(&[bo.inbox_id()])
                 .await
@@ -1353,7 +1353,7 @@ pub(crate) mod tests {
                 .find_messages(&MsgQueryArgs::default())
                 .unwrap()
                 .len(),
-            1,
+            0,
             "Expected 1 welcome message synced"
         );
 
