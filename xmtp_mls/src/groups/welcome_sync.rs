@@ -148,31 +148,6 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
-    /// Sync all unread welcome messages and then sync all groups.
-    /// Returns the total number of active groups synced.
-    pub async fn sync_all_welcomes_and_groups(
-        &self,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, GroupError> {
-        let provider = self.context.mls_provider();
-        self.sync_welcomes().await?;
-        let query_args = GroupQueryArgs {
-            consent_states,
-            include_duplicate_dms: true,
-            include_sync_groups: true,
-            ..GroupQueryArgs::default()
-        };
-        let groups = provider
-            .db()
-            .find_groups(query_args)?
-            .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
-            .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
-
-        Ok(active_groups_count)
-    }
-
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
         let provider = self.context.mls_provider();
         self.sync_welcomes().await?;
@@ -185,5 +160,90 @@ where
         let active_groups_count = self.sync_all_groups(groups).await?;
 
         Ok(active_groups_count)
+    }
+
+    /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
+    /// Returns number of active groups successfully synced.
+    pub async fn sync_all_welcomes_and_groups(
+        &self,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<usize, GroupError> {
+        let provider = self.context.mls_provider();
+
+        if let Err(err) = self.sync_welcomes().await {
+            tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
+        }
+
+        let query_args = GroupQueryArgs {
+            consent_states,
+            include_duplicate_dms: true,
+            include_sync_groups: true,
+            ..GroupQueryArgs::default()
+        };
+
+        let conversations = provider.db().fetch_conversation_list(query_args)?;
+
+        let groups: Vec<MlsGroup<Api, Db>> = conversations
+            .into_iter()
+            .map(|c| MlsGroup::new(self.context.clone(), c.id, c.dm_id, c.created_at_ns))
+            .collect();
+
+        let success_count = self.sync_groups_in_batches(groups, 10).await?;
+
+        Ok(success_count)
+    }
+
+    /// Sync groups concurrently with a limit. Returns success count.
+    pub async fn sync_groups_in_batches(
+        &self,
+        groups: Vec<MlsGroup<Api, Db>>,
+        max_concurrency: usize,
+    ) -> Result<usize, GroupError> {
+        let active_group_count = Arc::new(AtomicUsize::new(0));
+        let failed_group_count = Arc::new(AtomicUsize::new(0));
+
+        stream::iter(groups)
+            .for_each_concurrent(max_concurrency, |group| {
+                let group = group.clone();
+                let active_group_count = Arc::clone(&active_group_count);
+                let failed_group_count = Arc::clone(&failed_group_count);
+                let inbox_id = self.context.inbox_id();
+
+                async move {
+                    tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
+
+                    let is_active_res = group
+                        .load_mls_group_with_lock_async(|mls_group| async move {
+                            Ok::<bool, GroupError>(mls_group.is_active())
+                        })
+                        .await;
+
+                    match is_active_res {
+                        Ok(is_active) if is_active => {
+                            if let Err(err) = group.sync_with_conn().await {
+                                tracing::warn!(?err, "sync_with_conn failed");
+                                failed_group_count.fetch_add(1, Ordering::SeqCst);
+                                return;
+                            }
+
+                            if let Err(err) = group.maybe_update_installations(None).await {
+                                tracing::warn!(?err, "maybe_update_installations failed");
+                                failed_group_count.fetch_add(1, Ordering::SeqCst);
+                                return;
+                            }
+
+                            active_group_count.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Ok(_) => { /* group inactive, skip */ }
+                        Err(err) => {
+                            tracing::warn!(?err, "load_mls_group_with_lock_async failed");
+                            failed_group_count.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                }
+            })
+            .await;
+
+        Ok(active_group_count.load(Ordering::SeqCst))
     }
 }
