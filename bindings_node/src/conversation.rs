@@ -472,7 +472,9 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
+  )]
   pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;

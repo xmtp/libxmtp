@@ -517,7 +517,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, conversationType?: ConversationType"
+    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
   )]
   pub fn stream(
     &self,
@@ -552,7 +552,7 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_messages(
     &self,
@@ -632,7 +632,9 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
+  )]
   pub fn stream_consent(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
     let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
@@ -667,7 +669,9 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void")]
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void, onClose: () => void"
+  )]
   pub fn stream_preferences(
     &self,
     callback: JsFunction,
