@@ -396,7 +396,7 @@ async fn test_dm_stitching() {
         .await
         .unwrap();
 
-    alix.sync_all_welcomes_and_groups(None, None).await.unwrap();
+    alix.sync_all_welcomes_and_groups(None).await.unwrap();
 
     // The dm shows up
     let alix_groups = alix

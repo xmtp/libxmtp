@@ -163,11 +163,10 @@ where
     }
 
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
-    /// Returns (number of active groups successfully synced, number of groups that failed to sync).
+    /// Returns number of active groups successfully synced.
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-        batch_size: usize,
     ) -> Result<usize, GroupError> {
         let provider = self.context.mls_provider();
 
@@ -189,12 +188,12 @@ where
             .map(|c| MlsGroup::new(self.context.clone(), c.id, c.dm_id, c.created_at_ns))
             .collect();
 
-        let success_count = self.sync_groups_in_batches(groups, batch_size).await?;
+        let success_count = self.sync_groups_in_batches(groups, 10).await?;
 
         Ok(success_count)
     }
 
-    /// Sync groups in batches to limit concurrency. Returns (success count, failure count).
+    /// Sync groups in batches to limit concurrency. Returns success count.
     pub async fn sync_groups_in_batches(
         &self,
         groups: Vec<MlsGroup<Api, Db>>,

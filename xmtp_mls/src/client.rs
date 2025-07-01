@@ -837,12 +837,11 @@ where
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
-        batch_size: Option<usize>,
     ) -> Result<usize, GroupError> {
         let effective_batch_size = batch_size.unwrap_or(10);
 
         WelcomeService::new(self.context.clone())
-            .sync_all_welcomes_and_groups(consent_states, effective_batch_size)
+            .sync_all_welcomes_and_groups(consent_states)
             .await
     }
 
@@ -933,6 +932,7 @@ pub(crate) mod tests {
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
     use std::borrow;
+    use std::num::NonZeroI16;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1201,7 +1201,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Initial sync (None): Bob should fetch both groups
-        let bob_received_groups = bo.sync_all_welcomes_and_groups(None, None).await.unwrap();
+        let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
         assert_eq!(bob_received_groups, 2);
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
@@ -1236,7 +1236,7 @@ pub(crate) mod tests {
 
         // Sync with `Unknown`: Bob should not fetch new messages
         let bob_received_groups_unknown = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()), None)
+            .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()))
             .await
             .unwrap();
         assert_eq!(bob_received_groups_unknown, 0);
@@ -1269,7 +1269,7 @@ pub(crate) mod tests {
 
         // Sync with `None`: Bob should fetch all messages
         let bob_received_groups_all = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()), None)
+            .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()))
             .await
             .unwrap();
         assert_eq!(bob_received_groups_all, 2);
@@ -1302,10 +1302,7 @@ pub(crate) mod tests {
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
         let start = std::time::Instant::now();
-        let _synced_count = bo
-            .sync_all_welcomes_and_groups(None, Some(10))
-            .await
-            .unwrap();
+        let _synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
         let elapsed = start.elapsed();
 
         let test_group = groups.first().unwrap();
@@ -1327,10 +1324,7 @@ pub(crate) mod tests {
         );
 
         let start = std::time::Instant::now();
-        let synced_count = bo
-            .sync_all_welcomes_and_groups(None, Some(10))
-            .await
-            .unwrap();
+        let synced_count = bo.sync_all_welcomes_and_groups(NonZeroI16).await.unwrap();
         let elapsed = start.elapsed();
 
         assert_eq!(

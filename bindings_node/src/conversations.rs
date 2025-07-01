@@ -466,7 +466,7 @@ impl Conversations {
 
     let num_groups_synced = self
       .inner_client
-      .sync_all_welcomes_and_groups(consents, None)
+      .sync_all_welcomes_and_groups(consents)
       .await
       .map_err(ErrorWrapper::from)?;
 
