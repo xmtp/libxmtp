@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     pin::Pin,
     sync::Arc,
     task::{ready, Context, Poll},
@@ -35,9 +36,30 @@ pin_project! {
     pub(super) struct StreamAllMessages<'a, ApiClient, Db, Conversations, Messages> {
         #[pin] conversations: Conversations,
         #[pin] messages: Messages,
-        context: &'a XmtpMlsLocalContext<ApiClient, Db>,
+        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         conversation_type: Option<ConversationType>,
         sync_groups: Vec<Vec<u8>>
+    }
+}
+
+impl<A, D>
+    StreamAllMessages<
+        'static,
+        A,
+        D,
+        StreamConversations<'static, A, D, WelcomesApiSubscription<'static, A>>,
+        StreamGroupMessages<'static, A, D, MessagesApiSubscription<'static, A>>,
+    >
+where
+    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
+    D: XmtpDb + Send + Sync + 'static,
+{
+    pub async fn new_owned(
+        context: Arc<XmtpMlsLocalContext<A, D>>,
+        conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<Self> {
+        Self::from_cow(Cow::Owned(context), conversation_type, consent_states).await
     }
 }
 
@@ -58,9 +80,19 @@ where
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<Self> {
+        Self::from_cow(Cow::Borrowed(context), conversation_type, consent_states).await
+    }
+
+    pub async fn from_cow(
+        context: Cow<'a, Arc<XmtpMlsLocalContext<A, D>>>,
+        conversation_type: Option<ConversationType>,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<Self> {
         let (active_conversations, sync_groups) = async {
             let provider = context.mls_provider();
-            WelcomeService::new(context.clone()).sync_welcomes().await?;
+            WelcomeService::new(context.as_ref().clone())
+                .sync_welcomes()
+                .await?;
 
             Events::track(
                 provider.db(),
@@ -102,10 +134,12 @@ where
         }
         .await?;
 
-        let conversations =
-            super::stream_conversations::StreamConversations::new(context, conversation_type)
-                .await?;
-        let messages = StreamGroupMessages::new(context, active_conversations).await?;
+        let conversations = super::stream_conversations::StreamConversations::from_cow(
+            context.clone(),
+            conversation_type,
+        )
+        .await?;
+        let messages = StreamGroupMessages::from_cow(context.clone(), active_conversations).await?;
 
         Ok(Self {
             context,

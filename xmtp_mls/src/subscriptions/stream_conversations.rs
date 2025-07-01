@@ -220,10 +220,10 @@ where
         context: &'a Arc<XmtpMlsLocalContext<A, D>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        Self::init(Cow::Borrowed(context), conversation_type).await
+        Self::from_cow(Cow::Borrowed(context), conversation_type).await
     }
 
-    async fn init(
+    pub async fn from_cow(
         context: Cow<'a, Arc<XmtpMlsLocalContext<A, D>>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
@@ -272,7 +272,7 @@ where
         context: Arc<XmtpMlsLocalContext<A, D>>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        Self::init(Cow::Owned(context), conversation_type).await
+        Self::from_cow(Cow::Owned(context), conversation_type).await
     }
 }
 

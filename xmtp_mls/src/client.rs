@@ -1323,6 +1323,65 @@ pub(crate) mod tests {
         assert_eq!(decrypted, to_encrypt);
     }
 
+    #[xmtp_common::test]
+    async fn test_sync_100_allowed_groups_performance() {
+        tester!(alix);
+        tester!(bo, passkey);
+
+        let group_count = 100;
+        let mut groups = Vec::with_capacity(group_count);
+
+        for _ in 0..group_count {
+            let group = alix.create_group(None, GroupMetadataOptions::default()).unwrap();
+            group
+                .add_members_by_inbox_id(&[bo.inbox_id()])
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+
+        let start = xmtp_common::time::Instant::now();
+        let _synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        let elapsed = start.elapsed();
+
+        let test_group = groups.first().unwrap();
+        let bo_group = bo.group(&test_group.group_id).unwrap();
+        assert_eq!(
+            bo_group
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            0,
+            "Expected 1 welcome message synced"
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
+
+        let start = xmtp_common::time::Instant::now();
+        let synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            synced_count, group_count,
+            "Expected {} groups synced, got {}",
+            group_count, synced_count
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
+    }
+
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_add_remove_then_add_again() {

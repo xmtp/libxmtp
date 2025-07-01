@@ -458,9 +458,14 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    })
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('closed')
+      }
+    )
     const group1 = await client1.conversations().createGroup([
       {
         identifier: user3.account.address,
@@ -495,9 +500,15 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    }, ConversationType.Group)
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('clossed')
+      },
+      ConversationType.Group
+    )
     const group3 = await client4.conversations().createDm({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
@@ -532,9 +543,15 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    }, ConversationType.Dm)
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
+    )
     const group1 = await client1.conversations().createGroup([
       {
         identifier: user3.account.address,
@@ -590,6 +607,9 @@ describe('Conversations', () => {
       (err, message) => {
         messages.push(message!)
       },
+      () => {
+        console.log('closed')
+      },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
     )
@@ -598,6 +618,9 @@ describe('Conversations', () => {
     const stream2 = client2.conversations().streamAllMessages(
       (err, message) => {
         messages2.push(message!)
+      },
+      () => {
+        console.log('closed')
       },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
@@ -608,6 +631,9 @@ describe('Conversations', () => {
       (err, message) => {
         messages3.push(message!)
       },
+      () => {
+        console.log('closed')
+      },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
     )
@@ -616,6 +642,9 @@ describe('Conversations', () => {
     const stream4 = client4.conversations().streamAllMessages(
       (err, message) => {
         messages4.push(message!)
+      },
+      () => {
+        console.log('closed')
       },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
@@ -686,9 +715,15 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages((err, message) => {
-      messages.push(message!)
-    }, ConversationType.Group)
+    const stream = client1.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Group
+    )
 
     const groups2 = client2.conversations()
     await groups2.sync()
@@ -744,9 +779,15 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages((err, message) => {
-      messages.push(message!)
-    }, ConversationType.Dm)
+    const stream = client1.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
+    )
 
     const groups2 = client2.conversations()
     await groups2.sync()
