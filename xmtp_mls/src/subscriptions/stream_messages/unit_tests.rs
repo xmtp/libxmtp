@@ -7,6 +7,7 @@ use crate::{subscriptions::stream_messages::test_case_builder::*, test::mock::Mo
 use futures::FutureExt;
 use futures::Stream;
 use rstest::*;
+use std::borrow::Cow;
 
 #[rstest]
 #[case(vec![
@@ -86,15 +87,21 @@ use rstest::*;
     ])]
 #[xmtp_common::test]
 async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
+    use std::borrow::Cow;
+
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {
         sequence.session(case);
     }
     let (factory, finished) = sequence.finish();
-    let mut stream = StreamGroupMessages::new_with_factory(&finished.context, group_list, factory)
-        .await
-        .unwrap();
+    let mut stream = StreamGroupMessages::new_with_factory(
+        Cow::Borrowed(&finished.context),
+        group_list,
+        factory,
+    )
+    .await
+    .unwrap();
 
     for session in cases.iter_mut() {
         session.expected.reverse();
@@ -179,15 +186,21 @@ async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
 //  ])]
 #[xmtp_common::test]
 async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
+    use std::borrow::Cow;
+
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {
         sequence.session(case);
     }
     let (factory, finished) = sequence.finish();
-    let stream = StreamGroupMessages::new_with_factory(&finished.context, group_list, factory)
-        .await
-        .unwrap();
+    let stream = StreamGroupMessages::new_with_factory(
+        Cow::Borrowed(&finished.context),
+        group_list,
+        factory,
+    )
+    .await
+    .unwrap();
     let mut stream = std::pin::pin!(stream);
 
     let mut first = true;
@@ -263,10 +276,14 @@ async fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) 
         sequence.session(case);
     }
     let (factory, finished) = sequence.finish();
-    let stream = StreamGroupMessages::new_with_factory(&finished.context, group_list, factory)
-        .now_or_never()
-        .unwrap()
-        .unwrap();
+    let stream = StreamGroupMessages::new_with_factory(
+        Cow::Borrowed(&finished.context),
+        group_list,
+        factory,
+    )
+    .now_or_never()
+    .unwrap()
+    .unwrap();
     futures::pin_mut!(stream);
 
     let noop_waker = futures::task::noop_waker();

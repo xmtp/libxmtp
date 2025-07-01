@@ -7,6 +7,7 @@ mod unit_tests;
 
 use std::{
     collections::{HashMap, VecDeque},
+    borrow::Cow,
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -120,7 +121,7 @@ pin_project! {
         #[pin] inner: Subscription,
         #[pin] state: State<'a, Subscription>,
         factory: Factory,
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         pub(super) group_list: HashMap<GroupId, MessagePosition>,
         add_queue: VecDeque<MlsGroup<ApiClient, Db>>,
         returned: Vec<u64>,
@@ -183,11 +184,44 @@ where
         group_list: Vec<GroupId>,
     ) -> Result<Self> {
         Self::new_with_factory(
-            context,
+            Cow::Borrowed(context),
             group_list,
             ProcessMessageFuture::new(context.clone()),
         )
         .await
+    }
+
+    pub async fn from_cow(
+        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
+        groups: Vec<GroupId>,
+    ) -> Result<Self> {
+        Self::new_with_factory(
+            context.clone(),
+            groups,
+            ProcessMessageFuture::new(context.as_ref().clone()),
+        )
+        .await
+    }
+}
+
+impl<A, D> StreamGroupMessages<'static, A, D, MessagesApiSubscription<'static, A>>
+where
+    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
+    D: XmtpDb + Send + 'static,
+{
+    pub async fn new_owned(
+        context: Arc<XmtpMlsLocalContext<A, D>>,
+        groups: Vec<GroupId>,
+    ) -> Result<Self> {
+        let f = ProcessMessageFuture::new(context.clone());
+        Self::new_with_factory(Cow::Owned(context), groups, f).await
+    }
+}
+
+#[cfg(test)]
+impl<'a, ApiClient, Db, S> StreamGroupMessages<'a, ApiClient, Db, S> {
+    pub fn position(&self, group: impl AsRef<[u8]>) -> Option<MessagePosition> {
+        self.groups.position(group)
     }
 }
 
@@ -199,7 +233,7 @@ where
     Factory: ProcessFutureFactory<'a> + 'a,
 {
     pub async fn new_with_factory(
-        context: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         group_list: Vec<GroupId>,
         factory: Factory,
     ) -> Result<Self> {
@@ -324,7 +358,7 @@ where
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(client, new_group), fields(new_group = hex::encode(&new_group)))]
     async fn subscribe(
-        client: &'a Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        client: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         filters: Vec<GroupFilter>,
         new_group: Vec<u8>,
     ) -> Result<(MessagesApiSubscription<'a, ApiClient>, Vec<u8>, Option<u64>)> {
@@ -521,9 +555,8 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.group_list
-            .insert(group.group_id.clone().into(), MessagePosition::new(1, 1));
-        let future = Self::subscribe(self.context, self.filters(), group.group_id);
+        this.group_list.add(&group.group_id, MessagePosition::new(1, 1));
+        let future = Self::subscribe(self.context.clone(), self.group_list.filters(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),

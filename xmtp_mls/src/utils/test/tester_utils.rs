@@ -176,6 +176,7 @@ where
             None,
             None,
             |_| {},
+            || {},
         );
         let handle = Box::new(handle) as Box<_>;
         self.stream_handle = Some(handle);

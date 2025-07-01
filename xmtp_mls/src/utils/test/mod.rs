@@ -61,6 +61,7 @@ impl<A> ClientBuilder<A> {
 }
 
 impl ClientBuilder<TestClient> {
+
     pub async fn new_api_client() -> TestClient {
         <TestClient as XmtpTestClient>::create_local()
             .build()
