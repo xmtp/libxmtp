@@ -7651,7 +7651,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(messages.len(), 5);
+        assert_eq!(messages.len(), 6);
 
         assert_eq!(&messages[0].content, b"Hello 10");
 
