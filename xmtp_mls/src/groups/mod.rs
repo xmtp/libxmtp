@@ -565,7 +565,7 @@ where
 
         let mut decrypt_result: Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> = Err(GroupError::UninitializedResult);
         let transaction_result = provider.transaction(|provider| {
-            let decrypt_result = DecryptedWelcome::from_encrypted_bytes(
+            decrypt_result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
