@@ -14,6 +14,7 @@ use xmtp_mls::{
   },
 };
 
+#[derive(Clone, Copy)]
 #[napi]
 pub enum GroupPermissionsOptions {
   Default,
@@ -21,6 +22,7 @@ pub enum GroupPermissionsOptions {
   CustomPolicy,
 }
 
+#[derive(Clone, Copy)]
 #[napi]
 pub enum PermissionUpdateType {
   AddMember,
@@ -42,6 +44,7 @@ impl From<&PermissionUpdateType> for XmtpPermissionUpdateType {
   }
 }
 
+#[derive(Clone, Copy)]
 #[napi]
 pub enum PermissionPolicy {
   Allow,

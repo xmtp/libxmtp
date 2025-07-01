@@ -344,6 +344,11 @@ where
         })
     }
 
+    pub fn stream_consent(&self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
+        let receiver = self.local_events.subscribe();
+        receiver.stream_consent_updates()
+    }
+
     pub fn stream_consent_with_callback(
         client: Arc<Client<ApiClient, Db>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
@@ -368,6 +373,11 @@ where
             on_close();
             Ok::<_, SubscribeError>(())
         })
+    }
+
+    pub fn stream_preferences(&self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>> {
+        let receiver = self.local_events.subscribe();
+        receiver.stream_preference_updates()
     }
 
     pub fn stream_preferences_with_callback(

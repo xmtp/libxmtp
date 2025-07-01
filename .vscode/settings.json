@@ -10,7 +10,8 @@
     "unlinked-file",
     "unresolved-macro-call",
     "unresolved-proc-macro",
-    "macro-error"
+    "macro-error",
+    "proc-macro-disabled"
   ],
   "rust-analyzer.cargo.buildScripts.enable": false,
   "rust-analyzer.files.exclude": ["bindings_wasm/**"],
