@@ -838,8 +838,6 @@ where
         &self,
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<usize, GroupError> {
-        let effective_batch_size = batch_size.unwrap_or(10);
-
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
@@ -931,8 +929,6 @@ pub(crate) mod tests {
     use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
-    use std::borrow;
-    use std::num::NonZeroI16;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1324,7 +1320,7 @@ pub(crate) mod tests {
         );
 
         let start = std::time::Instant::now();
-        let synced_count = bo.sync_all_welcomes_and_groups(NonZeroI16).await.unwrap();
+        let synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
         let elapsed = start.elapsed();
 
         assert_eq!(
