@@ -148,6 +148,20 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
+    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
+        let provider = self.context.mls_provider();
+        self.sync_welcomes().await?;
+        let groups = provider
+            .db()
+            .all_sync_groups()?
+            .into_iter()
+            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .collect();
+        let active_groups_count = self.sync_all_groups(groups).await?;
+
+        Ok(active_groups_count)
+    }
+
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
     /// Returns (number of active groups successfully synced, number of groups that failed to sync).
     pub async fn sync_all_welcomes_and_groups(
@@ -157,10 +171,10 @@ where
     ) -> Result<usize, GroupError> {
         let provider = self.context.mls_provider();
 
-        // Step 1: Sync welcomes
-        self.sync_welcomes().await?;
+        if let Err(err) = self.sync_welcomes().await {
+            tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
+        }
 
-        // Step 2: Fetch ordered conversation list
         let query_args = GroupQueryArgs {
             consent_states,
             include_duplicate_dms: true,
@@ -175,24 +189,9 @@ where
             .map(|c| MlsGroup::new(self.context.clone(), c.id, c.dm_id, c.created_at_ns))
             .collect();
 
-        // Step 3: Sync in batches
         let success_count = self.sync_groups_in_batches(groups, batch_size).await?;
 
         Ok(success_count)
-    }
-
-    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
-        let provider = self.context.mls_provider();
-        self.sync_welcomes().await?;
-        let groups = provider
-            .db()
-            .all_sync_groups()?
-            .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
-            .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
-
-        Ok(active_groups_count)
     }
 
     /// Sync groups in batches to limit concurrency. Returns (success count, failure count).

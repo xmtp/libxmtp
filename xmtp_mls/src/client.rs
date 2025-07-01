@@ -1290,7 +1290,6 @@ pub(crate) mod tests {
         let group_count = 100;
         let mut groups = Vec::with_capacity(group_count);
 
-        // Create 100 groups and add Bob
         for _ in 0..group_count {
             let group = alix.create_group(None, None).unwrap();
             group
@@ -1300,18 +1299,15 @@ pub(crate) mod tests {
             groups.push(group);
         }
 
-        // Ensure welcomes exist before syncing
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
-        // Time Bob's full sync
         let start = std::time::Instant::now();
-        let synced_count = bo
+        let _synced_count = bo
             .sync_all_welcomes_and_groups(None, Some(10))
             .await
             .unwrap();
         let elapsed = start.elapsed();
 
-        // Optional: Verify message presence in one random group
         let test_group = groups.first().unwrap();
         let bo_group = bo.group(&test_group.group_id).unwrap();
         assert_eq!(
@@ -1337,7 +1333,6 @@ pub(crate) mod tests {
             .unwrap();
         let elapsed = start.elapsed();
 
-        // Assert all groups synced successfully
         assert_eq!(
             synced_count, group_count,
             "Expected {} groups synced, got {}",
