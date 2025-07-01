@@ -194,10 +194,10 @@ async fn test_log_with_lag() {
     );
 }
 
-fn get_type<'a>(logs: &'a [LocalCommitLog]) -> Vec<&'a Option<String>> {
+fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {
     logs.iter().map(|l| &l.commit_type).collect()
 }
 
-fn get_result<'a>(logs: &'a [LocalCommitLog]) -> Vec<&'a CommitResult> {
+fn get_result(logs: &[LocalCommitLog]) -> Vec<&CommitResult> {
     logs.iter().map(|l| &l.commit_result).collect()
 }
