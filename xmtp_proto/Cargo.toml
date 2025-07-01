@@ -4,6 +4,9 @@ license.workspace = true
 name = "xmtp_proto"
 version.workspace = true
 
+[lints.clippy]
+uninlined_format_args = "allow"
+
 [dependencies]
 async-trait.workspace = true
 derive_builder.workspace = true

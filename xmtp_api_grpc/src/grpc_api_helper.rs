@@ -1,13 +1,12 @@
 use std::pin::Pin;
 use std::time::Duration;
 
+use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
 use futures::{Stream, StreamExt};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
-use xmtp_proto::traits::ApiClientError;
-
-use crate::{create_tls_channel, GrpcBuilderError, GrpcError};
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
+use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
@@ -110,8 +109,12 @@ impl ApiBuilder for ClientBuilder {
             }
         };
 
-        let mls_client = ProtoMlsApiClient::new(channel.clone());
-        let identity_client = ProtoIdentityApiClient::new(channel);
+        let mls_client = ProtoMlsApiClient::new(channel.clone())
+            .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
+            .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
+        let identity_client = ProtoIdentityApiClient::new(channel)
+            .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
+            .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
 
         Ok(Client {
             mls_client,

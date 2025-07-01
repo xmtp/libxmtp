@@ -69,8 +69,12 @@ use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
-use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
+use xmtp_content_types::ContentCodec;
+use xmtp_content_types::{
+    group_updated::GroupUpdatedCodec,
+    reaction::{LegacyReaction, ReactionCodec},
+};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -105,8 +109,9 @@ use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
         content_types::ReactionV2,
+        group_updated::Inbox,
         plaintext_envelope::{Content, V1},
-        EncodedContent, PlaintextEnvelope,
+        ContentTypeId, EncodedContent, GroupUpdated, PlaintextEnvelope,
     },
 };
 
@@ -587,7 +592,7 @@ where
                     result.err()
                 );
             } else {
-                let (group, _) = result.unwrap();
+                let (group, _) = result.expect("No error");
                 // Check the group epoch as well, because we may not have synced the latest is_active state
                 // TODO(rich): Design a better way to detect if incoming welcomes are valid
                 if group.is_active()?
@@ -725,6 +730,69 @@ where
                 },
                 group: &stored_group.id
             );
+
+            // Create a GroupUpdated payload
+                let current_inbox_id = context.inbox_id().to_string();
+                let added_payload = GroupUpdated {
+                    initiated_by_inbox_id: added_by_inbox_id.clone(),
+                    added_inboxes: vec![Inbox {
+                        inbox_id: current_inbox_id.clone(),
+                    }],
+                    removed_inboxes: vec![],
+                    metadata_field_changes: vec![],
+                };
+
+                let encoded_added_payload = GroupUpdatedCodec::encode(added_payload)?;
+                let mut encoded_added_payload_bytes = Vec::new();
+                encoded_added_payload
+                    .encode(&mut encoded_added_payload_bytes)
+                    .map_err(GroupError::EncodeError)?;
+
+                let added_message_id = crate::utils::id::calculate_message_id(
+                    &stored_group.id,
+                    encoded_added_payload_bytes.as_slice(),
+                    &format!("{}_welcome_added", welcome.created_ns),
+                );
+
+                let added_content_type = match encoded_added_payload.r#type {
+                    Some(ct) => ct,
+                    None => {
+                        tracing::warn!(
+                            "Missing content type in encoded added payload, using default values"
+                        );
+                        ContentTypeId {
+                            authority_id: "unknown".to_string(),
+                            type_id: "unknown".to_string(),
+                            version_major: 0,
+                            version_minor: 0,
+                        }
+                    }
+                };
+
+                let added_msg = StoredGroupMessage {
+                    id: added_message_id,
+                    group_id: stored_group.id.clone(),
+                    decrypted_message_bytes: encoded_added_payload_bytes,
+                    sent_at_ns: welcome.created_ns as i64,
+                    kind: GroupMessageKind::MembershipChange,
+                    sender_installation_id: welcome.installation_key.clone(),
+                    sender_inbox_id: added_by_inbox_id,
+                    delivery_status: DeliveryStatus::Published,
+                    content_type: added_content_type.type_id.into(),
+                    version_major: added_content_type.version_major as i32,
+                    version_minor: added_content_type.version_minor as i32,
+                    authority_id: added_content_type.authority_id,
+                    reference_id: None,
+                    sequence_id: Some(welcome.id as i64),
+                    originator_id: None,
+                };
+
+                added_msg.store_or_ignore(provider.db())?;
+
+                tracing::info!(
+                    "[{}]: Created GroupUpdated message for welcome",
+                    current_inbox_id
+                );
 
             let group = Self::new(
                 context.clone(),

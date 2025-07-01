@@ -317,7 +317,48 @@ impl<C: ConnectionExt> DbConnection<C> {
             query = query.limit(limit);
         }
 
-        self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))
+        let messages = self.raw_query_read(|conn| query.load::<StoredGroupMessage>(conn))?;
+
+        // Check if this is a DM group
+        let is_dm = self.raw_query_read(|conn| {
+            groups_dsl::groups
+                .filter(groups_dsl::id.eq(group_id))
+                .select(groups_dsl::conversation_type)
+                .first::<ConversationType>(conn)
+        })? == ConversationType::Dm;
+
+        // If DM, retain only one GroupUpdated message (the oldest)
+        let messages = if is_dm {
+            let mut grouped: Vec<StoredGroupMessage> = Vec::with_capacity(messages.len());
+            let mut oldest_group_updated: Option<StoredGroupMessage> = None;
+            let mut non_group_msgs: Vec<StoredGroupMessage> = Vec::new();
+
+            for msg in messages {
+                if msg.content_type == ContentType::GroupUpdated {
+                    if oldest_group_updated
+                        .as_ref()
+                        .map(|existing| msg.sent_at_ns < existing.sent_at_ns)
+                        .unwrap_or(true)
+                    {
+                        oldest_group_updated = Some(msg);
+                    }
+                } else {
+                    non_group_msgs.push(msg);
+                }
+            }
+
+            if let Some(msg) = oldest_group_updated {
+                grouped.push(msg); // GroupUpdated message at position 0
+            }
+
+            grouped.extend(non_group_msgs); // Preserve original order for other messages
+
+            grouped
+        } else {
+            messages
+        };
+
+        Ok(messages)
     }
 
     pub fn group_messages_paged(
