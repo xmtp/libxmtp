@@ -1,13 +1,13 @@
 use super::{
     group_membership::GroupMembership,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
-    mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
     GroupError, MlsGroup,
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     track,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
+    welcomes::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
 use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
