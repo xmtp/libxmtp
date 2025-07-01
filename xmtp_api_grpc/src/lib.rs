@@ -6,6 +6,7 @@ mod identity;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
+pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 
 pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
 use std::time::Duration;
