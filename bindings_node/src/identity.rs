@@ -4,15 +4,15 @@ use napi_derive::napi;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_id::associations::{ident, Identifier as XmtpIdentifier};
 
+#[derive(Hash, PartialEq, Eq, Clone)]
 #[napi(object)]
-#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Identifier {
   pub identifier: String,
   pub identifier_kind: IdentifierKind,
 }
 
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 #[napi]
-#[derive(Hash, PartialEq, Eq)]
 pub enum IdentifierKind {
   Ethereum,
   Passkey,
