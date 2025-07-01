@@ -7653,7 +7653,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 6);
 
-        assert_eq!(&messages[0].content, b"Hello 10");
+        assert_eq!(&messages[1].content, b"Hello 10");
 
         // Fetch the rest
         group.receive(None).await.unwrap();
@@ -7661,7 +7661,7 @@ mod tests {
             .find_messages(FfiListMessagesOptions::default())
             .await
             .unwrap();
-        assert_eq!(messages.len(), 10);
+        assert_eq!(messages.len(), 11);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
