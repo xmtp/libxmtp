@@ -563,7 +563,8 @@ where
             return Ok(group);
         };
 
-        let mut decrypt_result: Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> = Err(GroupError::UninitializedResult);
+        let mut decrypt_result: Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> =
+            Err(GroupError::UninitializedResult);
         let transaction_result = provider.transaction(|provider| {
             decrypt_result = DecryptedWelcome::from_encrypted_bytes(
                 provider,
@@ -580,8 +581,7 @@ where
             return Err(transaction_result?);
         };
 
-        let (DecryptedWelcome { staged_welcome, .. }, welcome_metadata) =
-        decrypt_result?;
+        let (DecryptedWelcome { staged_welcome, .. }, welcome_metadata) = decrypt_result?;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
