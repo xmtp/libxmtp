@@ -193,62 +193,56 @@ where
         Ok(success_count)
     }
 
-    /// Sync groups in batches to limit concurrency. Returns success count.
+    /// Sync groups concurrently with a limit. Returns success count.
     pub async fn sync_groups_in_batches(
         &self,
         groups: Vec<MlsGroup<Api, Db>>,
-        batch_size: usize,
+        max_concurrency: usize,
     ) -> Result<usize, GroupError> {
         let active_group_count = Arc::new(AtomicUsize::new(0));
         let failed_group_count = Arc::new(AtomicUsize::new(0));
 
-        for chunk in groups.chunks(batch_size) {
-            let sync_futures = chunk
-                .iter()
-                .map(|group| {
-                    let group = group.clone();
-                    let active_group_count = Arc::clone(&active_group_count);
-                    let failed_group_count = Arc::clone(&failed_group_count);
+        stream::iter(groups)
+            .for_each_concurrent(max_concurrency, |group| {
+                let group = group.clone();
+                let active_group_count = Arc::clone(&active_group_count);
+                let failed_group_count = Arc::clone(&failed_group_count);
+                let inbox_id = self.context.inbox_id();
 
-                    async move {
-                        tracing::info!(
-                            inbox_id = self.context.inbox_id(),
-                            "[{}] syncing group",
-                            self.context.inbox_id()
-                        );
+                async move {
+                    tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
 
-                        let is_active = group
-                            .load_mls_group_with_lock_async(|mls_group| async move {
-                                Ok::<bool, GroupError>(mls_group.is_active())
-                            })
-                            .await?;
+                    let is_active_res = group
+                        .load_mls_group_with_lock_async(|mls_group| async move {
+                            Ok::<bool, GroupError>(mls_group.is_active())
+                        })
+                        .await;
 
-                        if is_active {
+                    match is_active_res {
+                        Ok(is_active) if is_active => {
                             if let Err(err) = group.sync_with_conn().await {
                                 tracing::warn!(?err, "sync_with_conn failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
-                                return Ok(());
+                                return;
                             }
 
                             if let Err(err) = group.maybe_update_installations(None).await {
                                 tracing::warn!(?err, "maybe_update_installations failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
-                                return Ok(());
+                                return;
                             }
 
                             active_group_count.fetch_add(1, Ordering::SeqCst);
                         }
-                        Ok::<(), GroupError>(())
+                        Ok(_) => { /* group inactive, skip */ }
+                        Err(err) => {
+                            tracing::warn!(?err, "load_mls_group_with_lock_async failed");
+                            failed_group_count.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
-                })
-                .collect::<FuturesUnordered<_>>();
-
-            sync_futures
-                .collect::<Vec<Result<_, _>>>()
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()?;
-        }
+                }
+            })
+            .await;
 
         Ok(active_group_count.load(Ordering::SeqCst))
     }
