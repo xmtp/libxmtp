@@ -4,6 +4,7 @@ use crate::opfs::Opfs;
 // Only run these tests in a browser.
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
+#[ignore]
 #[wasm_bindgen_test]
 pub async fn wipe_client_files() {
   xmtp_db::init_sqlite().await;

@@ -284,10 +284,15 @@ describe.concurrent('Conversation', () => {
     expect(conversations[0].conversation.id()).toBe(conversation.id())
 
     const streamedMessages: string[] = []
-    const stream = conversations[0].conversation.stream((_, message) => {
-      streamedMessages.push(message!.id)
-    })
-
+    const stream = conversations[0].conversation.stream(
+      (_, message) => {
+        streamedMessages.push(message!.id)
+      },
+      () => {
+        console.log('closed')
+      }
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10000))
     const message1 = await conversation.send(encodeTextMessage('gm'))
     const message2 = await conversation.send(encodeTextMessage('gm2'))
 

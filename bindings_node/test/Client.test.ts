@@ -378,9 +378,14 @@ describe('Streams', () => {
 
     let messages = new Array()
     client2.conversations().syncAllConversations()
-    let stream = client2.conversations().streamAllMessages((msg) => {
-      messages.push(msg)
-    })
+    let stream = client2.conversations().streamAllMessages(
+      (msg) => {
+        messages.push(msg)
+      },
+      () => {
+        console.log('closed')
+      }
+    )
     await stream.waitForReady()
     group.send(encodeTextMessage('Test1'))
     group.send(encodeTextMessage('Test2'))
