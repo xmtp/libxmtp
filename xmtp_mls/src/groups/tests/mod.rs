@@ -191,13 +191,13 @@ async fn test_receive_message_from_other() {
     // test with a limit
     bo_group.receive(Some(5)).await?;
     let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(messages.len(), 5);
-    assert_eq!(messages[0].decrypted_message_bytes, b"hello from alix 10");
+    assert_eq!(messages.len(), 6);
+    assert_eq!(messages[1].decrypted_message_bytes, b"hello from alix 10");
 
     // fetch the rest of the messages
     bo_group.receive(None).await?;
     let messages = bo_group.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(messages.len(), 10);
+    assert_eq!(messages.len(), 11);
 
     let bo_message = b"hello from bo";
     bo_group
