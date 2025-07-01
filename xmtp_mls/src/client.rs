@@ -932,6 +932,7 @@ pub(crate) mod tests {
     use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use std::borrow;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1304,8 +1305,34 @@ pub(crate) mod tests {
 
         // Time Bob's full sync
         let start = std::time::Instant::now();
-        let synced_count = alix
-            .sync_all_welcomes_and_groups(Some(vec![ConsentState::Allowed]), Some(10))
+        let synced_count = bo
+            .sync_all_welcomes_and_groups(None, Some(10))
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        // Optional: Verify message presence in one random group
+        let test_group = groups.first().unwrap();
+        let bo_group = bo.group(&test_group.group_id).unwrap();
+        assert_eq!(
+            bo_group
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            1,
+            "Expected 1 welcome message synced"
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
+
+        let start = std::time::Instant::now();
+        let synced_count = bo
+            .sync_all_welcomes_and_groups(None, Some(10))
             .await
             .unwrap();
         let elapsed = start.elapsed();
@@ -1315,18 +1342,6 @@ pub(crate) mod tests {
             synced_count, group_count,
             "Expected {} groups synced, got {}",
             group_count, synced_count
-        );
-
-        // Optional: Verify message presence in one random group
-        let test_group = groups.first().unwrap();
-        let bo_group = alix.group(&test_group.group_id).unwrap();
-        assert_eq!(
-            bo_group
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1,
-            "Expected 1 welcome message synced"
         );
 
         println!(
