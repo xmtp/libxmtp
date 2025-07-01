@@ -1319,7 +1319,7 @@ pub(crate) mod tests {
             elapsed / group_count as u32
         );
 
-        let start = std::time::Instant::now();
+        let start = xmtp_common::time::Instant::now();
         let synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
         let elapsed = start.elapsed();
 
