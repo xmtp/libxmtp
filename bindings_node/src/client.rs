@@ -26,12 +26,20 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 #[napi]
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
-  pub account_identifier: Identifier,
+  account_identifier: Identifier,
 }
 
 impl Client {
   pub fn inner_client(&self) -> &Arc<RustXmtpClient> {
     &self.inner_client
+  }
+}
+
+#[napi]
+impl Client {
+  #[napi(getter)]
+  pub fn account_identifier(&self) -> Identifier {
+    self.account_identifier.clone()
   }
 }
 
@@ -115,6 +123,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       }
       Ok(())
     })
+    .as_ref()
     .clone()
     .map_err(ErrorWrapper::from)?;
   Ok(())

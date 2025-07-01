@@ -36,7 +36,6 @@ impl From<ContentTypeId> for XmtpContentTypeId {
   }
 }
 
-#[derive(Clone)]
 #[napi(object)]
 pub struct EncodedContent {
   pub r#type: Option<ContentTypeId>,
@@ -44,6 +43,18 @@ pub struct EncodedContent {
   pub fallback: Option<String>,
   pub compression: Option<i32>,
   pub content: Uint8Array,
+}
+
+impl Clone for EncodedContent {
+  fn clone(&self) -> Self {
+    Self {
+      r#type: self.r#type.clone(),
+      parameters: self.parameters.clone(),
+      fallback: self.fallback.clone(),
+      compression: self.compression.clone(),
+      content: Uint8Array::with_data_copied(&self.content),
+    }
+  }
 }
 
 impl From<XmtpEncodedContent> for EncodedContent {

@@ -13,16 +13,19 @@ crate-type = ["cdylib"]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 futures.workspace = true
 hex.workspace = true
-napi = { version = "2.16.16", default-features = false, features = [
+napi = { git = "https://github.com/napi-rs/napi-rs", branch = "main", version = "3.0.0-beta.11", default-features = false, features = [
   "napi4",
   "napi6",
   "async",
   "serde-json",
+  "web_stream",
 ] }
-napi-derive = "2.16.6"
+napi-derive = { git = "https://github.com/napi-rs/napi-rs", branch = "main", version = "3.0.0-beta.11" }
 prost.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = [
   "env-filter",

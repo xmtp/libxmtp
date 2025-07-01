@@ -54,7 +54,7 @@ where
     /// create a stream that is not attached to any lifetime
     pub async fn stream_owned(
         &self,
-    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + Send + 'static>
     where
         ApiClient: XmtpMlsStreams + Send + Sync + 'static,
         Db: Send + Sync + 'static,

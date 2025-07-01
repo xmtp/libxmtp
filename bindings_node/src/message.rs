@@ -10,6 +10,7 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedConten
 
 use crate::{content_types::ContentType, encoded_content::EncodedContent};
 
+#[derive(Clone)]
 #[napi]
 pub enum GroupMessageKind {
   Application,
@@ -34,6 +35,7 @@ impl From<GroupMessageKind> for XmtpGroupMessageKind {
   }
 }
 
+#[derive(Clone)]
 #[napi]
 pub enum DeliveryStatus {
   Unpublished,

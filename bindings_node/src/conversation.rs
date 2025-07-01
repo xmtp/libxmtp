@@ -1,10 +1,13 @@
 use std::{collections::HashMap, ops::Deref};
 
+use futures::{SinkExt, StreamExt, TryStreamExt};
 use napi::{
-  bindgen_prelude::{Result, Uint8Array},
-  threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-  JsFunction,
+  bindgen_prelude::{within_runtime_if_available, ReadableStream, Result, Uint8Array},
+  Env,
 };
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::PollSender;
 use xmtp_db::{
   group::{ConversationType, DmIdExt},
   group_message::MsgQueryArgs,
@@ -30,7 +33,6 @@ use crate::{
   identity::{Identifier, IdentityExt},
   message::{ListMessagesOptions, Message, MessageWithReactions},
   permissions::{GroupPermissions, MetadataField, PermissionPolicy, PermissionUpdateType},
-  streams::StreamCloser,
   ErrorWrapper,
 };
 use prost::Message as ProstMessage;
@@ -67,7 +69,7 @@ pub enum PermissionLevel {
   SuperAdmin,
 }
 
-#[napi]
+#[napi(object)]
 pub struct GroupMember {
   pub inbox_id: String,
   pub account_identifiers: Vec<Identifier>,
@@ -472,33 +474,33 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let stream_closer = MlsGroup::stream_with_callback(
-      self.inner_group.context.clone(),
-      self.group_id.clone(),
-      move |message| {
-        let status = tsfn.call(
-          message
-            .map(Message::from)
-            .map_err(ErrorWrapper::from)
-            .map_err(napi::Error::from),
-          ThreadsafeFunctionCallMode::Blocking,
-        );
-        tracing::info!("Stream status: {:?}", status);
-      },
-      move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
+  #[napi]
+  pub fn stream(&self, env: Env) -> Result<ReadableStream<'_, Message>> {
+    let (tx, rx) = mpsc::channel(64);
+    let tx =
+      PollSender::new(tx).sink_map_err(|_| napi::Error::from_reason("stream sink channel closed"));
+    let stream = ReceiverStream::new(rx).inspect(|_| tracing::error!("got msg"));
 
-    Ok(StreamCloser::new(stream_closer))
+    let group = self.inner_group.clone();
+    within_runtime_if_available(move || {
+      tokio::spawn(async move {
+        let s = group.stream_owned().await;
+        tracing::error!("stream created");
+        s.map_err(ErrorWrapper::from)?
+          .map_ok(Message::from)
+          .map_err(|e| napi::Error::from(ErrorWrapper::from(e)))
+          // wrap result in Ok so forward never fails
+          // https://github.com/rust-lang/futures-rs/issues/2004
+          .map(|i| Ok(i))
+          .inspect(|_| tracing::error!("sending msg"))
+          .forward(tx)
+          .await?;
+
+        Ok::<_, napi::Error>(())
+      })
+    });
+
+    ReadableStream::new(&env, stream)
   }
 
   #[napi]
