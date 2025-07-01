@@ -555,8 +555,8 @@ where
             hex::encode(&group.group_id)
         );
         let this = self.as_mut().project();
-        this.group_list.add(&group.group_id, MessagePosition::new(1, 1));
-        let future = Self::subscribe(self.context.clone(), self.group_list.filters(), group.group_id);
+        this.group_list.insert(group.group_id.clone().into(), MessagePosition::new(1, 1));
+        let future = Self::subscribe(self.context.clone(), self.filters(), group.group_id);
         let mut this = self.as_mut().project();
         this.state.set(State::Adding {
             future: FutureWrapper::new(future),
