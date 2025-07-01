@@ -40,12 +40,13 @@ impl std::fmt::Display for LocalCommitLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "LocalCommitLog {{ rowid: {:?}, group_id {:?}, commit_sequence_id: {:?}, last_epoch_authenticator: {:?}, commit_result: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?}, sender_inbox_id: {:?}, sender_installation_id: {:?}, commit_type: {:?} }}",
+            "LocalCommitLog {{ rowid: {:?}, group_id {:?}, commit_sequence_id: {:?}, last_epoch_authenticator: {:?}, commit_result: {:?}, error_message: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?}, sender_inbox_id: {:?}, sender_installation_id: {:?}, commit_type: {:?} }}",
             self.rowid,
             hex::encode(&self.group_id),
             self.commit_sequence_id,
             hex::encode(&self.last_epoch_authenticator),
             self.commit_result,
+            self.error_message,
             self.applied_epoch_number,
             hex::encode(self.applied_epoch_authenticator.as_ref().unwrap_or(&vec![])),
             self.sender_inbox_id,
