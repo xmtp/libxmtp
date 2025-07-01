@@ -1297,7 +1297,7 @@ pub(crate) mod tests {
 
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
-        let start = std::time::Instant::now();
+        let start = xmtp_common::time::Instant::now();
         let _synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
         let elapsed = start.elapsed();
 
