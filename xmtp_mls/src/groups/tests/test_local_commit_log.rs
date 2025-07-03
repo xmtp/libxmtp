@@ -48,20 +48,8 @@ async fn test_local_commit_log_presence() {
     };
 
     let local_logs = alix.provider.db().get_group_logs(&alix_g.group_id)?;
-    assert_eq!(
-        get_results(&local_logs),
-        &[
-            (
-                CommitResult::Success,
-                Some("UpdateGroupMembership".to_string())
-            ),
-            (
-                CommitResult::Success,
-                Some("UpdateGroupMembership".to_string())
-            ),
-            (CommitResult::WrongEpoch, None)
-        ]
-    );
+    println!("{}", alix_g.debug_info().await?.local_commit_log);
+    assert_eq!(1, 2);
 
     let local_logs2 = alix.provider.db().get_group_logs(&alix_g2.group_id)?;
     assert_eq!(

@@ -75,6 +75,7 @@ use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
+use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -173,6 +174,7 @@ pub struct ConversationDebugInfo {
     pub maybe_forked: bool,
     pub fork_details: String,
     pub local_commit_log: String,
+    pub cursor: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1553,12 +1555,25 @@ where
         .await
     }
 
-    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+    pub async fn cursor(&self) -> Result<i64, GroupError> {
         let provider = self.context.mls_provider();
-        let epoch =
-            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
         let conn = provider.db();
+        Ok(conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+    }
 
+    pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
+        Ok(conn.get_group_logs(&self.group_id)?)
+    }
+
+    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+        let epoch = self.epoch().await?;
+        let cursor = self.cursor().await?;
+        let commit_log = self.local_commit_log().await?;
+
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
         let stored_group = match conn.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
@@ -1568,20 +1583,12 @@ where
             }
         };
 
-        let cursor = conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
-        let local_logs = conn.get_group_logs(&self.group_id)?;
-        let mut lines = Vec::new();
-        for log in local_logs.iter() {
-            lines.push(format!("{}", log));
-        }
-        lines.push(format!("Cursor {{ sequence_id: {} }}", cursor));
-        let commit_log = lines.join("\n");
-
         Ok(ConversationDebugInfo {
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
-            local_commit_log: commit_log,
+            local_commit_log: format!("{:?}", commit_log),
+            cursor,
         })
     }
 

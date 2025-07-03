@@ -17,12 +17,14 @@ use openmls::{
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
 };
+
 use prost::Message;
 use serde::Serialize;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_db::group_intent::IntentKind;
 use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
@@ -467,6 +469,30 @@ impl ValidatedCommit {
             }
         }
         Ok(verified_commit)
+    }
+
+    // Reuse intent kind here to represent the commit type, even if it's an external commit
+    // This is for debugging purposes only, so an approximation is fine
+    pub fn debug_commit_type(&self) -> IntentKind {
+        let metadata_info = &self.metadata_validation_info;
+        if !self.added_inboxes.is_empty()
+            || !self.removed_inboxes.is_empty()
+            || self.installations_changed
+        {
+            IntentKind::UpdateGroupMembership
+        } else if self.permissions_changed {
+            IntentKind::UpdatePermission
+        } else if !metadata_info.admins_added.is_empty()
+            || !metadata_info.admins_removed.is_empty()
+            || !metadata_info.super_admins_added.is_empty()
+            || !metadata_info.super_admins_removed.is_empty()
+        {
+            IntentKind::UpdateAdminList
+        } else if !metadata_info.metadata_field_changes.is_empty() {
+            IntentKind::MetadataUpdate
+        } else {
+            IntentKind::KeyUpdate
+        }
     }
 
     pub fn is_empty(&self) -> bool {
