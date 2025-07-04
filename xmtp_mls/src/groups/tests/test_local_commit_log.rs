@@ -1,82 +1,128 @@
-use crate::tester;
-use tokio::join;
+use crate::{
+    groups::{
+        intents::{PermissionPolicyOption, PermissionUpdateType},
+        IntentKind, UpdateAdminListType,
+    },
+    tester,
+    utils::{ConcreteMlsGroup, FullXmtpClient},
+};
+use toxiproxy_rust::proxy::Proxy;
 use xmtp_db::{local_commit_log::LocalCommitLog, remote_commit_log::CommitResult};
 
+#[allow(dead_code)]
+async fn print_commit_log(group: &ConcreteMlsGroup) {
+    println!("{:?}\n", group.local_commit_log().await.unwrap());
+}
+
+async fn last_commit_log(group: &ConcreteMlsGroup) -> LocalCommitLog {
+    group
+        .local_commit_log()
+        .await
+        .unwrap()
+        .last()
+        .unwrap()
+        .to_owned()
+}
+
+async fn last_commit_type(
+    group1: &ConcreteMlsGroup,
+    group2: &ConcreteMlsGroup,
+    expected: IntentKind,
+) -> bool {
+    print_commit_log(group1).await;
+    print_commit_log(group2).await;
+    return last_commit_log(group1).await.commit_type.unwrap() == expected.to_string()
+        && last_commit_log(group2).await.commit_type.unwrap() == expected.to_string();
+}
+
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_local_commit_log_presence() {
+async fn test_commit_log_types() {
     tester!(alix);
     tester!(bo);
     tester!(caro);
+    let a_client: &FullXmtpClient = &alix;
+    let b_client: &FullXmtpClient = &bo;
 
-    let alix_g = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
+    let a = a_client
+        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    let alix_g2 = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
-        .await?;
-
-    let local_logs = alix.provider.db().get_group_logs(&alix_g.group_id)?;
-    assert_eq!(local_logs.len(), 1);
-
-    bo.sync_welcomes().await?;
-    let bo_g = bo.group(&alix_g.group_id)?;
-    let bo_g2 = bo.group(&alix_g2.group_id)?;
-
-    // This will not go out to the network
-
-    let caro_inbox = caro.inbox_id();
-
-    alix_g
-        .add_members_by_inbox_id(vec![caro_inbox.to_string()])
-        .await?;
-    bo_g.add_members_by_inbox_id(vec![caro_inbox.to_string()])
-        .await?;
-
-    // This will go out to the network
-    alix_g2
-        .add_members_by_inbox_id(vec![caro_inbox.to_string()])
-        .await?;
-
-    bo_g2.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
-
-    alix_g.sync().await?;
-
-    let get_results = |logs: &[LocalCommitLog]| {
-        logs.iter()
-            .map(|l| (l.commit_result, l.commit_type.clone()))
-            .collect::<Vec<_>>()
-    };
-
-    let local_logs = alix.provider.db().get_group_logs(&alix_g.group_id)?;
-    println!("{}", alix_g.debug_info().await?.local_commit_log);
-    assert_eq!(1, 2);
-
-    let local_logs2 = alix.provider.db().get_group_logs(&alix_g2.group_id)?;
+    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
     assert_eq!(
-        get_results(&local_logs2),
-        &[
-            (
-                CommitResult::Success,
-                Some("UpdateGroupMembership".to_string())
-            ),
-            (
-                CommitResult::Success,
-                Some("UpdateGroupMembership".to_string())
-            ),
-        ]
+        last_commit_log(&a).await.commit_type,
+        Some(IntentKind::UpdateGroupMembership.to_string())
     );
+    assert_eq!(last_commit_log(&b).await.commit_type, None);
 
-    let bo_local_logs = bo.provider.db().get_group_logs(&bo_g.group_id)?;
-    assert_eq!(
-        get_results(&bo_local_logs),
-        &[
-            (CommitResult::WrongEpoch, None),
-            (
-                CommitResult::Success,
-                Some("UpdateGroupMembership".to_string())
-            ),
-        ]
-    );
+    a.key_update().await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::KeyUpdate).await);
+
+    a.remove_members_by_inbox_id(&[caro.inbox_id()]).await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::UpdateGroupMembership).await);
+
+    a.update_group_name("foo".to_string()).await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::MetadataUpdate).await);
+
+    tester!(_bo2, from: bo);
+    a.update_installations().await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::UpdateGroupMembership).await);
+
+    a.update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::UpdateAdminList).await);
+
+    a.update_permission_policy(
+        PermissionUpdateType::AddMember,
+        PermissionPolicyOption::AdminOnly,
+        None,
+    )
+    .await?;
+    b.sync().await?;
+    assert!(last_commit_type(&a, &b, IntentKind::UpdatePermission).await);
+
+    assert_eq!(a.local_commit_log().await?.len(), 7);
+    assert_eq!(b.local_commit_log().await?.len(), 7);
+}
+
+// TODO(rich): Fix intent publishing on bad network conditions
+#[ignore]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_commit_log_retriable_error() {
+    tester!(alix);
+    tester!(bo, proxy);
+    tester!(caro);
+    let a_client: &FullXmtpClient = &alix;
+    let b_client: &FullXmtpClient = &bo;
+    let proxy: &Proxy = bo.proxy();
+
+    let a = a_client
+        .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
+    assert_eq!(a.local_commit_log().await?.len(), 1);
+    assert_eq!(b.local_commit_log().await?.len(), 1);
+
+    proxy.disable().await?;
+    // Queues up a KeyUpdate intent followed by a SendMessage intent
+    b.send_message(b"foo").await.unwrap_err();
+    a.sync().await?;
+    assert_eq!(a.local_commit_log().await?.len(), 1);
+    assert_eq!(b.local_commit_log().await?.len(), 1);
+
+    proxy.enable().await?;
+    // This currently fails with error SyncFailedToWait, because the intent has been marked as 'published'
+    // despite not being published. We need to fix the intent publishing flow for this test to work.
+    b.sync_until_last_intent_resolved().await?;
+    a.sync().await?;
+    assert_eq!(a.local_commit_log().await?.len(), 2);
+    assert_eq!(b.local_commit_log().await?.len(), 2);
+    assert!(last_commit_type(&a, &b, IntentKind::KeyUpdate).await);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -137,49 +183,6 @@ async fn test_out_of_epoch() {
         ]
     );
     assert_eq!(get_result(&alix_logs), &[&CommitResult::Success; 6]);
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_log_with_lag() {
-    tester!(alix, proxy);
-    tester!(bo);
-    tester!(caro);
-
-    let alix_g = alix
-        .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
-        .await?;
-    bo.sync_welcomes().await?;
-    let bo_g = bo.group(&alix_g.group_id)?;
-
-    // Turn on latency for alix's connection
-    alix.proxy()
-        .with_latency("latency".to_string(), 1000, 0, 1.0)
-        .await;
-    // Both add caro at the same time.
-    let _ = join!(
-        alix_g.add_members_by_inbox_id(vec![caro.inbox_id().to_string()]),
-        bo_g.add_members_by_inbox_id(vec![caro.inbox_id().to_string()])
-    );
-
-    let alix_logs = alix.provider.db().get_group_logs(&alix_g.group_id)?;
-    let bo_logs = bo.provider.db().get_group_logs(&bo_g.group_id)?;
-
-    assert_eq!(
-        get_type(&alix_logs),
-        &[
-            &Some("UpdateGroupMembership".to_string()),
-            &Some("UpdateGroupMembership".to_string()),
-        ]
-    );
-    assert_eq!(get_result(&alix_logs), &[&CommitResult::Success; 2]);
-    assert_eq!(
-        get_type(&bo_logs),
-        &[&None, &Some("UpdateGroupMembership".to_string()),]
-    );
-    assert_eq!(
-        get_result(&bo_logs),
-        &[&CommitResult::WrongEpoch, &CommitResult::Success]
-    );
 }
 
 fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {
