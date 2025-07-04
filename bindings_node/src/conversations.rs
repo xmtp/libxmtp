@@ -521,26 +521,34 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, conversationType?: ConversationType"
+    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
   )]
   pub fn stream(
     &self,
     callback: JsFunction,
+    on_close: JsFunction,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser> {
     let tsfn: ThreadsafeFunction<Conversation, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
+      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
       conversation_type.map(|ct| ct.into()),
       move |convo| {
-        tsfn.call(
+        let status = tsfn.call(
           convo
             .map(Conversation::from)
             .map_err(ErrorWrapper::from)
             .map_err(Error::from),
           ThreadsafeFunctionCallMode::Blocking,
         );
+        tracing::info!("Stream status: {:?}", status);
+      },
+      move || {
+        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 
@@ -548,11 +556,12 @@ impl Conversations {
   }
 
   #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
   )]
   pub fn stream_all_messages(
     &self,
     callback: JsFunction,
+    on_close: JsFunction,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
@@ -562,6 +571,9 @@ impl Conversations {
     );
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
+      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+
     let inbox_id = self.inner_client.inbox_id().to_string();
     let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
       states
@@ -603,7 +615,8 @@ impl Conversations {
               inbox_id,
               "[received] calling tsfn callback with successful message"
             );
-            tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
+            tracing::info!("Stream status: {:?}", status);
           }
           Err(err) => {
             // Just in case the transformation itself fails
@@ -615,40 +628,62 @@ impl Conversations {
           }
         }
       },
+      move || {
+        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+      },
     );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void")]
-  pub fn stream_consent(&self, callback: JsFunction) -> Result<StreamCloser> {
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
+  )]
+  pub fn stream_consent(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
     let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
+      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let inbox_id = self.inner_client.inbox_id().to_string();
-    let stream_closer =
-      RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |message| {
+    let stream_closer = RustXmtpClient::stream_consent_with_callback(
+      self.inner_client.clone(),
+      move |message| {
         tracing::trace!(inbox_id, "[received] calling tsfn callback");
         match message {
           Ok(message) => {
             let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
-            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            tsfn.call(
+            let status = tsfn.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
+            tracing::info!("Stream status: {:?}", status);
           }
         }
-      });
+      },
+      move || {
+        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+      },
+    );
 
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void")]
-  pub fn stream_preferences(&self, callback: JsFunction) -> Result<StreamCloser> {
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void, onClose: () => void"
+  )]
+  pub fn stream_preferences(
+    &self,
+    callback: JsFunction,
+    on_close: JsFunction,
+  ) -> Result<StreamCloser> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
+      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(
         0,
@@ -662,8 +697,9 @@ impl Conversations {
         },
       )?;
     let inbox_id = self.inner_client.inbox_id().to_string();
-    let stream_closer =
-      RustXmtpClient::stream_preferences_with_callback(self.inner_client.clone(), move |message| {
+    let stream_closer = RustXmtpClient::stream_preferences_with_callback(
+      self.inner_client.clone(),
+      move |message| {
         tracing::trace!(inbox_id, "[received] calling tsfn callback");
         match message {
           Ok(message) => {
@@ -671,16 +707,23 @@ impl Conversations {
               .into_iter()
               .map(Tag::<UserPreferenceUpdate>::from)
               .collect();
-            tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
+            tracing::info!("Stream status: {:?}", status);
           }
           Err(e) => {
-            tsfn.call(
+            let status = tsfn.call(
               Err(Error::from(ErrorWrapper::from(e))),
               ThreadsafeFunctionCallMode::Blocking,
             );
+            tracing::info!("Stream status: {:?}", status);
           }
         }
-      });
+      },
+      move || {
+        let status = tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+        tracing::info!("stream on close status {:?}", status);
+      },
+    );
 
     Ok(StreamCloser::new(stream_closer))
   }

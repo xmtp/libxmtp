@@ -512,6 +512,7 @@ impl Conversation {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
+      move || {},
     );
 
     Ok(StreamCloser::new(stream_closer))
