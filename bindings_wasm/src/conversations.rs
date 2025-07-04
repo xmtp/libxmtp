@@ -183,6 +183,9 @@ pub struct ConversationDebugInfo {
   #[wasm_bindgen(js_name = localCommitLog)]
   #[serde(rename = "localCommitLog")]
   pub local_commit_log: String,
+  #[wasm_bindgen(js_name = cursor)]
+  #[serde(rename = "cursor")]
+  pub cursor: i64,
 }
 
 #[wasm_bindgen(getter_with_clone)]

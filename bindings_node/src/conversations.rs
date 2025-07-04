@@ -160,6 +160,7 @@ pub struct ConversationDebugInfo {
   pub maybe_forked: bool,
   pub fork_details: String,
   pub local_commit_log: String,
+  pub cursor: i64,
 }
 
 impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
@@ -169,6 +170,7 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
       maybe_forked: value.maybe_forked,
       fork_details: value.fork_details,
       local_commit_log: value.local_commit_log,
+      cursor: value.cursor,
     }
   }
 }
