@@ -1783,21 +1783,37 @@ pub struct FfiConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
+    pub cursor: i64,
 }
 
 impl FfiConversationDebugInfo {
-    fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+    fn new(
+        epoch: u64,
+        maybe_forked: bool,
+        fork_details: String,
+        local_commit_log: String,
+        cursor: i64,
+    ) -> Self {
         Self {
             epoch,
             maybe_forked,
             fork_details,
+            local_commit_log,
+            cursor,
         }
     }
 }
 
 impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     fn from(value: ConversationDebugInfo) -> Self {
-        FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
+        FfiConversationDebugInfo::new(
+            value.epoch,
+            value.maybe_forked,
+            value.fork_details,
+            value.local_commit_log,
+            value.cursor,
+        )
     }
 }
 

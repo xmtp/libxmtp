@@ -75,6 +75,7 @@ use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
+use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -172,6 +173,8 @@ pub struct ConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
+    pub cursor: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1062,10 +1065,14 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
-        inbox_ids: &[S],
+        inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids
+            .as_ref()
+            .iter()
+            .map(AsIdRef::as_ref)
+            .collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;
@@ -1548,12 +1555,26 @@ where
         .await
     }
 
-    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+    pub async fn cursor(&self) -> Result<i64, GroupError> {
         let provider = self.context.mls_provider();
-        let epoch =
-            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+        let conn = provider.db();
+        Ok(conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+    }
 
-        let stored_group = match provider.db().find_group(&self.group_id)? {
+    pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
+        Ok(conn.get_group_logs(&self.group_id)?)
+    }
+
+    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+        let epoch = self.epoch().await?;
+        let cursor = self.cursor().await?;
+        let commit_log = self.local_commit_log().await?;
+
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
+        let stored_group = match conn.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1566,6 +1587,8 @@ where
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
+            local_commit_log: format!("{:?}", commit_log),
+            cursor,
         })
     }
 

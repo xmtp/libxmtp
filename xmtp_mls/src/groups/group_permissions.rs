@@ -1448,6 +1448,7 @@ pub(crate) mod tests {
                 metadata_field_changes: field_changes,
                 ..Default::default()
             },
+            installations_changed: false,
             permissions_changed,
             dm_members,
         }
