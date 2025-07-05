@@ -332,7 +332,7 @@ impl<C: ConnectionExt> DbConnection<C> {
             let mut grouped: Vec<StoredGroupMessage> = Vec::with_capacity(messages.len());
             let mut oldest_group_updated: Option<StoredGroupMessage> = None;
             let mut non_group_msgs: Vec<StoredGroupMessage> = Vec::new();
-        
+
             for msg in messages {
                 if msg.content_type == ContentType::GroupUpdated {
                     if oldest_group_updated
@@ -346,7 +346,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                     non_group_msgs.push(msg);
                 }
             }
-        
+
             if let Some(msg) = oldest_group_updated {
                 match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
                     SortDirection::Ascending => {
@@ -361,12 +361,12 @@ impl<C: ConnectionExt> DbConnection<C> {
             } else {
                 grouped = non_group_msgs;
             }
-        
+
             grouped
         } else {
             messages
         };
-        
+
         Ok(messages)
     }
 
