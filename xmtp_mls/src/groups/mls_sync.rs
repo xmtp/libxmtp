@@ -19,9 +19,7 @@ use crate::{
     configuration::sync_update_installations_interval_ns, identity_updates::IdentityUpdates,
 };
 use crate::{
-    configuration::{
-        HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    },
+    configuration::{HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS},
     context::XmtpMlsLocalContext,
     groups::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
