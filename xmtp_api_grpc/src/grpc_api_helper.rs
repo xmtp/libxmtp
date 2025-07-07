@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
 use futures::{Stream, StreamExt};
+use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_retry::Retry;
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
@@ -99,19 +101,35 @@ impl ApiBuilder for ClientBuilder {
 
     async fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
-        let channel = match self.tls_channel {
-            true => create_tls_channel(host, self.limit.unwrap_or(1900)).await?,
+
+        let retry_strategy = ExponentialBackoff::from_millis(500)
+            .max_delay(Duration::from_secs(10))
+            .map(jitter) // Adds random jitter to avoid thundering herd
+            .take(5); // Try 5 times max
+
+        let channel_result = match self.tls_channel {
+            true => create_tls_channel(host, self.limit.unwrap_or(1900)).await,
             false => {
-                Channel::from_shared(host)?
-                    .rate_limit(self.limit.unwrap_or(1900), Duration::from_secs(60))
-                    .connect()
-                    .await?
+                Retry::spawn(retry_strategy, || async {
+                    let endpoint =
+                        Channel::from_shared(host.clone()).map_err(GrpcBuilderError::from)?;
+
+                    endpoint
+                        .rate_limit(self.limit.unwrap_or(1900), Duration::from_secs(60))
+                        .connect()
+                        .await
+                        .map_err(GrpcBuilderError::from)
+                })
+                .await
             }
         };
+
+        let channel = channel_result?;
 
         let mls_client = ProtoMlsApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
+
         let identity_client = ProtoIdentityApiClient::new(channel)
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
@@ -125,7 +143,6 @@ impl ApiBuilder for ClientBuilder {
             libxmtp_version: self
                 .libxmtp_version
                 .unwrap_or(MetadataValue::try_from(env!("CARGO_PKG_VERSION"))?),
-
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
         })
@@ -319,6 +336,7 @@ impl XmtpMlsStreams for Client {
 #[cfg(any(test, feature = "test-utils"))]
 mod test {
     use super::*;
+    use tokio::time::Instant;
     use xmtp_proto::api_client::XmtpTestClient;
 
     impl XmtpTestClient for Client {
@@ -359,5 +377,37 @@ mod test {
             client.set_tls(true);
             client
         }
+    }
+    #[tokio::test]
+    async fn build_times_out_on_unreachable_non_tls_host() {
+        let mut builder = Client::builder();
+        builder.set_host("http://127.0.0.1:59999".into()); // Port unlikely to be open
+        builder.set_tls(false);
+
+        let start = Instant::now();
+        let result = builder.build().await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "Expected connection failure after retries");
+
+        // Rough timing estimate: retries with backoff (500ms, jittered, 5 attempts)
+        assert!(
+            elapsed >= std::time::Duration::from_millis(500) * 5,
+            "Should reflect backoff timing"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_connects_to_localhost_non_tls() {
+        // Assumes a local test server is running on port 5556
+        let mut builder = Client::builder();
+        builder.set_host("http://127.0.0.1:5556".into());
+        builder.set_tls(false);
+
+        let result = builder.build().await;
+        assert!(
+            result.is_ok(),
+            "Expected successful connection to local server"
+        );
     }
 }
