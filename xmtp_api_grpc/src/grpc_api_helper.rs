@@ -336,7 +336,6 @@ impl XmtpMlsStreams for Client {
 #[cfg(any(test, feature = "test-utils"))]
 mod test {
     use super::*;
-    use tokio::time::Instant;
     use xmtp_proto::api_client::XmtpTestClient;
 
     impl XmtpTestClient for Client {
@@ -380,6 +379,7 @@ mod test {
     }
     #[tokio::test]
     async fn build_times_out_on_unreachable_non_tls_host() {
+        use std::time::Instant;
         let mut builder = Client::builder();
         builder.set_host("http://127.0.0.1:59999".into()); // Port unlikely to be open
         builder.set_tls(false);
