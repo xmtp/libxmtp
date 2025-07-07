@@ -309,3 +309,29 @@ where
     http.establish().await;
     Ok(http)
 }
+
+#[cfg(test)]
+mod tests {
+    use futures::{FutureExt, Stream};
+
+    use super::*;
+
+    #[xmtp_common::test]
+    fn http_stream_handles_err_on_establish() {
+        let stream: HttpStream<_, ()> = HttpStream::new(futures::future::ready({
+            // we just need something that creates a reqwest error
+            // we also use now_or_never to guarantee this will trigger an error on the first poll
+            reqwest::get("invalid_scheme").now_or_never().unwrap()
+        }));
+        futures::pin_mut!(stream);
+
+        assert!(matches!(stream.state, HttpStreamState::NotStarted { .. }));
+        let cx = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&cx);
+        let r = stream.as_mut().poll_next(&mut cx);
+        println!("{:?}", r);
+
+        let r = stream.poll_next(&mut cx);
+        println!("{:?}", r);
+    }
+}
