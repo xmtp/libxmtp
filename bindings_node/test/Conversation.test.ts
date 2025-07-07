@@ -285,18 +285,10 @@ describe.concurrent('Conversation', () => {
     expect(conversations[0].conversation.id()).toBe(conversation.id())
 
     const streamedMessages: string[] = []
-    let readableStream
-    try {
-      readableStream = conversations[0].conversation.stream()
-    } catch (e) {
-      console.log('Error' + e)
-    }
-    const reader = readableStream.getReader()
-    console.log(reader)
-    reader.read().then(({ msg, done }) => {
-      console.log('Got msg')
-      streamedMessages.push(msg!.id)
-    })
+
+    console.log('trying to stream')
+    let readableStream = conversations[0].conversation.stream()
+
     // const stream = Readable.fromWeb(readableStream)
     /*
     stream.on('data', (message) => {
@@ -310,6 +302,10 @@ describe.concurrent('Conversation', () => {
     // await new Promise((resolve) => setTimeout(resolve, 10000))
     const message1 = await conversation.send(encodeTextMessage('gm'))
     const message2 = await conversation.send(encodeTextMessage('gm2'))
+    for await (const message of readableStream) {
+      console.log('Got msg + ' + message)
+    }
+
     // Add sleep to allow messages to be processed
     await new Promise((resolve) => setTimeout(resolve, 10000))
 

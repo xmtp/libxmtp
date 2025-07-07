@@ -483,6 +483,8 @@ impl Conversation {
 
     let group = self.inner_group.clone();
     within_runtime_if_available(move || {
+      let rt = tokio::runtime::Handle::current();
+      tracing::error!("{:?}", rt.runtime_flavor());
       tokio::spawn(async move {
         let s = group.stream_owned().await;
         tracing::error!("stream created");
@@ -491,7 +493,7 @@ impl Conversation {
           .map_err(|e| napi::Error::from(ErrorWrapper::from(e)))
           // wrap result in Ok so forward never fails
           // https://github.com/rust-lang/futures-rs/issues/2004
-          .map(|i| Ok(i))
+          .map(Ok)
           .inspect(|_| tracing::error!("sending msg"))
           .forward(tx)
           .await?;
