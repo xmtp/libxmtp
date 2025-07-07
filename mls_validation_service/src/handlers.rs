@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use openmls::framing::ContentType;
 use openmls::prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
@@ -83,13 +84,13 @@ impl ValidationApi for ValidationService {
                         group_id: res.group_id,
                         error_message: "".to_string(),
                         is_ok: true,
-                        is_commit: false, //TODO(mkysel): implement commit validation
+                        is_commit: res.is_commit,
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
                         error_message: e,
                         is_ok: false,
-                        is_commit: false, //TODO(mkysel): implement commit validation
+                        is_commit: false,
                     },
                 }
             })
@@ -279,6 +280,7 @@ async fn get_association_state(
 
 struct ValidateGroupMessageResult {
     group_id: String,
+    is_commit: bool,
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
@@ -291,6 +293,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
     Ok(ValidateGroupMessageResult {
         group_id: serialize_group_id(protocol_message.group_id().as_slice()),
+        is_commit: protocol_message.content_type() == ContentType::Commit,
     })
 }
 
