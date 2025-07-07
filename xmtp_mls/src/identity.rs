@@ -27,6 +27,7 @@ use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
+use xmtp_common::types::InstallationId;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
@@ -516,6 +517,10 @@ impl Identity {
 
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
         &self.inbox_id
+    }
+
+    pub fn installation_id(&self) -> InstallationId {
+        (*self.installation_keys.public_bytes()).into()
     }
 
     pub fn sequence_id<C>(&self, conn: &DbConnection<C>) -> Result<i64, xmtp_db::ConnectionError>

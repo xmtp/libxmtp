@@ -40,7 +40,7 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{wrap_welcome, MergeStagedCommitAndLog, WrapWelcomeError},
+    groups::mls_ext::{wrap_welcome, CommitLogStorer, WrapWelcomeError},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -634,7 +634,7 @@ where
                 intent.id
             );
 
-            if let Err(err) = mls_group.merge_staged_commit_and_log(
+            if let Err(err) = mls_group.merge_staged_commit_logged(
                 &provider,
                 staged_commit,
                 &validated_commit,
@@ -1063,7 +1063,7 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                mls_group.merge_staged_commit_and_log(
+                mls_group.merge_staged_commit_logged(
                     &provider,
                     staged_commit,
                     &validated_commit,
@@ -1642,9 +1642,9 @@ where
                 commit_sequence_id: message_cursor as i64,
                 last_epoch_authenticator: last_epoch_authenticator.clone(),
                 commit_result,
-                error_message: Some(format!("{error:?}")),
                 applied_epoch_number: last_epoch_number,
                 applied_epoch_authenticator: last_epoch_authenticator,
+                error_message: Some(format!("{error:?}")),
                 sender_inbox_id: None,
                 sender_installation_id: None,
                 commit_type: None,

@@ -24,7 +24,7 @@ use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_db::group_intent::IntentKind;
+use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
@@ -473,25 +473,25 @@ impl ValidatedCommit {
 
     // Reuse intent kind here to represent the commit type, even if it's an external commit
     // This is for debugging purposes only, so an approximation is fine
-    pub fn debug_commit_type(&self) -> IntentKind {
+    pub fn debug_commit_type(&self) -> CommitType {
         let metadata_info = &self.metadata_validation_info;
         if !self.added_inboxes.is_empty()
             || !self.removed_inboxes.is_empty()
             || self.installations_changed
         {
-            IntentKind::UpdateGroupMembership
+            CommitType::UpdateGroupMembership
         } else if self.permissions_changed {
-            IntentKind::UpdatePermission
+            CommitType::UpdatePermission
         } else if !metadata_info.admins_added.is_empty()
             || !metadata_info.admins_removed.is_empty()
             || !metadata_info.super_admins_added.is_empty()
             || !metadata_info.super_admins_removed.is_empty()
         {
-            IntentKind::UpdateAdminList
+            CommitType::UpdateAdminList
         } else if !metadata_info.metadata_field_changes.is_empty() {
-            IntentKind::MetadataUpdate
+            CommitType::MetadataUpdate
         } else {
-            IntentKind::KeyUpdate
+            CommitType::KeyUpdate
         }
     }
 
