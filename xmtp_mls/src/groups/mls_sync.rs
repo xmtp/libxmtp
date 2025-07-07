@@ -17,9 +17,7 @@ use crate::{
     configuration::sync_update_installations_interval_ns, identity_updates::IdentityUpdates,
 };
 use crate::{
-    configuration::{
-        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    },
+    configuration::{HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS},
     context::XmtpMlsLocalContext,
     groups::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
@@ -46,6 +44,7 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_api::XmtpApi;
+use xmtp_api_grpc::GRPC_PAYLOAD_LIMIT;
 use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, StoredGroup},
@@ -2247,7 +2246,7 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_DATA_LIMIT
+        let chunk_size = GRPC_PAYLOAD_LIMIT
             / welcome
                 .version
                 .as_ref()
@@ -2258,7 +2257,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_DATA_LIMIT / MAX_GROUP_SIZE);
+                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();
