@@ -630,6 +630,7 @@ pub mod tests {
                     data: very_large_payload,
                     hpke_public_key: hpke_public_key.clone(),
                     wrapper_algorithm: 0,
+                    welcome_metadata: Vec::new(),
                 })),
             }])
             .await

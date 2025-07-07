@@ -2238,6 +2238,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
+                            welcome_metadata: Vec::new(),
                         })),
                     })
                 },
