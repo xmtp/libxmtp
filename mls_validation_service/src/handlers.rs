@@ -83,11 +83,13 @@ impl ValidationApi for ValidationService {
                         group_id: res.group_id,
                         error_message: "".to_string(),
                         is_ok: true,
+                        is_commit: false, //TODO(mkysel): implement commit validation
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
                         error_message: e,
                         is_ok: false,
+                        is_commit: false, //TODO(mkysel): implement commit validation
                     },
                 }
             })
