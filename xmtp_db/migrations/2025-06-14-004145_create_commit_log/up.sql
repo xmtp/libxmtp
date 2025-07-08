@@ -4,8 +4,8 @@ CREATE TABLE local_commit_log (
     "commit_sequence_id" BIGINT NOT NULL,
     "last_epoch_authenticator" BLOB NOT NULL,
     "commit_result" INT NOT NULL,
-    "applied_epoch_number" BIGINT NOT NULL,
-    "applied_epoch_authenticator" BLOB NOT NULL,
+    "applied_epoch_number" BIGINT,
+    "applied_epoch_authenticator" BLOB,
     "sender_inbox_id" TEXT,
     "sender_installation_id" BLOB,
     "commit_type" INT
@@ -16,6 +16,6 @@ CREATE TABLE remote_commit_log (
     "group_id" BLOB NOT NULL,
     "commit_sequence_id" BIGINT NOT NULL,
     "commit_result" INT NOT NULL,
-    "applied_epoch_number" BIGINT NOT NULL,
-    "applied_epoch_authenticator" BLOB NOT NULL
+    "applied_epoch_number" BIGINT,
+    "applied_epoch_authenticator" BLOB
 );
