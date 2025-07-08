@@ -1600,6 +1600,9 @@ where
         mls_message_in: MlsMessageIn,
         error: &GroupMessageProcessingError,
     ) -> Result<(), StorageError> {
+        if !crate::configuration::ENABLE_COMMIT_LOG {
+            return Ok(());
+        }
         if error.is_retryable() {
             return Ok(());
         }
