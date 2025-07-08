@@ -1,4 +1,5 @@
 // @generated
+pub mod file_descriptor_set;
 pub mod xmtp {
     #[cfg(feature = "xmtp-device_sync")]
     // @@protoc_insertion_point(attribute:xmtp.device_sync)
@@ -46,6 +47,7 @@ pub mod xmtp {
             // @@protoc_insertion_point(attribute:xmtp.identity.api.v1)
             pub mod v1 {
                 include!("xmtp.identity.api.v1.rs");
+                pub use crate::file_descriptor_set::IDENTITY_API_V1_DESCRIPTOR_SET as FILE_DESCRIPTOR_SET;
                 // @@protoc_insertion_point(xmtp.identity.api.v1)
             }
         }
@@ -84,6 +86,7 @@ pub mod xmtp {
             // @@protoc_insertion_point(attribute:xmtp.mls.api.v1)
             pub mod v1 {
                 include!("xmtp.mls.api.v1.rs");
+                pub use crate::file_descriptor_set::MLS_API_V1_DESCRIPTOR_SET as FILE_DESCRIPTOR_SET;
                 // @@protoc_insertion_point(xmtp.mls.api.v1)
             }
         }
@@ -125,6 +128,7 @@ pub mod xmtp {
         // @@protoc_insertion_point(attribute:xmtp.xmtpv4.message_api)
         pub mod message_api {
             include!("xmtp.xmtpv4.message_api.rs");
+            pub use crate::file_descriptor_set::MESSAGE_API_DESCRIPTOR_SET as FILE_DESCRIPTOR_SET;
             // @@protoc_insertion_point(xmtp.xmtpv4.message_api)
         }
         #[cfg(feature = "xmtp-xmtpv4-metadata_api")]
@@ -137,6 +141,7 @@ pub mod xmtp {
         // @@protoc_insertion_point(attribute:xmtp.xmtpv4.payer_api)
         pub mod payer_api {
             include!("xmtp.xmtpv4.payer_api.rs");
+            pub use crate::file_descriptor_set::PAYER_API_DESCRIPTOR_SET as FILE_DESCRIPTOR_SET;
             // @@protoc_insertion_point(xmtp.xmtpv4.payer_api)
         }
     }
