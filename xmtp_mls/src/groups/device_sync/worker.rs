@@ -59,7 +59,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
-        let receiver = context.context_ref().worker_events.subscribe();
+        let receiver = context.worker_events().subscribe();
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or_default();

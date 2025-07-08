@@ -173,7 +173,7 @@ impl<Context: XmtpSharedContext> XmtpContextProvider for Client<Context> {
     }
 
     fn identity(&self) -> &Identity {
-        &self.context.identity
+        &self.context.identity()
     }
 
     fn version_info(&self) -> &VersionInfo {
@@ -196,7 +196,7 @@ pub struct DeviceSync {
 }
 
 // most of these things are `Arc`'s
-impl<Context> Clone for Client<Context> {
+impl<Context: Clone> Clone for Client<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
@@ -245,7 +245,7 @@ where
     }
 
     pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
-        &self.context.scw_verifier
+        &self.context.scw_verifier()
     }
 
     pub fn version_info(&self) -> &VersionInfo {
@@ -449,7 +449,7 @@ where
 
     /// Get a reference to the client's identity struct
     pub fn identity(&self) -> &Identity {
-        &self.context.identity
+        &self.context.identity()
     }
 
     /// Create a new group with the default settings
@@ -752,6 +752,7 @@ where
             .rotate_and_upload_key_package(
                 &self.context.db(),
                 self.context.api(),
+                &self.context.mls_storage()
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
             .await?;

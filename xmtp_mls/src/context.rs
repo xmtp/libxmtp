@@ -26,11 +26,11 @@ use xmtp_id::{associations::builder::SignatureRequest, InboxIdRef};
 
 pub trait XmtpSharedContext
 where
-    Self: Sized + Clone,
+    Self: Send + Sync + Sized + Clone,
 {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
-    type MlsStorage: XmtpMlsStorageProvider;
+    type MlsStorage: Send + Sync + XmtpMlsStorageProvider;
 
     fn context_ref(&self)
         -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>>;
@@ -41,6 +41,10 @@ where
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         self.context_ref().api()
+    }
+
+    fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
+        self.context_ref().scw_verifier()
     }
 
     fn device_sync(&self) -> &DeviceSync {
@@ -81,13 +85,25 @@ where
     fn installation_id(&self) -> InstallationId {
         self.context_ref().installation_id()
     }
+
+    fn version_info(&self) -> &VersionInfo {
+        self.context_ref().version_info()
+    }
+
+    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
+        self.context_ref().worker_events()
+    }
+
+    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
+        self.context_ref().local_events()
+    }
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
     XApiClient: XmtpApi,
     XDb: XmtpDb,
-    XMls: XmtpMlsStorageProvider,
+    XMls: Send + Sync + XmtpMlsStorageProvider,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
@@ -105,9 +121,7 @@ where
     T: ?Sized + XmtpSharedContext,
 {
     type Db = <T as XmtpSharedContext>::Db;
-
     type ApiClient = <T as XmtpSharedContext>::ApiClient;
-
     type MlsStorage = <T as XmtpSharedContext>::MlsStorage;
 
     fn context_ref(
@@ -116,6 +130,7 @@ where
         <T as XmtpSharedContext>::context_ref(self)
     }
 }
+
 pub trait XmtpContextProvider: Sized {
     type Db: XmtpDb;
     type ApiClient: XmtpApi;

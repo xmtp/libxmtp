@@ -53,6 +53,7 @@ impl<'a, C>
     >
 where
     C: XmtpSharedContext + Send + Sync + 'a,
+    C::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
 {
     pub async fn new(
         context: &'a C,
@@ -126,6 +127,7 @@ impl<'a, Context, Conversations> Stream
     >
 where
     Context: XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
     Conversations: Stream<Item = Result<MlsGroup<Context>>>,
 {
     type Item = Result<StoredGroupMessage>;

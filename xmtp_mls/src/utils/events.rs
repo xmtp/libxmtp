@@ -316,7 +316,7 @@ pub struct EventWorker<Context> {
 
 impl<Context> EventWorker<Context>
 where
-    XmtpSharedContext: Send + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     pub(crate) fn new(context: Context) -> Self {
         let rx = EVENT_TX.subscribe();
@@ -354,7 +354,7 @@ where
 }
 
 pub async fn upload_debug_archive<C>(
-    db: &impl DbQuery<C>,
+    db: impl DbQuery<C> + Send + Sync + 'static,
     device_sync_server_url: Option<impl AsRef<str>>,
 ) -> Result<String, DeviceSyncError>
 where

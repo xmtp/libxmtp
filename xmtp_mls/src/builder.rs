@@ -13,17 +13,14 @@ use crate::{
     worker::WorkerRunner,
     GroupCommitLock, StorageError, XmtpApi,
 };
-use xmtp_db::XmtpMlsStorageProvider;
-use std::{
-    marker::PhantomData,
-    sync::{atomic::Ordering, Arc},
-};
+use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     events::{Events, EVENTS_ENABLED},
     sql_key_store::SqlKeyStore,
@@ -449,7 +446,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
-            _marker: PhantomData,
         })
     }
 
@@ -469,7 +465,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
-            _marker: PhantomData,
         }
     }
 
@@ -500,7 +495,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
-            _marker: PhantomData,
         })
     }
 }

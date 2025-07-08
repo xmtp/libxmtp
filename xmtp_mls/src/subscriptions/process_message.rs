@@ -26,7 +26,7 @@ pub trait ProcessFutureFactory<'a> {
 
 impl<'a, Context> ProcessFutureFactory<'a> for ProcessMessageFuture<Context>
 where
-    Context: XmtpDb + 'a,
+    Context: Send + Sync + XmtpSharedContext + 'a,
 {
     fn create(&self, msg: group_message::V1) -> FutureWrapper<'a, Result<ProcessedMessage>> {
         let group_db = GroupDb::new(self.context.clone());
@@ -48,7 +48,7 @@ pub struct ProcessMessageFuture<Context> {
     context: Context,
 }
 
-impl<Context> Clone for ProcessMessageFuture<Context> {
+impl<Context: Clone> Clone for ProcessMessageFuture<Context> {
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),

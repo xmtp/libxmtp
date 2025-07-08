@@ -171,7 +171,7 @@ where
             conn,
             inbox_id,
             to_sequence_id,
-            &self.context.scw_verifier,
+            &self.context.scw_verifier(),
         )
         .await
     }
@@ -227,7 +227,7 @@ where
             .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
 
         let incremental_updates =
-            verify_updates(unverified_incremental_updates, &self.context.scw_verifier).await?;
+            verify_updates(unverified_incremental_updates, &self.context.scw_verifier()).await?;
         let mut final_state = initial_state.clone();
         // Apply each update sequentially, aborting in the case of error
         for update in incremental_updates {
@@ -257,7 +257,7 @@ where
     ) -> Result<SignatureRequest, ClientError> {
         let nonce = maybe_nonce.unwrap_or(0);
         let inbox_id = identifier.inbox_id(nonce)?;
-        let installation_public_key = self.context.identity.installation_keys.verifying_key();
+        let installation_public_key = self.context.identity().installation_keys.verifying_key();
 
         let builder = SignatureRequestBuilder::new(inbox_id);
         let mut signature_request = builder
@@ -280,7 +280,7 @@ where
                     sig_bytes,
                     installation_public_key,
                 )),
-                &self.context.scw_verifier,
+                &self.context.scw_verifier(),
             )
             .await?;
 
@@ -314,7 +314,7 @@ where
         signature_request
             .add_signature(
                 UnverifiedSignature::new_installation_key(signature, installation_public_key),
-                &self.context.scw_verifier,
+                &self.context.scw_verifier(),
             )
             .await?;
 
@@ -370,7 +370,10 @@ where
             )
         }
 
-        let _ = self.context.worker_events.send(SyncWorkerEvent::CycleHMAC);
+        let _ = self
+            .context
+            .worker_events()
+            .send(SyncWorkerEvent::CycleHMAC);
 
         Ok(builder.build())
     }

@@ -159,7 +159,7 @@ pin_project! {
     ///   - `Ready(Some(Err(e)))` when an error occurs
     ///   - `Pending` when waiting for more data or for future completion
     ///   - `Ready(None)` when the stream has ended
-    pub struct StreamConversations<'a, Context, Subscription> {
+    pub struct StreamConversations<'a, Context: Clone, Subscription> {
         #[pin] inner: Subscription,
         #[pin] state: ProcessState<'a, Context>,
         context: Cow<'a, Context>,
@@ -193,6 +193,7 @@ pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedSelect<
 impl<'a, C> StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>>
 where
     C: XmtpSharedContext + Send + Sync + 'a,
+    C::ApiClient: XmtpMlsStreams + Send + Sync + 'a,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -267,6 +268,7 @@ where
 impl<C> StreamConversations<'static, C, WelcomesApiSubscription<'static, C::ApiClient>>
 where
     C: XmtpSharedContext + Send + Sync + 'static,
+    C::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
 {
     pub async fn new_owned(
         context: C,

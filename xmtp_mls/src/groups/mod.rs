@@ -609,7 +609,7 @@ where
             let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
-                    let current_version_str = context.context_ref().version_info().pkg_version();
+                    let current_version_str = context.version_info().pkg_version();
                     let current_version =
                         LibXMTPVersion::parse(current_version_str).ok()?;
                     let required_min_version = LibXMTPVersion::parse(&min_version.clone()).ok()?;
@@ -662,7 +662,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.context_ref().worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
+                    let _ = context.worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -1070,7 +1070,7 @@ where
     /// Updates min version of the group to match this client's version.
     pub async fn update_group_min_version_to_match_self(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
-        let version = self.context.context_ref().version_info().pkg_version();
+        let version = self.context.version_info().pkg_version();
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_min_version_to_match_self(
                 version.to_string(),
@@ -1480,7 +1480,7 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(self.context.mls_provider(), |mls_group| {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(mls_group.is_active())
         })
     }
@@ -1499,17 +1499,14 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        let provider = self.context.mls_provider();
-        self.load_mls_group_with_lock(provider, |mls_group| {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(GroupMutableMetadata::try_from(&mls_group)
                 .map_err(MetadataPermissionsError::from)?)
         })
     }
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
-        let provider = self.mls_provider();
-
-        self.load_mls_group_with_lock(&provider, |mls_group| {
+        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             Ok(extract_group_permissions(&mls_group).map_err(MetadataPermissionsError::from)?)
         })
     }

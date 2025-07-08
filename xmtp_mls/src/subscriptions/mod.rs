@@ -233,7 +233,7 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>>>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
@@ -256,6 +256,7 @@ where
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext + Send + Sync + 'static,
+    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<Context>>,

@@ -100,6 +100,7 @@ pub(super) type MessagesApiSubscription<'a, ApiClient> =
 impl<'a, Context> StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>
 where
     Context: XmtpSharedContext + 'a,
+    Context::ApiClient: XmtpMlsStreams + 'a,
 {
     /// Creates a new stream for receiving group messages.
     ///
@@ -132,6 +133,7 @@ impl<'a, Context, S> StreamGroupMessages<'a, Context, S> {
 impl<'a, C, Factory> StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
     C: XmtpSharedContext + 'a,
+    C::ApiClient: XmtpMlsStreams + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
 {
     pub async fn new_with_factory(
@@ -236,6 +238,7 @@ impl<'a, C, Factory> Stream
     for StreamGroupMessages<'a, C, MessagesApiSubscription<'a, C::ApiClient>, Factory>
 where
     C: XmtpSharedContext + 'a,
+    C::ApiClient: XmtpMlsStreams + 'a,
     Factory: ProcessFutureFactory<'a> + 'a,
 {
     type Item = Result<StoredGroupMessage>;

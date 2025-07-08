@@ -645,15 +645,20 @@ impl Identity {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi, C: ConnectionExt>(
+    pub(crate) async fn rotate_and_upload_key_package<
+        ApiClient: XmtpApi,
+        C: ConnectionExt,
+        S: XmtpMlsStorageProvider,
+    >(
         &self,
         conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
+        mls_storage: S,
         include_post_quantum: bool,
     ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
 
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let provider = XmtpOpenMlsProvider::new(mls_storage);
         let NewKeyPackageResult {
             key_package: kp,
             pq_pub_key,

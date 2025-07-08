@@ -262,7 +262,7 @@ where
                 "Group is paused until version: {}",
                 required_min_version_str
             );
-            let current_version_str = self.context.context_ref().version_info().pkg_version();
+            let current_version_str = self.context.version_info().pkg_version();
             let current_version = LibXMTPVersion::parse(current_version_str)?;
             let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
 
@@ -2361,7 +2361,7 @@ async fn get_keypackages_for_installation_ids(
     failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
-    let my_installation_id = context.identity().installation_public_key().to_vec();
+    let my_installation_id = context.context_ref().installation_public_key().to_vec();
     let store = MlsStore::new(context.clone());
     store
         .get_key_packages_for_installation_ids(
