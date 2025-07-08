@@ -35,10 +35,6 @@ pub const MAX_INSTALLATIONS_PER_INBOX: usize = 5;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
-/// the max amount of data that can be sent in one gRPC call
-/// we leave 5 * 1024 * 1024 as extra buffer room
-pub const GRPC_DATA_LIMIT: usize = 45 * 1024 * 1024;
-
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
