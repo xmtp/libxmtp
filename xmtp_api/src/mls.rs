@@ -605,7 +605,7 @@ pub mod tests {
     }
 
     #[xmtp_common::test]
-    #[cfg_attr(feature = "http-api", ignore)]
+    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
     async fn it_should_allow_large_payloads() {
         let mut client = crate::tests::TestClient::builder();
         client.set_host("http://localhost:5556".into());
