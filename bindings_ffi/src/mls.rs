@@ -116,9 +116,15 @@ pub async fn connect_to_backend(
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
+    api.0.is_connected().await
+}
+
 /**
  * Static Get the inbox state for each `inbox_id`.
  */
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
@@ -2985,7 +2991,7 @@ mod tests {
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
-        inbox_state_from_inbox_ids,
+        inbox_state_from_inbox_ids, is_connected,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
@@ -8618,5 +8624,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state[0].installations.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_is_connected_after_connect() {
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .expect("should connect to local grpc server");
+
+        let connected = is_connected(api_backend).await;
+
+        assert!(connected, "Expected API client to report as connected");
+
+        let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false).await;
+        assert!(result.is_err(), "Expected connection to fail");
     }
 }

@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
 use futures::{Stream, StreamExt};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use tower::ServiceExt;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::traits::ApiClientError;
@@ -21,6 +22,7 @@ use xmtp_proto::{
     },
     ApiEndpoint,
 };
+
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
@@ -29,6 +31,7 @@ pub struct Client {
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) stats: ApiStats,
     pub(crate) identity_stats: IdentityStats,
+    pub(crate) channel: Channel,
 }
 
 impl Client {
@@ -55,6 +58,10 @@ impl Client {
 
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        self.channel.clone().ready().await.is_ok()
     }
 }
 
@@ -112,7 +119,7 @@ impl ApiBuilder for ClientBuilder {
         let mls_client = ProtoMlsApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
-        let identity_client = ProtoIdentityApiClient::new(channel)
+        let identity_client = ProtoIdentityApiClient::new(channel.clone())
             .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
             .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
 
@@ -128,6 +135,7 @@ impl ApiBuilder for ClientBuilder {
 
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
+            channel,
         })
     }
 }
