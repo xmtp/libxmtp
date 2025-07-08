@@ -21,14 +21,14 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tonic = { workspace = true, features = [
   "default",
-  "tls",
+  "transport",
   "tls-native-roots",
   "tls-webpki-roots",
 ] }
 
 # Force Android + iOS to use webki
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-tonic = { workspace = true, features = ["default", "tls", "tls-webpki-roots"] }
+tonic = { workspace = true, features = ["default", "transport", "tls-webpki-roots",] }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
