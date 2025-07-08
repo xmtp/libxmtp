@@ -81,9 +81,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alloy"
-version = "1.0.9"
+version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0093d23bf026b580c1f66ed3a053d8209c104a446c5264d3ad99587f6edef24e"
+checksum = "4e0d1aecf3cab3d0e7383064ce488616434b4ade10d8904dff422e74203c712f"
 dependencies = [
  "alloy-consensus",
  "alloy-contract",
@@ -533,7 +533,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -1676,7 +1676,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -5412,8 +5412,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.14.0",
+ "heck 0.4.1",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -5433,7 +5433,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.102",
@@ -8063,7 +8063,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -8565,7 +8565,7 @@ dependencies = [
  "chrono",
  "futures",
  "futures-util",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "openmls",
  "openmls_traits",
  "prost",
@@ -8627,7 +8627,7 @@ dependencies = [
  "ctor 0.4.2",
  "fdlimit",
  "futures",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "gloo-timers 0.3.0",
  "js-sys",
  "once_cell",
@@ -8674,7 +8674,7 @@ dependencies = [
  "bincode",
  "const-hex",
  "ed25519-dalek",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "openmls_basic_credential",
  "openmls_traits",
  "rand 0.8.5",
@@ -8751,7 +8751,7 @@ dependencies = [
  "ctor 0.4.2",
  "ed25519-dalek",
  "futures",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "gloo-timers 0.3.0",
  "openmls",
  "openmls_traits",
@@ -8808,7 +8808,7 @@ dependencies = [
  "futures-test",
  "futures-timer",
  "futures-util",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "hkdf",
  "hmac",
  "indicatif",

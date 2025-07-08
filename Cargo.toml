@@ -82,7 +82,7 @@ rstest = "0.25"
 rstest_reuse = "0.7.0"
 futures = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
-getrandom = { version = "0.2", default-features = false }
+getrandom = { version = "0.3", default-features = false }
 derive_builder = "0.20"
 arc-swap = "1.7"
 gloo-timers = "0.3"
