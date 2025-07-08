@@ -11,10 +11,10 @@ http = "1.2"
 prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
+tower = "0.5.2"
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
-tower = "0.5.2"
 
 # Anything but iOS and Android will use either webpki or native.
 # If native certs are not found, it will fallback to webpki
