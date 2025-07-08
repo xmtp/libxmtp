@@ -3265,6 +3265,42 @@ mod tests {
         client
     }
 
+    async fn new_test_dev_client_with_wallet_and_history_sync_url(
+        wallet: xmtp_cryptography::utils::LocalWallet,
+        history_sync_url: Option<String>,
+        sync_worker_mode: Option<FfiSyncWorkerMode>,
+    ) -> Arc<FfiXmtpClient> {
+        let ffi_inbox_owner = FfiWalletInboxOwner::with_wallet(wallet);
+        let ident = ffi_inbox_owner.identifier();
+
+        let nonce = 1;
+        let inbox_id = ident.inbox_id(nonce).unwrap();
+
+        let client = create_client(
+            connect_to_backend(xmtp_api_grpc::DEV_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
+            Some(tmp_path()),
+            Some([0u8; 32].to_vec()),
+            &inbox_id,
+            ident,
+            nonce,
+            None,
+            history_sync_url,
+            sync_worker_mode,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let conn = client.inner_client.context().db();
+        conn.register_triggers();
+
+        register_client_with_wallet(&ffi_inbox_owner, &client).await;
+
+        client
+    }
+
     async fn new_test_client_no_panic(
         wallet: xmtp_cryptography::utils::LocalWallet,
         sync_server_url: Option<String>,
@@ -8618,5 +8654,155 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(state[0].installations.len(), 3);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_create_group_with_100_inbox_ids_on_devnet() {
+        use xmtp_cryptography::utils::generate_local_wallet;
+
+        // The 100 inbox IDs on dev
+        let inbox_ids = vec![
+            "a5402cdaea8ca241516574d4b855dbb82cfedd29e5f3ba2b997f6bee321879fe".to_string(),
+            "449c0564b394bf12313bda4f0527a5d500afb1d7802250bc382d346ced3f63eb".to_string(),
+            "cb7213baf2dc77488a597f2ad47136fe1612fb686221903d7f09f155fe1cf2f5".to_string(),
+            "b164a6401398ac50ad9c80f1530201d4dbd2b0771ea26d697c0e43a358b79f59".to_string(),
+            "13ccdd297ed5e9de229e298ab35b6f3b07cc6d318850bbf5e3cd162aa8c3dc57".to_string(),
+            "362e88663aab240a6c5b0c9c6b91429b520065ccc0eace63ecaf63dbda7d0fd5".to_string(),
+            "ad83a9c6b7dfce4d149d25e4e7a49afe3d2cdcddc39d7172ee58ef0c877d2083".to_string(),
+            "3ced945619024e549d8f68013b52beb3025a46258d4db0366e33c6dfd988d648".to_string(),
+            "bdc8cbca0e1cc7e5061786b5b9ea08ba4162176bfb57f3352871858b49d9944b".to_string(),
+            "ae2dc1e82588406e94a8a3e6305348a792dd9e1da380e55f3eca4ca1d4d6eca7".to_string(),
+            "d2d09efdbb9745055e674d7342206064bd26ed005f63e703c8e7fd32d85056b7".to_string(),
+            "9318e4dbfe3cedee8ef30846fc7139db9f07cce98133e99e09bba9ce62100598".to_string(),
+            "52e3a85bfa32eef5241791fae8d063bab87d6cb00f56e8aa8b12bf39fe134cc3".to_string(),
+            "ff799dac7b3ff81eeea68c70fb4b5a1b983dc00d4d2166e316564c535846127c".to_string(),
+            "745a6f4594e2e9ab330413c348bb575dd7a3f218106aae904dd9e28052a7c54c".to_string(),
+            "05c27875753e186806d3cb81887c61e738553212747afd662d1976482f97918c".to_string(),
+            "c5685a3c02632f997726d85a638603f0a14df8cdf92dd54b236286e082fe47e8".to_string(),
+            "fd8099ee99ded1d9d7a0cd616777ca2d659ae61254a9c461cb10e7c95c5c648b".to_string(),
+            "d9d57ad4f250fbc0643be31ba73871a8dd8e1907b7444c1a0c782fdebdcc85e6".to_string(),
+            "f3fab3ade9dc20c0c40e698d2186df3a97fbcfdf366667368d9efd4989e021e1".to_string(),
+            "45ed19f2d73c2ae97e05855a6b66ae9ad85949bca8bbde45e58cbb9c196bc34d".to_string(),
+            "17dcbd10cfcb031ec9c9234da7031cc47ebc1654bcd04c695d4aadc78cc9970f".to_string(),
+            "de53ae7fd35d14f0003573e5c81e3c4fba68cae6fd7213b14ff3b22f1cdbdeeb".to_string(),
+            "ee9da51dc15f2583ca8da4bb5e3ec94062ac8c4bd4cbce75dcc7543fc05a1201".to_string(),
+            "50b78ee7af7d0fbea662195801e7938720ad77ec45a16b2c689589625ee9f99e".to_string(),
+            "2ecb781a8a1d40f79f572cd641af2dc628be65d4716cf944756080de659b274c".to_string(),
+            "e4a64fa1526733738acbee231694413b873607b4f6c1fb93948ecca8aceb3169".to_string(),
+            "7965768326ea73f4c9f39518973e6a6a52e40ef222c7a8cfdaedb580d1ac248a".to_string(),
+            "d10120164994364d1ff550c207ef6932d11413098d87197e7068b1bf6ef0ea2a".to_string(),
+            "72e82033f2680118eaef87d71985e03313bc4f87bf78215fcd6209234ac9d30b".to_string(),
+            "447fc8b4ddcb2ccade18c7eec11fe7c35fbebfa9b8b50d53bf8399fb164ced08".to_string(),
+            "704db06e0c9737f03ad4dc5e43964fc0b1e9f1f7854ddacc51157939c9f11acc".to_string(),
+            "c629f1a95b6dba1c1560cb25ebff516d7af88c9110428dc127fdda648f7f2d03".to_string(),
+            "7b981d61e81257e41bb3621805cc6093b285015be3328e8e55655438baff7f86".to_string(),
+            "c7bec585096130789929134f0e61350c7c2e67813d53b043b6e47f6fd632a323".to_string(),
+            "8cc567d47183bdb434a31128c4f596d0d53f3b989e89043f9e7f5e50869b29c5".to_string(),
+            "9df13ae3a3ee78a3bfe6180878f3b71ad33be0b1e7ca5e5e70a9a62d3e654aca".to_string(),
+            "69d9a01fd0644334e351c7cb3e478b158bfc0fd5b5ff4f312fe3c9a76b56b6b9".to_string(),
+            "329f0d5ebf19f091fb021a691cc46cd90c662c3709c842dfee09c1c6c79be534".to_string(),
+            "45952bdd7823e1848caf3f0ca4eba3b8f2257c643d83deda000ccebae6e09072".to_string(),
+            "92f8cfa1945dbacef811df12ba9ce9a8ed760465a2c86d5f2ab181272ecde427".to_string(),
+            "3cf48c2a821fe510e7cfd8fb7182c0f9d948aeca9528ebe55204f84ee70fc4c3".to_string(),
+            "6ba9d2b4fa96b31fb3c6c758f6954820a51ad13f27991c3fe0305c57d413c0d7".to_string(),
+            "d861bf75c33750dc36fdb7c5807f6ed32fb5f06cb55b8bf8d4f36289cdef8c1b".to_string(),
+            "632bb2ba56a9bf81a958d3c8d1a2887985be5c36e4d59664bbbc31846249c752".to_string(),
+            "93c43d86a296fe059c649a12a5ff23e35b8c1164cebbae6bfd719654dac749ca".to_string(),
+            "20f7d2f52711b38fa7b1e9b6384ed60ca7b54f571757f57997f1a1137e932daa".to_string(),
+            "1380dbd62c0d71467c5aa26a729c4bb992ba4cc609732356230ab3b83270034b".to_string(),
+            "6c4329f7433fa1d6151857a2554299eda8b8e5eef2cb852de498eb833f458484".to_string(),
+            "2e30172482bdd19d0de2294add0a5f08ad20b1ca92d325bcba766cf95d9b80b0".to_string(),
+            "6657fbd29163412678f5ebf95e104702081da36d14b7ba0384445366686874ff".to_string(),
+            "abdc994e308d6275edaedbc2d3a73f6dc73805f67290342dd4b5bee63d2b554a".to_string(),
+            "9dced083b0ad5cc0632c5d1aa73c7843b18cadfed834ccc57272472f9f1a38f0".to_string(),
+            "43d134bedc4926944bab919448b6b0eefafd8ed1512d737f8d0d7d5200efbf08".to_string(),
+            "c27b2fd327de00c06b0f4660e801d30259b7587f7924b7b0284bcfb2a3ecc226".to_string(),
+            "b449da4e9b99a56998207836e0bfa41fe674831afb8d81c666e58a20dff78dba".to_string(),
+            "11b7edac0f0d15e3abb401f1b9cc8ab19962c08847c8ad87be8218a38f85aad2".to_string(),
+            "c1d8e412a545808b919275de225048c0cfa1a348f512a9c8b437f11c3338aff6".to_string(),
+            "7b81382be474999dc39ad4454e95964205efff51c22df9c42edc7809cac2ca47".to_string(),
+            "3283670a95a1be33daa2c2de2a4464bb4aeda6445047d5daf8fe1e5dd1124221".to_string(),
+            "8615b67271c122768ae9e36ca3e16ba396d9098c757559b54d52fca66c943b6f".to_string(),
+            "ca687fef8d62419452ac2ce3777069e1b51f48216932cf58862b4270272a8ec9".to_string(),
+            "d80b283013e7d0690ff5584f88793a23961a6f8ddf866f6c0265e4c8a10ee8cc".to_string(),
+            "626f0034bbedb4254cad7fd30076f51c44145f47a12326ccf9ad5d07ac57b51d".to_string(),
+            "33100643fc9ce601575289840da42e47dba66fe81b2faf45560b6ce70e45e832".to_string(),
+            "39e70674eced8a45713b8d079027759a9d6f594d89aa4c91aabe44d4d731fd5f".to_string(),
+            "d61b4072898803204bffd12703659fa57d27cd9537df0a0f165bd9e720a69f50".to_string(),
+            "401660e813f6d1d0e7c33b1c63ea3670c8b5bd47d6475add336c80a79e0cf59a".to_string(),
+            "3e12e72ab71eae02d7b78aee62bf58f6d84977525de42c4dd4eb5988c9c9578b".to_string(),
+            "209e6e83fe709b5d1ded8793118bc88cb07adf9e6bb99c246d57d35fdd2b8141".to_string(),
+            "88ada15cce3801cf485968ec50ec416a2ca25ef8ff27f81d210352e8faa47453".to_string(),
+            "ebd4bc360d33c3b991e140e3062820197f305134ea9d96fe7b49fbed2baa8109".to_string(),
+            "17d6110563fe45f60015ddc59d876bd57a667d52d535707f66393af40769f1eb".to_string(),
+            "bf9449f3cb45cf0d80706a795508da02ffa5fc6422a41ac87a8da6a4d281a37d".to_string(),
+            "f2b60c9e056b7c075bbb118f30a427206764d0319cc56007e4b64c255aef5f98".to_string(),
+            "cfe6195db05d4bd082c205f4d5c1c99dcb8ff56982d73b3d0845a95df9fbce66".to_string(),
+            "9dc0108c27447db3b40fb4cf2ca1795ca94f05ff38fa1c285dad0d4425492c8e".to_string(),
+            "8a81a4e6582073f646230ecda59122848de7189a9e3da94b2cb77bca3414073e".to_string(),
+            "1bc8e8b1a0018fb39aac7a0a50e43b60d255e3b30569b28d0b554cc49d36c1ac".to_string(),
+            "20909f862378ace5554c21c41f2740f9bc1a98900481fe80ced6a8f11e071717".to_string(),
+            "e65edaf00809caa1eb88ac48bca58b3f6fb5e559b4dec44a8fa2ea31e5a4e65d".to_string(),
+            "9e029f5760fc450631dfa7cbe695d57989c3a1aac073b1d3523f1c30640576bb".to_string(),
+            "9fdfe1798507c88ca0dd3be22183807782c5a7aaaf5bf73b18a824bb31a91967".to_string(),
+            "5aa51a78a62cdfbc34a54fb0ffbd92bce2e9e53c51d47f5b6d6c261e54a4aeb1".to_string(),
+            "e2de8cadf8ce5638c81c0ec6bcc22490f25d341c82e9e849773a42ed08b08451".to_string(),
+            "3d289370f899e8bb663d5b3c5bf125c4391c6e9cc0a98afa75eb5a4e4061a071".to_string(),
+            "dc6ece50803b3b314d1bde48774abe5d9665ab9e12047f94360429593116d068".to_string(),
+            "ebe7a84b5818440e243afde7fa4eb80a8aee7e6c44994667216f1a4765d5993b".to_string(),
+            "7e33fe6c470a645410c94ad724b359628a6c54411aa12e2c12fbe0e992c791f7".to_string(),
+            "9aba16cf1e8b6800dd66b182927eaa801361e33e2d11a43841ece7c232cc6201".to_string(),
+            "e7b5513d262271b78779d201ab898bab5c6522fdee36cccef8eb0d2c6dcf70c8".to_string(),
+            "eb39750c9a7451d234e9c142417d2a02d55bf216ae4755715546b28e1e2be1b8".to_string(),
+            "aa9295dffd8cca0a66c366ec4ed58b7cb4a26130b6d3530acf4f17b103f79b91".to_string(),
+            "b1516a8420138ff552aeab8158e56d21927d929ab9a6cccd37bf28f5c2dc8d47".to_string(),
+            "1b238d8ffc61610f13d1590aa0d8d2338cd614c10fddb26014632cab2b966415".to_string(),
+            "38830d6b7c45a2f9a6d3ded20f5bbbd23946ca41877f80a0d207637db9ae7be7".to_string(),
+            "08004d3c7c82fb48b02314b1c84d7e5688e57a75a01231ddd6c2ebf2810a5b23".to_string(),
+            "05f91bda4a72e972a54d37459670731e84e7d8d4d7b99e100dde7894bd3228b0".to_string(),
+            "4512e2a52de3847d0e298fbb0463b16b3d080f9f4d1999a2f7bfcaf7542a8f02".to_string(),
+            "692136ce3fabf871f4bb67b704b943f3dcab6338879090cea8468ca648e8c722".to_string(),
+        ];
+
+        // Create a test client on devnet
+        let wallet = generate_local_wallet();
+        let client = new_test_dev_client_with_wallet_and_history_sync_url(wallet, None, None).await;
+
+        // Create the group with the specified inbox IDs
+        let conversations = client.conversations();
+        let opts = FfiCreateGroupOptions {
+            permissions: None,
+            group_name: Some("devnet test group with 100 members".to_string()),
+            group_image_url_square: None,
+            group_description: None,
+            custom_permission_policy_set: None,
+            message_disappearing_settings: None,
+        };
+        let group = conversations
+            .create_group_with_inbox_ids(inbox_ids.clone(), opts)
+            .await
+            .expect("Failed to create group with provided inbox IDs");
+
+        // Fetch the group members and verify all inbox_ids are present
+        let members = group
+            .list_members()
+            .await
+            .expect("Failed to list group members");
+        let member_inbox_ids: Vec<String> = members.iter().map(|m| m.inbox_id.clone()).collect();
+
+        // Verify all 100 inbox IDs are present
+        assert_eq!(
+            member_inbox_ids.len(),
+            101,
+            "Group should have exactly 100 members"
+        );
+
+        for id in &inbox_ids {
+            assert!(
+                member_inbox_ids.contains(id),
+                "Group missing inbox_id: {}",
+                id
+            );
+        }
     }
 }

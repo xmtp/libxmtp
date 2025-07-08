@@ -2113,7 +2113,10 @@ where
 
         let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
 
-        let chunk_size = GRPC_PAYLOAD_LIMIT
+        const MAX_WELCOME_MESSAGE_SIZE: usize = GRPC_PAYLOAD_LIMIT;
+        // const MAX_WELCOME_MESSAGE_SIZE: usize = 45 * 1024 * 1024;
+
+        let chunk_size = MAX_WELCOME_MESSAGE_SIZE
             / welcome
                 .version
                 .as_ref()
@@ -2124,7 +2127,7 @@ where
                         w
                     }
                 })
-                .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
+                .unwrap_or(MAX_WELCOME_MESSAGE_SIZE / MAX_GROUP_SIZE);
 
         tracing::debug!("welcome chunk_size={chunk_size}");
         let api = self.context.api();
