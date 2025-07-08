@@ -7892,6 +7892,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tonic",
+ "tower 0.5.2",
  "tracing",
  "uuid 1.17.0",
  "xmtp_common",
