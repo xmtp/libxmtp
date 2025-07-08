@@ -11,6 +11,7 @@ http = "1.2"
 prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
+tower = "0.5.2"
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
