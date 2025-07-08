@@ -1609,6 +1609,7 @@ where
             }
             let provider = self.mls_provider();
             let conn = provider.db();
+            let mut last_epoch_number = 0;
             let mut last_epoch_authenticator = Vec::new();
             if let Some(latest_log) = conn.get_latest_log_for_group(&self.group_id)? {
                 // Because we don't increment the cursor for non-retryable errors, we may have already logged this commit
@@ -1617,14 +1618,11 @@ where
                 {
                     return Ok(());
                 }
+                // TODO(rich): Fetch this directly off the group rather than from the latest log
                 // We would prefer to fetch the last_epoch_authenticator directly from the OpenMLS group, but we cannot
                 // fetch it here without race conditions
-                if latest_log.commit_result == CommitResult::Success {
-                    last_epoch_authenticator =
-                        latest_log.applied_epoch_authenticator.unwrap_or_default();
-                } else {
-                    last_epoch_authenticator = latest_log.last_epoch_authenticator;
-                }
+                last_epoch_number = latest_log.applied_epoch_number;
+                last_epoch_authenticator = latest_log.applied_epoch_authenticator;
             }
             let commit_result = match error {
                 GroupMessageProcessingError::OpenMlsProcessMessage(
@@ -1639,14 +1637,14 @@ where
             NewLocalCommitLog {
                 group_id: self.group_id.to_vec(),
                 commit_sequence_id: message_cursor as i64,
-                last_epoch_authenticator,
+                last_epoch_authenticator: last_epoch_authenticator.clone(),
                 commit_result,
-                applied_epoch_number: Some(message.epoch().as_u64() as i64), // For debugging purposes
-                applied_epoch_authenticator: None,
+                error_message: Some(format!("{error:?}")),
+                applied_epoch_number: last_epoch_number,
+                applied_epoch_authenticator: last_epoch_authenticator,
                 sender_inbox_id: None,
                 sender_installation_id: None,
                 commit_type: None,
-                error_message: Some(format!("{error:?}")),
             }
             .store(conn)?;
         }
