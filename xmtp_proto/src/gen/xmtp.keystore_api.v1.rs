@@ -8,6 +8,16 @@ pub struct KeystoreError {
     #[prost(enumeration = "ErrorCode", tag = "2")]
     pub code: i32,
 }
+impl ::prost::Name for KeystoreError {
+    const NAME: &'static str = "KeystoreError";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.KeystoreError".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.KeystoreError".into()
+    }
+}
 /// Decrypt a batch of messages using X3DH key agreement
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -33,6 +43,26 @@ pub mod decrypt_v1_request {
         pub header_bytes: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag = "4")]
         pub is_sender: bool,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.DecryptV1Request.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.DecryptV1Request.Request".into()
+        }
+    }
+}
+impl ::prost::Name for DecryptV1Request {
+    const NAME: &'static str = "DecryptV1Request";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.DecryptV1Request".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.DecryptV1Request".into()
     }
 }
 /// Response type for both V1 and V2 decryption requests
@@ -60,6 +90,16 @@ pub mod decrypt_response {
             #[prost(bytes = "vec", tag = "1")]
             pub decrypted: ::prost::alloc::vec::Vec<u8>,
         }
+        impl ::prost::Name for Success {
+            const NAME: &'static str = "Success";
+            const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.keystore_api.v1.DecryptResponse.Response.Success".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.keystore_api.v1.DecryptResponse.Response.Success".into()
+            }
+        }
         #[derive(serde::Serialize, serde::Deserialize)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -68,6 +108,26 @@ pub mod decrypt_response {
             #[prost(message, tag = "2")]
             Error(super::super::KeystoreError),
         }
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.DecryptResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.DecryptResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for DecryptResponse {
+    const NAME: &'static str = "DecryptResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.DecryptResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.DecryptResponse".into()
     }
 }
 /// Decrypt a batch of messages using the appropriate topic keys
@@ -92,6 +152,26 @@ pub mod decrypt_v2_request {
         #[prost(string, tag = "3")]
         pub content_topic: ::prost::alloc::string::String,
     }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.DecryptV2Request.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.DecryptV2Request.Request".into()
+        }
+    }
+}
+impl ::prost::Name for DecryptV2Request {
+    const NAME: &'static str = "DecryptV2Request";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.DecryptV2Request".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.DecryptV2Request".into()
+    }
 }
 /// Encrypt a batch of messages using X3DH key agreement
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -114,6 +194,26 @@ pub mod encrypt_v1_request {
         pub payload: ::prost::alloc::vec::Vec<u8>,
         #[prost(bytes = "vec", tag = "3")]
         pub header_bytes: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.EncryptV1Request.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.EncryptV1Request.Request".into()
+        }
+    }
+}
+impl ::prost::Name for EncryptV1Request {
+    const NAME: &'static str = "EncryptV1Request";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.EncryptV1Request".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.EncryptV1Request".into()
     }
 }
 /// Response type for both V1 and V2 encryption requests
@@ -145,6 +245,16 @@ pub mod encrypt_response {
             #[prost(bytes = "vec", tag = "2")]
             pub sender_hmac: ::prost::alloc::vec::Vec<u8>,
         }
+        impl ::prost::Name for Success {
+            const NAME: &'static str = "Success";
+            const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.keystore_api.v1.EncryptResponse.Response.Success".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.keystore_api.v1.EncryptResponse.Response.Success".into()
+            }
+        }
         #[derive(serde::Serialize, serde::Deserialize)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -153,6 +263,26 @@ pub mod encrypt_response {
             #[prost(message, tag = "2")]
             Error(super::super::KeystoreError),
         }
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.EncryptResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.EncryptResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for EncryptResponse {
+    const NAME: &'static str = "EncryptResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.EncryptResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.EncryptResponse".into()
     }
 }
 /// Encrypt a batch of messages using the appropriate topic keys
@@ -175,6 +305,26 @@ pub mod encrypt_v2_request {
         #[prost(string, tag = "3")]
         pub content_topic: ::prost::alloc::string::String,
     }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.EncryptV2Request.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.EncryptV2Request.Request".into()
+        }
+    }
+}
+impl ::prost::Name for EncryptV2Request {
+    const NAME: &'static str = "EncryptV2Request";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.EncryptV2Request".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.EncryptV2Request".into()
+    }
 }
 /// Encrypt a message for yourself
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -191,6 +341,26 @@ pub mod self_encrypt_request {
     pub struct Request {
         #[prost(bytes = "vec", tag = "1")]
         pub payload: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.SelfEncryptRequest.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.SelfEncryptRequest.Request".into()
+        }
+    }
+}
+impl ::prost::Name for SelfEncryptRequest {
+    const NAME: &'static str = "SelfEncryptRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SelfEncryptRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SelfEncryptRequest".into()
     }
 }
 /// Response type for SelfEncryptRequest
@@ -218,6 +388,16 @@ pub mod self_encrypt_response {
             #[prost(bytes = "vec", tag = "1")]
             pub encrypted: ::prost::alloc::vec::Vec<u8>,
         }
+        impl ::prost::Name for Success {
+            const NAME: &'static str = "Success";
+            const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.keystore_api.v1.SelfEncryptResponse.Response.Success".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.keystore_api.v1.SelfEncryptResponse.Response.Success".into()
+            }
+        }
         #[derive(serde::Serialize, serde::Deserialize)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -226,6 +406,26 @@ pub mod self_encrypt_response {
             #[prost(message, tag = "2")]
             Error(super::super::KeystoreError),
         }
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.SelfEncryptResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.SelfEncryptResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for SelfEncryptResponse {
+    const NAME: &'static str = "SelfEncryptResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SelfEncryptResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SelfEncryptResponse".into()
     }
 }
 /// SelfDecryptRequest
@@ -244,6 +444,26 @@ pub mod self_decrypt_request {
         #[prost(bytes = "vec", tag = "1")]
         pub payload: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.SelfDecryptRequest.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.SelfDecryptRequest.Request".into()
+        }
+    }
+}
+impl ::prost::Name for SelfDecryptRequest {
+    const NAME: &'static str = "SelfDecryptRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SelfDecryptRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SelfDecryptRequest".into()
+    }
 }
 /// Get the private preferences topic identifier
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -251,6 +471,16 @@ pub mod self_decrypt_request {
 pub struct GetPrivatePreferencesTopicIdentifierResponse {
     #[prost(string, tag = "1")]
     pub identifier: ::prost::alloc::string::String,
+}
+impl ::prost::Name for GetPrivatePreferencesTopicIdentifierResponse {
+    const NAME: &'static str = "GetPrivatePreferencesTopicIdentifierResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetPrivatePreferencesTopicIdentifierResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetPrivatePreferencesTopicIdentifierResponse".into()
+    }
 }
 /// Request to create an invite payload, and store the topic keys in the Keystore
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -271,6 +501,16 @@ pub struct CreateInviteRequest {
         super::super::message_contents::ConsentProofPayload,
     >,
 }
+impl ::prost::Name for CreateInviteRequest {
+    const NAME: &'static str = "CreateInviteRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.CreateInviteRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.CreateInviteRequest".into()
+    }
+}
 /// Response to a CreateInviteRequest
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -281,6 +521,16 @@ pub struct CreateInviteResponse {
     >,
     #[prost(bytes = "vec", tag = "2")]
     pub payload: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for CreateInviteResponse {
+    const NAME: &'static str = "CreateInviteResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.CreateInviteResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.CreateInviteResponse".into()
+    }
 }
 /// Request to save a batch of invite messages to the Keystore
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -301,6 +551,26 @@ pub mod save_invites_request {
         pub timestamp_ns: u64,
         #[prost(bytes = "vec", tag = "3")]
         pub payload: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.SaveInvitesRequest.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.SaveInvitesRequest.Request".into()
+        }
+    }
+}
+impl ::prost::Name for SaveInvitesRequest {
+    const NAME: &'static str = "SaveInvitesRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SaveInvitesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SaveInvitesRequest".into()
     }
 }
 /// Response to a SaveInvitesRequest
@@ -330,6 +600,16 @@ pub mod save_invites_response {
                 super::super::super::super::message_contents::ConversationReference,
             >,
         }
+        impl ::prost::Name for Success {
+            const NAME: &'static str = "Success";
+            const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.keystore_api.v1.SaveInvitesResponse.Response.Success".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.keystore_api.v1.SaveInvitesResponse.Response.Success".into()
+            }
+        }
         #[derive(serde::Serialize, serde::Deserialize)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -339,6 +619,26 @@ pub mod save_invites_response {
             Error(super::super::KeystoreError),
         }
     }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.SaveInvitesResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.SaveInvitesResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for SaveInvitesResponse {
+    const NAME: &'static str = "SaveInvitesResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SaveInvitesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SaveInvitesResponse".into()
+    }
 }
 /// CreateAuthTokenRequest is used to create an auth token for the XMTP API
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -346,6 +646,16 @@ pub mod save_invites_response {
 pub struct CreateAuthTokenRequest {
     #[prost(uint64, optional, tag = "1")]
     pub timestamp_ns: ::core::option::Option<u64>,
+}
+impl ::prost::Name for CreateAuthTokenRequest {
+    const NAME: &'static str = "CreateAuthTokenRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.CreateAuthTokenRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.CreateAuthTokenRequest".into()
+    }
 }
 /// SaveV1ConversationsRequest is used to save a batch of conversations to the
 /// built in persistence
@@ -357,10 +667,30 @@ pub struct SaveV1ConversationsRequest {
         super::super::message_contents::ConversationReference,
     >,
 }
+impl ::prost::Name for SaveV1ConversationsRequest {
+    const NAME: &'static str = "SaveV1ConversationsRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SaveV1ConversationsRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SaveV1ConversationsRequest".into()
+    }
+}
 /// Placeholder response type for SaveV1Conversations
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SaveV1ConversationsResponse {}
+impl ::prost::Name for SaveV1ConversationsResponse {
+    const NAME: &'static str = "SaveV1ConversationsResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SaveV1ConversationsResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SaveV1ConversationsResponse".into()
+    }
+}
 /// Response for GetV2Conversations
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -370,6 +700,16 @@ pub struct GetConversationsResponse {
         super::super::message_contents::ConversationReference,
     >,
 }
+impl ::prost::Name for GetConversationsResponse {
+    const NAME: &'static str = "GetConversationsResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetConversationsResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetConversationsResponse".into()
+    }
+}
 /// Used to check if the Keystore implementation has been setup for the given
 /// wallet address Only used for MM Snap Keystore currently
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -377,6 +717,16 @@ pub struct GetConversationsResponse {
 pub struct GetKeystoreStatusRequest {
     #[prost(string, tag = "1")]
     pub wallet_address: ::prost::alloc::string::String,
+}
+impl ::prost::Name for GetKeystoreStatusRequest {
+    const NAME: &'static str = "GetKeystoreStatusRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetKeystoreStatusRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetKeystoreStatusRequest".into()
+    }
 }
 /// Response to GetKeystoreStatusRequest
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -429,6 +779,16 @@ pub mod get_keystore_status_response {
         }
     }
 }
+impl ::prost::Name for GetKeystoreStatusResponse {
+    const NAME: &'static str = "GetKeystoreStatusResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetKeystoreStatusResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetKeystoreStatusResponse".into()
+    }
+}
 /// Used to initialize the Keystore with a private key bundle retrieved from the
 /// client
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -446,12 +806,32 @@ pub mod init_keystore_request {
         V1(super::super::super::message_contents::PrivateKeyBundleV1),
     }
 }
+impl ::prost::Name for InitKeystoreRequest {
+    const NAME: &'static str = "InitKeystoreRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.InitKeystoreRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.InitKeystoreRequest".into()
+    }
+}
 /// Response to the request to initialize the Keystore
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InitKeystoreResponse {
     #[prost(message, optional, tag = "1")]
     pub error: ::core::option::Option<KeystoreError>,
+}
+impl ::prost::Name for InitKeystoreResponse {
+    const NAME: &'static str = "InitKeystoreResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.InitKeystoreResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.InitKeystoreResponse".into()
+    }
 }
 /// SignDigestRequest is used to sign a digest with either the identity key
 /// or a prekey
@@ -474,6 +854,16 @@ pub mod sign_digest_request {
         PrekeyIndex(u32),
     }
 }
+impl ::prost::Name for SignDigestRequest {
+    const NAME: &'static str = "SignDigestRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SignDigestRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SignDigestRequest".into()
+    }
+}
 /// GetRefreshJobRequest is used to get the last run time of a refresh job
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -481,12 +871,32 @@ pub struct GetRefreshJobRequest {
     #[prost(enumeration = "JobType", tag = "1")]
     pub job_type: i32,
 }
+impl ::prost::Name for GetRefreshJobRequest {
+    const NAME: &'static str = "GetRefreshJobRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetRefreshJobRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetRefreshJobRequest".into()
+    }
+}
 /// GetRefreshJobResponse is used to return the last run time of a refresh job
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetRefreshJobResponse {
     #[prost(int64, tag = "1")]
     pub last_run_ns: i64,
+}
+impl ::prost::Name for GetRefreshJobResponse {
+    const NAME: &'static str = "GetRefreshJobResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetRefreshJobResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetRefreshJobResponse".into()
+    }
 }
 /// SetRefreshJobRequest is used to set the last run time of a refresh job
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -497,10 +907,30 @@ pub struct SetRefeshJobRequest {
     #[prost(int64, tag = "2")]
     pub last_run_ns: i64,
 }
+impl ::prost::Name for SetRefeshJobRequest {
+    const NAME: &'static str = "SetRefeshJobRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SetRefeshJobRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SetRefeshJobRequest".into()
+    }
+}
 /// SetRefreshJobResponse is an empty response type
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SetRefreshJobResponse {}
+impl ::prost::Name for SetRefreshJobResponse {
+    const NAME: &'static str = "SetRefreshJobResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.SetRefreshJobResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.SetRefreshJobResponse".into()
+    }
+}
 /// A mapping of topics to their decrypted invitations
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -526,6 +956,26 @@ pub mod topic_map {
             super::super::super::message_contents::InvitationV1,
         >,
     }
+    impl ::prost::Name for TopicData {
+        const NAME: &'static str = "TopicData";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.TopicMap.TopicData".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.TopicMap.TopicData".into()
+        }
+    }
+}
+impl ::prost::Name for TopicMap {
+    const NAME: &'static str = "TopicMap";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.TopicMap".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.TopicMap".into()
+    }
 }
 /// Used to get a mapping of conversation topics to their HMAC keys
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -533,6 +983,16 @@ pub mod topic_map {
 pub struct GetConversationHmacKeysRequest {
     #[prost(string, repeated, tag = "1")]
     pub topics: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+impl ::prost::Name for GetConversationHmacKeysRequest {
+    const NAME: &'static str = "GetConversationHmacKeysRequest";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetConversationHmacKeysRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetConversationHmacKeysRequest".into()
+    }
 }
 /// A mapping of topics to their HMAC keys
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -555,12 +1015,42 @@ pub mod get_conversation_hmac_keys_response {
         #[prost(bytes = "vec", tag = "2")]
         pub hmac_key: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for HmacKeyData {
+        const NAME: &'static str = "HmacKeyData";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.GetConversationHmacKeysResponse.HmacKeyData".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.GetConversationHmacKeysResponse.HmacKeyData".into()
+        }
+    }
     /// HmacKeys represents multiple HmacKeyData objects
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct HmacKeys {
         #[prost(message, repeated, tag = "1")]
         pub values: ::prost::alloc::vec::Vec<HmacKeyData>,
+    }
+    impl ::prost::Name for HmacKeys {
+        const NAME: &'static str = "HmacKeys";
+        const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.keystore_api.v1.GetConversationHmacKeysResponse.HmacKeys".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.keystore_api.v1.GetConversationHmacKeysResponse.HmacKeys".into()
+        }
+    }
+}
+impl ::prost::Name for GetConversationHmacKeysResponse {
+    const NAME: &'static str = "GetConversationHmacKeysResponse";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.GetConversationHmacKeysResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.GetConversationHmacKeysResponse".into()
     }
 }
 /// A mapping of message hashes to their private preferences action
@@ -572,6 +1062,16 @@ pub struct PrivatePreferencesActionMap {
         ::prost::alloc::string::String,
         super::super::message_contents::PrivatePreferencesAction,
     >,
+}
+impl ::prost::Name for PrivatePreferencesActionMap {
+    const NAME: &'static str = "PrivatePreferencesActionMap";
+    const PACKAGE: &'static str = "xmtp.keystore_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.keystore_api.v1.PrivatePreferencesActionMap".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.keystore_api.v1.PrivatePreferencesActionMap".into()
+    }
 }
 /// Application-specific error codes for the Keystore API.
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -30,11 +30,31 @@ pub mod welcome_message {
         #[prost(bytes = "vec", tag = "7")]
         pub welcome_metadata: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessage.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessage.V1".into()
+        }
+    }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+    }
+}
+impl ::prost::Name for WelcomeMessage {
+    const NAME: &'static str = "WelcomeMessage";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.WelcomeMessage".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.WelcomeMessage".into()
     }
 }
 /// Input type for a welcome message
@@ -64,11 +84,31 @@ pub mod welcome_message_input {
         #[prost(bytes = "vec", tag = "7")]
         pub welcome_metadata: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.WelcomeMessageInput.V1".into()
+        }
+    }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+    }
+}
+impl ::prost::Name for WelcomeMessageInput {
+    const NAME: &'static str = "WelcomeMessageInput";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.WelcomeMessageInput".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.WelcomeMessageInput".into()
     }
 }
 /// This field is encrypted along with the `data` field on the welcome message.
@@ -77,6 +117,16 @@ pub mod welcome_message_input {
 pub struct WelcomeMetadata {
     #[prost(uint64, tag = "1")]
     pub message_cursor: u64,
+}
+impl ::prost::Name for WelcomeMetadata {
+    const NAME: &'static str = "WelcomeMetadata";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.WelcomeMetadata".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.WelcomeMetadata".into()
+    }
 }
 /// Full representation of a group message
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -104,11 +154,31 @@ pub mod group_message {
         #[prost(bool, tag = "6")]
         pub should_push: bool,
     }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GroupMessage.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GroupMessage.V1".into()
+        }
+    }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+    }
+}
+impl ::prost::Name for GroupMessage {
+    const NAME: &'static str = "GroupMessage";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GroupMessage".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GroupMessage".into()
     }
 }
 /// Input type for a group message
@@ -132,11 +202,31 @@ pub mod group_message_input {
         #[prost(bool, tag = "3")]
         pub should_push: bool,
     }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GroupMessageInput.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GroupMessageInput.V1".into()
+        }
+    }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
         #[prost(message, tag = "1")]
         V1(V1),
+    }
+}
+impl ::prost::Name for GroupMessageInput {
+    const NAME: &'static str = "GroupMessageInput";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GroupMessageInput".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GroupMessageInput".into()
     }
 }
 /// Send a batch of MLS messages
@@ -146,12 +236,32 @@ pub struct SendGroupMessagesRequest {
     #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<GroupMessageInput>,
 }
+impl ::prost::Name for SendGroupMessagesRequest {
+    const NAME: &'static str = "SendGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SendGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SendGroupMessagesRequest".into()
+    }
+}
 /// Send a batch of welcome messages
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendWelcomeMessagesRequest {
     #[prost(message, repeated, tag = "1")]
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessageInput>,
+}
+impl ::prost::Name for SendWelcomeMessagesRequest {
+    const NAME: &'static str = "SendWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SendWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SendWelcomeMessagesRequest".into()
+    }
 }
 /// A wrapper around the Key Package bytes
 ///
@@ -165,6 +275,16 @@ pub struct KeyPackageUpload {
     #[prost(bytes = "vec", tag = "1")]
     pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for KeyPackageUpload {
+    const NAME: &'static str = "KeyPackageUpload";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.KeyPackageUpload".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.KeyPackageUpload".into()
+    }
+}
 /// Register a new installation
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -175,12 +295,32 @@ pub struct RegisterInstallationRequest {
     #[prost(bool, tag = "2")]
     pub is_inbox_id_credential: bool,
 }
+impl ::prost::Name for RegisterInstallationRequest {
+    const NAME: &'static str = "RegisterInstallationRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RegisterInstallationRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RegisterInstallationRequest".into()
+    }
+}
 /// The response to a RegisterInstallationRequest
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstallationResponse {
     #[prost(bytes = "vec", tag = "1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for RegisterInstallationResponse {
+    const NAME: &'static str = "RegisterInstallationResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RegisterInstallationResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RegisterInstallationResponse".into()
+    }
 }
 /// Upload a new key packages
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -192,6 +332,16 @@ pub struct UploadKeyPackageRequest {
     #[prost(bool, tag = "2")]
     pub is_inbox_id_credential: bool,
 }
+impl ::prost::Name for UploadKeyPackageRequest {
+    const NAME: &'static str = "UploadKeyPackageRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.UploadKeyPackageRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.UploadKeyPackageRequest".into()
+    }
+}
 /// Fetch one or more key packages
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -201,6 +351,16 @@ pub struct FetchKeyPackagesRequest {
     /// installation key
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub installation_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+impl ::prost::Name for FetchKeyPackagesRequest {
+    const NAME: &'static str = "FetchKeyPackagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.FetchKeyPackagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.FetchKeyPackagesRequest".into()
+    }
 }
 /// The response to a FetchKeyPackagesRequest
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -221,6 +381,26 @@ pub mod fetch_key_packages_response {
         #[prost(bytes = "vec", tag = "1")]
         pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for KeyPackage {
+        const NAME: &'static str = "KeyPackage";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage".into()
+        }
+    }
+}
+impl ::prost::Name for FetchKeyPackagesResponse {
+    const NAME: &'static str = "FetchKeyPackagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.FetchKeyPackagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.FetchKeyPackagesResponse".into()
+    }
 }
 /// Revoke an installation
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -235,6 +415,16 @@ pub struct RevokeInstallationRequest {
         super::super::super::message_contents::Signature,
     >,
 }
+impl ::prost::Name for RevokeInstallationRequest {
+    const NAME: &'static str = "RevokeInstallationRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.RevokeInstallationRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.RevokeInstallationRequest".into()
+    }
+}
 /// Get all updates for an identity since the specified time
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -243,6 +433,16 @@ pub struct GetIdentityUpdatesRequest {
     pub account_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(uint64, tag = "2")]
     pub start_time_ns: u64,
+}
+impl ::prost::Name for GetIdentityUpdatesRequest {
+    const NAME: &'static str = "GetIdentityUpdatesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetIdentityUpdatesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetIdentityUpdatesRequest".into()
+    }
 }
 /// Used to get any new or revoked installations for a list of wallet addresses
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -264,12 +464,33 @@ pub mod get_identity_updates_response {
         #[prost(bytes = "vec", tag = "2")]
         pub credential_identity: ::prost::alloc::vec::Vec<u8>,
     }
+    impl ::prost::Name for NewInstallationUpdate {
+        const NAME: &'static str = "NewInstallationUpdate";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate".into()
+        }
+    }
     /// An installation was revoked
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct RevokedInstallationUpdate {
         #[prost(bytes = "vec", tag = "1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for RevokedInstallationUpdate {
+        const NAME: &'static str = "RevokedInstallationUpdate";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate"
+                .into()
+        }
     }
     /// A wrapper for any update to the wallet
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -291,12 +512,42 @@ pub mod get_identity_updates_response {
             RevokedInstallation(super::RevokedInstallationUpdate),
         }
     }
+    impl ::prost::Name for Update {
+        const NAME: &'static str = "Update";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update".into()
+        }
+    }
     /// A wrapper for the updates for a single wallet
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct WalletUpdates {
         #[prost(message, repeated, tag = "1")]
         pub updates: ::prost::alloc::vec::Vec<Update>,
+    }
+    impl ::prost::Name for WalletUpdates {
+        const NAME: &'static str = "WalletUpdates";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates".into()
+        }
+    }
+}
+impl ::prost::Name for GetIdentityUpdatesResponse {
+    const NAME: &'static str = "GetIdentityUpdatesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.GetIdentityUpdatesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.GetIdentityUpdatesResponse".into()
     }
 }
 /// Pagination config for queries
@@ -310,6 +561,16 @@ pub struct PagingInfo {
     #[prost(uint64, tag = "3")]
     pub id_cursor: u64,
 }
+impl ::prost::Name for PagingInfo {
+    const NAME: &'static str = "PagingInfo";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.PagingInfo".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.PagingInfo".into()
+    }
+}
 /// Request for group message queries
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -318,6 +579,16 @@ pub struct QueryGroupMessagesRequest {
     pub group_id: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
+}
+impl ::prost::Name for QueryGroupMessagesRequest {
+    const NAME: &'static str = "QueryGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryGroupMessagesRequest".into()
+    }
 }
 /// Response for group message queries
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -328,6 +599,16 @@ pub struct QueryGroupMessagesResponse {
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryGroupMessagesResponse {
+    const NAME: &'static str = "QueryGroupMessagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryGroupMessagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryGroupMessagesResponse".into()
+    }
+}
 /// Request for welcome message queries
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -337,6 +618,16 @@ pub struct QueryWelcomeMessagesRequest {
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryWelcomeMessagesRequest {
+    const NAME: &'static str = "QueryWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryWelcomeMessagesRequest".into()
+    }
+}
 /// Response for welcome message queries
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -345,6 +636,16 @@ pub struct QueryWelcomeMessagesResponse {
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessage>,
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
+}
+impl ::prost::Name for QueryWelcomeMessagesResponse {
+    const NAME: &'static str = "QueryWelcomeMessagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryWelcomeMessagesResponse".into()
+    }
 }
 /// Request for subscribing to group messages
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -363,6 +664,26 @@ pub mod subscribe_group_messages_request {
         pub group_id: ::prost::alloc::vec::Vec<u8>,
         #[prost(uint64, tag = "2")]
         pub id_cursor: u64,
+    }
+    impl ::prost::Name for Filter {
+        const NAME: &'static str = "Filter";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter".into()
+        }
+    }
+}
+impl ::prost::Name for SubscribeGroupMessagesRequest {
+    const NAME: &'static str = "SubscribeGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeGroupMessagesRequest".into()
     }
 }
 /// Request for subscribing to welcome messages
@@ -383,12 +704,42 @@ pub mod subscribe_welcome_messages_request {
         #[prost(uint64, tag = "2")]
         pub id_cursor: u64,
     }
+    impl ::prost::Name for Filter {
+        const NAME: &'static str = "Filter";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter".into()
+        }
+    }
+}
+impl ::prost::Name for SubscribeWelcomeMessagesRequest {
+    const NAME: &'static str = "SubscribeWelcomeMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchPublishCommitLogRequest {
     #[prost(message, repeated, tag = "1")]
     pub requests: ::prost::alloc::vec::Vec<PublishCommitLogRequest>,
+}
+impl ::prost::Name for BatchPublishCommitLogRequest {
+    const NAME: &'static str = "BatchPublishCommitLogRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.BatchPublishCommitLogRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.BatchPublishCommitLogRequest".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -398,6 +749,16 @@ pub struct PublishCommitLogRequest {
     #[prost(bytes = "vec", tag = "2")]
     pub encrypted_commit_log_entry: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for PublishCommitLogRequest {
+    const NAME: &'static str = "PublishCommitLogRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.PublishCommitLogRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.PublishCommitLogRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryCommitLogRequest {
@@ -405,6 +766,16 @@ pub struct QueryCommitLogRequest {
     pub group_id: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
+}
+impl ::prost::Name for QueryCommitLogRequest {
+    const NAME: &'static str = "QueryCommitLogRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryCommitLogRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryCommitLogRequest".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -418,17 +789,47 @@ pub struct QueryCommitLogResponse {
     #[prost(message, optional, tag = "3")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryCommitLogResponse {
+    const NAME: &'static str = "QueryCommitLogResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.QueryCommitLogResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.QueryCommitLogResponse".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchQueryCommitLogRequest {
     #[prost(message, repeated, tag = "1")]
     pub requests: ::prost::alloc::vec::Vec<QueryCommitLogRequest>,
 }
+impl ::prost::Name for BatchQueryCommitLogRequest {
+    const NAME: &'static str = "BatchQueryCommitLogRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.BatchQueryCommitLogRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.BatchQueryCommitLogRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchQueryCommitLogResponse {
     #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<QueryCommitLogResponse>,
+}
+impl ::prost::Name for BatchQueryCommitLogResponse {
+    const NAME: &'static str = "BatchQueryCommitLogResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.BatchQueryCommitLogResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.BatchQueryCommitLogResponse".into()
+    }
 }
 /// Sort direction for queries
 #[derive(serde::Serialize, serde::Deserialize)]

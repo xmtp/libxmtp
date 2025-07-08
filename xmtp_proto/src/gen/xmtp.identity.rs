@@ -6,3 +6,13 @@ pub struct MlsCredential {
     #[prost(string, tag = "1")]
     pub inbox_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for MlsCredential {
+    const NAME: &'static str = "MlsCredential";
+    const PACKAGE: &'static str = "xmtp.identity";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.MlsCredential".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.MlsCredential".into()
+    }
+}

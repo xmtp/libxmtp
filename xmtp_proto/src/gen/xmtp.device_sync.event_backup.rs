@@ -16,6 +16,16 @@ pub struct EventSave {
     #[prost(string, optional, tag = "6")]
     pub icon: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for EventSave {
+    const NAME: &'static str = "EventSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.event_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.event_backup.EventSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.event_backup.EventSave".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

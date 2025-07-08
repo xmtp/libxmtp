@@ -20,6 +20,16 @@ pub struct ReactionV2 {
     #[prost(enumeration = "ReactionSchema", tag = "5")]
     pub schema: i32,
 }
+impl ::prost::Name for ReactionV2 {
+    const NAME: &'static str = "ReactionV2";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.ReactionV2".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.ReactionV2".into()
+    }
+}
 /// Action enum to represent reaction states
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -93,6 +103,16 @@ pub struct MultiRemoteAttachment {
     #[prost(message, repeated, tag = "1")]
     pub attachments: ::prost::alloc::vec::Vec<RemoteAttachmentInfo>,
 }
+impl ::prost::Name for MultiRemoteAttachment {
+    const NAME: &'static str = "MultiRemoteAttachment";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.MultiRemoteAttachment".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.MultiRemoteAttachment".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteAttachmentInfo {
@@ -121,6 +141,16 @@ pub struct RemoteAttachmentInfo {
     #[prost(string, optional, tag = "8")]
     pub filename: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for RemoteAttachmentInfo {
+    const NAME: &'static str = "RemoteAttachmentInfo";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.RemoteAttachmentInfo".into()
+    }
+}
 /// WalletSendCalls represents parameters for sending wallet calls
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -141,6 +171,16 @@ pub struct WalletSendCalls {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+}
+impl ::prost::Name for WalletSendCalls {
+    const NAME: &'static str = "WalletSendCalls";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.WalletSendCalls".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.WalletSendCalls".into()
+    }
 }
 /// Call represents an individual transaction call
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -164,4 +204,14 @@ pub struct Call {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+}
+impl ::prost::Name for Call {
+    const NAME: &'static str = "Call";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents.content_types";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.content_types.Call".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.content_types.Call".into()
+    }
 }

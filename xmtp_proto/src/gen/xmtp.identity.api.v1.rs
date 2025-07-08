@@ -7,6 +7,16 @@ pub struct VerifySmartContractWalletSignaturesRequest {
         VerifySmartContractWalletSignatureRequestSignature,
     >,
 }
+impl ::prost::Name for VerifySmartContractWalletSignaturesRequest {
+    const NAME: &'static str = "VerifySmartContractWalletSignaturesRequest";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.VerifySmartContractWalletSignaturesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.VerifySmartContractWalletSignaturesRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifySmartContractWalletSignatureRequestSignature {
@@ -22,6 +32,16 @@ pub struct VerifySmartContractWalletSignatureRequestSignature {
     pub signature: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "4")]
     pub hash: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for VerifySmartContractWalletSignatureRequestSignature {
+    const NAME: &'static str = "VerifySmartContractWalletSignatureRequestSignature";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.VerifySmartContractWalletSignatureRequestSignature".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -43,6 +63,28 @@ pub mod verify_smart_contract_wallet_signatures_response {
         #[prost(string, optional, tag = "3")]
         pub error: ::core::option::Option<::prost::alloc::string::String>,
     }
+    impl ::prost::Name for ValidationResponse {
+        const NAME: &'static str = "ValidationResponse";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse"
+                .into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse.ValidationResponse"
+                .into()
+        }
+    }
+}
+impl ::prost::Name for VerifySmartContractWalletSignaturesResponse {
+    const NAME: &'static str = "VerifySmartContractWalletSignaturesResponse";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.VerifySmartContractWalletSignaturesResponse".into()
+    }
 }
 /// Publishes an identity update to the network
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -53,10 +95,30 @@ pub struct PublishIdentityUpdateRequest {
         super::super::associations::IdentityUpdate,
     >,
 }
+impl ::prost::Name for PublishIdentityUpdateRequest {
+    const NAME: &'static str = "PublishIdentityUpdateRequest";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.PublishIdentityUpdateRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.PublishIdentityUpdateRequest".into()
+    }
+}
 /// The response when an identity update is published
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PublishIdentityUpdateResponse {}
+impl ::prost::Name for PublishIdentityUpdateResponse {
+    const NAME: &'static str = "PublishIdentityUpdateResponse";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.PublishIdentityUpdateResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.PublishIdentityUpdateResponse".into()
+    }
+}
 /// Get all updates for an identity since the specified time
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -75,6 +137,26 @@ pub mod get_identity_updates_request {
         pub inbox_id: ::prost::alloc::string::String,
         #[prost(uint64, tag = "2")]
         pub sequence_id: u64,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.GetIdentityUpdatesRequest.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.GetIdentityUpdatesRequest.Request".into()
+        }
+    }
+}
+impl ::prost::Name for GetIdentityUpdatesRequest {
+    const NAME: &'static str = "GetIdentityUpdatesRequest";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.GetIdentityUpdatesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.GetIdentityUpdatesRequest".into()
     }
 }
 /// Returns all log entries for the requested identities
@@ -99,6 +181,16 @@ pub mod get_identity_updates_response {
             super::super::super::associations::IdentityUpdate,
         >,
     }
+    impl ::prost::Name for IdentityUpdateLog {
+        const NAME: &'static str = "IdentityUpdateLog";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.GetIdentityUpdatesResponse.IdentityUpdateLog".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.GetIdentityUpdatesResponse.IdentityUpdateLog".into()
+        }
+    }
     /// The update log for a single identity, starting after the last cursor
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -107,6 +199,26 @@ pub mod get_identity_updates_response {
         pub inbox_id: ::prost::alloc::string::String,
         #[prost(message, repeated, tag = "2")]
         pub updates: ::prost::alloc::vec::Vec<IdentityUpdateLog>,
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.GetIdentityUpdatesResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.GetIdentityUpdatesResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for GetIdentityUpdatesResponse {
+    const NAME: &'static str = "GetIdentityUpdatesResponse";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.GetIdentityUpdatesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.GetIdentityUpdatesResponse".into()
     }
 }
 /// Request to retrieve the XIDs for the given addresses
@@ -129,6 +241,26 @@ pub mod get_inbox_ids_request {
             tag = "2"
         )]
         pub identifier_kind: i32,
+    }
+    impl ::prost::Name for Request {
+        const NAME: &'static str = "Request";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.GetInboxIdsRequest.Request".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.GetInboxIdsRequest.Request".into()
+        }
+    }
+}
+impl ::prost::Name for GetInboxIdsRequest {
+    const NAME: &'static str = "GetInboxIdsRequest";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.GetInboxIdsRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.GetInboxIdsRequest".into()
     }
 }
 /// Response with the XIDs for the requested addresses
@@ -153,6 +285,26 @@ pub mod get_inbox_ids_response {
             tag = "3"
         )]
         pub identifier_kind: i32,
+    }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.identity.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.identity.api.v1.GetInboxIdsResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.identity.api.v1.GetInboxIdsResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for GetInboxIdsResponse {
+    const NAME: &'static str = "GetInboxIdsResponse";
+    const PACKAGE: &'static str = "xmtp.identity.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.api.v1.GetInboxIdsResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.api.v1.GetInboxIdsResponse".into()
     }
 }
 /// Generated client implementations.

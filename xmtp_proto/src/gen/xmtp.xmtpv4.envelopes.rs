@@ -22,6 +22,16 @@ pub struct PayerReport {
     #[prost(uint32, repeated, tag = "6")]
     pub active_node_ids: ::prost::alloc::vec::Vec<u32>,
 }
+impl ::prost::Name for PayerReport {
+    const NAME: &'static str = "PayerReport";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.PayerReport".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.PayerReport".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NodeSignature {
@@ -31,6 +41,16 @@ pub struct NodeSignature {
     pub signature: ::core::option::Option<
         super::super::identity::associations::RecoverableEcdsaSignature,
     >,
+}
+impl ::prost::Name for NodeSignature {
+    const NAME: &'static str = "NodeSignature";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.NodeSignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.NodeSignature".into()
+    }
 }
 /// An attestation of a payer report
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -43,12 +63,32 @@ pub struct PayerReportAttestation {
     #[prost(message, optional, tag = "2")]
     pub signature: ::core::option::Option<NodeSignature>,
 }
+impl ::prost::Name for PayerReportAttestation {
+    const NAME: &'static str = "PayerReportAttestation";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.PayerReportAttestation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.PayerReportAttestation".into()
+    }
+}
 /// The last seen entry per originator. Originators that have not been seen are omitted.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Cursor {
     #[prost(map = "uint32, uint64", tag = "1")]
     pub node_id_to_sequence_id: ::std::collections::HashMap<u32, u64>,
+}
+impl ::prost::Name for Cursor {
+    const NAME: &'static str = "Cursor";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.Cursor".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.Cursor".into()
+    }
 }
 /// Data visible to the server that has been authenticated by the client.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -61,6 +101,16 @@ pub struct AuthenticatedData {
     pub depends_on: ::core::option::Option<Cursor>,
     #[prost(bool, tag = "4")]
     pub is_commit: bool,
+}
+impl ::prost::Name for AuthenticatedData {
+    const NAME: &'static str = "AuthenticatedData";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.AuthenticatedData".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.AuthenticatedData".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -89,6 +139,16 @@ pub mod client_envelope {
         PayerReportAttestation(super::PayerReportAttestation),
     }
 }
+impl ::prost::Name for ClientEnvelope {
+    const NAME: &'static str = "ClientEnvelope";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.ClientEnvelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.ClientEnvelope".into()
+    }
+}
 /// Wraps client envelope with payer signature
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -104,6 +164,16 @@ pub struct PayerEnvelope {
     pub target_originator: u32,
     #[prost(uint32, tag = "4")]
     pub message_retention_days: u32,
+}
+impl ::prost::Name for PayerEnvelope {
+    const NAME: &'static str = "PayerEnvelope";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.PayerEnvelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.PayerEnvelope".into()
+    }
 }
 /// For blockchain envelopes, these fields are set by the smart contract
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -126,12 +196,32 @@ pub struct UnsignedOriginatorEnvelope {
     #[prost(uint64, tag = "7")]
     pub expiry_unixtime: u64,
 }
+impl ::prost::Name for UnsignedOriginatorEnvelope {
+    const NAME: &'static str = "UnsignedOriginatorEnvelope";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.UnsignedOriginatorEnvelope".into()
+    }
+}
 /// An alternative to a signature for blockchain payloads
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BlockchainProof {
     #[prost(bytes = "vec", tag = "1")]
     pub transaction_hash: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for BlockchainProof {
+    const NAME: &'static str = "BlockchainProof";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.BlockchainProof".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.BlockchainProof".into()
+    }
 }
 /// Signed originator envelope
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -154,5 +244,15 @@ pub mod originator_envelope {
         ),
         #[prost(message, tag = "3")]
         BlockchainProof(super::BlockchainProof),
+    }
+}
+impl ::prost::Name for OriginatorEnvelope {
+    const NAME: &'static str = "OriginatorEnvelope";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.envelopes";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.envelopes.OriginatorEnvelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.envelopes.OriginatorEnvelope".into()
     }
 }

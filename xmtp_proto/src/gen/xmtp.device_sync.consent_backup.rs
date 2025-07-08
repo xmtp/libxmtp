@@ -12,6 +12,16 @@ pub struct ConsentSave {
     #[prost(int64, tag = "4")]
     pub consented_at_ns: i64,
 }
+impl ::prost::Name for ConsentSave {
+    const NAME: &'static str = "ConsentSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.consent_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.consent_backup.ConsentSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.consent_backup.ConsentSave".into()
+    }
+}
 /// Consent record type
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

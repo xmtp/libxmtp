@@ -7,6 +7,16 @@ pub struct RecoverableEcdsaSignature {
     #[prost(bytes = "vec", tag = "1")]
     pub bytes: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for RecoverableEcdsaSignature {
+    const NAME: &'static str = "RecoverableEcdsaSignature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.RecoverableEcdsaSignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.RecoverableEcdsaSignature".into()
+    }
+}
 /// EdDSA signature for 25519
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -17,6 +27,16 @@ pub struct RecoverableEd25519Signature {
     /// 32 bytes
     #[prost(bytes = "vec", tag = "2")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for RecoverableEd25519Signature {
+    const NAME: &'static str = "RecoverableEd25519Signature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.RecoverableEd25519Signature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.RecoverableEd25519Signature".into()
+    }
 }
 /// Smart Contract Wallet signature
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -33,6 +53,16 @@ pub struct SmartContractWalletSignature {
     #[prost(bytes = "vec", tag = "3")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for SmartContractWalletSignature {
+    const NAME: &'static str = "SmartContractWalletSignature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.SmartContractWalletSignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.SmartContractWalletSignature".into()
+    }
+}
 /// Passkey signature
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -45,6 +75,16 @@ pub struct RecoverablePasskeySignature {
     pub authenticator_data: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "4")]
     pub client_data_json: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for RecoverablePasskeySignature {
+    const NAME: &'static str = "RecoverablePasskeySignature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.RecoverablePasskeySignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.RecoverablePasskeySignature".into()
+    }
 }
 /// An existing address on xmtpv2 may have already signed a legacy identity key
 /// of type SignedPublicKey via the 'Create Identity' signature.
@@ -61,6 +101,16 @@ pub struct LegacyDelegatedSignature {
     >,
     #[prost(message, optional, tag = "2")]
     pub signature: ::core::option::Option<RecoverableEcdsaSignature>,
+}
+impl ::prost::Name for LegacyDelegatedSignature {
+    const NAME: &'static str = "LegacyDelegatedSignature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.LegacyDelegatedSignature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.LegacyDelegatedSignature".into()
+    }
 }
 /// A wrapper for all possible signature types
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -96,6 +146,16 @@ pub mod signature {
         Passkey(super::RecoverablePasskeySignature),
     }
 }
+impl ::prost::Name for Signature {
+    const NAME: &'static str = "Signature";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.Signature".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.Signature".into()
+    }
+}
 /// The identifier for a member of an XID
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -116,6 +176,16 @@ pub mod member_identifier {
         Passkey(super::Passkey),
     }
 }
+impl ::prost::Name for MemberIdentifier {
+    const NAME: &'static str = "MemberIdentifier";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.MemberIdentifier".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.MemberIdentifier".into()
+    }
+}
 /// Passkey identifier
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -124,6 +194,16 @@ pub struct Passkey {
     pub key: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, optional, tag = "2")]
     pub relying_party: ::core::option::Option<::prost::alloc::string::String>,
+}
+impl ::prost::Name for Passkey {
+    const NAME: &'static str = "Passkey";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.Passkey".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.Passkey".into()
+    }
 }
 /// single member that optionally indicates the member that added them
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -137,6 +217,16 @@ pub struct Member {
     pub client_timestamp_ns: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "4")]
     pub added_on_chain_id: ::core::option::Option<u64>,
+}
+impl ::prost::Name for Member {
+    const NAME: &'static str = "Member";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.Member".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.Member".into()
+    }
 }
 /// The first entry of any XID log. The XID must be deterministically derivable
 /// from the address and nonce.
@@ -158,6 +248,16 @@ pub struct CreateInbox {
     #[prost(string, optional, tag = "5")]
     pub relying_party: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for CreateInbox {
+    const NAME: &'static str = "CreateInbox";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.CreateInbox".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.CreateInbox".into()
+    }
+}
 /// Adds a new member for an XID - either an addressable member such as a
 /// wallet, or an installation acting on behalf of an address.
 /// A key-pair that has been associated with one role MUST not be permitted to be
@@ -175,6 +275,16 @@ pub struct AddAssociation {
     #[prost(string, optional, tag = "4")]
     pub relying_party: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for AddAssociation {
+    const NAME: &'static str = "AddAssociation";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.AddAssociation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.AddAssociation".into()
+    }
+}
 /// Revokes a member from an XID. The recovery address must sign the revocation.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -183,6 +293,16 @@ pub struct RevokeAssociation {
     pub member_to_revoke: ::core::option::Option<MemberIdentifier>,
     #[prost(message, optional, tag = "2")]
     pub recovery_identifier_signature: ::core::option::Option<Signature>,
+}
+impl ::prost::Name for RevokeAssociation {
+    const NAME: &'static str = "RevokeAssociation";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.RevokeAssociation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.RevokeAssociation".into()
+    }
 }
 /// Changes the recovery identifier for an XID. The recovery identifier is not required
 /// to be a member of the XID. In addition to being able to add members, the
@@ -199,6 +319,16 @@ pub struct ChangeRecoveryAddress {
     /// Should be provided if identifier kind is passkey
     #[prost(string, optional, tag = "4")]
     pub relying_party: ::core::option::Option<::prost::alloc::string::String>,
+}
+impl ::prost::Name for ChangeRecoveryAddress {
+    const NAME: &'static str = "ChangeRecoveryAddress";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.ChangeRecoveryAddress".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.ChangeRecoveryAddress".into()
+    }
 }
 /// A single identity operation
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -222,6 +352,16 @@ pub mod identity_action {
         ChangeRecoveryAddress(super::ChangeRecoveryAddress),
     }
 }
+impl ::prost::Name for IdentityAction {
+    const NAME: &'static str = "IdentityAction";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.IdentityAction".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.IdentityAction".into()
+    }
+}
 /// One or more identity actions that were signed together.
 /// Example: \[CreateXid, AddAssociation, ChangeRecoveryAddress\]
 /// 1. The batched signature text is created by concatenating the signature text
@@ -239,6 +379,16 @@ pub struct IdentityUpdate {
     #[prost(string, tag = "3")]
     pub inbox_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for IdentityUpdate {
+    const NAME: &'static str = "IdentityUpdate";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.IdentityUpdate".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.IdentityUpdate".into()
+    }
+}
 /// Map of members belonging to an inbox_id
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -247,6 +397,16 @@ pub struct MemberMap {
     pub key: ::core::option::Option<MemberIdentifier>,
     #[prost(message, optional, tag = "2")]
     pub value: ::core::option::Option<Member>,
+}
+impl ::prost::Name for MemberMap {
+    const NAME: &'static str = "MemberMap";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.MemberMap".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.MemberMap".into()
+    }
 }
 /// A final association state resulting from multiple `IdentityUpdates`
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -266,6 +426,16 @@ pub struct AssociationState {
     #[prost(string, optional, tag = "6")]
     pub relying_party: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for AssociationState {
+    const NAME: &'static str = "AssociationState";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.AssociationState".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.AssociationState".into()
+    }
+}
 /// / state diff between two final AssociationStates
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -274,6 +444,16 @@ pub struct AssociationStateDiff {
     pub new_members: ::prost::alloc::vec::Vec<MemberIdentifier>,
     #[prost(message, repeated, tag = "2")]
     pub removed_members: ::prost::alloc::vec::Vec<MemberIdentifier>,
+}
+impl ::prost::Name for AssociationStateDiff {
+    const NAME: &'static str = "AssociationStateDiff";
+    const PACKAGE: &'static str = "xmtp.identity.associations";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.identity.associations.AssociationStateDiff".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.identity.associations.AssociationStateDiff".into()
+    }
 }
 /// List of identity kinds
 #[derive(serde::Serialize, serde::Deserialize)]

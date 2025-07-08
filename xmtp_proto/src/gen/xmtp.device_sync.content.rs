@@ -21,6 +21,16 @@ pub mod device_sync_content {
         PreferenceUpdates(super::PreferenceUpdates),
     }
 }
+impl ::prost::Name for DeviceSyncContent {
+    const NAME: &'static str = "DeviceSyncContent";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.DeviceSyncContent".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.DeviceSyncContent".into()
+    }
+}
 /// Acknowledges a request
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -28,12 +38,32 @@ pub struct DeviceSyncAcknowledge {
     #[prost(string, tag = "1")]
     pub request_id: ::prost::alloc::string::String,
 }
+impl ::prost::Name for DeviceSyncAcknowledge {
+    const NAME: &'static str = "DeviceSyncAcknowledge";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.DeviceSyncAcknowledge".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.DeviceSyncAcknowledge".into()
+    }
+}
 /// Preference updates
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PreferenceUpdates {
     #[prost(message, repeated, tag = "1")]
     pub updates: ::prost::alloc::vec::Vec<PreferenceUpdate>,
+}
+impl ::prost::Name for PreferenceUpdates {
+    const NAME: &'static str = "PreferenceUpdates";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.PreferenceUpdates".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.PreferenceUpdates".into()
+    }
 }
 /// Preference update
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -53,11 +83,31 @@ pub mod preference_update {
         Hmac(super::HmacKeyUpdate),
     }
 }
+impl ::prost::Name for PreferenceUpdate {
+    const NAME: &'static str = "PreferenceUpdate";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.PreferenceUpdate".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.PreferenceUpdate".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct V1UserPreferenceUpdate {
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub contents: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+impl ::prost::Name for V1UserPreferenceUpdate {
+    const NAME: &'static str = "V1UserPreferenceUpdate";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.V1UserPreferenceUpdate".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.V1UserPreferenceUpdate".into()
+    }
 }
 /// Hmac key update
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -67,6 +117,16 @@ pub struct HmacKeyUpdate {
     pub key: ::prost::alloc::vec::Vec<u8>,
     #[prost(int64, tag = "2")]
     pub cycled_at_ns: i64,
+}
+impl ::prost::Name for HmacKeyUpdate {
+    const NAME: &'static str = "HmacKeyUpdate";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.HmacKeyUpdate".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.HmacKeyUpdate".into()
+    }
 }
 /// Initiator or new installation id requesting a sync payload send a request
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -83,6 +143,16 @@ pub struct DeviceSyncRequest {
     pub kind: i32,
     #[prost(message, optional, tag = "4")]
     pub options: ::core::option::Option<super::BackupOptions>,
+}
+impl ::prost::Name for DeviceSyncRequest {
+    const NAME: &'static str = "DeviceSyncRequest";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.DeviceSyncRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.DeviceSyncRequest".into()
+    }
 }
 /// Pre-existing installation id capable of supplying a sync payload sends this reply
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -109,6 +179,16 @@ pub struct DeviceSyncReply {
     #[prost(message, optional, tag = "6")]
     pub metadata: ::core::option::Option<super::BackupMetadataSave>,
 }
+impl ::prost::Name for DeviceSyncReply {
+    const NAME: &'static str = "DeviceSyncReply";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.DeviceSyncReply".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.DeviceSyncReply".into()
+    }
+}
 /// Key used to encrypt the message-bundle
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -123,5 +203,15 @@ pub mod device_sync_key_type {
     pub enum Key {
         #[prost(bytes, tag = "1")]
         Aes256Gcm(::prost::alloc::vec::Vec<u8>),
+    }
+}
+impl ::prost::Name for DeviceSyncKeyType {
+    const NAME: &'static str = "DeviceSyncKeyType";
+    const PACKAGE: &'static str = "xmtp.device_sync.content";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.content.DeviceSyncKeyType".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.content.DeviceSyncKeyType".into()
     }
 }

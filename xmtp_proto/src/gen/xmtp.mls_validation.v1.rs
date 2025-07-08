@@ -19,6 +19,26 @@ pub mod validate_inbox_id_key_packages_request {
         #[prost(bool, tag = "2")]
         pub is_inbox_id_credential: bool,
     }
+    impl ::prost::Name for KeyPackage {
+        const NAME: &'static str = "KeyPackage";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest.KeyPackage".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest.KeyPackage".into()
+        }
+    }
+}
+impl ::prost::Name for ValidateInboxIdKeyPackagesRequest {
+    const NAME: &'static str = "ValidateInboxIdKeyPackagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesRequest".into()
+    }
 }
 /// Validates a Inbox-ID Key Package Type
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -48,6 +68,26 @@ pub mod validate_inbox_id_key_packages_response {
         #[prost(uint64, tag = "5")]
         pub expiration: u64,
     }
+    impl ::prost::Name for Response {
+        const NAME: &'static str = "Response";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesResponse.Response".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesResponse.Response".into()
+        }
+    }
+}
+impl ::prost::Name for ValidateInboxIdKeyPackagesResponse {
+    const NAME: &'static str = "ValidateInboxIdKeyPackagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateInboxIdKeyPackagesResponse".into()
+    }
 }
 /// Contains a batch of serialized Key Packages
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -68,6 +108,26 @@ pub mod validate_key_packages_request {
         pub key_package_bytes_tls_serialized: ::prost::alloc::vec::Vec<u8>,
         #[prost(bool, tag = "2")]
         pub is_inbox_id_credential: bool,
+    }
+    impl ::prost::Name for KeyPackage {
+        const NAME: &'static str = "KeyPackage";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateKeyPackagesRequest.KeyPackage".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateKeyPackagesRequest.KeyPackage".into()
+        }
+    }
+}
+impl ::prost::Name for ValidateKeyPackagesRequest {
+    const NAME: &'static str = "ValidateKeyPackagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateKeyPackagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateKeyPackagesRequest".into()
     }
 }
 /// Response to ValidateKeyPackagesRequest
@@ -98,6 +158,28 @@ pub mod validate_key_packages_response {
         #[prost(uint64, tag = "6")]
         pub expiration: u64,
     }
+    impl ::prost::Name for ValidationResponse {
+        const NAME: &'static str = "ValidationResponse";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateKeyPackagesResponse.ValidationResponse"
+                .into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateKeyPackagesResponse.ValidationResponse"
+                .into()
+        }
+    }
+}
+impl ::prost::Name for ValidateKeyPackagesResponse {
+    const NAME: &'static str = "ValidateKeyPackagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateKeyPackagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateKeyPackagesResponse".into()
+    }
 }
 /// Contains a batch of serialized Group Messages
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -116,6 +198,26 @@ pub mod validate_group_messages_request {
     pub struct GroupMessage {
         #[prost(bytes = "vec", tag = "1")]
         pub group_message_bytes_tls_serialized: ::prost::alloc::vec::Vec<u8>,
+    }
+    impl ::prost::Name for GroupMessage {
+        const NAME: &'static str = "GroupMessage";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateGroupMessagesRequest.GroupMessage".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateGroupMessagesRequest.GroupMessage".into()
+        }
+    }
+}
+impl ::prost::Name for ValidateGroupMessagesRequest {
+    const NAME: &'static str = "ValidateGroupMessagesRequest";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateGroupMessagesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateGroupMessagesRequest".into()
     }
 }
 /// Response to ValidateGroupMessagesRequest
@@ -142,6 +244,28 @@ pub mod validate_group_messages_response {
         #[prost(bool, tag = "4")]
         pub is_commit: bool,
     }
+    impl ::prost::Name for ValidationResponse {
+        const NAME: &'static str = "ValidationResponse";
+        const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls_validation.v1.ValidateGroupMessagesResponse.ValidationResponse"
+                .into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls_validation.v1.ValidateGroupMessagesResponse.ValidationResponse"
+                .into()
+        }
+    }
+}
+impl ::prost::Name for ValidateGroupMessagesResponse {
+    const NAME: &'static str = "ValidateGroupMessagesResponse";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.ValidateGroupMessagesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.ValidateGroupMessagesResponse".into()
+    }
 }
 /// Request to get a final association state for identity updates
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -157,6 +281,16 @@ pub struct GetAssociationStateRequest {
         super::super::identity::associations::IdentityUpdate,
     >,
 }
+impl ::prost::Name for GetAssociationStateRequest {
+    const NAME: &'static str = "GetAssociationStateRequest";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.GetAssociationStateRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.GetAssociationStateRequest".into()
+    }
+}
 /// Response to GetAssociationStateRequest, containing the final association state
 /// for an InboxID
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -170,6 +304,16 @@ pub struct GetAssociationStateResponse {
     pub state_diff: ::core::option::Option<
         super::super::identity::associations::AssociationStateDiff,
     >,
+}
+impl ::prost::Name for GetAssociationStateResponse {
+    const NAME: &'static str = "GetAssociationStateResponse";
+    const PACKAGE: &'static str = "xmtp.mls_validation.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls_validation.v1.GetAssociationStateResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls_validation.v1.GetAssociationStateResponse".into()
+    }
 }
 /// Generated client implementations.
 pub mod validation_api_client {

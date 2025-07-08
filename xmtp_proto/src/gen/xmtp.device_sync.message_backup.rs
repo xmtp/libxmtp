@@ -34,6 +34,16 @@ pub struct GroupMessageSave {
     #[prost(int64, optional, tag = "15")]
     pub originator_id: ::core::option::Option<i64>,
 }
+impl ::prost::Name for GroupMessageSave {
+    const NAME: &'static str = "GroupMessageSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.message_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.message_backup.GroupMessageSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.message_backup.GroupMessageSave".into()
+    }
+}
 /// Group message kind
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

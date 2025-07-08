@@ -10,6 +10,16 @@ pub struct IndexCursor {
     #[prost(uint64, tag = "2")]
     pub sender_time_ns: u64,
 }
+impl ::prost::Name for IndexCursor {
+    const NAME: &'static str = "IndexCursor";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.IndexCursor".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.IndexCursor".into()
+    }
+}
 /// Wrapper for potentially multiple types of cursor
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -32,6 +42,16 @@ pub mod cursor {
         Index(super::IndexCursor),
     }
 }
+impl ::prost::Name for Cursor {
+    const NAME: &'static str = "Cursor";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.Cursor".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.Cursor".into()
+    }
+}
 /// This is based off of the go-waku PagingInfo struct, but with the direction
 /// changed to our SortDirection enum format
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -44,6 +64,16 @@ pub struct PagingInfo {
     pub cursor: ::core::option::Option<Cursor>,
     #[prost(enumeration = "SortDirection", tag = "3")]
     pub direction: i32,
+}
+impl ::prost::Name for PagingInfo {
+    const NAME: &'static str = "PagingInfo";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.PagingInfo".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.PagingInfo".into()
+    }
 }
 /// Envelope encapsulates a message while in transit.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -62,6 +92,16 @@ pub struct Envelope {
     #[prost(bytes = "vec", tag = "3")]
     pub message: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for Envelope {
+    const NAME: &'static str = "Envelope";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.Envelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.Envelope".into()
+    }
+}
 /// Publish
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -69,10 +109,30 @@ pub struct PublishRequest {
     #[prost(message, repeated, tag = "1")]
     pub envelopes: ::prost::alloc::vec::Vec<Envelope>,
 }
+impl ::prost::Name for PublishRequest {
+    const NAME: &'static str = "PublishRequest";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.PublishRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.PublishRequest".into()
+    }
+}
 /// Empty message as a response for Publish
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct PublishResponse {}
+impl ::prost::Name for PublishResponse {
+    const NAME: &'static str = "PublishResponse";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.PublishResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.PublishResponse".into()
+    }
+}
 /// Subscribe
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -80,10 +140,30 @@ pub struct SubscribeRequest {
     #[prost(string, repeated, tag = "1")]
     pub content_topics: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for SubscribeRequest {
+    const NAME: &'static str = "SubscribeRequest";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.SubscribeRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.SubscribeRequest".into()
+    }
+}
 /// SubscribeAll
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct SubscribeAllRequest {}
+impl ::prost::Name for SubscribeAllRequest {
+    const NAME: &'static str = "SubscribeAllRequest";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.SubscribeAllRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.SubscribeAllRequest".into()
+    }
+}
 /// Query
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -97,6 +177,16 @@ pub struct QueryRequest {
     #[prost(message, optional, tag = "4")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryRequest {
+    const NAME: &'static str = "QueryRequest";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.QueryRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.QueryRequest".into()
+    }
+}
 /// The response, containing envelopes, for a query
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -106,6 +196,16 @@ pub struct QueryResponse {
     #[prost(message, optional, tag = "2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
+impl ::prost::Name for QueryResponse {
+    const NAME: &'static str = "QueryResponse";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.QueryResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.QueryResponse".into()
+    }
+}
 /// BatchQuery
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -113,12 +213,32 @@ pub struct BatchQueryRequest {
     #[prost(message, repeated, tag = "1")]
     pub requests: ::prost::alloc::vec::Vec<QueryRequest>,
 }
+impl ::prost::Name for BatchQueryRequest {
+    const NAME: &'static str = "BatchQueryRequest";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.BatchQueryRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.BatchQueryRequest".into()
+    }
+}
 /// Response containing a list of QueryResponse messages
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchQueryResponse {
     #[prost(message, repeated, tag = "1")]
     pub responses: ::prost::alloc::vec::Vec<QueryResponse>,
+}
+impl ::prost::Name for BatchQueryResponse {
+    const NAME: &'static str = "BatchQueryResponse";
+    const PACKAGE: &'static str = "xmtp.message_api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.message_api.v1.BatchQueryResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.message_api.v1.BatchQueryResponse".into()
+    }
 }
 /// Sort direction
 #[derive(serde::Serialize, serde::Deserialize)]

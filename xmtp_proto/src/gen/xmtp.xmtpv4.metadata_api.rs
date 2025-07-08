@@ -2,11 +2,31 @@
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetSyncCursorRequest {}
+impl ::prost::Name for GetSyncCursorRequest {
+    const NAME: &'static str = "GetSyncCursorRequest";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.metadata_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.metadata_api.GetSyncCursorRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.metadata_api.GetSyncCursorRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetSyncCursorResponse {
     #[prost(message, optional, tag = "1")]
     pub latest_sync: ::core::option::Option<super::envelopes::Cursor>,
+}
+impl ::prost::Name for GetSyncCursorResponse {
+    const NAME: &'static str = "GetSyncCursorResponse";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.metadata_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.metadata_api.GetSyncCursorResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.metadata_api.GetSyncCursorResponse".into()
+    }
 }
 /// Generated client implementations.
 pub mod metadata_api_client {

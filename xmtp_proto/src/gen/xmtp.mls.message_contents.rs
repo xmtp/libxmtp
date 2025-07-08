@@ -10,6 +10,16 @@ pub struct GroupMembership {
     #[prost(bytes = "vec", repeated, tag = "2")]
     pub failed_installations: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+impl ::prost::Name for GroupMembership {
+    const NAME: &'static str = "GroupMembership";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMembership".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMembership".into()
+    }
+}
 /// Parent message for group metadata
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -25,12 +35,32 @@ pub struct GroupMetadataV1 {
     #[prost(message, optional, tag = "4")]
     pub dm_members: ::core::option::Option<DmMembers>,
 }
+impl ::prost::Name for GroupMetadataV1 {
+    const NAME: &'static str = "GroupMetadataV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMetadataV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMetadataV1".into()
+    }
+}
 /// Wrapper around an Inbox Id
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Inbox {
     #[prost(string, tag = "1")]
     pub inbox_id: ::prost::alloc::string::String,
+}
+impl ::prost::Name for Inbox {
+    const NAME: &'static str = "Inbox";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.Inbox".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.Inbox".into()
+    }
 }
 /// Ordering does not matter here
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -40,6 +70,16 @@ pub struct DmMembers {
     pub dm_member_one: ::core::option::Option<Inbox>,
     #[prost(message, optional, tag = "2")]
     pub dm_member_two: ::core::option::Option<Inbox>,
+}
+impl ::prost::Name for DmMembers {
+    const NAME: &'static str = "DmMembers";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.DmMembers".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.DmMembers".into()
+    }
 }
 /// Defines the type of conversation
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -86,6 +126,16 @@ pub struct ReaddRequest {
     #[prost(uint64, tag = "2")]
     pub commit_log_epoch: u64,
 }
+impl ::prost::Name for ReaddRequest {
+    const NAME: &'static str = "ReaddRequest";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ReaddRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ReaddRequest".into()
+    }
+}
 /// ContentTypeId is used to identify the type of content stored in a Message.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -102,6 +152,16 @@ pub struct ContentTypeId {
     /// minor version of the type
     #[prost(uint32, tag = "4")]
     pub version_minor: u32,
+}
+impl ::prost::Name for ContentTypeId {
+    const NAME: &'static str = "ContentTypeId";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.ContentTypeId".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.ContentTypeId".into()
+    }
 }
 /// EncodedContent bundles the content with metadata identifying its type
 /// and parameters required for correct decoding and presentation of the content.
@@ -130,6 +190,16 @@ pub struct EncodedContent {
     #[prost(bytes = "vec", tag = "4")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for EncodedContent {
+    const NAME: &'static str = "EncodedContent";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.EncodedContent".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.EncodedContent".into()
+    }
+}
 /// A PlaintextEnvelope is the outermost payload that gets encrypted by MLS
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -152,6 +222,16 @@ pub mod plaintext_envelope {
         /// produce different hashes. May be the sender timestamp.
         #[prost(string, tag = "2")]
         pub idempotency_key: ::prost::alloc::string::String,
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PlaintextEnvelope.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PlaintextEnvelope.V1".into()
+        }
     }
     /// Version 2 of the encrypted envelope
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -192,6 +272,16 @@ pub mod plaintext_envelope {
             ReaddRequest(super::super::ReaddRequest),
         }
     }
+    impl ::prost::Name for V2 {
+        const NAME: &'static str = "V2";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PlaintextEnvelope.V2".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PlaintextEnvelope.V2".into()
+        }
+    }
     /// Selector which declares which version of the EncodedContent this
     /// PlaintextEnvelope is
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -201,6 +291,16 @@ pub mod plaintext_envelope {
         V1(V1),
         #[prost(message, tag = "2")]
         V2(V2),
+    }
+}
+impl ::prost::Name for PlaintextEnvelope {
+    const NAME: &'static str = "PlaintextEnvelope";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PlaintextEnvelope".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PlaintextEnvelope".into()
     }
 }
 /// Recognized compression algorithms
@@ -249,6 +349,16 @@ pub struct GroupMutableMetadataV1 {
     #[prost(message, optional, tag = "3")]
     pub super_admin_list: ::core::option::Option<Inboxes>,
 }
+impl ::prost::Name for GroupMutableMetadataV1 {
+    const NAME: &'static str = "GroupMutableMetadataV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMutableMetadataV1".into()
+    }
+}
 /// Wrapper around a list of repeated Inbox Ids
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -256,12 +366,32 @@ pub struct Inboxes {
     #[prost(string, repeated, tag = "1")]
     pub inbox_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for Inboxes {
+    const NAME: &'static str = "Inboxes";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.Inboxes".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.Inboxes".into()
+    }
+}
 /// Message for group mutable metadata
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMutablePermissionsV1 {
     #[prost(message, optional, tag = "1")]
     pub policies: ::core::option::Option<PolicySet>,
+}
+impl ::prost::Name for GroupMutablePermissionsV1 {
+    const NAME: &'static str = "GroupMutablePermissionsV1";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMutablePermissionsV1".into()
+    }
 }
 /// The set of policies that govern the group
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -283,6 +413,16 @@ pub struct PolicySet {
     #[prost(message, optional, tag = "6")]
     pub update_permissions_policy: ::core::option::Option<PermissionsUpdatePolicy>,
 }
+impl ::prost::Name for PolicySet {
+    const NAME: &'static str = "PolicySet";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PolicySet".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PolicySet".into()
+    }
+}
 /// A policy that governs adding/removing members or installations
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -299,12 +439,32 @@ pub mod membership_policy {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
     }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MembershipPolicy.AndCondition".into()
+        }
+    }
     /// Combine multiple policies. Any must evaluate to true
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct AnyCondition {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::MembershipPolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MembershipPolicy.AnyCondition".into()
+        }
     }
     /// Base policy
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -368,6 +528,16 @@ pub mod membership_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for MembershipPolicy {
+    const NAME: &'static str = "MembershipPolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MembershipPolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MembershipPolicy".into()
+    }
+}
 /// A policy that governs updating metadata
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -384,12 +554,32 @@ pub mod metadata_policy {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
     }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MetadataPolicy.AndCondition".into()
+        }
+    }
     /// Combine multiple policies. Any must evaluate to true
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct AnyCondition {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::MetadataPolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.MetadataPolicy.AnyCondition".into()
+        }
     }
     /// Base policy
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -451,6 +641,16 @@ pub mod metadata_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for MetadataPolicy {
+    const NAME: &'static str = "MetadataPolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MetadataPolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MetadataPolicy".into()
+    }
+}
 /// A policy that governs updating permissions
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -467,12 +667,32 @@ pub mod permissions_update_policy {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
     }
+    impl ::prost::Name for AndCondition {
+        const NAME: &'static str = "AndCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AndCondition".into()
+        }
+    }
     /// Combine multiple policies. Any must evaluate to true
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct AnyCondition {
         #[prost(message, repeated, tag = "1")]
         pub policies: ::prost::alloc::vec::Vec<super::PermissionsUpdatePolicy>,
+    }
+    impl ::prost::Name for AnyCondition {
+        const NAME: &'static str = "AnyCondition";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.PermissionsUpdatePolicy.AnyCondition".into()
+        }
     }
     /// Base policy
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -531,6 +751,16 @@ pub mod permissions_update_policy {
         AnyCondition(AnyCondition),
     }
 }
+impl ::prost::Name for PermissionsUpdatePolicy {
+    const NAME: &'static str = "PermissionsUpdatePolicy";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PermissionsUpdatePolicy".into()
+    }
+}
 /// The KeyPackageExtension that stores the PubKey and the WelcomeWrapperEncryption
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -539,6 +769,16 @@ pub struct WelcomeWrapperEncryption {
     pub pub_key: ::prost::alloc::vec::Vec<u8>,
     #[prost(enumeration = "WelcomeWrapperAlgorithm", tag = "2")]
     pub algorithm: i32,
+}
+impl ::prost::Name for WelcomeWrapperEncryption {
+    const NAME: &'static str = "WelcomeWrapperEncryption";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.WelcomeWrapperEncryption".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.WelcomeWrapperEncryption".into()
+    }
 }
 /// Describes the algorithm used to encrypt the Welcome Wrapper
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -586,6 +826,16 @@ pub struct MembershipChange {
     #[prost(string, tag = "3")]
     pub initiated_by_account_address: ::prost::alloc::string::String,
 }
+impl ::prost::Name for MembershipChange {
+    const NAME: &'static str = "MembershipChange";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.MembershipChange".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.MembershipChange".into()
+    }
+}
 /// The group membership change proto
 ///
 /// protolint:disable REPEATED_FIELD_NAMES_PLURALIZED
@@ -604,6 +854,16 @@ pub struct GroupMembershipChanges {
     /// Installations removed in the commit, grouped by member
     #[prost(message, repeated, tag = "4")]
     pub installations_removed: ::prost::alloc::vec::Vec<MembershipChange>,
+}
+impl ::prost::Name for GroupMembershipChanges {
+    const NAME: &'static str = "GroupMembershipChanges";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupMembershipChanges".into()
+    }
 }
 /// A summary of the changes in a commit.
 /// Includes added/removed inboxes and changes to metadata
@@ -633,6 +893,16 @@ pub mod group_updated {
         #[prost(string, tag = "1")]
         pub inbox_id: ::prost::alloc::string::String,
     }
+    impl ::prost::Name for Inbox {
+        const NAME: &'static str = "Inbox";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.Inbox".into()
+        }
+    }
     /// A summary of a change to the mutable metadata
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -646,6 +916,26 @@ pub mod group_updated {
         /// The updated value
         #[prost(string, optional, tag = "3")]
         pub new_value: ::core::option::Option<::prost::alloc::string::String>,
+    }
+    impl ::prost::Name for MetadataFieldChange {
+        const NAME: &'static str = "MetadataFieldChange";
+        const PACKAGE: &'static str = "xmtp.mls.message_contents";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.message_contents.GroupUpdated.MetadataFieldChange".into()
+        }
+    }
+}
+impl ::prost::Name for GroupUpdated {
+    const NAME: &'static str = "GroupUpdated";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.GroupUpdated".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.GroupUpdated".into()
     }
 }
 /// PlaintextCommitLogEntry indicates whether a commit was successful or not,
@@ -672,6 +962,16 @@ pub struct PlaintextCommitLogEntry {
     #[prost(bytes = "vec", tag = "6")]
     pub applied_epoch_authenticator: ::prost::alloc::vec::Vec<u8>,
 }
+impl ::prost::Name for PlaintextCommitLogEntry {
+    const NAME: &'static str = "PlaintextCommitLogEntry";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.PlaintextCommitLogEntry".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.PlaintextCommitLogEntry".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommitLogEntry {
@@ -679,6 +979,16 @@ pub struct CommitLogEntry {
     pub sequence_id: u64,
     #[prost(bytes = "vec", tag = "2")]
     pub encrypted_commit_log_entry: ::prost::alloc::vec::Vec<u8>,
+}
+impl ::prost::Name for CommitLogEntry {
+    const NAME: &'static str = "CommitLogEntry";
+    const PACKAGE: &'static str = "xmtp.mls.message_contents";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.message_contents.CommitLogEntry".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.message_contents.CommitLogEntry".into()
+    }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

@@ -23,6 +23,16 @@ pub mod backup_element {
         Event(super::event_backup::EventSave),
     }
 }
+impl ::prost::Name for BackupElement {
+    const NAME: &'static str = "BackupElement";
+    const PACKAGE: &'static str = "xmtp.device_sync";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.BackupElement".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.BackupElement".into()
+    }
+}
 /// Proto representation of backup metadata
 /// (Backup version is explicitly missing - it's stored as a header.)
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -37,6 +47,16 @@ pub struct BackupMetadataSave {
     #[prost(int64, optional, tag = "5")]
     pub end_ns: ::core::option::Option<i64>,
 }
+impl ::prost::Name for BackupMetadataSave {
+    const NAME: &'static str = "BackupMetadataSave";
+    const PACKAGE: &'static str = "xmtp.device_sync";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.BackupMetadataSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.BackupMetadataSave".into()
+    }
+}
 /// Backup Options
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -47,6 +67,16 @@ pub struct BackupOptions {
     pub start_ns: ::core::option::Option<i64>,
     #[prost(int64, optional, tag = "3")]
     pub end_ns: ::core::option::Option<i64>,
+}
+impl ::prost::Name for BackupOptions {
+    const NAME: &'static str = "BackupOptions";
+    const PACKAGE: &'static str = "xmtp.device_sync";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.BackupOptions".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.BackupOptions".into()
+    }
 }
 /// Elements selected for backup
 #[derive(serde::Serialize, serde::Deserialize)]

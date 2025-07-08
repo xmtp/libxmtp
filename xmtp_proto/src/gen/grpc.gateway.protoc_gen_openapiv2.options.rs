@@ -98,6 +98,16 @@ pub struct Swagger {
         ::pbjson_types::Value,
     >,
 }
+impl ::prost::Name for Swagger {
+    const NAME: &'static str = "Swagger";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Swagger".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Swagger".into()
+    }
+}
 /// `Operation` is a representation of OpenAPI v2 specification's Operation object.
 ///
 /// See: <https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/2.0.md#operationObject>
@@ -191,6 +201,16 @@ pub struct Operation {
     #[prost(message, optional, tag = "14")]
     pub parameters: ::core::option::Option<Parameters>,
 }
+impl ::prost::Name for Operation {
+    const NAME: &'static str = "Operation";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Operation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Operation".into()
+    }
+}
 /// `Parameters` is a representation of OpenAPI v2 specification's parameters object.
 /// Note: This technically breaks compatibility with the OpenAPI 2 definition structure as we only
 /// allow header parameters to be set here since we do not want users specifying custom non-header
@@ -203,6 +223,16 @@ pub struct Parameters {
     /// See: <https://swagger.io/docs/specification/2-0/describing-parameters/#header-parameters>
     #[prost(message, repeated, tag = "1")]
     pub headers: ::prost::alloc::vec::Vec<HeaderParameter>,
+}
+impl ::prost::Name for Parameters {
+    const NAME: &'static str = "Parameters";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Parameters".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Parameters".into()
+    }
 }
 /// `HeaderParameter` a HTTP header parameter.
 /// See: <https://swagger.io/specification/v2/#parameter-object>
@@ -277,6 +307,16 @@ pub mod header_parameter {
         }
     }
 }
+impl ::prost::Name for HeaderParameter {
+    const NAME: &'static str = "HeaderParameter";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.HeaderParameter".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.HeaderParameter".into()
+    }
+}
 /// `Header` is a representation of OpenAPI v2 specification's Header object.
 ///
 /// See: <https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/2.0.md#headerObject>
@@ -301,6 +341,16 @@ pub struct Header {
     /// 'Pattern' See <https://tools.ietf.org/html/draft-fge-json-schema-validation-00#section-5.2.3.>
     #[prost(string, tag = "13")]
     pub pattern: ::prost::alloc::string::String,
+}
+impl ::prost::Name for Header {
+    const NAME: &'static str = "Header";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Header".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Header".into()
+    }
 }
 /// `Response` is a representation of OpenAPI v2 specification's Response object.
 ///
@@ -337,6 +387,16 @@ pub struct Response {
         ::prost::alloc::string::String,
         ::pbjson_types::Value,
     >,
+}
+impl ::prost::Name for Response {
+    const NAME: &'static str = "Response";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Response".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Response".into()
+    }
 }
 /// `Info` is a representation of OpenAPI v2 specification's Info object.
 ///
@@ -394,6 +454,16 @@ pub struct Info {
         ::pbjson_types::Value,
     >,
 }
+impl ::prost::Name for Info {
+    const NAME: &'static str = "Info";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Info".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Info".into()
+    }
+}
 /// `Contact` is a representation of OpenAPI v2 specification's Contact object.
 ///
 /// See: <https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/2.0.md#contactObject>
@@ -428,6 +498,16 @@ pub struct Contact {
     #[prost(string, tag = "3")]
     pub email: ::prost::alloc::string::String,
 }
+impl ::prost::Name for Contact {
+    const NAME: &'static str = "Contact";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Contact".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Contact".into()
+    }
+}
 /// `License` is a representation of OpenAPI v2 specification's License object.
 ///
 /// See: <https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/2.0.md#licenseObject>
@@ -456,6 +536,16 @@ pub struct License {
     #[prost(string, tag = "2")]
     pub url: ::prost::alloc::string::String,
 }
+impl ::prost::Name for License {
+    const NAME: &'static str = "License";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.License".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.License".into()
+    }
+}
 /// `ExternalDocumentation` is a representation of OpenAPI v2 specification's
 /// ExternalDocumentation object.
 ///
@@ -483,6 +573,16 @@ pub struct ExternalDocumentation {
     /// of a URL.
     #[prost(string, tag = "2")]
     pub url: ::prost::alloc::string::String,
+}
+impl ::prost::Name for ExternalDocumentation {
+    const NAME: &'static str = "ExternalDocumentation";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.ExternalDocumentation".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.ExternalDocumentation".into()
+    }
 }
 /// `Schema` is a representation of OpenAPI v2 specification's Schema object.
 ///
@@ -514,6 +614,16 @@ pub struct Schema {
     /// This is copied verbatim to the output.
     #[prost(string, tag = "6")]
     pub example: ::prost::alloc::string::String,
+}
+impl ::prost::Name for Schema {
+    const NAME: &'static str = "Schema";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Schema".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Schema".into()
+    }
 }
 /// `EnumSchema` is subset of fields from the OpenAPI v2 specification's Schema object.
 /// Only fields that are applicable to Enums are included
@@ -566,6 +676,16 @@ pub struct EnumSchema {
         ::prost::alloc::string::String,
         ::pbjson_types::Value,
     >,
+}
+impl ::prost::Name for EnumSchema {
+    const NAME: &'static str = "EnumSchema";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.EnumSchema".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.EnumSchema".into()
+    }
 }
 /// `JSONSchema` represents properties from JSON Schema taken, and as used, in
 /// the OpenAPI v2 spec.
@@ -690,6 +810,18 @@ pub mod json_schema {
         #[prost(string, tag = "47")]
         pub path_param_name: ::prost::alloc::string::String,
     }
+    impl ::prost::Name for FieldConfiguration {
+        const NAME: &'static str = "FieldConfiguration";
+        const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+        fn full_name() -> ::prost::alloc::string::String {
+            "grpc.gateway.protoc_gen_openapiv2.options.JSONSchema.FieldConfiguration"
+                .into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/grpc.gateway.protoc_gen_openapiv2.options.JSONSchema.FieldConfiguration"
+                .into()
+        }
+    }
     #[derive(serde::Serialize, serde::Deserialize)]
     #[derive(
         Clone,
@@ -746,6 +878,16 @@ pub mod json_schema {
         }
     }
 }
+impl ::prost::Name for JsonSchema {
+    const NAME: &'static str = "JSONSchema";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.JSONSchema".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.JSONSchema".into()
+    }
+}
 /// `Tag` is a representation of OpenAPI v2 specification's Tag object.
 ///
 /// See: <https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/2.0.md#tagObject>
@@ -774,6 +916,16 @@ pub struct Tag {
         ::pbjson_types::Value,
     >,
 }
+impl ::prost::Name for Tag {
+    const NAME: &'static str = "Tag";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Tag".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Tag".into()
+    }
+}
 /// `SecurityDefinitions` is a representation of OpenAPI v2 specification's
 /// Security Definitions object.
 ///
@@ -792,6 +944,16 @@ pub struct SecurityDefinitions {
         ::prost::alloc::string::String,
         SecurityScheme,
     >,
+}
+impl ::prost::Name for SecurityDefinitions {
+    const NAME: &'static str = "SecurityDefinitions";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.SecurityDefinitions".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.SecurityDefinitions".into()
+    }
 }
 /// `SecurityScheme` is a representation of OpenAPI v2 specification's
 /// Security Scheme object.
@@ -986,6 +1148,16 @@ pub mod security_scheme {
         }
     }
 }
+impl ::prost::Name for SecurityScheme {
+    const NAME: &'static str = "SecurityScheme";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.SecurityScheme".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.SecurityScheme".into()
+    }
+}
 /// `SecurityRequirement` is a representation of OpenAPI v2 specification's
 /// Security Requirement object.
 ///
@@ -1021,6 +1193,28 @@ pub mod security_requirement {
         #[prost(string, repeated, tag = "1")]
         pub scope: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
+    impl ::prost::Name for SecurityRequirementValue {
+        const NAME: &'static str = "SecurityRequirementValue";
+        const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+        fn full_name() -> ::prost::alloc::string::String {
+            "grpc.gateway.protoc_gen_openapiv2.options.SecurityRequirement.SecurityRequirementValue"
+                .into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/grpc.gateway.protoc_gen_openapiv2.options.SecurityRequirement.SecurityRequirementValue"
+                .into()
+        }
+    }
+}
+impl ::prost::Name for SecurityRequirement {
+    const NAME: &'static str = "SecurityRequirement";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.SecurityRequirement".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.SecurityRequirement".into()
+    }
 }
 /// `Scopes` is a representation of OpenAPI v2 specification's Scopes object.
 ///
@@ -1037,6 +1231,16 @@ pub struct Scopes {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+}
+impl ::prost::Name for Scopes {
+    const NAME: &'static str = "Scopes";
+    const PACKAGE: &'static str = "grpc.gateway.protoc_gen_openapiv2.options";
+    fn full_name() -> ::prost::alloc::string::String {
+        "grpc.gateway.protoc_gen_openapiv2.options.Scopes".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/grpc.gateway.protoc_gen_openapiv2.options.Scopes".into()
+    }
 }
 /// Scheme describes the schemes supported by the OpenAPI Swagger
 /// and Operation objects.

@@ -35,6 +35,16 @@ pub struct GroupSave {
     #[prost(string, optional, tag = "15")]
     pub paused_for_version: ::core::option::Option<::prost::alloc::string::String>,
 }
+impl ::prost::Name for GroupSave {
+    const NAME: &'static str = "GroupSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.group_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.group_backup.GroupSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.group_backup.GroupSave".into()
+    }
+}
 /// A Groups's mutable metadata
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -49,12 +59,32 @@ pub struct MutableMetadataSave {
     #[prost(string, repeated, tag = "3")]
     pub super_admin_list: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
+impl ::prost::Name for MutableMetadataSave {
+    const NAME: &'static str = "MutableMetadataSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.group_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.group_backup.MutableMetadataSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.group_backup.MutableMetadataSave".into()
+    }
+}
 /// A Group's immutable metadata
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ImmutableMetadataSave {
     #[prost(string, tag = "1")]
     pub creator_inbox_id: ::prost::alloc::string::String,
+}
+impl ::prost::Name for ImmutableMetadataSave {
+    const NAME: &'static str = "ImmutableMetadataSave";
+    const PACKAGE: &'static str = "xmtp.device_sync.group_backup";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.device_sync.group_backup.ImmutableMetadataSave".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.device_sync.group_backup.ImmutableMetadataSave".into()
+    }
 }
 /// Group membership state
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -5,6 +5,16 @@ pub struct PublishClientEnvelopesRequest {
     #[prost(message, repeated, tag = "1")]
     pub envelopes: ::prost::alloc::vec::Vec<super::envelopes::ClientEnvelope>,
 }
+impl ::prost::Name for PublishClientEnvelopesRequest {
+    const NAME: &'static str = "PublishClientEnvelopesRequest";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.payer_api.PublishClientEnvelopesRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.payer_api.PublishClientEnvelopesRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishClientEnvelopesResponse {
@@ -13,9 +23,29 @@ pub struct PublishClientEnvelopesResponse {
         super::envelopes::OriginatorEnvelope,
     >,
 }
+impl ::prost::Name for PublishClientEnvelopesResponse {
+    const NAME: &'static str = "PublishClientEnvelopesResponse";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.payer_api.PublishClientEnvelopesResponse".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetReaderNodeRequest {}
+impl ::prost::Name for GetReaderNodeRequest {
+    const NAME: &'static str = "GetReaderNodeRequest";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.payer_api.GetReaderNodeRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.payer_api.GetReaderNodeRequest".into()
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetReaderNodeResponse {
@@ -23,6 +53,16 @@ pub struct GetReaderNodeResponse {
     pub reader_node_url: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "2")]
     pub backup_node_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+impl ::prost::Name for GetReaderNodeResponse {
+    const NAME: &'static str = "GetReaderNodeResponse";
+    const PACKAGE: &'static str = "xmtp.xmtpv4.payer_api";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.xmtpv4.payer_api.GetReaderNodeResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.xmtpv4.payer_api.GetReaderNodeResponse".into()
+    }
 }
 /// Generated client implementations.
 pub mod payer_api_client {
