@@ -41,6 +41,11 @@ pub const GRPC_DATA_LIMIT: usize = 1024 * 1024 * 25;
 
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 
+#[cfg(not(test))]
+pub const ENABLE_COMMIT_LOG: bool = false;
+#[cfg(test)]
+pub const ENABLE_COMMIT_LOG: bool = true;
+
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
 pub const SUPER_ADMIN_METADATA_PREFIX: &str = "_";
