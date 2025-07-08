@@ -35,6 +35,10 @@ pub const MAX_INSTALLATIONS_PER_INBOX: usize = 5;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
+/// the max amount of data that can be sent in one gRPC call
+/// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
+pub const GRPC_DATA_LIMIT: usize = 1024 * 1024 * 25;
+
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 
 // If a metadata field name starts with this character,
