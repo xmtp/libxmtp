@@ -105,7 +105,7 @@ pbjson-types = "0.7.0"
 prost = { version = "^0.13", default-features = false }
 prost-types = { version = "^0.13", default-features = false }
 # updating crates are blocked on https://github.com/dalek-cryptography/curve25519-dalek/pull/729
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
 regex = "1.10.4"
 serde = { version = "1.0", default-features = false }
