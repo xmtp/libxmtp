@@ -142,8 +142,8 @@ diesel::table! {
         last_epoch_authenticator -> Binary,
         commit_result -> Integer,
         error_message -> Nullable<Text>,
-        applied_epoch_number -> Nullable<BigInt>,
-        applied_epoch_authenticator -> Nullable<Binary>,
+        applied_epoch_number -> BigInt,
+        applied_epoch_authenticator -> Binary,
         sender_inbox_id -> Nullable<Text>,
         sender_installation_id -> Nullable<Binary>,
         commit_type -> Nullable<Text>,
@@ -186,8 +186,8 @@ diesel::table! {
         group_id -> Binary,
         commit_sequence_id -> BigInt,
         commit_result -> Integer,
-        applied_epoch_number -> Nullable<BigInt>,
-        applied_epoch_authenticator -> Nullable<Binary>,
+        applied_epoch_number -> BigInt,
+        applied_epoch_authenticator -> Binary,
     }
 }
 
