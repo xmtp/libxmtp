@@ -3,6 +3,8 @@ CREATE TABLE local_commit_log (
     "rowid" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     "group_id" BLOB NOT NULL,
     -- The sequence ID of the commit being applied
+    -- For welcomes, this is the sequence ID of the commit that spawned the welcome
+    -- For group creation, this is 0
     "commit_sequence_id" BIGINT NOT NULL,
     -- The encryption state of the group before the commit was applied
     -- https://www.rfc-editor.org/rfc/rfc9420.html#section-8-13
@@ -11,9 +13,9 @@ CREATE TABLE local_commit_log (
     -- 1 = Applied, all other values are failures matching the protobuf
     "commit_result" INT NOT NULL,
     "error_message" TEXT,
-    -- Items below this line are only set if the commit was applied
-    "applied_epoch_number" BIGINT,
-    "applied_epoch_authenticator" BLOB,
+    -- The state after the commit was applied, or the existing state otherwise
+    "applied_epoch_number" BIGINT NOT NULL,
+    "applied_epoch_authenticator" BLOB NOT NULL,
     -- Items below this line are for debugging purposes
     "sender_inbox_id" TEXT,
     "sender_installation_id" BLOB,
@@ -29,7 +31,7 @@ CREATE TABLE remote_commit_log (
     -- Whether the commit was successfully applied or not
     -- 1 = Applied, all other values are failures matching the protobuf
     "commit_result" INT NOT NULL,
-    -- Items below this line are only set if the commit was succssfully decrypted
-    "applied_epoch_number" BIGINT,
-    "applied_epoch_authenticator" BLOB
+    -- The state after the commit was applied, or the existing state otherwise
+    "applied_epoch_number" BIGINT NOT NULL,
+    "applied_epoch_authenticator" BLOB NOT NULL
 );
