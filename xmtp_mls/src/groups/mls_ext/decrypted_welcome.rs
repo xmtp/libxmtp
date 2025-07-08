@@ -24,6 +24,7 @@ use super::WrapperAlgorithm;
 pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
+    pub(crate) added_by_installation_id: Vec<u8>,
 }
 
 impl DecryptedWelcome {
@@ -61,10 +62,12 @@ impl DecryptedWelcome {
 
         let added_by_credential = BasicCredential::try_from(added_by_node.credential().clone())?;
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
+        let added_by_installation_id = added_by_node.signature_key().as_slice().to_vec();
 
         Ok(DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
+            added_by_installation_id,
         })
     }
 }
