@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
-use futures::{FutureExt, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tower::ServiceExt;
 use xmtp_proto::api_client::AggregateStats;
