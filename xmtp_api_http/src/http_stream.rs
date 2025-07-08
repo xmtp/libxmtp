@@ -2,7 +2,7 @@
 
 use crate::{util::GrpcResponse, HttpClientError};
 use futures::{
-    stream::{self, Stream, StreamExt},
+    stream::{self, FusedStream, Stream, StreamExt},
     Future,
 };
 use pin_project_lite::pin_project;
@@ -62,6 +62,7 @@ pin_project! {
         #[pin] http: StreamWrapper<'a, Result<bytes::Bytes, reqwest::Error>>,
         remaining: Vec<u8>,
         items: VecDeque<R>,
+        terminated: bool,
         _marker: PhantomData<&'a R>,
     }
 }
@@ -89,7 +90,10 @@ where
                 cx.waker().wake_by_ref();
                 Pending
             }
-            None => Ready(None),
+            None => {
+                self.terminated = true;
+                Ready(None)
+            }
         }
     }
 }
@@ -103,8 +107,18 @@ where
             http: establish,
             remaining: Vec::new(),
             items: VecDeque::new(),
+            terminated: false,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<R> FusedStream for HttpPostStream<'_, R>
+where
+    for<'de> R: Deserialize<'de> + DeserializeOwned + Send,
+{
+    fn is_terminated(&self) -> bool {
+        self.terminated
     }
 }
 
@@ -141,7 +155,7 @@ where
 pin_project! {
     struct HttpStream<'a, F, R> {
         #[pin] state: HttpStreamState<'a, F, R>,
-        id: String
+        id: String,
     }
 }
 
@@ -154,7 +168,8 @@ pin_project! {
         },
         Started {
             #[pin] stream: HttpPostStream<'a, R>,
-        }
+        },
+        Terminated
     }
 }
 
@@ -189,18 +204,41 @@ where
         let mut this = self.as_mut().project();
         match this.state.as_mut().project() {
             NotStarted { future } => {
-                let stream = ready!(future.poll(cx))?;
-                this.state.set(HttpStreamState::Started {
-                    stream: HttpPostStream::new(stream),
-                });
+                match ready!(future.poll(cx)) {
+                    Ok(stream) => {
+                        this.state.set(HttpStreamState::Started {
+                            stream: HttpPostStream::new(stream),
+                        });
+                    }
+                    Err(e) => {
+                        this.state.set(HttpStreamState::Terminated);
+                        return Poll::Ready(Some(Err(ApiClientError::from(e))));
+                    }
+                }
                 tracing::trace!("stream {} ready, polling for the first time...", &self.id);
-                self.poll_next(cx)
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
             Started { mut stream } => {
                 let item = ready!(stream.as_mut().poll_next(cx));
                 tracing::trace!("stream id={} ready with item", &self.id);
                 Poll::Ready(item)
             }
+            Terminated => Poll::Ready(None),
+        }
+    }
+}
+
+impl<F, R> FusedStream for HttpStream<'_, F, R>
+where
+    F: Future<Output = Result<Response, reqwest::Error>>,
+    for<'de> R: Send + Deserialize<'de> + 'static,
+{
+    fn is_terminated(&self) -> bool {
+        match &self.state {
+            HttpStreamState::Started { stream } => stream.is_terminated(),
+            HttpStreamState::Terminated => true,
+            _ => false,
         }
     }
 }
@@ -210,6 +248,7 @@ impl<F, R> std::fmt::Debug for HttpStream<'_, F, R> {
         match self.state {
             HttpStreamState::NotStarted { .. } => write!(f, "not started"),
             HttpStreamState::Started { .. } => write!(f, "started"),
+            HttpStreamState::Terminated => write!(f, "terminated"),
         }
     }
 }
@@ -312,6 +351,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
     use futures::{FutureExt, Stream};
 
     use super::*;
@@ -328,10 +368,76 @@ mod tests {
         assert!(matches!(stream.state, HttpStreamState::NotStarted { .. }));
         let cx = futures::task::noop_waker();
         let mut cx = std::task::Context::from_waker(&cx);
-        let r = stream.as_mut().poll_next(&mut cx);
-        println!("{:?}", r);
+        assert!(matches!(
+            stream.as_mut().poll_next(&mut cx),
+            Poll::Ready(Some(Err(_)))
+        ));
 
-        let r = stream.poll_next(&mut cx);
-        println!("{:?}", r);
+        assert!(stream.is_terminated());
+        assert!(matches!(
+            stream.as_mut().poll_next(&mut cx),
+            Poll::Ready(None)
+        ));
+    }
+
+    struct MockFuture;
+
+    impl Future for MockFuture {
+        type Output = Result<Response, reqwest::Error>;
+
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            unimplemented!()
+        }
+    }
+
+    #[xmtp_common::test]
+    fn http_stream_does_not_terminate_on_err_when_started() {
+        let bytes = stream::iter(std::iter::repeat(Bytes::from(b"test".to_vec()))).map(Ok);
+
+        let started: HttpPostStream<'_, ()> = HttpPostStream {
+            http: StreamWrapper::new(bytes),
+            remaining: vec![],
+            terminated: false,
+            items: Default::default(),
+            _marker: PhantomData,
+        };
+        let stream: HttpStream<MockFuture, ()> = HttpStream {
+            state: HttpStreamState::Started { stream: started },
+            id: "test_stream".to_string(),
+        };
+        futures::pin_mut!(stream);
+
+        let cx = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&cx);
+        let r = stream.as_mut().poll_next(&mut cx);
+        assert!(matches!(r, Poll::Ready(Some(Err(_)))));
+        let r = stream.as_mut().poll_next(&mut cx);
+        assert!(matches!(r, Poll::Ready(Some(Err(_)))));
+    }
+
+    #[xmtp_common::test]
+    fn http_stream_terminates_gracefully_when_started() {
+        let bytes = stream::iter(None).map(Ok);
+
+        let started: HttpPostStream<'_, ()> = HttpPostStream {
+            http: StreamWrapper::new(bytes),
+            remaining: vec![],
+            terminated: false,
+            items: Default::default(),
+            _marker: PhantomData,
+        };
+        let stream: HttpStream<MockFuture, ()> = HttpStream {
+            state: HttpStreamState::Started { stream: started },
+            id: "test_stream".to_string(),
+        };
+        futures::pin_mut!(stream);
+
+        let cx = futures::task::noop_waker();
+        let mut cx = std::task::Context::from_waker(&cx);
+        let r = stream.as_mut().poll_next(&mut cx);
+        assert!(matches!(r, Poll::Ready(None)));
+        assert!(stream.as_mut().is_terminated());
+        let r = stream.as_mut().poll_next(&mut cx);
+        assert!(matches!(r, Poll::Ready(None)));
     }
 }
