@@ -116,10 +116,9 @@ pub async fn connect_to_backend(
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
-#[uniffi::export]
-pub fn is_connected(api: Arc<XmtpApiClient>) -> bool {
-    let mut api = Arc::unwrap_or_clone(api);
-    api.0.is_connected()
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
+    api.0.is_connected().await
 }
 
 /**
@@ -8885,7 +8884,7 @@ mod tests {
             .await
             .expect("should connect to local grpc server");
 
-        let connected = is_connected(api_backend);
+        let connected = is_connected(api_backend).await;
 
         assert!(connected, "Expected API client to report as connected");
 

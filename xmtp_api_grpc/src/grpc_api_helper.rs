@@ -60,11 +60,8 @@ impl Client {
         ClientBuilder::default()
     }
 
-    pub fn is_connected(&mut self) -> bool {
-        self.channel
-            .ready()
-            .now_or_never()
-            .is_some_and(|r| r.is_ok())
+    pub async fn is_connected(&self) -> bool {
+        self.channel.clone().ready().await.is_ok()
     }
 }
 
