@@ -28,19 +28,21 @@ impl MergeStagedCommitAndLog for MlsGroup {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(&provider, staged_commit)?;
 
-        NewLocalCommitLog {
-            group_id: self.group_id().to_vec(),
-            commit_sequence_id: sequence_id,
-            last_epoch_authenticator,
-            commit_result: CommitResult::Success,
-            applied_epoch_number: self.epoch().as_u64() as i64,
-            applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
-            sender_inbox_id: Some(validated_commit.actor_inbox_id()),
-            sender_installation_id: Some(validated_commit.actor_installation_id()),
-            commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
-            error_message: None,
+        if crate::configuration::ENABLE_COMMIT_LOG {
+            NewLocalCommitLog {
+                group_id: self.group_id().to_vec(),
+                commit_sequence_id: sequence_id,
+                last_epoch_authenticator,
+                commit_result: CommitResult::Success,
+                applied_epoch_number: self.epoch().as_u64() as i64,
+                applied_epoch_authenticator: self.epoch_authenticator().as_slice().to_vec(),
+                sender_inbox_id: Some(validated_commit.actor_inbox_id()),
+                sender_installation_id: Some(validated_commit.actor_installation_id()),
+                commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
+                error_message: None,
+            }
+            .store(provider.db())?;
         }
-        .store(provider.db())?;
 
         Ok(())
     }
