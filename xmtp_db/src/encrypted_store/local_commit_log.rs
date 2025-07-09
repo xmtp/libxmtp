@@ -3,6 +3,33 @@ use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
 
+pub enum CommitType {
+    GroupCreation,
+    BackupRestore,
+    Welcome,
+    KeyUpdate,
+    MetadataUpdate,
+    UpdateGroupMembership,
+    UpdateAdminList,
+    UpdatePermission,
+}
+
+impl std::fmt::Display for CommitType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let description = match self {
+            CommitType::GroupCreation => "GroupCreation",
+            CommitType::BackupRestore => "BackupRestore",
+            CommitType::Welcome => "Welcome",
+            CommitType::KeyUpdate => "KeyUpdate",
+            CommitType::MetadataUpdate => "MetadataUpdate",
+            CommitType::UpdateGroupMembership => "UpdateGroupMembership",
+            CommitType::UpdateAdminList => "UpdateAdminList",
+            CommitType::UpdatePermission => "UpdatePermission",
+        };
+        write!(f, "{}", description)
+    }
+}
+
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = local_commit_log)]
 pub struct NewLocalCommitLog {

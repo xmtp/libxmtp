@@ -71,7 +71,7 @@ pub trait XmtpContextProvider: Sized {
     fn identity(&self) -> &Identity;
 
     fn installation_id(&self) -> InstallationId {
-        (*self.identity().installation_keys.public_bytes()).into()
+        self.identity().installation_id()
     }
 
     fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -263,7 +263,7 @@ impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db> {
 
     /// The installation public key is the primary identifier for an installation
     pub fn installation_id(&self) -> InstallationId {
-        (*self.identity.installation_keys.public_bytes()).into()
+        self.identity.installation_id()
     }
 
     /// Get the account address of the blockchain account associated with this client
