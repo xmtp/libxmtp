@@ -37,8 +37,10 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-      - name: Install protoc
+      - name: Install Protobuf Compiler (protoc)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Gen protos
+        run: ./dev/gen_protos.sh
       - name: Cache
         uses: WarpBuilds/rust-cache@v2
         with:
