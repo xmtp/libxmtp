@@ -1207,6 +1207,7 @@ dependencies = [
  "prost",
  "serde",
  "tokio",
+ "toxiproxy_rust",
  "tracing",
  "tracing-subscriber",
  "xmtp_api",
@@ -8520,7 +8521,10 @@ version = "1.3.0-dev"
 dependencies = [
  "async-trait",
  "futures",
+ "h2 0.4.10",
  "http 1.3.1",
+ "hyper 1.6.0",
+ "pin-project-lite",
  "prost",
  "thiserror 2.0.12",
  "tokio",

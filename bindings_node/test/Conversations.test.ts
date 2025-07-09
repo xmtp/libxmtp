@@ -7,6 +7,7 @@ import { v4 } from 'uuid'
 import { describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
+  createToxicRegisteredClient,
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
@@ -494,6 +495,47 @@ describe('Conversations', () => {
     expect(groups).toEqual([group1, group2, group3])
   })
 
+  it('should error when connection dies', async () => {
+    const long_sleep = () =>
+      new Promise((resolve) => setTimeout(resolve, 45000))
+    const user1 = createUser()
+    const user2 = createUser()
+    const client2 = await createRegisteredClient(user2)
+    const client1 = await createToxicRegisteredClient(user1)
+    let groups: Conversation[] = []
+
+    const startNewConvo = async () => {
+      console.log('creating new convo')
+      await client2.conversations().createGroup([
+        {
+          identifier: user1.account.address,
+          identifierKind: IdentifierKind.Ethereum,
+        },
+      ])
+    }
+
+    let closed = false
+    const stream = client1.client.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        closed = true
+      },
+      ConversationType.Group
+    )
+
+    await startNewConvo()
+    await sleep()
+    expect(groups.length).toBe(1)
+    await client1.withTimeout('downstream', 60000, 1.0)
+    await startNewConvo()
+    await long_sleep()
+    expect(groups.length).toBe(2)
+    await sleep()
+    expect(closed).toBe(true)
+  })
+
   it('should only stream group chats', async () => {
     const user1 = createUser()
     const user2 = createUser()
@@ -509,7 +551,7 @@ describe('Conversations', () => {
         groups.push(convo!)
       },
       () => {
-        console.log('clossed')
+        console.log('closed')
       },
       ConversationType.Group
     )
