@@ -929,6 +929,7 @@ pub(crate) mod tests {
     use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use futures::TryStreamExt;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1634,5 +1635,51 @@ pub(crate) mod tests {
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    #[timeout(Duration::from_secs(40))]
+    #[cfg_attr(any(target_arch = "wasm32", feature = "http-api"), ignore)]
+    async fn should_reconnect() {
+        let alix = Tester::builder().proxy().build().await;
+        let bo = Tester::builder().build().await;
+
+        let start_new_convo = || async {
+            bo.create_group_with_inbox_ids(&[alix.inbox_id().to_string()], None, None)
+                .await
+                .unwrap()
+        };
+
+        let proxy = alix.proxy.as_ref().unwrap();
+
+        let mut stream = alix.client.stream_conversations(None).await.unwrap();
+
+        start_new_convo().await;
+
+        let success_res = stream.try_next().await;
+        assert!(success_res.is_ok());
+
+        // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
+        proxy.with_timeout("downstream".into(), 60000, 1.0).await;
+
+        start_new_convo().await;
+
+        let should_fail = stream.try_next().await;
+        assert!(should_fail.is_err());
+
+        start_new_convo().await;
+
+        proxy.delete_all_toxics().await.unwrap();
+
+        let still_broken = stream.try_next().await;
+        assert!(still_broken.is_err());
+        xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let mut new_stream = alix.client.stream_conversations(None).await.unwrap();
+        let new_res = new_stream.try_next().await;
+        assert!(new_res.is_ok());
+        assert!(new_res.unwrap().is_some());
     }
 }
