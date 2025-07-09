@@ -18,7 +18,6 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ['test-utils'] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
