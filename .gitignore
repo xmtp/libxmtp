@@ -177,3 +177,6 @@ emsdk/**
 emsdk
 result
 archive.xmtp
+
+xmtp_proto/proto
+xmtp_proto/third_party

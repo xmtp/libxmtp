@@ -34,6 +34,10 @@ tonic = { workspace = true, features = [
   "prost",
 ] }
 
+[build-dependencies]
+tonic-build = "0.13.1"
+prost-build = "0.13"
+
 [dev-dependencies]
 mockall = { workspace = true }
 

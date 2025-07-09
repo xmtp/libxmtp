@@ -27,6 +27,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Protobuf Compiler (protoc)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Gen protos
+        run: ./dev/gen_protos.sh
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
@@ -52,6 +56,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Protobuf Compiler (protoc)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Gen protos
+        run: ./dev/gen_protos.sh
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
