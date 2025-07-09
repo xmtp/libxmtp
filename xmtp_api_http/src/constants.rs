@@ -13,9 +13,9 @@ impl ApiEndpoints {
     pub const FETCH_KEY_PACKAGES: &'static str = "/mls/v1/fetch-key-packages";
     pub const GET_IDENTITY_UPDATES: &'static str = "/identity/v1/get-identity-updates";
     pub const GET_INBOX_IDS: &'static str = "/identity/v1/get-inbox-ids";
+    pub const PUBLISH_COMMIT_LOG: &'static str = "/mls/v1/batch-publish-commit-log";
     pub const PUBLISH_IDENTITY_UPDATE: &'static str = "/identity/v1/publish-identity-update";
-    pub const VERIFY_SMART_CONTRACT_WALLET_SIGNATURES: &'static str =
-        "/identity/v1/verify-smart-contract-wallet-signatures";
+    pub const QUERY_COMMIT_LOG: &'static str = "/mls/v1/batch-query-commit-log";
     pub const QUERY_GROUP_MESSAGES: &'static str = "/mls/v1/query-group-messages";
     pub const QUERY_WELCOME_MESSAGES: &'static str = "/mls/v1/query-welcome-messages";
     pub const REGISTER_INSTALLATION: &'static str = "/mls/v1/register-installation";
@@ -24,4 +24,6 @@ impl ApiEndpoints {
     pub const SUBSCRIBE_GROUP_MESSAGES: &'static str = "/mls/v1/subscribe-group-messages";
     pub const SUBSCRIBE_WELCOME_MESSAGES: &'static str = "/mls/v1/subscribe-welcome-messages";
     pub const UPLOAD_KEY_PACKAGE: &'static str = "/mls/v1/upload-key-package";
+    pub const VERIFY_SMART_CONTRACT_WALLET_SIGNATURES: &'static str =
+        "/identity/v1/verify-smart-contract-wallet-signatures";
 }

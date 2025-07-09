@@ -24,6 +24,9 @@ use std::time::Duration;
 use xmtp_proto::api_client::{
     AggregateStats, ApiBuilder, ApiStats, IdentityStats, XmtpIdentityClient,
 };
+use xmtp_proto::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+};
 use xmtp_proto::traits::{ApiClientError, HasStats};
 use xmtp_proto::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
@@ -370,6 +373,52 @@ impl XmtpMlsClient for XmtpHttpApiClient {
         handle_error_proto(res)
             .await
             .map_err(|e| ApiClientError::new(ApiEndpoint::QueryWelcomeMessages, e))
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        self.wait_for_ready().await;
+        self.stats.publish_commit_log.count_request();
+        let res = self
+            .http_client
+            .post(self.endpoint(ApiEndpoints::PUBLISH_COMMIT_LOG))
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
+            .send()
+            .await
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::PublishCommitLog, HttpClientError::from(e))
+            })?;
+
+        tracing::debug!("publish_commit_log");
+        handle_error_proto(res)
+            .await
+            .map_err(|e| ApiClientError::new(ApiEndpoint::PublishCommitLog, e))
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
+        self.wait_for_ready().await;
+        self.stats.query_commit_log.count_request();
+        let res = self
+            .http_client
+            .post(self.endpoint(ApiEndpoints::QUERY_COMMIT_LOG))
+            .headers(protobuf_headers()?)
+            .body(request.encode_to_vec())
+            .send()
+            .await
+            .map_err(|e| {
+                ApiClientError::new(ApiEndpoint::QueryCommitLog, HttpClientError::from(e))
+            })?;
+
+        tracing::debug!("query_commit_log");
+        handle_error_proto(res)
+            .await
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryCommitLog, e))
     }
 
     fn stats(&self) -> ApiStats {

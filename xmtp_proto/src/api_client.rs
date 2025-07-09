@@ -2,6 +2,9 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
+use crate::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+};
 use crate::xmtp::identity::api::v1::{
     GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
     GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
@@ -104,6 +107,8 @@ pub struct ApiStats {
     pub query_welcome_messages: Arc<EndpointStats>,
     pub subscribe_messages: Arc<EndpointStats>,
     pub subscribe_welcomes: Arc<EndpointStats>,
+    pub publish_commit_log: Arc<EndpointStats>,
+    pub query_commit_log: Arc<EndpointStats>,
 }
 
 impl ApiStats {
@@ -116,6 +121,8 @@ impl ApiStats {
         self.query_welcome_messages.clear();
         self.subscribe_messages.clear();
         self.subscribe_welcomes.clear();
+        self.publish_commit_log.clear();
+        self.query_commit_log.clear();
     }
 }
 
@@ -192,6 +199,13 @@ impl std::fmt::Debug for AggregateStats {
             self.mls.subscribe_messages
         )?;
         writeln!(f, "SubscribeWelcomes       {}", self.mls.subscribe_welcomes)?;
+        writeln!(f, "============ Commit Log ============")?;
+        writeln!(
+            f,
+            "PublishCommitLog         {}",
+            self.mls.publish_commit_log
+        )?;
+        writeln!(f, "QueryCommitLog           {}", self.mls.query_commit_log)?;
         Ok(())
     }
 }
@@ -248,6 +262,14 @@ pub trait XmtpMlsClient {
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error>;
+    async fn publish_commit_log(
+        &self,
+        request: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error>;
+    async fn query_commit_log(
+        &self,
+        request: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
     fn stats(&self) -> ApiStats;
 }
 
@@ -299,6 +321,20 @@ where
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         (**self).query_welcome_messages(request).await
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        (**self).publish_commit_log(request).await
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
+        (**self).query_commit_log(request).await
     }
 
     fn stats(&self) -> ApiStats {
@@ -354,6 +390,20 @@ where
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         (**self).query_welcome_messages(request).await
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        (**self).publish_commit_log(request).await
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
+        (**self).query_commit_log(request).await
     }
 
     fn stats(&self) -> ApiStats {
