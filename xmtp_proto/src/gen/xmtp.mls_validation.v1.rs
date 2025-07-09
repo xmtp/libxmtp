@@ -316,6 +316,7 @@ impl ::prost::Name for GetAssociationStateResponse {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod validation_api_client {
     #![allow(
         unused_variables,
@@ -536,6 +537,7 @@ pub mod validation_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod validation_api_server {
     #![allow(
         unused_variables,
