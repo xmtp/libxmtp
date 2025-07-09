@@ -28,7 +28,11 @@ tonic = { workspace = true, features = [
 
 # Force Android + iOS to use webki
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-tonic = { workspace = true, features = ["default", "transport", "tls-webpki-roots",] }
+tonic = { workspace = true, features = [
+  "default", 
+  "transport", 
+  "tls-webpki-roots",
+] }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
