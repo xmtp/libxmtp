@@ -11,6 +11,7 @@ uninlined_format_args = "allow"
 async-trait.workspace = true
 futures = { workspace = true }
 hex.workspace = true
+prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }

@@ -18,6 +18,8 @@ pub enum ApiEndpoint {
     VerifyScwSignature,
     QueryV4Envelopes,
     PublishEnvelopes,
+    PublishCommitLog,
+    QueryCommitLog,
 }
 
 impl std::fmt::Display for ApiEndpoint {
@@ -39,6 +41,8 @@ impl std::fmt::Display for ApiEndpoint {
             VerifyScwSignature => write!(f, "verify_scw_signature"),
             QueryV4Envelopes => write!(f, "query_v4_envelopes"),
             PublishEnvelopes => write!(f, "publish_envelopes"),
+            PublishCommitLog => write!(f, "publish_commit_log"),
+            QueryCommitLog => write!(f, "query_commit_log"),
         }
     }
 }
