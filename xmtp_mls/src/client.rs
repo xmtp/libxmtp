@@ -1662,7 +1662,7 @@ pub(crate) mod tests {
         assert!(success_res.is_ok());
 
         // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
-        proxy.with_timeout("downstream".into(), 60000, 1.0).await;
+        proxy.with_timeout("downstream".into(), 60_000, 1.0).await;
 
         start_new_convo().await;
 

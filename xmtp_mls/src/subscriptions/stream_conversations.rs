@@ -5,11 +5,11 @@ use crate::{
 };
 use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 
-use futures::{prelude::stream::Select, Stream};
+use futures::{stream::FusedStream, Stream};
 use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -132,6 +132,81 @@ where
 }
 
 pin_project! {
+    /// A stream that polls two inner streams.
+    /// this stream closes once either one of the streams close.
+    /// gives priority to S1 (S1 will always be polled first.)
+    /// If S1 finishes before S2, will attempt to drain S2 of items.
+    pub struct MultiplexedStream<S1, S2, T> {
+        #[pin] s1: S1,
+        #[pin] s2: S2,
+        queue: VecDeque<T>,
+        terminated: bool,
+    }
+}
+
+impl<S1, S2, T> MultiplexedStream<S1, S2, T> {
+    pub fn new(s1: S1, s2: S2) -> Self {
+        Self {
+            s1,
+            s2,
+            queue: Default::default(),
+            terminated: false,
+        }
+    }
+}
+
+impl<S1, S2, T> Stream for MultiplexedStream<S1, S2, T>
+where
+    S1: Stream<Item = T>,
+    S2: Stream<Item = T>,
+{
+    type Item = T;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.as_mut().project();
+        if *this.terminated {
+            if let Some(item) = this.queue.pop_front() {
+                return Poll::Ready(Some(item));
+            }
+            return Poll::Ready(None);
+        }
+        match this.s1.as_mut().poll_next(cx) {
+            Poll::Ready(Some(item)) => {
+                return Poll::Ready(Some(item));
+            }
+            Poll::Ready(None) => {
+                *this.terminated = true;
+                while let Poll::Ready(Some(item)) = this.s2.as_mut().poll_next(cx) {
+                    this.queue.push_back(item);
+                }
+                if this.queue.is_empty() {
+                    return Poll::Ready(None);
+                } else {
+                    return Poll::Pending;
+                }
+            }
+            Poll::Pending => (),
+        };
+
+        match this.s2.as_mut().poll_next(cx) {
+            Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<S1, S2, T> FusedStream for MultiplexedStream<S1, S2, T>
+where
+    S1: Stream<Item = T>,
+    S2: Stream<Item = T>,
+{
+    fn is_terminated(&self) -> bool {
+        self.terminated
+    }
+}
+
+pin_project! {
     /// The stream for conversations.
     /// Handles the state machine that processes welcome messages and groups. It handles
     /// two main states:
@@ -175,11 +250,13 @@ pin_project! {
     }
 }
 
-type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
-
-pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedSelect<
-    <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
-    <ApiClient as XmtpMlsStreams>::Error,
+pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
+    SubscriptionStream<
+        <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
+        <ApiClient as XmtpMlsStreams>::Error,
+    >,
+    BroadcastGroupStream,
+    Result<WelcomeOrGroup>,
 >;
 
 impl<'a, A, D> StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>
@@ -251,7 +328,7 @@ where
         let subscription = SubscriptionStream::new(subscription);
         let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
 
-        let stream = futures::stream::select(events, subscription);
+        let stream = MultiplexedStream::new(subscription, events);
 
         Ok(Self {
             context,
