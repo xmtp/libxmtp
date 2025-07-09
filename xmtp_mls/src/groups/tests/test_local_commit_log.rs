@@ -1,13 +1,16 @@
 use crate::{
     groups::{
         intents::{PermissionPolicyOption, PermissionUpdateType},
-        IntentKind, UpdateAdminListType,
+        UpdateAdminListType,
     },
     tester,
     utils::{ConcreteMlsGroup, FullXmtpClient},
 };
 use toxiproxy_rust::proxy::Proxy;
-use xmtp_db::{local_commit_log::LocalCommitLog, remote_commit_log::CommitResult};
+use xmtp_db::{
+    local_commit_log::{CommitType, LocalCommitLog},
+    remote_commit_log::CommitResult,
+};
 
 #[allow(dead_code)]
 async fn print_commit_log(group: &ConcreteMlsGroup) {
@@ -24,19 +27,23 @@ async fn last_commit_log(group: &ConcreteMlsGroup) -> LocalCommitLog {
         .to_owned()
 }
 
-async fn last_commit_type(
+async fn last_commit_type_matches(
     group1: &ConcreteMlsGroup,
     group2: &ConcreteMlsGroup,
-    expected: IntentKind,
+    expected: CommitType,
 ) -> bool {
     print_commit_log(group1).await;
     print_commit_log(group2).await;
-    return last_commit_log(group1).await.commit_type.unwrap() == expected.to_string()
-        && last_commit_log(group2).await.commit_type.unwrap() == expected.to_string();
+    let log_1: LocalCommitLog = last_commit_log(group1).await;
+    let log_2: LocalCommitLog = last_commit_log(group2).await;
+    log_1.commit_result == CommitResult::Success
+        && log_2.commit_result == CommitResult::Success
+        && log_1.commit_type.unwrap() == expected.to_string()
+        && log_2.commit_type.unwrap() == expected.to_string()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_types() {
+async fn test_successful_commit_log_types() {
     tester!(alix);
     tester!(bo);
     tester!(caro);
@@ -48,33 +55,39 @@ async fn test_commit_log_types() {
         .await?;
     let b = b_client.sync_welcomes().await?.first()?.to_owned();
     b.sync().await?;
+    assert_eq!(a.local_commit_log().await?.len(), 2);
+    assert_eq!(
+        a.local_commit_log().await?[0].commit_type,
+        Some(CommitType::GroupCreation.to_string())
+    );
     assert_eq!(
         last_commit_log(&a).await.commit_type,
-        Some(IntentKind::UpdateGroupMembership.to_string())
+        Some(CommitType::UpdateGroupMembership.to_string())
     );
+    assert_eq!(b.local_commit_log().await?.len(), 1);
     assert_eq!(last_commit_log(&b).await.commit_type, None);
 
     a.key_update().await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::KeyUpdate).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
 
     a.remove_members_by_inbox_id(&[caro.inbox_id()]).await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::UpdateGroupMembership).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::UpdateGroupMembership).await);
 
     a.update_group_name("foo".to_string()).await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::MetadataUpdate).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::MetadataUpdate).await);
 
     tester!(_bo2, from: bo);
     a.update_installations().await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::UpdateGroupMembership).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::UpdateGroupMembership).await);
 
     a.update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
         .await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::UpdateAdminList).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::UpdateAdminList).await);
 
     a.update_permission_policy(
         PermissionUpdateType::AddMember,
@@ -83,9 +96,9 @@ async fn test_commit_log_types() {
     )
     .await?;
     b.sync().await?;
-    assert!(last_commit_type(&a, &b, IntentKind::UpdatePermission).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::UpdatePermission).await);
 
-    assert_eq!(a.local_commit_log().await?.len(), 7);
+    assert_eq!(a.local_commit_log().await?.len(), 8);
     assert_eq!(b.local_commit_log().await?.len(), 7);
 }
 
@@ -122,7 +135,7 @@ async fn test_commit_log_retriable_error() {
     a.sync().await?;
     assert_eq!(a.local_commit_log().await?.len(), 2);
     assert_eq!(b.local_commit_log().await?.len(), 2);
-    assert!(last_commit_type(&a, &b, IntentKind::KeyUpdate).await);
+    assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -174,6 +187,7 @@ async fn test_out_of_epoch() {
     assert_eq!(
         get_type(&alix_logs),
         &[
+            &Some("GroupCreation".to_string()),
             &Some("UpdateGroupMembership".to_string()),
             &Some("MetadataUpdate".to_string()),
             &Some("KeyUpdate".to_string()),
@@ -182,7 +196,7 @@ async fn test_out_of_epoch() {
             &Some("KeyUpdate".to_string()),
         ]
     );
-    assert_eq!(get_result(&alix_logs), &[&CommitResult::Success; 6]);
+    assert_eq!(get_result(&alix_logs), &[&CommitResult::Success; 7]);
 }
 
 fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {

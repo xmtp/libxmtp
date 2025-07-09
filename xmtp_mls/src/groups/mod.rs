@@ -28,6 +28,7 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
+use crate::groups::mls_ext::CommitLogStorer;
 use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
@@ -55,10 +56,7 @@ use openmls::{
     },
     group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
-    prelude::{
-        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
-        WireFormatPolicy,
-    },
+    prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy},
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -415,26 +413,20 @@ where
 
         let provider = context.mls_provider();
         let mls_group = if let Some(group_id) = group_id {
-            OpenMlsGroup::new_with_group_id(
+            // TODO: For groups restored from backup, in order to support queries on metadata such as
+            // the group title and description, a stubbed OpenMLS group is created, and later overwritten
+            // when a welcome is received.
+            // To avoid potentially operating on this encryption state elsewhere, it may instead be better
+            // to store this metadata on the StoredGroup instead, and modify group metadata queries to also
+            // check the StoredGroup.
+            OpenMlsGroup::from_backup_stub_logged(
                 &provider,
-                &context.identity.installation_keys,
+                &context.identity,
                 &group_config,
                 GroupId::from_slice(group_id),
-                CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
-                },
             )?
         } else {
-            OpenMlsGroup::new(
-                &provider,
-                &context.identity.installation_keys,
-                &group_config,
-                CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
-                },
-            )?
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?
         };
 
         let group_id = mls_group.group_id().to_vec();
@@ -482,15 +474,8 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -832,15 +817,8 @@ where
             group_membership,
             mutable_permissions,
         )?;
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
@@ -1720,16 +1698,8 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
-
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
