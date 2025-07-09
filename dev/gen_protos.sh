@@ -35,29 +35,3 @@ echo "Running cargo build to generate code with tonic_build..."
 cargo build
 
 echo "Generating mod.rs for all generated files..."
-rm -f "$MOD_RS"
-mkdir -p "$GEN_DIR"
-
-echo "// @generated" > "$MOD_RS"
-echo "pub mod xmtp {" >> "$MOD_RS"
-
-find "$GEN_DIR" -maxdepth 1 -name "xmtp.*.rs" | while read -r file; do
-    rel=$(basename "$file" .rs)
-    path_parts=(${rel//./ })
-    indent="    "
-    modline=""
-    for (( i=0; i<${#path_parts[@]}-1; i++ )); do
-        echo "${indent}pub mod ${path_parts[$i]} {" >> "$MOD_RS"
-        indent+="    "
-    done
-    fname=$(basename "$file")
-    echo "${indent}include!(\"$fname\");" >> "$MOD_RS"
-    for (( i=0; i<${#path_parts[@]}-1; i++ )); do
-        indent=${indent:0:-4}
-        echo "${indent}}" >> "$MOD_RS"
-    done
-done
-
-echo "}" >> "$MOD_RS"
-
-echo "Done generating $MOD_RS"
