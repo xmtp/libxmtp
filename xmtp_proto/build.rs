@@ -1,6 +1,62 @@
 use std::env;
 use std::path::PathBuf;
 
+fn codegen_configure(builder: tonic_build::Builder) -> tonic_build::Builder {
+    builder
+        .client_mod_attribute(
+            "xmtp.identity.api.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .client_mod_attribute(
+            "xmtp.message_api.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .client_mod_attribute("xmtp.mls.api.v1", r#"#[cfg(not(target_arch = "wasm32"))]"#)
+        .client_mod_attribute(
+            "xmtp.mls_validation.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .client_mod_attribute("xmtp.xmtpv4", r#"#[cfg(not(target_arch = "wasm32"))]"#)
+        .client_mod_attribute(
+            "xmtp.xmtpv4.payer_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .client_mod_attribute(
+            "xmtp.xmtpv4.message_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .client_mod_attribute(
+            "xmtp.xmtpv4.metadata_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.identity.api.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.mls_validation.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.message_api.v1",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute("xmtp.mls.api.v1", r#"#[cfg(not(target_arch = "wasm32"))]"#)
+        .server_mod_attribute("xmtp.xmtpv4", r#"#[cfg(not(target_arch = "wasm32"))]"#)
+        .server_mod_attribute(
+            "xmtp.xmtpv4.payer_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.xmtpv4.message_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+        .server_mod_attribute(
+            "xmtp.xmtpv4.metadata_api",
+            r#"#[cfg(not(target_arch = "wasm32"))]"#,
+        )
+}
+
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let descriptor_path = out_dir.join("descriptor.bin");
@@ -32,7 +88,9 @@ fn main() {
             .extern_path(".google.protobuf", "::pbjson_types");
 
         // Compile with tonic
-        tonic_build::configure()
+        let builder = tonic_build::configure();
+        let builder = codegen_configure(builder);
+        builder
             .out_dir("src/gen") // optional: customize output dir
             .compile_protos_with_config(config, &[proto], include_paths)
             .unwrap_or_else(|e| panic!("Failed to generate descriptor set for {proto}: {e}"));
@@ -87,7 +145,9 @@ fn main() {
         .extern_path(".google.protobuf", "::pbjson_types");
 
     // Compile with tonic
-    tonic_build::configure()
+    let builder = tonic_build::configure();
+    let builder = codegen_configure(builder);
+    builder
         .out_dir("src/gen") // optional: customize output dir
         .compile_protos_with_config(config, proto_files, include_paths)
         .expect("Failed to compile protos");

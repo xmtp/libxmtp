@@ -29,6 +29,7 @@ impl ::prost::Name for GetSyncCursorResponse {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod metadata_api_client {
     #![allow(
         unused_variables,
@@ -181,6 +182,7 @@ pub mod metadata_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod metadata_api_server {
     #![allow(
         unused_variables,

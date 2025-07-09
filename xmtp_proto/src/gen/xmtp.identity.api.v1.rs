@@ -308,6 +308,7 @@ impl ::prost::Name for GetInboxIdsResponse {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod identity_api_client {
     #![allow(
         unused_variables,
@@ -524,6 +525,7 @@ pub mod identity_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod identity_api_server {
     #![allow(
         unused_variables,

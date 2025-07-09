@@ -863,6 +863,7 @@ impl SortDirection {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mls_api_client {
     #![allow(
         unused_variables,
@@ -1283,6 +1284,7 @@ pub mod mls_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod mls_api_server {
     #![allow(
         unused_variables,

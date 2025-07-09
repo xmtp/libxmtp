@@ -270,6 +270,7 @@ impl ::prost::Name for GetNewestEnvelopeResponse {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod replication_api_client {
     #![allow(
         unused_variables,
@@ -509,6 +510,7 @@ pub mod replication_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod replication_api_server {
     #![allow(
         unused_variables,
@@ -1135,6 +1137,7 @@ impl Misbehavior {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod misbehavior_api_client {
     #![allow(
         unused_variables,
@@ -1286,6 +1289,7 @@ pub mod misbehavior_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod misbehavior_api_server {
     #![allow(
         unused_variables,
