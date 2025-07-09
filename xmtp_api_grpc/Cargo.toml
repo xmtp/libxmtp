@@ -15,6 +15,7 @@ tower = "0.5.2"
 tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "convert"] }
+rustls = { version = "0.23", features = ["ring"] }
 
 # Anything but iOS and Android will use either webpki or native.
 # If native certs are not found, it will fallback to webpki

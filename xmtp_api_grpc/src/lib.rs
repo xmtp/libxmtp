@@ -16,6 +16,9 @@ use tracing::Instrument;
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_tls_channel(address: String, limit: u64) -> Result<Channel, GrpcBuilderError> {
     let span = tracing::debug_span!("grpc_connect", address);
+    if let Err(err) = rustls::crypto::ring::default_provider().install_default() {
+        tracing::warn!("CryptoProvider was already installed: {:?}", err);
+    }
     let channel = Channel::from_shared(address)?
         .rate_limit(limit, Duration::from_secs(60))
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
