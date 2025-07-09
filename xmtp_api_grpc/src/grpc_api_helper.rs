@@ -1,7 +1,8 @@
 use std::pin::Pin;
-use std::time::Duration;
 
-use crate::{create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT};
+use crate::{
+    apply_channel_options, create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT,
+};
 use futures::{Stream, StreamExt};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tower::ServiceExt;
@@ -109,8 +110,7 @@ impl ApiBuilder for ClientBuilder {
         let channel = match self.tls_channel {
             true => create_tls_channel(host, self.limit.unwrap_or(1900)).await?,
             false => {
-                Channel::from_shared(host)?
-                    .rate_limit(self.limit.unwrap_or(1900), Duration::from_secs(60))
+                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(1900))
                     .connect()
                     .await?
             }
