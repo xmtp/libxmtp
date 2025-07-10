@@ -35,14 +35,23 @@ public enum ConversationFilterType {
 }
 
 final class ConversationStreamCallback: FfiConversationCallback {
-	func onError(error: LibXMTP.FfiSubscribeError) {
-		print("Error ConversationStreamCallback \(error)")
-	}
-
+	let onCloseCallback: () -> Void
 	let callback: (FfiConversation) -> Void
 
-	init(callback: @escaping (FfiConversation) -> Void) {
+	init(
+		callback: @escaping (FfiConversation) -> Void,
+		onClose: @escaping () -> Void
+	) {
 		self.callback = callback
+		self.onCloseCallback = onClose
+	}
+
+	func onClose() {
+		self.onCloseCallback()
+	}
+
+	func onError(error: LibXMTP.FfiSubscribeError) {
+		print("Error ConversationStreamCallback \(error)")
 	}
 
 	func onConversation(conversation: FfiConversation) {
@@ -248,7 +257,9 @@ public actor Conversations {
 		return conversations
 	}
 
-	public func stream(type: ConversationFilterType = .all) -> AsyncThrowingStream<
+	public func stream(
+		type: ConversationFilterType = .all, onClose: (() -> Void)? = nil
+	) -> AsyncThrowingStream<
 		Conversation, Error
 	> {
 		AsyncThrowingStream { continuation in
@@ -279,6 +290,9 @@ public actor Conversations {
 						print("Error processing conversation type: \(error)")
 					}
 				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
 			}
 
 			let task = Task {
@@ -526,24 +540,31 @@ public actor Conversations {
 		disappearingMessageSettings: DisappearingMessageSettings? = nil
 	) throws -> Group {
 		let ffiOpts = FfiCreateGroupOptions(
-            permissions: GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(option: permissions),
+			permissions:
+				GroupPermissionPreconfiguration.toFfiGroupPermissionOptions(
+					option: permissions),
 			groupName: groupName,
 			groupImageUrlSquare: groupImageUrlSquare,
 			groupDescription: groupDescription,
 			customPermissionPolicySet: nil,
-			messageDisappearingSettings: disappearingMessageSettings.map { settings in
+			messageDisappearingSettings: disappearingMessageSettings.map {
+				settings in
 				FfiMessageDisappearingSettings(
 					fromNs: settings.disappearStartingAtNs,
 					inNs: settings.retentionDurationInNs
 				)
 			}
 		)
-		
+
 		let ffiGroup = try ffiConversations.createGroupOptimistic(opts: ffiOpts)
 		return Group(ffiGroup: ffiGroup, client: client)
 	}
 
-	public func streamAllMessages(type: ConversationFilterType = .all, consentStates: [ConsentState]? = nil)
+	public func streamAllMessages(
+		type: ConversationFilterType = .all,
+		consentStates: [ConsentState]? = nil,
+		onClose: (() -> Void)? = nil
+	)
 		-> AsyncThrowingStream<DecodedMessage, Error>
 	{
 		AsyncThrowingStream { continuation in
@@ -561,25 +582,28 @@ public actor Conversations {
 				if let message = DecodedMessage.create(ffiMessage: message) {
 					continuation.yield(message)
 				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
 			}
-            
+
 			let task = Task {
 				let stream: FfiStreamCloser
 				switch type {
 				case .groups:
 					stream = await ffiConversations.streamAllGroupMessages(
 						messageCallback: messageCallback,
-                        consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI
 					)
 				case .dms:
 					stream = await ffiConversations.streamAllDmMessages(
 						messageCallback: messageCallback,
-                        consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI
 					)
 				case .all:
 					stream = await ffiConversations.streamAllMessages(
 						messageCallback: messageCallback,
-                        consentStates: consentStates?.toFFI
+						consentStates: consentStates?.toFFI
 					)
 				}
 				await ffiStreamActor.setFfiStream(stream)
@@ -608,7 +632,8 @@ public actor Conversations {
 	{
 		var hmacKeysResponse =
 			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
-		let conversations: [Data: [FfiHmacKey]] = try ffiConversations.getHmacKeys()
+		let conversations: [Data: [FfiHmacKey]] =
+			try ffiConversations.getHmacKeys()
 		for convo in conversations {
 			var hmacKeys =
 				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
@@ -627,18 +652,20 @@ public actor Conversations {
 
 		return hmacKeysResponse
 	}
-    
-    public func allPushTopics() async throws -> [String] {
-        let options = FfiListConversationsOptions(
-            createdAfterNs: nil,
-            createdBeforeNs: nil,
-            limit: nil,
-            consentStates: nil,
-            includeDuplicateDms: true
-        )
-        
-        let conversations = try ffiConversations.list(opts: options)
-        return conversations.map { Topic.groupMessage($0.conversation().id().toHex).description }
-    }
+
+	public func allPushTopics() async throws -> [String] {
+		let options = FfiListConversationsOptions(
+			createdAfterNs: nil,
+			createdBeforeNs: nil,
+			limit: nil,
+			consentStates: nil,
+			includeDuplicateDms: true
+		)
+
+		let conversations = try ffiConversations.list(opts: options)
+		return conversations.map {
+			Topic.groupMessage($0.conversation().id().toHex).description
+		}
+	}
 
 }

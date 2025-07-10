@@ -621,7 +621,7 @@ class GroupTests: XCTestCase {
 
 		try await boGroup.sync()
 		let boGroupsCount = try await boGroup.messages().count
-		XCTAssertEqual(2, boGroupsCount)
+		XCTAssertEqual(3, boGroupsCount)
 		let boMessage = try await boGroup.messages().first!
 
 		XCTAssertEqual("sup gang", try alixMessage.content())
@@ -669,9 +669,9 @@ class GroupTests: XCTestCase {
 		let boMessagesPublishedCount = try await boGroup.messages(
 			deliveryStatus: .published
 		).count
-		XCTAssertEqual(2, boMessagesCount)
+		XCTAssertEqual(3, boMessagesCount)
 		XCTAssertEqual(0, boMessagesUnpublishedCount)
-		XCTAssertEqual(2, boMessagesPublishedCount)
+		XCTAssertEqual(3, boMessagesPublishedCount)
 
 	}
 
@@ -780,8 +780,8 @@ class GroupTests: XCTestCase {
 
 		let boMessages1 = try await boGroup.messages()
 		XCTAssertEqual(
-			boMessages1.count, 2,
-			"should have 2 messages on first load received \(boMessages1.count)"
+			boMessages1.count, 3,
+			"should have 3 messages on first load received \(boMessages1.count)"
 		)
 
 		_ = try await boGroup.send(content: "hello2")
@@ -809,8 +809,8 @@ class GroupTests: XCTestCase {
 				try message.encodedContent.type.typeID)
 		}
 		XCTAssertEqual(
-			boMessages2.count, 5,
-			"should have 5 messages on second load received \(boMessages2.count)"
+			boMessages2.count, 6,
+			"should have 6 messages on second load received \(boMessages2.count)"
 		)
 
 		await fulfillment(of: [expectation], timeout: 3)
@@ -979,14 +979,14 @@ class GroupTests: XCTestCase {
 			content: "Test text")
 
 		let messageCount = try await alixGroup.messages().count
-		XCTAssertEqual(messageCount, 1)
+		XCTAssertEqual(messageCount,2)
 		let messageCountPublished = try await alixGroup.messages(
 			deliveryStatus: .published
 		).count
 		let messageCountUnpublished = try await alixGroup.messages(
 			deliveryStatus: .unpublished
 		).count
-		XCTAssertEqual(messageCountPublished, 0)
+		XCTAssertEqual(messageCountPublished, 1)
 		XCTAssertEqual(messageCountUnpublished, 1)
 
 		_ = try await alixGroup.publishMessages()
@@ -1002,9 +1002,9 @@ class GroupTests: XCTestCase {
 			deliveryStatus: .unpublished
 		).count
 		let messageCount2 = try await alixGroup.messages().count
-		XCTAssertEqual(messageCountPublished2, 1)
+		XCTAssertEqual(messageCountPublished2, 2)
 		XCTAssertEqual(messageCountUnpublished2, 0)
-		XCTAssertEqual(messageCount2, 1)
+		XCTAssertEqual(messageCount2, 2)
 
 		let messages = try await alixGroup.messages()
 
@@ -1025,7 +1025,7 @@ class GroupTests: XCTestCase {
 			groupId: groups[0].id)
 		_ = try await groups[0].send(content: "hi")
 		let messageCount = try await boGroup!.messages().count
-		XCTAssertEqual(messageCount, 0)
+		XCTAssertEqual(messageCount, 1)
 		do {
 			let start = Date()
 			let numGroupsSynced = try await fixtures.boClient.conversations
@@ -1040,7 +1040,7 @@ class GroupTests: XCTestCase {
 		}
 
 		let messageCount2 = try await boGroup!.messages().count
-		XCTAssertEqual(messageCount2, 1)
+		XCTAssertEqual(messageCount2, 2)
 
 		for alixConv in try await fixtures.alixClient.conversations.list() {
 			guard case let .group(alixGroup) = alixConv else {
@@ -1119,7 +1119,7 @@ class GroupTests: XCTestCase {
 
 		// Validate messages exist and settings are applied
 		XCTAssertEqual(boGroupMessagesCount, 2)  // memberAdd, howdy
-		XCTAssertEqual(alixGroupMessagesCount, 1)  // howdy
+		XCTAssertEqual(alixGroupMessagesCount, 2)  // memberAdd, howdy
 		XCTAssertNotNil(boGroupSettings)
 
 		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
@@ -1129,7 +1129,7 @@ class GroupTests: XCTestCase {
 
 		// Validate messages are deleted
 		XCTAssertEqual(boGroupMessagesAfterSleep, 1)  // memberAdd
-		XCTAssertEqual(alixGroupMessagesAfterSleep, 0)
+		XCTAssertEqual(alixGroupMessagesAfterSleep, 1) // memberAdd
 
 		// Set message disappearing settings to nil
 		try await boGroup.updateDisappearingMessageSettings(nil)
@@ -1158,7 +1158,7 @@ class GroupTests: XCTestCase {
 
 		// Ensure messages persist
 		XCTAssertEqual(boGroupMessagesPersist, 5)  // memberAdd, settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 4)  // settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 5)  // memberAdd, settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
 		let updatedSettings = await DisappearingMessageSettings(
@@ -1191,7 +1191,7 @@ class GroupTests: XCTestCase {
 			.count
 
 		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
-		XCTAssertEqual(alixGroupMessagesAfterNewSend, 8)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
 
 		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
 
@@ -1200,7 +1200,7 @@ class GroupTests: XCTestCase {
 
 		// Validate messages were deleted
 		XCTAssertEqual(boGroupMessagesFinal, 7)
-		XCTAssertEqual(alixGroupMessagesFinal, 6)
+		XCTAssertEqual(alixGroupMessagesFinal, 7)
 
 		// Final validation that settings persist
 		let boGroupFinalSettings = boGroup.disappearingMessageSettings

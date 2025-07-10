@@ -200,7 +200,7 @@ class DmTests: XCTestCase {
 		try await sameDm.sync()
 
 		let sameMessages = try await sameDm.messages()
-		XCTAssertEqual(sameMessages.count, 2)
+		XCTAssertEqual(sameMessages.count, 3)
 		XCTAssertEqual(try sameMessages.first!.body, "gm")
 	}
 
@@ -328,7 +328,7 @@ class DmTests: XCTestCase {
 
 		// Validate messages exist and settings are applied
 		XCTAssertEqual(boGroupMessagesCount, 2)  // memberAdd howdy
-		XCTAssertEqual(alixGroupMessagesCount, 1)  // howdy
+		XCTAssertEqual(alixGroupMessagesCount, 2)  // memberAdd howdy
 		XCTAssertNotNil(boGroupSettings)
 
 		try await Task.sleep(nanoseconds: 5_000_000_000)  // Sleep for 5 seconds
@@ -338,7 +338,7 @@ class DmTests: XCTestCase {
 
 		// Validate messages are deleted
 		XCTAssertEqual(boGroupMessagesAfterSleep, 1)
-		XCTAssertEqual(alixGroupMessagesAfterSleep, 0)
+		XCTAssertEqual(alixGroupMessagesAfterSleep, 1)
 
 		// Set message disappearing settings to nil
 		try await boDm.updateDisappearingMessageSettings(nil)
@@ -367,7 +367,7 @@ class DmTests: XCTestCase {
 
 		// Ensure messages persist
 		XCTAssertEqual(boGroupMessagesPersist, 5)  // memberAdd settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 4)  // settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 5)  // memberAdd settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
 		let updatedSettings = await DisappearingMessageSettings(
@@ -400,7 +400,7 @@ class DmTests: XCTestCase {
 			.count
 
 		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
-		XCTAssertEqual(alixGroupMessagesAfterNewSend, 8)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
 
 		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
 
@@ -409,7 +409,7 @@ class DmTests: XCTestCase {
 
 		// Validate messages were deleted
 		XCTAssertEqual(boGroupMessagesFinal, 7)
-		XCTAssertEqual(alixGroupMessagesFinal, 6)
+		XCTAssertEqual(alixGroupMessagesFinal, 7)
 
 		let boGroupFinalSettings = boDm.disappearingMessageSettings
 		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings

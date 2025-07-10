@@ -2,14 +2,23 @@ import Foundation
 import LibXMTP
 
 final class MessageCallback: FfiMessageCallback {
+	func onClose() {
+		self.onCloseCallback()
+	}
+
 	func onError(error: LibXMTP.FfiSubscribeError) {
 		print("Error MessageCallback \(error)")
 	}
 
+	let onCloseCallback: () -> Void
 	let callback: (LibXMTP.FfiMessage) -> Void
 
-	init(_ callback: @escaping (LibXMTP.FfiMessage) -> Void) {
+	init(
+		callback: @escaping (FfiMessage) -> Void,
+		onClose: @escaping () -> Void
+	) {
 		self.callback = callback
+		self.onCloseCallback = onClose
 	}
 
 	func onMessage(message: LibXMTP.FfiMessage) {
@@ -142,7 +151,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())
 	}
 
-	public func addMembers(inboxIds: [InboxId]) async throws -> GroupMembershipResult {
+	public func addMembers(inboxIds: [InboxId]) async throws
+		-> GroupMembershipResult
+	{
 		try validateInboxIds(inboxIds)
 		let result = try await ffiGroup.addMembersByInboxId(inboxIds: inboxIds)
 		return GroupMembershipResult(ffiGroupMembershipResult: result)
@@ -153,7 +164,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.removeMembersByInboxId(inboxIds: inboxIds)
 	}
 
-	public func addMembersByIdentity(identities: [PublicIdentity]) async throws -> GroupMembershipResult
+	public func addMembersByIdentity(identities: [PublicIdentity]) async throws
+		-> GroupMembershipResult
 	{
 		let result = try await ffiGroup.addMembers(
 			accountIdentifiers: identities.map { $0.ffiPrivate })
@@ -274,16 +286,16 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-    public func clearDisappearingMessageSettings() async throws {
-        try await ffiGroup.removeConversationMessageDisappearingSettings()
-    }
-    
-    // Returns null if group is not paused, otherwise the min version required to unpause this group
-    public func pausedForVersion() throws -> String? {
-        return try ffiGroup.pausedForVersion()
-    }
-    
-    public func updateConsentState(state: ConsentState) async throws {
+	public func clearDisappearingMessageSettings() async throws {
+		try await ffiGroup.removeConversationMessageDisappearingSettings()
+	}
+
+	// Returns null if group is not paused, otherwise the min version required to unpause this group
+	public func pausedForVersion() throws -> String? {
+		return try ffiGroup.pausedForVersion()
+	}
+
+	public func updateConsentState(state: ConsentState) async throws {
 		try ffiGroup.updateConsentState(state: state.toFFI)
 	}
 
@@ -291,7 +303,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try ffiGroup.consentState().fromFFI
 	}
 
-	public func processMessage(messageBytes: Data) async throws -> DecodedMessage? {
+	public func processMessage(messageBytes: Data) async throws
+		-> DecodedMessage?
+	{
 		let message = try await ffiGroup.processStreamedConversationMessage(
 			envelopeBytes: messageBytes)
 		return DecodedMessage.create(ffiMessage: message)
@@ -379,7 +393,9 @@ public struct Group: Identifiable, Equatable, Hashable {
 		self.streamHolder.stream?.end()
 	}
 
-	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+	public func streamMessages(onClose: (() -> Void)? = nil)
+		-> AsyncThrowingStream<DecodedMessage, Error>
+	{
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiGroup.stream(
@@ -389,9 +405,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 							continuation.finish()
 							return
 						}
-						if let message = DecodedMessage.create(ffiMessage: message) {
+						if let message = DecodedMessage.create(
+							ffiMessage: message)
+						{
 							continuation.yield(message)
 						}
+					} onClose: {
+						onClose?()
+						continuation.finish()
 					}
 				)
 
@@ -532,16 +553,18 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return try await ffiGroup.findMessagesWithReactions(opts: options)
 			.compactMap {
 				ffiMessageWithReactions in
-				return DecodedMessage.create(ffiMessage: ffiMessageWithReactions)
+				return DecodedMessage.create(
+					ffiMessage: ffiMessageWithReactions)
 			}
 	}
-    
-    public func getHmacKeys() throws
-    -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
-        var hmacKeysResponse =
+
+	public func getHmacKeys() throws
+		-> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+	{
+		var hmacKeysResponse =
 			Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
-        let conversations: [Data: [FfiHmacKey]] = try ffiGroup.getHmacKeys()
-        for convo in conversations {
+		let conversations: [Data: [FfiHmacKey]] = try ffiGroup.getHmacKeys()
+		for convo in conversations {
 			var hmacKeys =
 				Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
 			for key in convo.value {
@@ -558,13 +581,15 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		return hmacKeysResponse
-    }
-    
-    public func getPushTopics() throws -> [String] {
-        return [topic]
-    }
-    
-    public func getDebugInformation() async throws -> ConversationDebugInfo {
-        return ConversationDebugInfo(ffiConversationDebugInfo: try await ffiGroup.conversationDebugInfo())
-    }
+	}
+
+	public func getPushTopics() throws -> [String] {
+		return [topic]
+	}
+
+	public func getDebugInformation() async throws -> ConversationDebugInfo {
+		return ConversationDebugInfo(
+			ffiConversationDebugInfo: try await ffiGroup.conversationDebugInfo()
+		)
+	}
 }

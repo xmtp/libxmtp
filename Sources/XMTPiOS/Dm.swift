@@ -210,7 +210,7 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		self.streamHolder.stream?.end()
 	}
 
-	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<DecodedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			let task = Task.detached {
 				self.streamHolder.stream = await self.ffiConversation.stream(
@@ -223,6 +223,9 @@ public struct Dm: Identifiable, Equatable, Hashable {
 						if let message = DecodedMessage.create(ffiMessage: message) {
 							continuation.yield(message)
 						}
+					} onClose: {
+						onClose?()
+						continuation.finish()
 					}
 				)
 

@@ -224,12 +224,12 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<DecodedMessage, Error> {
 		switch self {
 		case let .group(group):
-			return group.streamMessages()
+			return group.streamMessages(onClose: onClose)
 		case let .dm(dm):
-			return dm.streamMessages()
+			return dm.streamMessages(onClose: onClose)
 		}
 	}
 

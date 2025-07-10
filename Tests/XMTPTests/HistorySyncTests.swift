@@ -334,7 +334,7 @@ class HistorySyncTests: XCTestCase {
 			groupId: group.id)
 		{
 			let messageCount2 = try await group2.messages().count
-			XCTAssertEqual(messageCount2, 1)
+			XCTAssertEqual(messageCount2, 2)
 		} else {
 			XCTFail()
 		}

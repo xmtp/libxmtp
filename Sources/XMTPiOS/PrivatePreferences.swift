@@ -72,17 +72,20 @@ public actor PrivatePreferences {
 			entity: inboxId
 		).fromFFI
 	}
-	
+
 	public func sync() async throws {
 		try await ffiClient.syncPreferences()
 	}
 
-	@available(*, deprecated, message: "syncConsent is deprecated. Use `sync()` instead.")
+	@available(
+		*, deprecated,
+		message: "syncConsent is deprecated. Use `sync()` instead."
+	)
 	public func syncConsent() async throws {
 		try await ffiClient.sendSyncRequest()
 	}
 
-	public func streamConsent()
+	public func streamConsent(onClose: (() -> Void)? = nil)
 		-> AsyncThrowingStream<ConsentRecord, Error>
 	{
 		AsyncThrowingStream { continuation in
@@ -100,6 +103,9 @@ public actor PrivatePreferences {
 				for consent in records {
 					continuation.yield(consent.fromFfi)
 				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
 			}
 
 			let task = Task {
@@ -117,7 +123,7 @@ public actor PrivatePreferences {
 		}
 	}
 
-	public func streamPreferenceUpdates()
+	public func streamPreferenceUpdates(onClose: (() -> Void)? = nil)
 		-> AsyncThrowingStream<PreferenceType, Error>
 	{
 		AsyncThrowingStream { continuation in
@@ -137,6 +143,9 @@ public actor PrivatePreferences {
 						continuation.yield(.hmac_keys)
 					}
 				}
+			} onClose: {
+				onClose?()
+				continuation.finish()
 			}
 
 			let task = Task {
@@ -158,10 +167,15 @@ public actor PrivatePreferences {
 final class ConsentCallback: FfiConsentCallback {
 	let client: Client
 	let callback: ([FfiConsent]) -> Void
+	let onCloseCallback: () -> Void
 
-	init(client: Client, _ callback: @escaping ([FfiConsent]) -> Void) {
+	init(
+		client: Client, _ callback: @escaping ([FfiConsent]) -> Void,
+		onClose: @escaping () -> Void
+	) {
 		self.client = client
 		self.callback = callback
+		self.onCloseCallback = onClose
 	}
 
 	func onConsentUpdate(consent: [FfiConsent]) {
@@ -171,16 +185,24 @@ final class ConsentCallback: FfiConsentCallback {
 	func onError(error: FfiSubscribeError) {
 		print("Error ConsentCallback \(error)")
 	}
+
+	func onClose() {
+		self.onCloseCallback()
+	}
 }
 
 final class PreferenceCallback: FfiPreferenceCallback {
 	let client: Client
 	let callback: ([FfiPreferenceUpdate]) -> Void
+	let onCloseCallback: () -> Void
 
-	init(client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void)
-	{
+	init(
+		client: Client, _ callback: @escaping ([FfiPreferenceUpdate]) -> Void,
+		onClose: @escaping () -> Void
+	) {
 		self.client = client
 		self.callback = callback
+		self.onCloseCallback = onClose
 	}
 
 	func onPreferenceUpdate(preference: [FfiPreferenceUpdate]) {
@@ -189,5 +211,9 @@ final class PreferenceCallback: FfiPreferenceCallback {
 
 	func onError(error: FfiSubscribeError) {
 		print("Error ConsentCallback \(error)")
+	}
+
+	func onClose() {
+		self.onCloseCallback()
 	}
 }

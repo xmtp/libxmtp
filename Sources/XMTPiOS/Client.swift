@@ -303,7 +303,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncServerUrl: options.historySyncUrl,
 			deviceSyncMode: .enabled,
-			allowOffline: buildOffline
+			allowOffline: buildOffline,
+			disableEvents: false
 		)
 
 		return (ffiClient, dbURL)
@@ -462,7 +463,8 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncServerUrl: nil,
 			deviceSyncMode: nil,
-			allowOffline: false
+			allowOffline: false,
+			disableEvents: false
 		)
 	}
 

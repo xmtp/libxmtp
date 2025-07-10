@@ -316,7 +316,7 @@ class ConversationTests: XCTestCase {
         // This test seems to fail with some random number between 87, 88, or 89, even with increased delay
 		XCTAssertEqual(messages.count, 90)
 		let caroMessagesCount = try await caroGroup.messages().count
-		XCTAssertEqual(caroMessagesCount, 40)
+		XCTAssertEqual(caroMessagesCount, 41)
 
 		try await boGroup.sync()
 		try await alixGroup.sync()
@@ -326,9 +326,9 @@ class ConversationTests: XCTestCase {
 		let alixMessagesCount = try await alixGroup.messages().count
 		let caroMessagesCountAfterSync = try await caroGroup.messages().count
 
-		XCTAssertEqual(boMessagesCount, 40)
+		XCTAssertEqual(boMessagesCount, 41)
 		XCTAssertEqual(alixMessagesCount, 41)
-		XCTAssertEqual(caroMessagesCountAfterSync, 40)
+		XCTAssertEqual(caroMessagesCountAfterSync, 41)
 	}
 
 	func testCanCreateOptimisticGroup() async throws {
