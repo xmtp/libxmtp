@@ -1171,6 +1171,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1211,6 +1215,10 @@ fun uniffi_xmtpv3_checksum_func_generate_inbox_id(
 fun uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier(
 ): Short
 fun uniffi_xmtpv3_checksum_func_get_version_info(
+): Short
+fun uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids(
+): Short
+fun uniffi_xmtpv3_checksum_func_is_connected(
 ): Short
 fun uniffi_xmtpv3_checksum_func_revoke_installations(
 ): Short
@@ -1892,6 +1900,10 @@ fun uniffi_xmtpv3_fn_func_get_inbox_id_for_identifier(`api`: Pointer,`accountIde
 ): Long
 fun uniffi_xmtpv3_fn_func_get_version_info(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_inbox_state_from_inbox_ids(`api`: Pointer,`inboxIds`: RustBuffer.ByValue,
+): Long
+fun uniffi_xmtpv3_fn_func_is_connected(`api`: Pointer,
+): Long
 fun uniffi_xmtpv3_fn_func_revoke_installations(`api`: Pointer,`recoveryIdentifier`: RustBuffer.ByValue,`inboxId`: RustBuffer.ByValue,`installationIds`: RustBuffer.ByValue,
 ): Long
 fun ffi_xmtpv3_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -2057,6 +2069,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_get_version_info() != 29277.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 55434.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_is_connected() != 17295.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_revoke_installations() != 23629.toShort()) {
@@ -12722,6 +12740,38 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     )
     }
     
+
+        /**
+         * * Static Get the inbox state for each `inbox_id`.
+         */
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `inboxStateFromInboxIds`(`api`: XmtpApiClient, `inboxIds`: List<kotlin.String>) : List<FfiInboxState> {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_inbox_state_from_inbox_ids(FfiConverterTypeXmtpApiClient.lower(`api`),FfiConverterSequenceString.lower(`inboxIds`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeFfiInboxState.lift(it) },
+        // Error FFI converter
+        GenericException.ErrorHandler,
+    )
+    }
+
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `isConnected`(`api`: XmtpApiClient) : kotlin.Boolean {
+        return uniffiRustCallAsync(
+        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_is_connected(FfiConverterTypeXmtpApiClient.lower(`api`),),
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_i8(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_i8(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_i8(future) },
+        // lift function
+        { FfiConverterBoolean.lift(it) },
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
+    )
+    }
 
         /**
          * * Static revoke a list of installations

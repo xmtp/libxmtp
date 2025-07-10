@@ -25,8 +25,9 @@ import uniffi.xmtpv3.generateInboxId
 import uniffi.xmtpv3.getInboxIdForIdentifier
 import uniffi.xmtpv3.getVersionInfo
 import uniffi.xmtpv3.applySignatureRequest
+import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
-
+import uniffi.xmtpv3.inboxStateFromInboxIds
 import java.io.File
 
 typealias PreEventCallback = suspend () -> Unit
@@ -136,9 +137,16 @@ class Client(
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
             val cacheKey = api.env.getUrl()
             return cacheLock.withLock {
-                apiClientCache.getOrPut(cacheKey) {
-                    connectToBackend(api.env.getUrl(), api.isSecure)
+                val cached = apiClientCache[cacheKey]
+
+                if (cached != null && isConnected(cached)) {
+                    return cached
                 }
+
+                // If not cached or not connected, create a fresh client
+                val newClient = connectToBackend(api.env.getUrl(), api.isSecure)
+                apiClientCache[cacheKey] = newClient
+                return@withLock newClient
             }
         }
 
@@ -228,10 +236,8 @@ class Client(
             inboxIds: List<InboxId>,
             api: ClientOptions.Api,
         ): List<InboxState> {
-            return withFfiClient(api) { ffiClient ->
-                ffiClient.addressesFromInboxId(true, inboxIds)
-                    .map { InboxState(it) }
-            }
+            val apiClient = connectToApiBackend(api)
+            return inboxStateFromInboxIds(apiClient, inboxIds).map { InboxState(it) }
         }
 
         suspend fun keyPackageStatusesForInstallationIds(

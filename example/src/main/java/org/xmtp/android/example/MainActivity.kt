@@ -21,6 +21,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.connect.ConnectWalletActivity
 import org.xmtp.android.example.conversation.ConversationDetailActivity
@@ -111,6 +115,49 @@ class MainActivity : AppCompatActivity(),
                 viewModel.stream.collect(::addStreamedItem)
             }
         }
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ClientManager.clientState.collect { state ->
+                    when (state) {
+                        is ClientManager.ClientState.Error -> {
+                            retryCreateClientWithBackoff()
+                        }
+                        is ClientManager.ClientState.Ready -> {
+                            retryJob?.cancel()
+                            retryJob = null
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+        }
+    }
+
+    private var retryJob: Job? = null
+
+    private fun retryCreateClientWithBackoff() {
+        if (retryJob?.isActive == true) return // Prevent duplicate retries
+
+        val keys = KeyUtil(this).loadKeys() ?: run {
+            showSignIn()
+            return
+        }
+
+        retryJob = lifecycleScope.launch(Dispatchers.IO) {
+            var delayTime = 1000L // start at 1 second
+            val maxDelay = 30000L // cap at 30 seconds
+
+            while (ClientManager.clientState.value is ClientManager.ClientState.Error && isActive) {
+                Log.d("RETRY", "Retrying client creation after ${delayTime}ms")
+                ClientManager.createClient(keys, this@MainActivity)
+
+                delay(delayTime)
+                delayTime = (delayTime * 2).coerceAtMost(maxDelay) // exponential backoff
+            }
+
+            Log.d("RETRY", "Retry stopped: current state=${ClientManager.clientState.value}")
+        }
     }
 
     override fun onResume() {
@@ -119,6 +166,17 @@ class MainActivity : AppCompatActivity(),
         if (isLogsActivated()) {
             Client.activatePersistentLibXMTPLogWriter(applicationContext, FfiLogLevel.DEBUG, FfiLogRotation.MINUTELY, 3)
         }
+
+        // If we're still in error state, make sure retry is running
+        if (ClientManager.clientState.value is ClientManager.ClientState.Error) {
+            val keys = KeyUtil(this).loadKeys()
+            if (keys == null) {
+                showSignIn()
+                return
+            }
+            retryCreateClientWithBackoff()
+        }
+
     }
 
     override fun onDestroy() {

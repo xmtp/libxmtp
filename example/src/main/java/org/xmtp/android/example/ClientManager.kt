@@ -14,7 +14,6 @@ import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
-import org.xmtp.android.library.messages.walletAddress
 import java.security.SecureRandom
 
 object ClientManager {
