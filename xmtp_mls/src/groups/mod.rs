@@ -1,3 +1,4 @@
+pub mod commit_log;
 pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;

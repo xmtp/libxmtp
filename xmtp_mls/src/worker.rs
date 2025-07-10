@@ -15,6 +15,7 @@ pub enum WorkerKind {
     DisappearingMessages,
     KeyPackageCleaner,
     Event,
+    CommitLog,
 }
 
 #[derive(Clone, Default)]
