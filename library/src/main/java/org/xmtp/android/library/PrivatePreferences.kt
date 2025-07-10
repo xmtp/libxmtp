@@ -100,27 +100,33 @@ data class PrivatePreferences(
         ffiClient.sendSyncRequest()
     }
 
-    suspend fun streamPreferenceUpdates(): Flow<PreferenceType> = callbackFlow {
-        val preferenceCallback = object : FfiPreferenceCallback {
-            override fun onPreferenceUpdate(preference: List<FfiPreferenceUpdate>) {
-                preference.iterator().forEach {
-                    when (it) {
-                        is FfiPreferenceUpdate.Hmac -> trySend(PreferenceType.HMAC_KEYS)
+    suspend fun streamPreferenceUpdates(onClose: (() -> Unit)? = null): Flow<PreferenceType> =
+        callbackFlow {
+            val preferenceCallback = object : FfiPreferenceCallback {
+                override fun onPreferenceUpdate(preference: List<FfiPreferenceUpdate>) {
+                    preference.iterator().forEach {
+                        when (it) {
+                            is FfiPreferenceUpdate.Hmac -> trySend(PreferenceType.HMAC_KEYS)
+                        }
                     }
+                }
+
+                override fun onError(error: FfiSubscribeException) {
+                    Log.e("XMTP preference update stream", error.message.toString())
+                }
+
+                override fun onClose() {
+                    onClose?.invoke()
+                    close()
                 }
             }
 
-            override fun onError(error: FfiSubscribeException) {
-                Log.e("XMTP preference update stream", error.message.toString())
-            }
+            val stream = ffiClient.conversations().streamPreferences(preferenceCallback)
+
+            awaitClose { stream.end() }
         }
 
-        val stream = ffiClient.conversations().streamPreferences(preferenceCallback)
-
-        awaitClose { stream.end() }
-    }
-
-    suspend fun streamConsent(): Flow<ConsentRecord> = callbackFlow {
+    suspend fun streamConsent(onClose: (() -> Unit)? = null): Flow<ConsentRecord> = callbackFlow {
         val consentCallback = object : FfiConsentCallback {
             override fun onConsentUpdate(consent: List<FfiConsent>) {
                 consent.iterator().forEach {
@@ -130,6 +136,11 @@ data class PrivatePreferences(
 
             override fun onError(error: FfiSubscribeException) {
                 Log.e("XMTP consent stream", error.message.toString())
+            }
+
+            override fun onClose() {
+                onClose?.invoke()
+                close()
             }
         }
 

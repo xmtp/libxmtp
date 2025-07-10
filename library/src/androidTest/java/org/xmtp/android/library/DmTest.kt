@@ -333,7 +333,7 @@ class DmTest {
         runBlocking { alixClient.conversations.sync() }
         val sameDm = runBlocking { alixClient.conversations.listDms().last() }
         runBlocking { sameDm.sync() }
-        assertEquals(runBlocking { sameDm.messages() }.size, 2)
+        assertEquals(runBlocking { sameDm.messages() }.size, 3)
         assertEquals(runBlocking { sameDm.messages() }.first().body, "gm")
     }
 
@@ -366,7 +366,7 @@ class DmTest {
         runBlocking { sameDm.sync() }
         assertEquals(
             runBlocking { sameDm.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            2
+            3
         )
     }
 
@@ -534,14 +534,14 @@ class DmTest {
 
         // Validate messages exist and settings are applied
         assertEquals(boDm.messages().size, 2) // memberAdd howdy
-        assertEquals(alixDm?.messages()?.size, 1) // howdy
+        assertEquals(alixDm?.messages()?.size, 2) // memberAdd howdy
         Assert.assertNotNull(boDm.disappearingMessageSettings)
         assertEquals(boDm.disappearingMessageSettings!!.retentionDurationInNs, 1_000_000_000)
         assertEquals(boDm.disappearingMessageSettings!!.disappearStartingAtNs, 1_000_000_000)
         Thread.sleep(5000)
         // Validate messages are deleted
-        assertEquals(boDm.messages().size, 1)
-        assertEquals(alixDm?.messages()?.size, 0)
+        assertEquals(boDm.messages().size, 1) // memberAdd
+        assertEquals(alixDm?.messages()?.size, 1) // memberAdd
 
         // Set message disappearing settings to null
         boDm.updateDisappearingMessageSettings(null)
@@ -564,11 +564,11 @@ class DmTest {
         assertEquals(
             boDm.messages().size,
             5
-        ) // memberAss disappearing settings 1, disappearing settings 2, boMessage, alixMessage
+        ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
         assertEquals(
             alixDm.messages().size,
-            4
-        ) // disappearing settings 1, disappearing settings 2, boMessage, alixMessage
+            5
+        ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
         // Re-enable disappearing messages
         val updatedSettings = DisappearingMessageSettings(
@@ -601,8 +601,8 @@ class DmTest {
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
         assertEquals(
             alixDm.messages().size,
-            8
-        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
+            9
+        ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
         Thread.sleep(6000) // Wait for messages to disappear
 
@@ -613,8 +613,8 @@ class DmTest {
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
         assertEquals(
             alixDm.messages().size,
-            6
-        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
+            7
+        ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
 
         // Final validation that settings persist
         assertEquals(

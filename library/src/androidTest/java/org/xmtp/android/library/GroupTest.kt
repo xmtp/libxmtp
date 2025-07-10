@@ -519,7 +519,7 @@ class GroupTest {
 
     @Test
     fun testCanStreamAndUpdateNameWithoutForkingGroup() {
-        val firstMsgCheck = 2
+        val firstMsgCheck = 3
         val secondMsgCheck = 5
         var messageCallbacks = 0
 
@@ -562,7 +562,7 @@ class GroupTest {
         }
 
         val boMessages2 = runBlocking { boGroup.messages() }
-        assertEquals(boMessages2.size, secondMsgCheck)
+        assertEquals(boMessages2.size, 6)
 
         Thread.sleep(1000)
 
@@ -636,7 +636,7 @@ class GroupTest {
         runBlocking { alixClient.conversations.sync() }
         val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
-        assertEquals(runBlocking { sameGroup.messages() }.size, 2)
+        assertEquals(runBlocking { sameGroup.messages() }.size, 3)
         assertEquals(runBlocking { sameGroup.messages() }.first().body, "gm")
     }
 
@@ -669,7 +669,7 @@ class GroupTest {
         runBlocking { sameGroup.sync() }
         assertEquals(
             runBlocking { sameGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            2
+            3
         )
     }
 
@@ -693,7 +693,7 @@ class GroupTest {
         runBlocking { alixClient.conversations.sync() }
         val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
-        assertEquals(runBlocking { sameGroup.messages() }.size, 4)
+        assertEquals(runBlocking { sameGroup.messages() }.size, 5)
         assertEquals(runBlocking { sameGroup.messages(afterNs = message?.sentAtNs) }.size, 2)
     }
 
@@ -966,10 +966,10 @@ class GroupTest {
         val alixGroup: Group = alixClient.conversations.findGroup(boGroup.id)!!
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.UNKNOWN) }
         val preparedMessageId = runBlocking { alixGroup.prepareMessage("Test text") }
-        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            0
+            1
         )
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
@@ -983,13 +983,13 @@ class GroupTest {
         runBlocking { assertEquals(alixGroup.consentState(), ConsentState.ALLOWED) }
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED) }.size,
-            1
+            2
         )
         assertEquals(
             runBlocking { alixGroup.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED) }.size,
             0
         )
-        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
 
         val message = runBlocking { alixGroup.messages() }.first()
 
@@ -1017,8 +1017,8 @@ class GroupTest {
         val alixGroup2: Group = alixClient.conversations.findGroup(boGroup2.id)!!
         var numGroups: UInt?
 
-        assertEquals(runBlocking { alixGroup.messages() }.size, 0)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 0)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 1)
 
         runBlocking {
             boGroup.send("hi")
@@ -1026,8 +1026,8 @@ class GroupTest {
             numGroups = alixClient.conversations.syncAllConversations()
         }
 
-        assertEquals(runBlocking { alixGroup.messages() }.size, 1)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 1)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 2)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 2)
         assertEquals(numGroups, 3u)
 
         runBlocking {
@@ -1040,8 +1040,8 @@ class GroupTest {
             Thread.sleep(2000)
         }
 
-        assertEquals(runBlocking { alixGroup.messages() }.size, 3)
-        assertEquals(runBlocking { alixGroup2.messages() }.size, 2)
+        assertEquals(runBlocking { alixGroup.messages() }.size, 4)
+        assertEquals(runBlocking { alixGroup2.messages() }.size, 3)
         // First syncAllGroups after remove includes the group you're removed from
         assertEquals(numGroups, 3u)
 
@@ -1071,14 +1071,14 @@ class GroupTest {
 
         // Validate messages exist and settings are applied
         assertEquals(boGroup.messages().size, 2) // memberAdd, howdy
-        assertEquals(alixGroup?.messages()?.size, 1) // howdy
+        assertEquals(alixGroup?.messages()?.size, 2) // memberAdd, howdy
         assertNotNull(boGroup.disappearingMessageSettings)
         assertEquals(boGroup.disappearingMessageSettings!!.retentionDurationInNs, 1_000_000_000)
         assertEquals(boGroup.disappearingMessageSettings!!.disappearStartingAtNs, 1_000_000_000)
         Thread.sleep(5000)
         // Validate messages are deleted
         assertEquals(boGroup.messages().size, 1) // memberAdd
-        assertEquals(alixGroup?.messages()?.size, 0)
+        assertEquals(alixGroup?.messages()?.size, 1) // memberAdd
 
         // Set message disappearing settings to null
         boGroup.updateDisappearingMessageSettings(null)
@@ -1104,8 +1104,8 @@ class GroupTest {
         ) // memberAdd, disappearing settings 1, disappearing settings 2, boMessage, alixMessage
         assertEquals(
             alixGroup.messages().size,
-            4
-        ) // disappearing settings 1, disappearing settings 2, boMessage, alixMessage
+            5
+        ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
         // Re-enable disappearing messages
         val updatedSettings = DisappearingMessageSettings(
@@ -1138,8 +1138,8 @@ class GroupTest {
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
         assertEquals(
             alixGroup.messages().size,
-            8
-        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
+            9
+        ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
         Thread.sleep(6000) // Wait for messages to disappear
 
@@ -1150,8 +1150,8 @@ class GroupTest {
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
         assertEquals(
             alixGroup.messages().size,
-            6
-        ) // disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
+            7
+        ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
 
         // Final validation that settings persist
         assertEquals(

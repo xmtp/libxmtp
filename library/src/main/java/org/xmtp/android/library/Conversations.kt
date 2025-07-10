@@ -439,7 +439,10 @@ data class Conversations(
         }
     }
 
-    fun stream(type: ConversationFilterType = ConversationFilterType.ALL): Flow<Conversation> =
+    fun stream(
+        type: ConversationFilterType = ConversationFilterType.ALL,
+        onClose: (() -> Unit)? = null,
+    ): Flow<Conversation> =
         callbackFlow {
             val conversationCallback = object : FfiConversationCallback {
                 override fun onConversation(conversation: FfiConversation) {
@@ -462,6 +465,11 @@ data class Conversations(
                 override fun onError(error: FfiSubscribeException) {
                     Log.e("XMTP Conversation stream", error.message.toString())
                 }
+
+                override fun onClose() {
+                    onClose?.invoke()
+                    close()
+                }
             }
 
             val stream = when (type) {
@@ -476,6 +484,7 @@ data class Conversations(
     fun streamAllMessages(
         type: ConversationFilterType = ConversationFilterType.ALL,
         consentStates: List<ConsentState>? = null,
+        onClose: (() -> Unit)? = null,
     ): Flow<DecodedMessage> =
         callbackFlow {
             val messageCallback = object : FfiMessageCallback {
@@ -486,6 +495,11 @@ data class Conversations(
 
                 override fun onError(error: FfiSubscribeException) {
                     Log.e("XMTP all message stream", error.message.toString())
+                }
+
+                override fun onClose() {
+                    onClose?.invoke()
+                    close()
                 }
             }
             val states = consentStates?.let { states ->

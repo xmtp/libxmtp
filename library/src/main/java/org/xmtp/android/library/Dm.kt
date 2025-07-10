@@ -199,7 +199,7 @@ class Dm(
         return libXMTPGroup.listMembers().map { Member(it) }
     }
 
-    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
+    fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
                 try {
@@ -223,6 +223,11 @@ class Dm(
 
             override fun onError(error: FfiSubscribeException) {
                 Log.e("XMTP Dm stream", "Stream error: ${error.message}", error)
+            }
+
+            override fun onClose() {
+                onClose?.invoke()
+                close()
             }
         }
 

@@ -437,7 +437,7 @@ class Group(
         return libXMTPGroup.pausedForVersion()
     }
 
-    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
+    fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
                 try {
@@ -461,6 +461,11 @@ class Group(
 
             override fun onError(error: FfiSubscribeException) {
                 Log.e("XMTP Group stream", "Stream error: ${error.message}", error)
+            }
+
+            override fun onClose() {
+                onClose?.invoke()
+                close()
             }
         }
 

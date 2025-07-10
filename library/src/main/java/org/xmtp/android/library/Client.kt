@@ -227,6 +227,7 @@ class Client(
                 deviceSyncServerUrl = null,
                 deviceSyncMode = null,
                 allowOffline = false,
+                disableEvents = false,
             )
 
             return useClient(ffiClient)
@@ -379,6 +380,7 @@ class Client(
                 deviceSyncServerUrl = options.historySyncUrl,
                 deviceSyncMode = FfiSyncWorkerMode.ENABLED,
                 allowOffline = buildOffline,
+                disableEvents = false,
             )
             return Pair(ffiClient, dbPath)
         }

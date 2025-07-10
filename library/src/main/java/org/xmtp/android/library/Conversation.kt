@@ -210,10 +210,10 @@ sealed class Conversation {
             }
         }
 
-    fun streamMessages(): Flow<DecodedMessage> {
+    fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> {
         return when (this) {
-            is Group -> group.streamMessages()
-            is Dm -> dm.streamMessages()
+            is Group -> group.streamMessages(onClose)
+            is Dm -> dm.streamMessages(onClose)
         }
     }
 

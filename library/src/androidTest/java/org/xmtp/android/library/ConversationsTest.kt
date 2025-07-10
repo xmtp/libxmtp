@@ -466,14 +466,14 @@ class ConversationsTest {
         caroJob.cancelAndJoin()
 
         assertEquals(90, messages.size)
-        assertEquals(40, caroGroup.messages().size)
+        assertEquals(41, caroGroup.messages().size)
 
         boGroup.sync()
         alixGroup.sync()
         caroGroup.sync()
 
-        assertEquals(40, boGroup.messages().size)
+        assertEquals(41, boGroup.messages().size)
         assertEquals(41, alixGroup.messages().size)
-        assertEquals(40, caroGroup.messages().size)
+        assertEquals(41, caroGroup.messages().size)
     }
 }

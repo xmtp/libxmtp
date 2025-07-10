@@ -278,6 +278,6 @@ class HistorySyncTest {
         alixGroup2.sync()
 
         val messageCount2 = alixGroup2.messages().size
-        assertEquals(messageCount2, 1)
+        assertEquals(messageCount2, 2)
     }
 }
