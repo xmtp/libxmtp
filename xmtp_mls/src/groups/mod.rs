@@ -610,7 +610,7 @@ where
             let DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
-                ..
+                added_by_installation_id,
             } = decrypted_welcome;
 
             tracing::debug!(
@@ -629,7 +629,7 @@ where
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
-            let mls_group = staged_welcome.into_group(provider)?;
+            let mls_group = OpenMlsGroup::from_welcome_logged(provider, staged_welcome, &added_by_inbox_id, &added_by_installation_id)?;
             let group_id = mls_group.group_id().to_vec();
             let metadata = extract_group_metadata(&mls_group).map_err(MetadataPermissionsError::from)?;
             let dm_members = metadata.dm_members;

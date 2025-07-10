@@ -53,8 +53,6 @@ async fn test_successful_commit_log_types() {
     let a = a_client
         .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    let b = b_client.sync_welcomes().await?.first()?.to_owned();
-    b.sync().await?;
     assert_eq!(a.local_commit_log().await?.len(), 2);
     assert_eq!(
         a.local_commit_log().await?[0].commit_type,
@@ -64,7 +62,22 @@ async fn test_successful_commit_log_types() {
         last_commit_log(&a).await.commit_type,
         Some(CommitType::UpdateGroupMembership.to_string())
     );
-    assert_eq!(b.local_commit_log().await?.len(), 1);
+
+    let b = b_client.sync_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
+    assert_eq!(b.local_commit_log().await?.len(), 2);
+    assert_eq!(
+        b.local_commit_log().await?[0].commit_type,
+        Some(CommitType::Welcome.to_string())
+    );
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_inbox_id,
+        Some(a_client.inbox_id().to_string())
+    );
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_installation_id,
+        Some(a_client.installation_public_key().to_vec())
+    );
     assert_eq!(last_commit_log(&b).await.commit_type, None);
 
     a.key_update().await?;
@@ -99,7 +112,7 @@ async fn test_successful_commit_log_types() {
     assert!(last_commit_type_matches(&a, &b, CommitType::UpdatePermission).await);
 
     assert_eq!(a.local_commit_log().await?.len(), 8);
-    assert_eq!(b.local_commit_log().await?.len(), 7);
+    assert_eq!(b.local_commit_log().await?.len(), 8);
 }
 
 // TODO(rich): Fix intent publishing on bad network conditions
@@ -163,6 +176,7 @@ async fn test_out_of_epoch() {
     assert_eq!(
         get_type(&bo_logs),
         &[
+            &Some("Welcome".to_string()),
             &None,
             &Some("MetadataUpdate".to_string()),
             &Some("KeyUpdate".to_string()),
@@ -175,6 +189,7 @@ async fn test_out_of_epoch() {
     assert_eq!(
         get_result(&bo_logs),
         &[
+            &CommitResult::Success,
             &CommitResult::WrongEpoch,
             &CommitResult::Success,
             &CommitResult::Success,
