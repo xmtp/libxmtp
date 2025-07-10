@@ -77,7 +77,7 @@ class CodecTests: XCTestCase {
 			options: .init(contentType: NumberCodec().contentType))
 
 		// Remove number codec from registry
-		Client.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)
+		Client.codecRegistry.removeCodec(for: NumberCodec().id)
 
 		let messages = try await alixConversation.messages()
 		XCTAssertEqual(messages.count, 2)
