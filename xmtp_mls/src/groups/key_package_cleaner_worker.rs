@@ -20,12 +20,8 @@ pub enum KeyPackagesCleanerError {
     Storage(#[from] StorageError),
     #[error("client error: {0}")]
     Client(#[from] ClientError),
-    #[error("metadata error: {0}")]
-    Metadata(StorageError),
     #[error("deletion error: {0}")]
     Deletion(StorageError),
-    #[error("rotation error: {0}")]
-    Rotation(ClientError),
 }
 
 impl KeyPackagesCleanerError {
@@ -33,9 +29,7 @@ impl KeyPackagesCleanerError {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Client(s) => s.db_needs_connection(),
-            Self::Metadata(s) => s.db_needs_connection(),
             Self::Deletion(s) => s.db_needs_connection(),
-            Self::Rotation(s) => s.db_needs_connection(),
         }
     }
 }

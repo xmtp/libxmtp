@@ -18,6 +18,7 @@ pub(super) mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
+mod stream_utils;
 
 use crate::{
     groups::{

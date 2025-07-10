@@ -20,7 +20,12 @@ use passkey::{
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::atomic::{AtomicUsize, Ordering},
+    sync::Arc,
+};
+use tokio::sync::OnceCell;
 use url::Url;
 use xmtp_api::XmtpApi;
 use xmtp_common::StreamHandle;
@@ -38,6 +43,9 @@ use xmtp_id::{
     InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
+
+pub static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const_new();
+pub static TOXI_PORT: AtomicUsize = AtomicUsize::new(21100);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.

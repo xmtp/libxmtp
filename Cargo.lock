@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "chrono",
  "futures",
@@ -485,6 +485,7 @@ dependencies = [
  "prost",
  "serde",
  "tokio",
+ "toxiproxy_rust",
  "tracing",
  "tracing-subscriber",
  "xmtp_api",
@@ -500,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "console_error_panic_hook",
  "ethers",
@@ -6509,6 +6510,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
+name = "toxiproxy_rust"
+version = "0.1.6"
+source = "git+https://github.com/ephemeraHQ/toxiproxy_rust.git#b82f61cbc44a2ddcca0bcfd31f0406df7fc16af8"
+dependencies = [
+ "http 0.2.12",
+ "lazy_static",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "tracing"
 version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7835,7 +7849,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "ctor 0.4.2",
@@ -7856,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "ctor 0.4.2",
@@ -7883,11 +7897,14 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "futures",
+ "h2 0.4.10",
  "http 1.3.1",
+ "hyper 1.6.0",
+ "pin-project-lite",
  "prost",
  "thiserror 2.0.12",
  "tokio",
@@ -7901,7 +7918,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7925,7 +7942,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -7952,7 +7969,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "chrono",
  "clap",
@@ -7985,7 +8002,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8021,7 +8038,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "prost",
  "serde",
@@ -8036,7 +8053,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "bincode",
  "curve25519-dalek",
@@ -8064,7 +8081,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "anyhow",
  "bincode",
@@ -8103,7 +8120,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db_test"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "derive_builder",
  "diesel",
@@ -8116,7 +8133,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8152,7 +8169,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8163,7 +8180,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -8216,6 +8233,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "toxiproxy_rust",
  "tracing",
  "tracing-subscriber",
  "tracing-wasm",
@@ -8242,7 +8260,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "openmls",
  "prost",
@@ -8257,7 +8275,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "derive_builder",
@@ -8281,7 +8299,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "async-trait",
  "chrono",
