@@ -14,6 +14,8 @@ mod message;
 mod permissions;
 mod signatures;
 mod streams;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 use napi::bindgen_prelude::Error;
 
