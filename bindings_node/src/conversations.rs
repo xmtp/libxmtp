@@ -3,18 +3,21 @@ use crate::identity::Identifier;
 use crate::message::Message;
 use crate::permissions::{GroupPermissionsOptions, PermissionPolicySet};
 use crate::ErrorWrapper;
-use crate::{client::RustXmtpClient, conversation::Conversation, streams::StreamCloser};
-use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
-use napi::threadsafe_function::{
-  ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+use crate::{client::RustXmtpClient, conversation::Conversation};
+use futures::{SinkExt, StreamExt, TryStreamExt};
+use napi::bindgen_prelude::{
+  within_runtime_if_available, BigInt, Error, ReadableStream, Result, Uint8Array,
 };
-use napi::JsFunction;
+use napi::Env;
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::vec;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::PollSender;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
 use xmtp_db::group::ConversationType as XmtpConversationType;
 use xmtp_db::group::GroupMembershipState as XmtpGroupMembershipState;
@@ -27,7 +30,7 @@ use xmtp_mls::groups::ConversationDebugInfo as XmtpConversationDebugInfo;
 use xmtp_mls::groups::PreconfiguredPolicies;
 
 #[napi]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum ConversationType {
   Dm = 0,
   Group = 1,
@@ -175,31 +178,20 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
   }
 }
 
-// TODO: Napi-rs 3.0.0 will support structured enums
-// alpha release: https://github.com/napi-rs/napi-rs/releases/tag/napi%403.0.0-alpha.9
-// PR: https://github.com/napi-rs/napi-rs/pull/2222
-// Issue: https://github.com/napi-rs/napi-rs/issues/507
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum Tag<T> {
-  V(T),
-}
-
-#[derive(Serialize, Deserialize)]
+#[napi]
 pub enum UserPreferenceUpdate {
   ConsentUpdate { consent: Consent },
   HmacKeyUpdate { key: Vec<u8> },
 }
 
-impl From<XmtpUserPreferenceUpdate> for Tag<UserPreferenceUpdate> {
+impl From<XmtpUserPreferenceUpdate> for UserPreferenceUpdate {
   fn from(value: XmtpUserPreferenceUpdate) -> Self {
     match value {
-      XmtpUserPreferenceUpdate::Hmac { key, .. } => {
-        Tag::V(UserPreferenceUpdate::HmacKeyUpdate { key })
-      }
-      XmtpUserPreferenceUpdate::Consent(consent) => Tag::V(UserPreferenceUpdate::ConsentUpdate {
+      XmtpUserPreferenceUpdate::Hmac { key, .. } => UserPreferenceUpdate::HmacKeyUpdate { key },
+      XmtpUserPreferenceUpdate::Consent(consent) => UserPreferenceUpdate::ConsentUpdate {
         consent: Consent::from(consent),
-      }),
+      },
     }
   }
 }
@@ -520,60 +512,48 @@ impl Conversations {
     Ok(hmac_map)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: Error | null, result: Conversation | undefined) => void, onClose: () => void, conversationType?: ConversationType"
-  )]
+  #[napi]
   pub fn stream(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    env: Env,
     conversation_type: Option<ConversationType>,
-  ) -> Result<StreamCloser> {
-    let tsfn: ThreadsafeFunction<Conversation, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+  ) -> Result<ReadableStream<'_, Conversation>> {
+    let (tx, rx) = mpsc::channel(64);
 
-    let stream_closer = RustXmtpClient::stream_conversations_with_callback(
-      self.inner_client.clone(),
-      conversation_type.map(|ct| ct.into()),
-      move |convo| {
-        let status = tsfn.call(
-          convo
-            .map(Conversation::from)
-            .map_err(ErrorWrapper::from)
-            .map_err(Error::from),
-          ThreadsafeFunctionCallMode::Blocking,
-        );
-        tracing::info!("Stream status: {:?}", status);
-      },
-      move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
-
-    Ok(StreamCloser::new(stream_closer))
+    let client = self.inner_client.clone();
+    within_runtime_if_available(move || {
+      tokio::spawn(async move {
+        let tx =
+          PollSender::new(tx).sink_map_err(|_| Error::from_reason("stream sink channel closed"));
+        client
+          .stream_conversations_owned(conversation_type.map(|ct| ct.into()))
+          .await
+          .map_err(ErrorWrapper::from)?
+          // wrap with extra ok so forward never fails
+          // https://github.com/rust-lang/futures-rs/issues/2004
+          .map_ok(|c| Ok(Conversation::from(c)))
+          .map_err(|e| Error::from(ErrorWrapper::from(e)))
+          .forward(tx)
+          .await?;
+        Ok::<_, napi::Error>(())
+      })
+    });
+    let stream = ReceiverStream::new(rx);
+    ReadableStream::new(&env, stream)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void, conversationType?: ConversationType, consentStates?: ConsentState[]"
-  )]
+  #[napi]
   pub fn stream_all_messages(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
+    env: Env,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
-  ) -> Result<StreamCloser> {
+  ) -> Result<ReadableStream<'_, Message>> {
+    let (tx, rx) = mpsc::channel(64);
     tracing::trace!(
       inbox_id = self.inner_client.inbox_id(),
       conversation_type = ?conversation_type,
     );
-    let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-
     let inbox_id = self.inner_client.inbox_id().to_string();
     let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
       states
@@ -582,149 +562,98 @@ impl Conversations {
         .collect()
     });
 
-    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-      self.inner_client.clone(),
-      conversation_type.map(Into::into),
-      consents,
-      move |message| {
-        tracing::trace!(
-            inbox_id,
-            conversation_type = ?conversation_type,
-            "[received] message result"
-        );
+    let client = self.inner_client.clone();
+    within_runtime_if_available(move || {
+      tokio::spawn(async move {
+        let tx =
+          PollSender::new(tx).sink_map_err(|_| Error::from_reason("stream sink channel closed"));
+        client
+          .stream_all_messages_owned(conversation_type.map(Into::into), consents)
+          .await
+          .map_err(ErrorWrapper::from)?
+          .filter_map(move |message| {
+            let inbox_id = inbox_id.clone();
+            async move {
+              tracing::trace!(
+                  inbox_id,
+                  conversation_type = ?conversation_type,
+                  "[received] message result"
+              );
 
-        // Skip any messages that are errors
-        if let Err(err) = &message {
-          tracing::warn!(
-            inbox_id,
-            error = ?err,
-            "[received] message error, swallowing to continue stream"
-          );
-          return; // Skip this message entirely
-        }
+              // Skip any messages that are errors
+              if let Err(err) = &message {
+                tracing::warn!(
+                  inbox_id,
+                  error = ?err,
+                  "[received] message error, swallowing to continue stream"
+                );
+                return None; // Skip this message entirely
+              }
 
-        // For successful messages, try to transform and pass to JS
-        // otherwise log error and continue stream
-        match message
-          .map(Into::into)
-          .map_err(ErrorWrapper::from)
-          .map_err(Error::from)
-        {
-          Ok(transformed_msg) => {
-            tracing::trace!(
-              inbox_id,
-              "[received] calling tsfn callback with successful message"
-            );
-            let status = tsfn.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(err) => {
-            // Just in case the transformation itself fails
-            tracing::error!(
-              inbox_id,
-              error = ?err,
-              "[received] error during message transformation, swallowing to continue stream"
-            );
-          }
-        }
-      },
-      move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
-
-    Ok(StreamCloser::new(stream_closer))
+              // For successful messages, try to transform and pass to JS
+              // otherwise log error and continue stream
+              match message
+                .map(Message::from)
+                .map_err(ErrorWrapper::from)
+                .map_err(Error::from)
+              {
+                Ok(transformed_msg) => {
+                  tracing::trace!(inbox_id, "[received] returning successful message");
+                  Some(Ok(transformed_msg))
+                }
+                Err(err) => {
+                  // Just in case the transformation itself fails
+                  tracing::error!(
+                    inbox_id,
+                    error = ?err,
+                    "[received] error during message transformation, swallowing to continue stream"
+                  );
+                  None
+                }
+              }
+            }
+          })
+          // wrap with extra ok so forward future never fails and passes error to stream
+          // https://github.com/rust-lang/futures-rs/issues/2004
+          .map(|i| Ok(i))
+          .forward(tx)
+          .await?;
+        Ok::<_, napi::Error>(())
+      })
+    });
+    let stream = ReceiverStream::new(rx);
+    ReadableStream::new(&env, stream)
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: Consent[] | undefined) => void, onClose: () => void"
-  )]
-  pub fn stream_consent(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
+  #[napi]
+  pub fn stream_consent(&self, env: Env) -> Result<ReadableStream<'_, Vec<Consent>>> {
     tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn: ThreadsafeFunction<Vec<Consent>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let inbox_id = self.inner_client.inbox_id().to_string();
-    let stream_closer = RustXmtpClient::stream_consent_with_callback(
-      self.inner_client.clone(),
-      move |message| {
-        tracing::trace!(inbox_id, "[received] calling tsfn callback");
-        match message {
-          Ok(message) => {
-            let msg: Vec<Consent> = message.into_iter().map(Into::into).collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(e) => {
-            let status = tsfn.call(
-              Err(Error::from(ErrorWrapper::from(e))),
-              ThreadsafeFunctionCallMode::Blocking,
-            );
-            tracing::info!("Stream status: {:?}", status);
-          }
-        }
-      },
-      move || {
-        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
+    let stream = self
+      .inner_client
+      .stream_consent()
+      .map_ok(|message| message.into_iter().map(Into::into).collect())
+      .map_err(|e| Error::from(ErrorWrapper::from(e)));
 
-    Ok(StreamCloser::new(stream_closer))
+    ReadableStream::new(&env, Box::pin(stream))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void, onClose: () => void"
-  )]
+  #[napi]
   pub fn stream_preferences(
     &self,
-    callback: JsFunction,
-    on_close: JsFunction,
-  ) -> Result<StreamCloser> {
-    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
-    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
-      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let tsfn: ThreadsafeFunction<Vec<Tag<UserPreferenceUpdate>>, ErrorStrategy::CalleeHandled> =
-      callback.create_threadsafe_function(
-        0,
-        |ctx: ThreadSafeCallContext<Vec<Tag<UserPreferenceUpdate>>>| {
-          let env = ctx.env;
-          ctx
-            .value
-            .into_iter()
-            .map(|v| env.to_js_value(&v))
-            .collect::<Result<Vec<napi::JsUnknown>, _>>()
-        },
-      )?;
-    let inbox_id = self.inner_client.inbox_id().to_string();
-    let stream_closer = RustXmtpClient::stream_preferences_with_callback(
-      self.inner_client.clone(),
-      move |message| {
-        tracing::trace!(inbox_id, "[received] calling tsfn callback");
-        match message {
-          Ok(message) => {
-            let msg: Vec<Tag<UserPreferenceUpdate>> = message
-              .into_iter()
-              .map(Tag::<UserPreferenceUpdate>::from)
-              .collect();
-            let status = tsfn.call(Ok(msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(e) => {
-            let status = tsfn.call(
-              Err(Error::from(ErrorWrapper::from(e))),
-              ThreadsafeFunctionCallMode::Blocking,
-            );
-            tracing::info!("Stream status: {:?}", status);
-          }
-        }
-      },
-      move || {
-        let status = tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-        tracing::info!("stream on close status {:?}", status);
-      },
-    );
+    env: Env,
+  ) -> Result<ReadableStream<'_, Vec<UserPreferenceUpdate>>> {
+    let stream = self
+      .inner_client
+      .stream_preferences()
+      .map_ok(|pref| {
+        pref
+          .into_iter()
+          .map(UserPreferenceUpdate::from)
+          .collect::<Vec<UserPreferenceUpdate>>()
+      })
+      .map_err(|e| Error::from(ErrorWrapper::from(e)));
 
-    Ok(StreamCloser::new(stream_closer))
+    tracing::trace!(inbox_id = self.inner_client.inbox_id(),);
+    ReadableStream::new(&env, Box::pin(stream))
   }
 }

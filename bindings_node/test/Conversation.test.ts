@@ -1,3 +1,4 @@
+import { isReadable, Readable } from 'node:stream'
 import {
   ConsentState,
   EncodedContent,
@@ -7,7 +8,7 @@ import {
   PermissionPolicy,
   PermissionUpdateType,
 } from '@xmtp/node-bindings'
-import { describe, expect, it } from 'vitest'
+import { assert, describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
   createUser,
@@ -284,20 +285,29 @@ describe.concurrent('Conversation', () => {
     expect(conversations[0].conversation.id()).toBe(conversation.id())
 
     const streamedMessages: string[] = []
-    const stream = conversations[0].conversation.stream(
-      (_, message) => {
-        streamedMessages.push(message!.id)
-      },
-      () => {
-        console.log('closed')
-      }
-    )
-    await new Promise((resolve) => setTimeout(resolve, 10000))
+
+    console.log('trying to stream')
+    let readableStream = conversations[0].conversation.stream()
+
+    // const stream = Readable.fromWeb(readableStream)
+    /*
+    stream.on('data', (message) => {
+      console.log('Got Message ' + message)
+      streamedMessages.push(message!.id)
+    })
+    stream.on('close', () => {
+      console.log('closed')
+    })
+    */
+    // await new Promise((resolve) => setTimeout(resolve, 10000))
     const message1 = await conversation.send(encodeTextMessage('gm'))
     const message2 = await conversation.send(encodeTextMessage('gm2'))
+    for await (const message of readableStream) {
+      console.log('Got msg + ' + message)
+    }
 
     // Add sleep to allow messages to be processed
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 10000))
 
     expect(streamedMessages).toContain(message1)
     expect(streamedMessages).toContain(message2)
