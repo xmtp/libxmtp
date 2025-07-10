@@ -1406,6 +1406,10 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
+                            // TODO(rich): Add log_err! macro/trait for swallowing errors
+                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(provider, cursor, message.epoch(), &err.processing_error) {
+                                tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
+                            }
                             (err.next_intent_state, None)
                         },
                         Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
@@ -1584,26 +1588,31 @@ where
                 // Do not update the cursor if you have been removed from the group - you may be readded
                 // later
                 if !e.is_retryable() && mls_group.is_active() {
-                    if let Err(update_cursor_error) =
-                        self.update_cursor_if_needed(&provider, &self.group_id, message_cursor)
-                    {
-                        // We don't need to propagate the error if the cursor fails to update - the worst case is
-                        // that the non-retriable error is processed again
-                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
-                    }
-                    if message_type == MlsContentType::Commit {
-                        if let Err(accounting_error) = mls_group.mark_failed_commit_logged(
-                            &provider,
-                            message_cursor,
-                            message_epoch,
-                            &e,
-                        ) {
-                            tracing::error!(
-                                "Error inserting commit entry for failed commit: {}",
-                                accounting_error
-                            );
+                    if let Err(transaction_error) = provider.transaction(|provider| {
+                        // TODO(rich): Add log_err! macro/trait for swallowing errors
+                        if let Err(update_cursor_error) =
+                            self.update_cursor_if_needed(provider, &self.group_id, message_cursor)
+                        {
+                            // We don't need to propagate the error if the cursor fails to update - the worst case is
+                            // that the non-retriable error is processed again
+                            tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                        } else if message_type == MlsContentType::Commit {
+                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                                provider,
+                                message_cursor,
+                                message_epoch,
+                                &e,
+                            ) {
+                                tracing::error!(
+                                    "Error inserting commit entry for failed commit: {}",
+                                    accounting_error
+                                );
+                            }
                         }
-                    }
+                        Ok::<(), GroupMessageProcessingError>(())
+                    }) {
+                        tracing::error!("Error post-processing non-retryable error: {transaction_error:?}");
+                    };
                 }
 
                 if let Err(accounting_error) = self
