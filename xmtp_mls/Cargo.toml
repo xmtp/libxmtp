@@ -32,6 +32,7 @@ test-utils = [
   "dep:futures-executor",
   "dep:mockall",
   "dep:rstest",
+  "dep:toxiproxy_rust",
 ]
 bench = [
   "test-utils",
@@ -108,6 +109,7 @@ criterion = { workspace = true, optional = true }
 hmac = "0.12.1"
 indicatif = { version = "0.17", optional = true }
 rstest = { workspace = true, optional = true }
+toxiproxy_rust = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
@@ -159,6 +161,7 @@ xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 mockall.workspace = true
 futures-test = "0.3.31"
+toxiproxy_rust = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

@@ -57,7 +57,7 @@ export const createClient = async (user: User) => {
     undefined,
     undefined,
     SyncWorkerMode.disabled,
-    { level: LogLevel.error },
+    { level: LogLevel.error }
   )
 }
 

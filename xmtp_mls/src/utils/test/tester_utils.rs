@@ -20,7 +20,12 @@ use passkey::{
     types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
 };
 use public_suffix::PublicSuffixList;
-use std::{ops::Deref, sync::Arc};
+use std::{
+    ops::Deref,
+    sync::atomic::{AtomicUsize, Ordering},
+    sync::Arc,
+};
+use tokio::sync::OnceCell;
 use url::Url;
 use xmtp_api::XmtpApi;
 use xmtp_common::StreamHandle;

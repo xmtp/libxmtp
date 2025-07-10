@@ -118,6 +118,7 @@ tokio-stream = { version = "0.1", default-features = false }
 tokio-util = { version = "0.7", default-features = false, features = [
   "compat",
 ] }
+toxiproxy_rust = { git = "https://github.com/ephemeraHQ/toxiproxy_rust.git" }
 uuid = "1.12"
 vergen-git2 = "1.0.2"
 web-time = "1.1"
