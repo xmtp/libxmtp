@@ -1,11 +1,15 @@
 use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
 use crate::{
-    context::XmtpMlsLocalContext, groups::MlsGroup,
-    subscriptions::process_welcome::ProcessWelcomeFuture,
+    context::XmtpMlsLocalContext,
+    groups::MlsGroup,
+    subscriptions::{
+        process_welcome::ProcessWelcomeFuture,
+        stream_utils::{multiplexed, MultiplexedStream},
+    },
 };
 use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 
-use futures::{prelude::stream::Select, Stream};
+use futures::Stream;
 use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
@@ -175,11 +179,12 @@ pin_project! {
     }
 }
 
-type MultiplexedSelect<S, E> = Select<BroadcastGroupStream, SubscriptionStream<S, E>>;
-
-pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedSelect<
-    <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
-    <ApiClient as XmtpMlsStreams>::Error,
+pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
+    SubscriptionStream<
+        <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
+        <ApiClient as XmtpMlsStreams>::Error,
+    >,
+    BroadcastGroupStream,
 >;
 
 impl<'a, A, D> StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>
@@ -251,7 +256,7 @@ where
         let subscription = SubscriptionStream::new(subscription);
         let known_welcome_ids = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
 
-        let stream = futures::stream::select(events, subscription);
+        let stream = multiplexed(subscription, events);
 
         Ok(Self {
             context,

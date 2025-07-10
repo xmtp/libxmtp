@@ -3,15 +3,22 @@ pub mod grpc_api_helper;
 pub mod grpc_client;
 pub use error::*;
 mod identity;
+mod streams;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 pub const GRPC_PAYLOAD_LIMIT: usize = 1024 * 1024 * 25;
 
-pub use grpc_api_helper::{Client, GroupMessageStream, WelcomeMessageStream};
+pub use grpc_api_helper::Client;
 use std::time::Duration;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tracing::Instrument;
+use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
+
+use crate::streams::XmtpTonicStream;
+
+pub type GroupMessageStream = XmtpTonicStream<tonic::codec::Streaming<GroupMessage>>;
+pub type WelcomeMessageStream = XmtpTonicStream<tonic::codec::Streaming<WelcomeMessage>>;
 
 pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint {
     endpoint
