@@ -495,9 +495,9 @@ describe('Conversations', () => {
     expect(groups).toEqual([group1, group2, group3])
   })
 
-  it('should error when connection dies', async () => {
+  it('should error when connection dies', { timeout: 45_000 }, async () => {
     const long_sleep = () =>
-      new Promise((resolve) => setTimeout(resolve, 45000))
+      new Promise((resolve) => setTimeout(resolve, 30_000))
     const user1 = createUser()
     const user2 = createUser()
     const client2 = await createRegisteredClient(user2)
@@ -505,7 +505,6 @@ describe('Conversations', () => {
     let groups: Conversation[] = []
 
     const startNewConvo = async () => {
-      console.log('creating new convo')
       await client2.conversations().createGroup([
         {
           identifier: user1.account.address,
@@ -530,9 +529,8 @@ describe('Conversations', () => {
     expect(groups.length).toBe(1)
     await client1.withTimeout('downstream', 60000, 1.0)
     await startNewConvo()
-    await long_sleep()
+    await long_sleep() // the stream should end and call on_close
     expect(groups.length).toBe(2)
-    await sleep()
     expect(closed).toBe(true)
   })
 
