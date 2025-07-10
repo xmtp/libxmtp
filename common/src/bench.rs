@@ -10,7 +10,7 @@ use tracing_subscriber::{
 };
 static INIT: Once = Once::new();
 
-static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
+pub static LOGGER: OnceCell<FlushGuard<std::io::BufWriter<std::fs::File>>> = OnceCell::new();
 
 pub const BENCH_ROOT_SPAN: &str = "xmtp-trace-bench";
 
@@ -29,7 +29,7 @@ pub fn logger() {
             .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
             .with(
                 flame_layer
-                    // .with_filter(BenchFilter)
+                    .with_filter(BenchFilter)
                     .with_filter(EnvFilter::from_env("XMTP_FLAMEGRAPH")),
             )
             .init();

@@ -405,7 +405,8 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         Ok(())
     }
 
-    fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+    #[tracing::instrument(skip_all, level = "trace")]
+    pub fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
