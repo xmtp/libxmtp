@@ -22,8 +22,8 @@ pub fn logger() {
         let (flame_layer, guard) = FlameLayer::with_file("./tracing.folded").unwrap();
         let flame_layer = flame_layer
             .with_threads_collapsed(true)
-            .with_module_path(true);
-        // .with_empty_samples(false);
+            .with_module_path(true)
+            .with_empty_samples(false);
 
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))

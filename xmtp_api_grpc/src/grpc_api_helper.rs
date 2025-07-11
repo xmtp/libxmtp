@@ -4,6 +4,7 @@ use crate::{
 };
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tower::ServiceExt;
+use tracing::{trace_span, Instrument};
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
 use xmtp_proto::mls_v1::{
@@ -216,8 +217,10 @@ impl XmtpMlsClient for Client {
     ) -> Result<QueryGroupMessagesResponse, Self::Error> {
         self.stats.query_group_messages.count_request();
         let client = &mut self.mls_client.clone();
+        let span = trace_span!("grpc_query_group_messages");
         client
             .query_group_messages(self.build_request(req))
+            .instrument(span)
             .await
             .map(|r| r.into_inner())
             .map_err(|e| ApiClientError::new(ApiEndpoint::QueryGroupMessages, e.into()))

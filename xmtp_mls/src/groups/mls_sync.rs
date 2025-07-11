@@ -336,7 +336,7 @@ where
     /// Sync from the network with the 'conn' (local database).
     /// must return a summary of all messages synced, whether they were
     /// successful or not.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn sync_with_conn(&self) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
@@ -2206,6 +2206,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), level = "trace")]
     pub async fn maybe_update_installations(
         &self,
         update_interval_ns: Option<i64>,

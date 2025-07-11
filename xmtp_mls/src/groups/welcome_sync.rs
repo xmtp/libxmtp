@@ -101,7 +101,13 @@ where
 
         Ok(groups)
     }
+}
 
+impl<Api, Db> WelcomeService<Api, Db>
+where
+    Api: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+{
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
     #[tracing::instrument(skip_all, level = "trace")]
@@ -128,7 +134,13 @@ where
                         .await?;
                     if is_active {
                         group.sync_with_conn().await?;
-                        group.maybe_update_installations(None).await?;
+                        xmtp_common::spawn(None, {
+                            let group = group.clone();
+                            async move {
+                                group.maybe_update_installations(None).await?;
+                                Ok::<_, GroupError>(())
+                            }
+                        });
                         active_group_count.fetch_add(1, Ordering::SeqCst);
                     }
 
@@ -241,13 +253,14 @@ where
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
-
-                            if let Err(err) = group.maybe_update_installations(None).await {
-                                tracing::warn!(?err, "maybe_update_installations failed");
-                                failed_group_count.fetch_add(1, Ordering::SeqCst);
-                                return;
-                            }
-
+                            xmtp_common::spawn(None, {
+                                let group = group.clone();
+                                async move {
+                                    if let Err(err) = group.maybe_update_installations(None).await {
+                                        tracing::warn!(?err, "maybe_update_installations failed");
+                                    }
+                                }
+                            });
                             active_group_count.fetch_add(1, Ordering::SeqCst);
                         }
                         Ok(_) => { /* group inactive, skip */ }

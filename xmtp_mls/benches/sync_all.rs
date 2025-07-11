@@ -28,7 +28,7 @@ use xmtp_mls::{
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::prelude::XmtpTestClient;
 
-pub const SAMPLES: [usize; 6] = [5, 25, 50, 100, 200, 300];
+pub const SAMPLES: [usize; 1] = [200];
 pub const SAMPLE_SIZE: usize = 10;
 
 type BenchGroup = MlsGroup<TestApiClient, xmtp_db::DefaultStore>;
@@ -87,6 +87,7 @@ async fn add_to_groups(
     client: &Client<TestApiClient>,
     num_groups: usize,
     ids: &[String],
+    sync_welcomes: bool,
 ) -> (Vec<BenchGroup>, Vec<String>) {
     let mut groups = vec![];
     let mut ids = ids.to_vec();
@@ -101,6 +102,10 @@ async fn add_to_groups(
             .unwrap();
         group.sync().await.unwrap();
         groups.push(group);
+    }
+
+    if sync_welcomes {
+        client.sync_welcomes().await.unwrap();
     }
     (groups, ids)
 }
@@ -121,7 +126,7 @@ fn sync_10_groups_many_messages(c: &mut Criterion) {
 
     let (client, runtime) = setup();
     let (groups, ids) = runtime.block_on(async {
-        let (groups, ids) = add_to_groups(&client, 10, &[]).await;
+        let (groups, ids) = add_to_groups(&client, 10, &[], false).await;
         client.sync_welcomes().await.unwrap();
         (groups, ids)
     });
@@ -155,10 +160,10 @@ fn sync_10_groups_many_messages(c: &mut Criterion) {
     benchmark_group.finish();
 }
 
-fn sync_10_messages_many_groups(c: &mut Criterion) {
+fn sync_10_messages_many_groups_and_welcomes(c: &mut Criterion) {
     let _ = fdlimit::raise_fd_limit();
     bench::logger();
-    let mut benchmark_group = c.benchmark_group("sync_10_messages_many_groups");
+    let mut benchmark_group = c.benchmark_group("sync_10_messages_many_groups_and_welcomes");
     benchmark_group.sample_size(SAMPLE_SIZE);
 
     let (client, runtime) = setup();
@@ -173,7 +178,53 @@ fn sync_10_messages_many_groups(c: &mut Criterion) {
                 || {
                     bench_async_setup(|| async {
                         let to_add = size - currently_added_len.load(Ordering::SeqCst);
-                        let (grps, ids) = add_to_groups(&client, to_add, &[]).await;
+                        let (grps, ids) = add_to_groups(&client, to_add, &[], false).await;
+                        let groups = {
+                            let mut groups = groups.lock();
+                            groups.extend(grps);
+                            groups.clone()
+                        };
+                        add_messages(&groups, size).await;
+                        currently_added_len.fetch_add(to_add, Ordering::SeqCst);
+                        (&client, span.clone())
+                    })
+                },
+                |(client, span)| async move {
+                    client
+                        .sync_all_welcomes_and_groups(None)
+                        .instrument(span)
+                        .await
+                        .unwrap();
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
+    let guard = unsafe { LOGGER.get_unchecked() };
+    let _ = guard.flush();
+
+    benchmark_group.finish();
+}
+
+fn sync_10_messages_many_groups_no_welcomes(c: &mut Criterion) {
+    let _ = fdlimit::raise_fd_limit();
+    bench::logger();
+    let mut benchmark_group = c.benchmark_group("sync_10_messages_many_groups_no_welcomes");
+    benchmark_group.sample_size(SAMPLE_SIZE);
+
+    let (client, runtime) = setup();
+    let groups = Arc::new(Mutex::new(vec![]));
+
+    let currently_added_len = AtomicUsize::new(0);
+    for size in SAMPLES.iter() {
+        benchmark_group.throughput(Throughput::Elements(*size as u64));
+        benchmark_group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let span = trace_span!(BENCH_ROOT_SPAN, size);
+            b.to_async(&runtime).iter_batched(
+                || {
+                    bench_async_setup(|| async {
+                        let to_add = size - currently_added_len.load(Ordering::SeqCst);
+                        let (grps, ids) = add_to_groups(&client, to_add, &[], true).await;
                         let groups = {
                             let mut groups = groups.lock();
                             groups.extend(grps);
@@ -204,6 +255,6 @@ fn sync_10_messages_many_groups(c: &mut Criterion) {
 criterion_group!(
     name = sync_all;
     config = Criterion::default().sample_size(10);
-    targets = sync_10_groups_many_messages, sync_10_messages_many_groups
+    targets = sync_10_groups_many_messages, sync_10_messages_many_groups_and_welcomes, sync_10_messages_many_groups_no_welcomes
 );
 criterion_main!(sync_all);

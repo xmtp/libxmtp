@@ -771,50 +771,6 @@ where
             .await
     }
 
-    /// Sync all groups for the current installation and return the number of groups that were synced.
-    /// Only active groups will be synced.
-    pub async fn sync_all_groups(
-        &self,
-        groups: Vec<MlsGroup<Context>>,
-    ) -> Result<usize, GroupError> {
-        WelcomeService::new(self.context.clone())
-            .sync_all_groups(groups)
-            .await
-    }
-
-    /// Sync all unread welcome messages and then sync all groups.
-    /// Returns the total number of active groups synced.
-    pub async fn sync_all_welcomes_and_groups(
-        &self,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<usize, GroupError> {
-        WelcomeService::new(self.context.clone())
-            .sync_all_welcomes_and_groups(consent_states)
-            .await
-    }
-
-    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
-        self.sync_welcomes().await?;
-        let groups = self
-            .context
-            .db()
-            .all_sync_groups()?
-            .into_iter()
-            .map(|g| {
-                MlsGroup::new(
-                    self.context.clone(),
-                    g.id,
-                    g.dm_id,
-                    g.conversation_type,
-                    g.created_at_ns,
-                )
-            })
-            .collect();
-        let active_groups_count = self.sync_all_groups(groups).await?;
-
-        Ok(active_groups_count)
-    }
-
     /**
      * Validates a credential against the given installation public key
      *
@@ -870,6 +826,49 @@ where
         }
 
         Ok(can_message)
+    }
+}
+
+// methods requiring 'static (owned) generics
+impl<ApiClient, Db> Client<ApiClient, Db>
+where
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + Send + Sync + 'static,
+{
+    /// Sync all groups for the current installation and return the number of groups that were synced.
+    /// Only active groups will be synced.
+    pub async fn sync_all_groups(
+        &self,
+        groups: Vec<MlsGroup<ApiClient, Db>>,
+    ) -> Result<usize, GroupError> {
+        WelcomeService::new(self.context.clone())
+            .sync_all_groups(groups)
+            .await
+    }
+
+    pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
+        let provider = self.mls_provider();
+        self.sync_welcomes().await?;
+        let groups = provider
+            .db()
+            .all_sync_groups()?
+            .into_iter()
+            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .collect();
+        let active_groups_count = self.sync_all_groups(groups).await?;
+
+        Ok(active_groups_count)
+    }
+
+    /// Sync all unread welcome messages and then sync all groups.
+    /// Returns the total number of active groups synced.
+    pub async fn sync_all_welcomes_and_groups(
+        &self,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<usize, GroupError> {
+        WelcomeService::new(self.context.clone())
+            .sync_all_welcomes_and_groups(consent_states)
+            .await
     }
 }
 
