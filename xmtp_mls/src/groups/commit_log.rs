@@ -47,6 +47,8 @@ pub enum CommitLogError {
     Storage(#[from] StorageError),
     #[error("generic api error: {0}")]
     Api(#[from] ApiError),
+    #[error("connection error: {0}")]
+    Connection(#[from] xmtp_db::ConnectionError),
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -54,6 +56,7 @@ impl NeedsDbReconnect for CommitLogError {
         match self {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Api(_api_error) => false,
+            Self::Connection(_connection_error) => true, // TODO(cam): verify this is correct
         }
     }
 }
@@ -112,16 +115,26 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            self.publish_local_commit_log().await?;
+            self.publish_commit_logs_to_remote().await?;
         }
         Ok(())
     }
 
-    async fn publish_local_commit_log(&mut self) -> Result<(), CommitLogError> {
-        let _provider = self.context.mls_provider();
-        let _conn = _provider.db();
+    async fn publish_commit_logs_to_remote(&mut self) -> Result<(), CommitLogError> {
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
 
-        // TODO: query commit log entries for relevant group_ids here using `conn.get_group_logs`
+
+        // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
+        let conversation_ids_for_remote_log = conn.get_conversation_ids_for_remote_log()?;
+        
+        // Step 2 is to check if for each conv id for remote log whether it's refresh_state cursor is lower than the local commit log sequence id
+        for conversation_id in conversation_ids_for_remote_log {
+        }
+
+        // Step 3 is to publish any new local commit logs and to update relevant cursors
+
+        // Step 3 is to publish the local commit log entries to the API
         let _commit_log_entries: Vec<LocalCommitLog> = vec![]; //conn.get_group_logs()?;
 
         // Publish commit log entries to the API

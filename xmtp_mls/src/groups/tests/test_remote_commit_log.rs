@@ -55,4 +55,8 @@ async fn test_commit_log_publish_and_query() {
         entry.commit_sequence_id,
         commit_log_entry.commit_sequence_id
     );
+    assert_eq!(entry.last_epoch_authenticator, commit_log_entry.last_epoch_authenticator);
+    assert_eq!(entry.commit_result, commit_log_entry.commit_result);
+    assert_eq!(entry.applied_epoch_number, commit_log_entry.applied_epoch_number);
+    assert_eq!(entry.applied_epoch_authenticator, commit_log_entry.applied_epoch_authenticator);
 }
