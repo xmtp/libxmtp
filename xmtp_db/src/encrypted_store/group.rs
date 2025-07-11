@@ -6,6 +6,7 @@ use super::{
     schema::groups::{self, dsl},
 };
 use crate::NotFound;
+use crate::encrypted_store::schema_gen::local_commit_log::dsl as local_commit_log_dsl;
 use crate::{DuplicateItem, StorageError, Store, impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
 use diesel::{
@@ -573,6 +574,37 @@ impl<C: ConnectionExt> DbConnection<C> {
                 Ok(false)
             }
         })
+    }
+
+    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
+    pub fn get_conversation_ids_for_remote_log(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(
+                dsl::conversation_type
+                    .eq(ConversationType::Dm)
+                    .or(dsl::conversation_type
+                        .eq(ConversationType::Group)
+                        .and(dsl::should_publish_commit_log.eq(true))),
+            )
+            .select(dsl::id)
+            .order(dsl::created_at_ns.asc());
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    pub fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError> {
+        let query = local_commit_log_dsl::local_commit_log
+            .filter(local_commit_log_dsl::group_id.eq(group_id))
+            .select(local_commit_log_dsl::commit_sequence_id)
+            .order(local_commit_log_dsl::commit_sequence_id.desc())
+            .limit(1);
+
+        self.raw_query_read(|conn| query.first::<i64>(conn).optional())
     }
 }
 

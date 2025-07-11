@@ -2,6 +2,7 @@ use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 pub enum CommitType {
     GroupCreation,
@@ -62,6 +63,41 @@ pub struct LocalCommitLog {
     pub commit_type: Option<String>,
 }
 
+impl From<&LocalCommitLog> for PlaintextCommitLogEntry {
+    fn from(local_commit_log: &LocalCommitLog) -> Self {
+        PlaintextCommitLogEntry {
+            group_id: local_commit_log.group_id.clone(),
+            commit_sequence_id: local_commit_log.commit_sequence_id as u64,
+            last_epoch_authenticator: local_commit_log.last_epoch_authenticator.clone(),
+            commit_result: local_commit_log.commit_result.into(),
+            applied_epoch_number: local_commit_log.applied_epoch_number as u64,
+            applied_epoch_authenticator: local_commit_log.applied_epoch_authenticator.clone(),
+        }
+    }
+}
+
+impl From<CommitResult> for i32 {
+    fn from(commit_result: CommitResult) -> Self {
+        match commit_result {
+            CommitResult::Success => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Applied as i32
+            }
+            CommitResult::WrongEpoch => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::WrongEpoch as i32
+            }
+            CommitResult::Undecryptable => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Undecryptable as i32
+            }
+            CommitResult::Invalid => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Invalid as i32
+            }
+            CommitResult::Unknown => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Unspecified as i32
+            }
+        }
+    }
+}
+
 impl_store!(NewLocalCommitLog, local_commit_log);
 
 impl std::fmt::Debug for LocalCommitLog {
@@ -93,6 +129,21 @@ impl<C: ConnectionExt> DbConnection<C> {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
                 .order_by(dsl::rowid.asc())
+                .load(db)
+        })
+    }
+
+    // Local commit log entries are returned sorted in ascending order of `commit_sequence_id`
+    pub fn get_group_logs_after_cursor(
+        &self,
+        group_id: &[u8],
+        cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::local_commit_log
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::commit_sequence_id.gt(cursor))
+                .order_by(dsl::commit_sequence_id.asc())
                 .load(db)
         })
     }

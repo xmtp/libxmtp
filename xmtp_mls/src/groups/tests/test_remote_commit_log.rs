@@ -1,3 +1,4 @@
+use crate::groups::commit_log::CommitLogWorker;
 use crate::{context::XmtpContextProvider, tester};
 use prost::Message;
 use rand::Rng;
@@ -6,7 +7,7 @@ use xmtp_proto::mls_v1::QueryCommitLogRequest;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_commit_log_publish_and_query() {
+async fn test_commit_log_publish_and_query_apis() {
     tester!(alix);
 
     // There is no way to clear commit log on the local node between tests, so we'll just write to
@@ -56,6 +57,19 @@ async fn test_commit_log_publish_and_query() {
         entry.commit_sequence_id,
         commit_log_entry.commit_sequence_id
     );
+    assert_eq!(
+        entry.last_epoch_authenticator,
+        commit_log_entry.last_epoch_authenticator
+    );
+    assert_eq!(entry.commit_result, commit_log_entry.commit_result);
+    assert_eq!(
+        entry.applied_epoch_number,
+        commit_log_entry.applied_epoch_number
+    );
+    assert_eq!(
+        entry.applied_epoch_authenticator,
+        commit_log_entry.applied_epoch_authenticator
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -90,4 +104,84 @@ async fn test_should_publish_commit_log() {
 
     assert_eq!(alix_should_publish_commit_log_groups.len(), 1);
     assert_eq!(bo_should_publish_commit_log_groups.len(), 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_publish_commit_log_to_remote() {
+    tester!(alix);
+    tester!(bo);
+
+    // Alix creates a group with Bo
+    let alix_group = alix.create_group(None, None).unwrap();
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+    bo.sync_all_welcomes_and_groups(None).await.unwrap();
+
+    let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
+    let bo_group = binding.first().unwrap();
+    assert_eq!(bo_group.group.group_id, alix_group.group_id);
+
+    // Alix has one commit log entry
+    let commit_log_entries = alix
+        .provider
+        .db()
+        .get_group_logs(&alix_group.group_id)
+        .unwrap();
+    assert_eq!(commit_log_entries.len(), 2);
+
+    // Since Alix has never written to the remote commit log, the refresh state is None
+    let refresh_state = alix
+        .provider
+        .db()
+        .get_refresh_state(
+            &alix_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLog,
+        )
+        .unwrap();
+    assert!(refresh_state.is_none());
+
+    // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
+    let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
+    let result = commit_log_worker.run_test(Some(1)).await;
+    assert!(result.is_ok());
+
+    let refresh_state = alix
+        .provider
+        .db()
+        .get_refresh_state(
+            &alix_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLog,
+        )
+        .unwrap();
+    assert!(refresh_state.is_some());
+    let last_commit_log_entry = commit_log_entries.last().unwrap();
+    // Verify that the local cursor has now been updated to the last commit log entry's sequence id
+    assert_eq!(
+        last_commit_log_entry.commit_sequence_id,
+        refresh_state.unwrap().cursor
+    );
+
+    // Query the remote commit log to make sure it matches the local commit log entry
+    let query = QueryCommitLogRequest {
+        group_id: alix_group.group_id.clone(),
+        ..Default::default()
+    };
+
+    let query_result = alix.api().query_commit_log(vec![query]).await;
+    assert!(query_result.is_ok());
+
+    // Extract the entries from the response
+    let response = query_result.unwrap();
+    assert_eq!(response.len(), 1);
+    assert_eq!(response[0].commit_log_entries.len(), 1);
+    let raw_bytes = &response[0].commit_log_entries[0].encrypted_commit_log_entry;
+
+    // TODO: this will require decryption once encrypted key is added
+    let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
+    assert_eq!(
+        entry.commit_sequence_id,
+        last_commit_log_entry.commit_sequence_id as u64
+    );
 }
