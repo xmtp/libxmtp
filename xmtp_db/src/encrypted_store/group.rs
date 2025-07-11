@@ -78,6 +78,9 @@ pub struct StoredGroup {
     /// The Originator Node ID of the WelcomeMessage
     #[builder(default = None)]
     pub originator_id: Option<i64>,
+    /// Whether the user is a super admin for this group
+    #[builder(default = false)]
+    pub is_super_admin: bool,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -132,6 +135,7 @@ pub struct GroupQueryArgs {
     pub consent_states: Option<Vec<ConsentState>>,
     pub include_sync_groups: bool,
     pub include_duplicate_dms: bool,
+    pub is_super_admin: Option<bool>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -157,6 +161,7 @@ impl<C: ConnectionExt> DbConnection<C> {
             include_sync_groups,
             include_duplicate_dms,
             activity_after_ns,
+            is_super_admin,
         } = args.as_ref();
 
         let mut query = dsl::groups
@@ -218,6 +223,10 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
         let includes_all = effective_consent_states.len() == 3;
+
+        if let Some(is_super_admin) = is_super_admin {
+            query = query.filter(dsl::is_super_admin.eq(is_super_admin));
+        }
 
         let filtered_states: Vec<_> = effective_consent_states
             .iter()

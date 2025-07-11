@@ -441,6 +441,7 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .is_super_admin(true) // creator defaults to super admin
             .build()?;
 
         stored_group.store_or_ignore(provider.db())?;
@@ -639,7 +640,7 @@ where
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
 
-            let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
+            let paused_for_version: Option<String> = mutable_metadata.clone().and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
                     let current_version_str = context.version_info().pkg_version();
@@ -673,7 +674,13 @@ where
                 .conversation_type(conversation_type)
                 .dm_id(dm_members.map(String::from))
                 .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
-                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
+                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+                .is_super_admin(
+                    mutable_metadata
+                        .as_ref()
+                        .map(|metadata| metadata.is_super_admin(&context.inbox_id().to_string()))
+                        .unwrap_or(false) // Default to false if no mutable metadata
+                );
 
 
 

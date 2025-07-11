@@ -1,0 +1,1 @@
+ALTER TABLE groups DROP COLUMN is_super_admin;
