@@ -35,9 +35,9 @@ use futures::future::join_all;
 use prost::Message;
 use std::sync::Arc;
 use wasm_bindgen_test::wasm_bindgen_test;
+use xmtp_common::assert_ok;
 use xmtp_common::time::now_ns;
 use xmtp_common::StreamHandle as _;
-use xmtp_common::{assert_err, assert_ok};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group::StoredGroup;
@@ -2626,10 +2626,10 @@ async fn respect_allow_epoch_increment() {
     };
     let process_result = group.process_message(&first_message, false).await;
 
-    assert_err!(
-        process_result,
+    assert!(matches!(
+        process_result.unwrap_err().error,
         GroupMessageProcessingError::EpochIncrementNotAllowed
-    );
+    ));
 }
 
 #[xmtp_common::test]

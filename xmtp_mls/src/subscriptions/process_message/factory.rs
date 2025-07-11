@@ -104,7 +104,7 @@ where
             .process_message(msg, false)
             .instrument(tracing::debug_span!("process_message"))
             .await
-            .map_err(|e| SubscribeError::ReceiveGroup(Box::new(e)))
+            .map_err(|wrapped| SubscribeError::ReceiveGroup(Box::new(wrapped.error)))
     }
 
     async fn recover(&self, msg: &group_message::V1) -> SyncSummary {
