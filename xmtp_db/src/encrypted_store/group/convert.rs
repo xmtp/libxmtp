@@ -30,6 +30,7 @@ impl TryFrom<GroupSave> for StoredGroup {
             fork_details: String::new(),
             sequence_id: None,
             originator_id: None,
+            is_super_admin: false, // TODO(cvoell): verify we update when we receive a welcome
         })
     }
 }
