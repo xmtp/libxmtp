@@ -80,8 +80,7 @@ pub trait Extractor {
     fn get(self) -> Self::Output;
 }
 
-/// A
-/// llows us to call these methods straight on the protobuf types without any
+/// Allows us to call these methods straight on the protobuf types without any
 /// parsing/matching first.
 impl<'env, T> Envelope<'env> for T
 where
