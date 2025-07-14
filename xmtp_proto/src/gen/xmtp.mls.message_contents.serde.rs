@@ -1,4 +1,206 @@
 // @generated
+impl serde::Serialize for CommitLogEntry {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.sequence_id != 0 {
+            len += 1;
+        }
+        if !self.encrypted_commit_log_entry.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.CommitLogEntry", len)?;
+        if self.sequence_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sequence_id", ToString::to_string(&self.sequence_id).as_str())?;
+        }
+        if !self.encrypted_commit_log_entry.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("encrypted_commit_log_entry", pbjson::private::base64::encode(&self.encrypted_commit_log_entry).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for CommitLogEntry {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "sequence_id",
+            "sequenceId",
+            "encrypted_commit_log_entry",
+            "encryptedCommitLogEntry",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SequenceId,
+            EncryptedCommitLogEntry,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "sequenceId" | "sequence_id" => Ok(GeneratedField::SequenceId),
+                            "encryptedCommitLogEntry" | "encrypted_commit_log_entry" => Ok(GeneratedField::EncryptedCommitLogEntry),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CommitLogEntry;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.CommitLogEntry")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<CommitLogEntry, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut sequence_id__ = None;
+                let mut encrypted_commit_log_entry__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::SequenceId => {
+                            if sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sequenceId"));
+                            }
+                            sequence_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::EncryptedCommitLogEntry => {
+                            if encrypted_commit_log_entry__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encryptedCommitLogEntry"));
+                            }
+                            encrypted_commit_log_entry__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(CommitLogEntry {
+                    sequence_id: sequence_id__.unwrap_or_default(),
+                    encrypted_commit_log_entry: encrypted_commit_log_entry__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.CommitLogEntry", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for CommitResult {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "COMMIT_RESULT_UNSPECIFIED",
+            Self::Applied => "COMMIT_RESULT_APPLIED",
+            Self::WrongEpoch => "COMMIT_RESULT_WRONG_EPOCH",
+            Self::Undecryptable => "COMMIT_RESULT_UNDECRYPTABLE",
+            Self::Invalid => "COMMIT_RESULT_INVALID",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for CommitResult {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "COMMIT_RESULT_UNSPECIFIED",
+            "COMMIT_RESULT_APPLIED",
+            "COMMIT_RESULT_WRONG_EPOCH",
+            "COMMIT_RESULT_UNDECRYPTABLE",
+            "COMMIT_RESULT_INVALID",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = CommitResult;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "COMMIT_RESULT_UNSPECIFIED" => Ok(CommitResult::Unspecified),
+                    "COMMIT_RESULT_APPLIED" => Ok(CommitResult::Applied),
+                    "COMMIT_RESULT_WRONG_EPOCH" => Ok(CommitResult::WrongEpoch),
+                    "COMMIT_RESULT_UNDECRYPTABLE" => Ok(CommitResult::Undecryptable),
+                    "COMMIT_RESULT_INVALID" => Ok(CommitResult::Invalid),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Compression {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3136,6 +3338,214 @@ impl<'de> serde::Deserialize<'de> for permissions_update_policy::PermissionsBase
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for PlaintextCommitLogEntry {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.group_id.is_empty() {
+            len += 1;
+        }
+        if self.commit_sequence_id != 0 {
+            len += 1;
+        }
+        if !self.last_epoch_authenticator.is_empty() {
+            len += 1;
+        }
+        if self.commit_result != 0 {
+            len += 1;
+        }
+        if self.applied_epoch_number != 0 {
+            len += 1;
+        }
+        if !self.applied_epoch_authenticator.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextCommitLogEntry", len)?;
+        if !self.group_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
+        }
+        if self.commit_sequence_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("commit_sequence_id", ToString::to_string(&self.commit_sequence_id).as_str())?;
+        }
+        if !self.last_epoch_authenticator.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("last_epoch_authenticator", pbjson::private::base64::encode(&self.last_epoch_authenticator).as_str())?;
+        }
+        if self.commit_result != 0 {
+            let v = CommitResult::try_from(self.commit_result)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.commit_result)))?;
+            struct_ser.serialize_field("commit_result", &v)?;
+        }
+        if self.applied_epoch_number != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("applied_epoch_number", ToString::to_string(&self.applied_epoch_number).as_str())?;
+        }
+        if !self.applied_epoch_authenticator.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("applied_epoch_authenticator", pbjson::private::base64::encode(&self.applied_epoch_authenticator).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PlaintextCommitLogEntry {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_id",
+            "groupId",
+            "commit_sequence_id",
+            "commitSequenceId",
+            "last_epoch_authenticator",
+            "lastEpochAuthenticator",
+            "commit_result",
+            "commitResult",
+            "applied_epoch_number",
+            "appliedEpochNumber",
+            "applied_epoch_authenticator",
+            "appliedEpochAuthenticator",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupId,
+            CommitSequenceId,
+            LastEpochAuthenticator,
+            CommitResult,
+            AppliedEpochNumber,
+            AppliedEpochAuthenticator,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupId" | "group_id" => Ok(GeneratedField::GroupId),
+                            "commitSequenceId" | "commit_sequence_id" => Ok(GeneratedField::CommitSequenceId),
+                            "lastEpochAuthenticator" | "last_epoch_authenticator" => Ok(GeneratedField::LastEpochAuthenticator),
+                            "commitResult" | "commit_result" => Ok(GeneratedField::CommitResult),
+                            "appliedEpochNumber" | "applied_epoch_number" => Ok(GeneratedField::AppliedEpochNumber),
+                            "appliedEpochAuthenticator" | "applied_epoch_authenticator" => Ok(GeneratedField::AppliedEpochAuthenticator),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PlaintextCommitLogEntry;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.PlaintextCommitLogEntry")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PlaintextCommitLogEntry, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_id__ = None;
+                let mut commit_sequence_id__ = None;
+                let mut last_epoch_authenticator__ = None;
+                let mut commit_result__ = None;
+                let mut applied_epoch_number__ = None;
+                let mut applied_epoch_authenticator__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupId => {
+                            if group_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupId"));
+                            }
+                            group_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CommitSequenceId => {
+                            if commit_sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("commitSequenceId"));
+                            }
+                            commit_sequence_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::LastEpochAuthenticator => {
+                            if last_epoch_authenticator__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastEpochAuthenticator"));
+                            }
+                            last_epoch_authenticator__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CommitResult => {
+                            if commit_result__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("commitResult"));
+                            }
+                            commit_result__ = Some(map_.next_value::<CommitResult>()? as i32);
+                        }
+                        GeneratedField::AppliedEpochNumber => {
+                            if applied_epoch_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appliedEpochNumber"));
+                            }
+                            applied_epoch_number__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::AppliedEpochAuthenticator => {
+                            if applied_epoch_authenticator__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("appliedEpochAuthenticator"));
+                            }
+                            applied_epoch_authenticator__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PlaintextCommitLogEntry {
+                    group_id: group_id__.unwrap_or_default(),
+                    commit_sequence_id: commit_sequence_id__.unwrap_or_default(),
+                    last_epoch_authenticator: last_epoch_authenticator__.unwrap_or_default(),
+                    commit_result: commit_result__.unwrap_or_default(),
+                    applied_epoch_number: applied_epoch_number__.unwrap_or_default(),
+                    applied_epoch_authenticator: applied_epoch_authenticator__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.PlaintextCommitLogEntry", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PlaintextEnvelope {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3400,6 +3810,9 @@ impl serde::Serialize for plaintext_envelope::V2 {
                 plaintext_envelope::v2::MessageType::UserPreferenceUpdate(v) => {
                     struct_ser.serialize_field("user_preference_update", v)?;
                 }
+                plaintext_envelope::v2::MessageType::ReaddRequest(v) => {
+                    struct_ser.serialize_field("readd_request", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -3421,6 +3834,8 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             "deviceSyncReply",
             "user_preference_update",
             "userPreferenceUpdate",
+            "readd_request",
+            "readdRequest",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3430,6 +3845,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
             DeviceSyncRequest,
             DeviceSyncReply,
             UserPreferenceUpdate,
+            ReaddRequest,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3457,6 +3873,7 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                             "deviceSyncRequest" | "device_sync_request" => Ok(GeneratedField::DeviceSyncRequest),
                             "deviceSyncReply" | "device_sync_reply" => Ok(GeneratedField::DeviceSyncReply),
                             "userPreferenceUpdate" | "user_preference_update" => Ok(GeneratedField::UserPreferenceUpdate),
+                            "readdRequest" | "readd_request" => Ok(GeneratedField::ReaddRequest),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3511,6 +3928,13 @@ impl<'de> serde::Deserialize<'de> for plaintext_envelope::V2 {
                                 return Err(serde::de::Error::duplicate_field("userPreferenceUpdate"));
                             }
                             message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::UserPreferenceUpdate)
+;
+                        }
+                        GeneratedField::ReaddRequest => {
+                            if message_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("readdRequest"));
+                            }
+                            message_type__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::v2::MessageType::ReaddRequest)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -3713,6 +4137,128 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.PolicySet", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ReaddRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.group_id.is_empty() {
+            len += 1;
+        }
+        if self.commit_log_epoch != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.ReaddRequest", len)?;
+        if !self.group_id.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
+        }
+        if self.commit_log_epoch != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("commit_log_epoch", ToString::to_string(&self.commit_log_epoch).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ReaddRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_id",
+            "groupId",
+            "commit_log_epoch",
+            "commitLogEpoch",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupId,
+            CommitLogEpoch,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupId" | "group_id" => Ok(GeneratedField::GroupId),
+                            "commitLogEpoch" | "commit_log_epoch" => Ok(GeneratedField::CommitLogEpoch),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ReaddRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.ReaddRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ReaddRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_id__ = None;
+                let mut commit_log_epoch__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupId => {
+                            if group_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupId"));
+                            }
+                            group_id__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CommitLogEpoch => {
+                            if commit_log_epoch__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("commitLogEpoch"));
+                            }
+                            commit_log_epoch__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ReaddRequest {
+                    group_id: group_id__.unwrap_or_default(),
+                    commit_log_epoch: commit_log_epoch__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.ReaddRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for WelcomeWrapperAlgorithm {

@@ -378,7 +378,12 @@ pub mod tests {
     use crate::*;
 
     use crate::test_utils::MockError;
+    use xmtp_common::rand_vec;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::mls_v1::{
+        welcome_message_input::{Version as WelcomeVersion, V1 as WelcomeV1},
+        WelcomeMessageInput,
+    };
     use xmtp_proto::xmtp::mls::api::v1::{
         fetch_key_packages_response::KeyPackage, FetchKeyPackagesResponse, PagingInfo,
         QueryGroupMessagesResponse,
@@ -604,5 +609,44 @@ pub mod tests {
         let now = std::time::Instant::now();
         let _second = wrapper.query_group_messages(vec![0, 0], None, None).await;
         assert!(now.elapsed() > std::time::Duration::from_secs(60));
+    }
+
+    #[xmtp_common::test]
+    #[cfg_attr(any(feature = "http-api", target_arch = "wasm32"), ignore)]
+    async fn it_should_allow_large_payloads() {
+        let mut client = crate::tests::TestClient::builder();
+        client.set_host("http://localhost:5556".into());
+        client.set_tls(false);
+        client.set_app_version("0.0.0".into()).unwrap();
+        let installation_key = rand_vec::<32>();
+        let hpke_public_key = rand_vec::<32>();
+
+        let c = client.build().await.unwrap();
+        let wrapper = ApiClientWrapper::new(c, Retry::default());
+
+        let mut very_large_payload = vec![];
+        // rand_vec overflows over 1mb, so we break it up
+        for _ in 0..10 {
+            very_large_payload.extend(rand_vec::<900000>());
+        }
+
+        wrapper
+            .send_welcome_messages(&[WelcomeMessageInput {
+                version: Some(WelcomeVersion::V1(WelcomeV1 {
+                    installation_key: installation_key.clone(),
+                    data: very_large_payload,
+                    hpke_public_key: hpke_public_key.clone(),
+                    wrapper_algorithm: 0,
+                    welcome_metadata: Vec::new(),
+                })),
+            }])
+            .await
+            .unwrap();
+
+        let messages = wrapper
+            .query_welcome_messages(&installation_key, None)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
     }
 }

@@ -480,21 +480,29 @@ impl Conversation {
     Ok(group_description)
   }
 
-  #[napi(ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void")]
-  pub fn stream(&self, callback: JsFunction) -> Result<StreamCloser> {
+  #[napi(
+    ts_args_type = "callback: (err: null | Error, result: Message | undefined) => void, onClose: () => void"
+  )]
+  pub fn stream(&self, callback: JsFunction, on_close: JsFunction) -> Result<StreamCloser> {
     let tsfn: ThreadsafeFunction<Message, ErrorStrategy::CalleeHandled> =
       callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let tsfn_on_close: ThreadsafeFunction<(), ErrorStrategy::CalleeHandled> =
+      on_close.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
       self.group_id.clone(),
       move |message| {
-        tsfn.call(
+        let status = tsfn.call(
           message
             .map(Message::from)
             .map_err(ErrorWrapper::from)
             .map_err(napi::Error::from),
           ThreadsafeFunctionCallMode::Blocking,
         );
+        tracing::info!("Stream status: {:?}", status);
+      },
+      move || {
+        tsfn_on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
       },
     );
 

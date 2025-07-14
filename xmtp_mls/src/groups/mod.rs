@@ -28,6 +28,7 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
+use crate::groups::mls_ext::CommitLogStorer;
 use crate::GroupCommitLock;
 use crate::{
     client::ClientError,
@@ -55,10 +56,7 @@ use openmls::{
     },
     group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
-    prelude::{
-        Capabilities, CredentialWithKey, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
-        WireFormatPolicy,
-    },
+    prelude::{Capabilities, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome, WireFormatPolicy},
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -75,6 +73,7 @@ use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
+use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::XmtpDb;
@@ -175,6 +174,8 @@ pub struct ConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
+    pub cursor: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -415,26 +416,20 @@ where
 
         let provider = context.mls_provider();
         let mls_group = if let Some(group_id) = group_id {
-            OpenMlsGroup::new_with_group_id(
+            // TODO: For groups restored from backup, in order to support queries on metadata such as
+            // the group title and description, a stubbed OpenMLS group is created, and later overwritten
+            // when a welcome is received.
+            // To avoid potentially operating on this encryption state elsewhere, it may instead be better
+            // to store this metadata on the StoredGroup instead, and modify group metadata queries to also
+            // check the StoredGroup.
+            OpenMlsGroup::from_backup_stub_logged(
                 &provider,
-                &context.identity.installation_keys,
+                &context.identity,
                 &group_config,
                 GroupId::from_slice(group_id),
-                CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
-                },
             )?
         } else {
-            OpenMlsGroup::new(
-                &provider,
-                &context.identity.installation_keys,
-                &group_config,
-                CredentialWithKey {
-                    credential: context.identity.credential(),
-                    signature_key: context.identity.installation_keys.public_slice().into(),
-                },
-            )?
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?
         };
 
         let group_id = mls_group.group_id().to_vec();
@@ -482,15 +477,8 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -627,7 +615,7 @@ where
             let (DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
-                ..
+                added_by_installation_id,
             }, _) = decrypted_welcome;
 
             tracing::debug!(
@@ -646,7 +634,7 @@ where
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
-            let mls_group = staged_welcome.into_group(provider)?;
+            let mls_group = OpenMlsGroup::from_welcome_logged(provider, staged_welcome, &added_by_inbox_id, &added_by_installation_id)?;
             let group_id = mls_group.group_id().to_vec();
             let metadata = extract_group_metadata(&mls_group).map_err(MetadataPermissionsError::from)?;
             let dm_members = metadata.dm_members;
@@ -838,15 +826,8 @@ where
             group_membership,
             mutable_permissions,
         )?;
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
@@ -1071,10 +1052,14 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members_by_inbox_id<S: AsIdRef>(
         &self,
-        inbox_ids: &[S],
+        inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
-        let ids = inbox_ids.iter().map(AsIdRef::as_ref).collect::<Vec<&str>>();
+        let ids = inbox_ids
+            .as_ref()
+            .iter()
+            .map(AsIdRef::as_ref)
+            .collect::<Vec<&str>>();
         let intent_data = self
             .get_membership_update_intent(ids.as_slice(), &[])
             .await?;
@@ -1557,12 +1542,26 @@ where
         .await
     }
 
-    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+    pub async fn cursor(&self) -> Result<i64, GroupError> {
         let provider = self.context.mls_provider();
-        let epoch =
-            self.load_mls_group_with_lock(&provider, |mls_group| Ok(mls_group.epoch().as_u64()))?;
+        let conn = provider.db();
+        Ok(conn.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
+    }
 
-        let stored_group = match provider.db().find_group(&self.group_id)? {
+    pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
+        Ok(conn.get_group_logs(&self.group_id)?)
+    }
+
+    pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
+        let epoch = self.epoch().await?;
+        let cursor = self.cursor().await?;
+        let commit_log = self.local_commit_log().await?;
+
+        let provider = self.context.mls_provider();
+        let conn = provider.db();
+        let stored_group = match conn.find_group(&self.group_id)? {
             Some(group) => group,
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
@@ -1575,6 +1574,8 @@ where
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
+            local_commit_log: format!("{:?}", commit_log),
+            cursor,
         })
     }
 
@@ -1706,16 +1707,8 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group = OpenMlsGroup::new(
-            &provider,
-            &context.identity.installation_keys,
-            &group_config,
-            CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
-            },
-        )?;
-
+        let mls_group =
+            OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())

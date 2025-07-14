@@ -18,6 +18,7 @@ pub(super) mod process_welcome;
 mod stream_all;
 mod stream_conversations;
 pub(crate) mod stream_messages;
+mod stream_utils;
 
 use crate::{
     groups::{
@@ -267,6 +268,7 @@ where
             + 'static,
         #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
             + 'static,
+        on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -278,6 +280,7 @@ where
                 convo_callback(convo)
             }
             tracing::debug!("`stream_conversations` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }
@@ -298,6 +301,22 @@ where
         StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn stream_all_messages_owned(
+        &self,
+        conversation_type: Option<ConversationType>,
+        consent_state: Option<Vec<ConsentState>>,
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
+        tracing::debug!(
+            inbox_id = self.inbox_id(),
+            installation_id = %self.context().installation_public_key(),
+            conversation_type = ?conversation_type,
+            "stream all messages"
+        );
+
+        StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
+    }
+
     pub fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient, Db>>,
         conversation_type: Option<ConversationType>,
@@ -306,6 +325,7 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
+        on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -320,6 +340,7 @@ where
                 callback(message)
             }
             tracing::debug!("`stream_all_messages` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }
@@ -331,6 +352,7 @@ where
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
             + 'static,
+        on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -344,6 +366,7 @@ where
                 callback(message)
             }
             tracing::debug!("`stream_consent` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }
@@ -354,6 +377,7 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
+        on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -367,6 +391,7 @@ where
                 callback(message)
             }
             tracing::debug!("`stream_consent` stream ended, dropping stream");
+            on_close();
             Ok::<_, SubscribeError>(())
         })
     }

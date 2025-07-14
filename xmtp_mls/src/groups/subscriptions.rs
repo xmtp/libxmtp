@@ -51,6 +51,18 @@ where
         StreamGroupMessages::new(&self.context, vec![self.group_id.clone().into()]).await
     }
 
+    /// create a stream that is not attached to any lifetime
+    pub async fn stream_owned(
+        &self,
+    ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static>
+    where
+        ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+        Db: Send + Sync + 'static,
+    {
+        StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id.clone().into()])
+            .await
+    }
+
     pub fn stream_with_callback(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         group_id: Vec<u8>,
@@ -58,13 +70,19 @@ where
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
             + Send
             + 'static,
+        on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
         ApiClient: 'static,
         ApiClient: XmtpMlsStreams + 'static,
         Db: 'static,
     {
-        stream_messages_with_callback(context, vec![group_id.into()].into_iter(), callback)
+        stream_messages_with_callback(
+            context,
+            vec![group_id.into()].into_iter(),
+            callback,
+            on_close,
+        )
     }
 }
 
@@ -81,6 +99,7 @@ pub(crate) fn stream_messages_with_callback<ApiClient, Db>(
     #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
         + Send
         + 'static,
+    on_close: impl FnOnce() + Send + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     ApiClient: XmtpApi + XmtpMlsStreams + 'static,
@@ -97,6 +116,7 @@ where
             callback(message)
         }
         tracing::debug!("`stream_messages` stream ended, dropping stream");
+        on_close();
         Ok::<_, SubscribeError>(())
     })
 }
