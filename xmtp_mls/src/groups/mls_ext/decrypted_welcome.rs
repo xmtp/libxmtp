@@ -85,8 +85,8 @@ impl DecryptedWelcome {
             DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
-            added_by_installation_id,
-        },
+                added_by_installation_id,
+            },
             welcome_metadata,
         ))
     }
