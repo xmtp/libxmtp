@@ -1108,12 +1108,14 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        self.load_mls_group_with_lock_async(|mls_group| async move {
+        self.load_mls_group_with_lock_async(|mut mls_group| async move {
             let mut result = self
-                .process_message_inner(mls_group, envelope, trust_message_order)
+                .process_message_inner(&mut mls_group, envelope, trust_message_order)
                 .await;
             if trust_message_order {
-                result = self.post_process_message(result, envelope).await;
+                result = self
+                    .post_process_message(&mls_group, result, envelope)
+                    .await;
             }
             result
         })
@@ -1123,7 +1125,7 @@ where
     #[tracing::instrument(skip(envelope), level = "debug")]
     async fn process_message_inner(
         &self,
-        mut mls_group: OpenMlsGroup,
+        mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
@@ -1240,7 +1242,7 @@ where
                             },
                             Ok(commit) => {
                                 self
-                                .process_own_message(&mut mls_group, commit, &intent, &message, envelope)?
+                                .process_own_message(mls_group, commit, &intent, &message, envelope)?
                             }
                         };
                         identifier.internal_id(internal_message_id.clone());
@@ -1282,7 +1284,7 @@ where
                 );
                 let identifier = self
                     .validate_and_process_external_message(
-                        &mut mls_group,
+                        mls_group,
                         message,
                         envelope,
                         allow_cursor_increment,
@@ -1398,6 +1400,7 @@ where
 
     async fn post_process_message(
         &self,
+        mls_group: &OpenMlsGroup,
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
         msgv1: &GroupMessageV1,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
@@ -1433,7 +1436,9 @@ where
                     e
                 );
 
-                if !e.is_retryable() {
+                // Do not update the cursor if you have been removed from the group - you may be readded
+                // later
+                if !e.is_retryable() && mls_group.is_active() {
                     if let Err(update_cursor_error) =
                         self.update_cursor_if_needed(&provider, &msgv1.group_id, msgv1.id)
                     {
