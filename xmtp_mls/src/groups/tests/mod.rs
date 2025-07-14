@@ -5,6 +5,10 @@ mod test_local_commit_log;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
 
+use prost::Message;
+use xmtp_db::refresh_state::EntityKind;
+use xmtp_proto::xmtp::mls::message_contents::PlaintextEnvelope;
+
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -32,10 +36,10 @@ use crate::{
 use diesel::connection::SimpleConnection;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use futures::future::join_all;
-use prost::Message;
 use std::sync::Arc;
 use wasm_bindgen_test::wasm_bindgen_test;
 use xmtp_common::time::now_ns;
+use xmtp_common::RetryableError;
 use xmtp_common::StreamHandle as _;
 use xmtp_common::{assert_err, assert_ok};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, ContentCodec};
@@ -53,7 +57,7 @@ use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::associations::Identifier;
 use xmtp_mls_common::group_metadata::GroupMetadata;
 use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
-use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
+use xmtp_proto::xmtp::mls::api::v1::group_message::{Version, V1 as GroupMessageV1};
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 async fn receive_group_invite(client: &FullXmtpClient) -> ConcreteMlsGroup {
@@ -3629,4 +3633,61 @@ async fn can_stream_out_of_order_without_forking() {
     // We pass on the last line because a's cursor has not moved past any commits, even though it processed
     // messages out of order
     assert_eq!(group_a.epoch().await.unwrap(), 4);
+}
+
+#[xmtp_common::test(flavor = "multi_thread")]
+async fn non_retryable_error_increments_cursor() {
+    let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+
+    // Create a group
+    let group = alice.create_group(None, None).unwrap();
+    group.add_members_by_inbox_id::<String>(&[]).await.unwrap();
+
+    let provider = alice.mls_provider();
+
+    // create a fake message with an invalid body
+    // an envelope with an empty content is a non-retryable error.
+    // since we are also trying to decrypt our own message, this is also non-retryable.
+    let invalid_payload_message = PlaintextEnvelope { content: None };
+    let invalid_message_bytes = invalid_payload_message.encode_to_vec();
+    let message = group
+        .load_mls_group_with_lock(&provider, |mut mls_group| {
+            let m = mls_group
+                .create_message(
+                    &provider,
+                    &alice.context().identity.installation_keys,
+                    invalid_message_bytes.as_slice(),
+                )
+                .unwrap();
+            Ok(m)
+        })
+        .unwrap();
+
+    // what the new cursor should be
+    // set cursor to the max u64 value -1_000 to ensure its higher than the cursor in the backend
+    // TODO: using u64::MAX here causes an implicit overflow for the i64 comparison (i think),
+    // making us actually return the message as already processed, since it loops back to 0,
+    // thereby less than group cursor. Thats why we take i64 max before casting to u64, rather than
+    // u64::MAX.
+    let new_cursor = i64::MAX - 1_000;
+
+    let message = GroupMessageV1 {
+        id: new_cursor as u64,
+        created_ns: xmtp_common::time::now_ns() as u64,
+        group_id: group.group_id.to_vec(),
+        data: message.to_bytes().unwrap(),
+        sender_hmac: vec![],
+        should_push: false,
+    };
+
+    let res = group.process_message(&message, true).await;
+    assert!(res.is_err());
+    assert!(!res.unwrap_err().is_retryable());
+    let last_cursor = alice
+        .context
+        .db()
+        .get_last_cursor_for_id(&group.group_id, EntityKind::Group)
+        .unwrap();
+
+    assert_eq!(new_cursor, last_cursor);
 }

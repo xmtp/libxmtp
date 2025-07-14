@@ -1154,6 +1154,11 @@ where
             .db()
             .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
+            tracing::info!(
+                "EARLY RETURNING, group_cursor={} >= cursor={}",
+                group_cursor,
+                cursor
+            );
             // early return if the message is already procesed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
