@@ -348,7 +348,7 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.mls_provider().db().find_group_intents(
             self.group_id.clone(),
@@ -1122,7 +1122,7 @@ where
         .await
     }
 
-    #[tracing::instrument(skip(envelope), level = "debug")]
+    #[tracing::instrument(skip(mls_group, envelope), level = "debug")]
     async fn process_message_inner(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -1202,7 +1202,7 @@ where
                 //  - be an Error but produce a valid intent state?
                 //  - be an error and produce a GroupMessage Processing Error
                 let maybe_validated_commit = self
-                    .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
+                    .stage_and_validate_intent(mls_group, &intent, &message, envelope)
                     .await;
 
                 provider.transaction(|provider| {
@@ -1455,7 +1455,7 @@ where
                     );
                 }
                 if let Err(accounting_error) = self
-                    .process_group_message_error_for_fork_detection(msgv1, &e)
+                    .process_group_message_error_for_fork_detection(msgv1, &e, mls_group)
                     .await
                 {
                     tracing::error!(
@@ -1541,6 +1541,7 @@ where
         Ok(summary)
     }
 
+    #[tracing::instrument(skip_all, level = "debug")]
     fn update_cursor_if_needed(
         &self,
         provider: &XmtpOpenMlsProvider<<Db as XmtpDb>::Connection>,
@@ -1698,22 +1699,14 @@ where
         &self,
         message: &GroupMessageV1,
         error: &GroupMessageProcessingError,
+        mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
         if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::WrongEpoch,
         )) = error
         {
-            let group_epoch = match self.epoch().await {
-                Ok(epoch) => epoch,
-                Err(error) => {
-                    tracing::info!(
-                        "WrongEpoch encountered but group_epoch could not be calculated, error:{}",
-                        error
-                    );
-                    return Ok(());
-                }
-            };
+            let group_epoch = mls_group.epoch().as_u64();
 
             let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
                 Ok(msg) => msg,

@@ -2396,10 +2396,10 @@ async fn skip_already_processed_messages() {
 
 #[xmtp_common::test]
 async fn skip_already_processed_intents() {
-    let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+    let alix = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
 
     let bo_wallet = generate_local_wallet();
-    let bo_client = ClientBuilder::new_test_client(&bo_wallet).await;
+    let bo_client = ClientBuilder::new_test_client_vanilla(&bo_wallet).await;
 
     let alix_group = alix.create_group(None, None).unwrap();
 
