@@ -92,6 +92,7 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -1107,8 +1108,14 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            self.process_message_inner(mls_group, envelope, trust_message_order)
+        self.load_mls_group_with_lock_async(|mls_group| async move {
+            let mut result = self
+                .process_message_inner(mls_group, envelope, trust_message_order)
+                .await;
+            if trust_message_order {
+                result = self.post_process_message(result, envelope).await;
+            }
+            result
         })
         .await
     }
@@ -1198,20 +1205,7 @@ where
 
                 provider.transaction(|provider| {
                         let requires_processing = if allow_cursor_increment {
-                            tracing::info!(
-                                "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-                                hex::encode(envelope.group_id.as_slice()),
-                                cursor
-                            );
-                            let updated = provider.db().update_cursor(
-                                &envelope.group_id,
-                                EntityKind::Group,
-                                cursor as i64,
-                            )?;
-                            if updated {
-                                tracing::debug!("cursor updated to [{}]", cursor as i64);
-                            } else { tracing::debug!("no cursor update required"); }
-                            updated
+                            self.update_cursor_if_needed(provider, &envelope.group_id, cursor)?
                         } else {
                             tracing::info!(
                                 "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1399,10 +1393,17 @@ where
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
-        let result = self.process_message(msgv1, true).await;
+        self.process_message(msgv1, true).await
+    }
 
-        track_err!("Process message", &result, group: &msgv1.group_id);
-        let message = match result {
+    async fn post_process_message(
+        &self,
+        process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
+        msgv1: &GroupMessageV1,
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+        let provider = self.mls_provider();
+        track_err!("Process message", &process_result, group: &msgv1.group_id);
+        let message = match process_result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
@@ -1431,8 +1432,17 @@ where
                     msgv1.id,
                     e
                 );
-                if let Err(accounting_error) =
-                    self.insert_commit_entry_for_failed_commit(msgv1.id, mls_message_in, &e)
+
+                if !e.is_retryable() {
+                    if let Err(update_cursor_error) =
+                        self.update_cursor_if_needed(&provider, &msgv1.group_id, msgv1.id)
+                    {
+                        // We don't need to propagate the error if the cursor fails to update - the worst case is
+                        // that the non-retriable error is processed again
+                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                    }
+                }
+                if let Err(accounting_error) = self.insert_commit_entry_for_failed_commit(msgv1, &e)
                 {
                     tracing::error!(
                         "Error inserting commit entry for failed commit: {}",
@@ -1526,6 +1536,28 @@ where
         Ok(summary)
     }
 
+    fn update_cursor_if_needed(
+        &self,
+        provider: &XmtpOpenMlsProvider<<Db as XmtpDb>::Connection>,
+        group_id: &[u8],
+        cursor: u64,
+    ) -> Result<bool, StorageError> {
+        tracing::info!(
+            "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
+            hex::encode(group_id),
+            cursor
+        );
+        let updated = provider
+            .db()
+            .update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        if updated {
+            tracing::debug!("cursor updated to [{}]", cursor as i64);
+        } else {
+            tracing::debug!("no cursor update required");
+        }
+        Ok(updated)
+    }
+
     fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,
@@ -1596,16 +1628,19 @@ where
 
     fn insert_commit_entry_for_failed_commit(
         &self,
-        message_cursor: u64,
-        mls_message_in: MlsMessageIn,
+        envelope: &GroupMessageV1,
         error: &GroupMessageProcessingError,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), GroupMessageProcessingError> {
         if !crate::configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
         if error.is_retryable() {
             return Ok(());
         }
+
+        let message_cursor = envelope.id;
+        // TODO(rich): Remove extra deserialization step
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
         if let MlsMessageBodyIn::PrivateMessage(message) = mls_message_in.extract() {
             if message.content_type() != openmls::framing::ContentType::Commit {
                 return Ok(());
