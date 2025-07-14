@@ -1,7 +1,7 @@
 use crate::{
     builder::SyncWorkerMode,
     configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
         group_permissions::PolicySet,
@@ -153,42 +153,6 @@ pub struct Client<Context> {
     pub(crate) workers: WorkerRunner,
 }
 
-impl<Context: XmtpSharedContext> XmtpContextProvider for Client<Context> {
-    type Db = <Context as XmtpSharedContext>::Db;
-
-    type ApiClient = <Context as XmtpSharedContext>::ApiClient;
-
-    type MlsStorage = <Context as XmtpSharedContext>::MlsStorage;
-
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
-        &self.context
-    }
-
-    fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
-        self.context.db()
-    }
-
-    fn api(&self) -> &xmtp_api::ApiClientWrapper<Self::ApiClient> {
-        self.context.db()
-    }
-
-    fn identity(&self) -> &Identity {
-        &self.context.identity()
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        &self.context.version_info
-    }
-
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        &self.context.local_events
-    }
-
-    fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {
-        &self.context.worker_events
-    }
-}
-
 #[derive(Clone)]
 pub struct DeviceSync {
     pub(crate) server_url: Option<String>,
@@ -244,8 +208,8 @@ where
         self.context.api().api_client.identity_stats().clear();
     }
 
-    pub fn scw_verifier(&self) -> &Arc<Box<dyn SmartContractSignatureVerifier>> {
-        &self.context.scw_verifier()
+    pub fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
+        self.context.scw_verifier()
     }
 
     pub fn version_info(&self) -> &VersionInfo {
@@ -728,7 +692,11 @@ where
         tracing::info!("registering identity");
         // Register the identity before applying the signature request
         self.identity()
-            .register(&self.context.db(), self.context.api())
+            .register(
+                &self.context.db(),
+                self.context.api(),
+                self.context.mls_storage(),
+            )
             .await?;
         let updates = IdentityUpdates::new(self.context.clone());
         updates.apply_signature_request(signature_request).await?;
@@ -752,7 +720,7 @@ where
             .rotate_and_upload_key_package(
                 &self.context.db(),
                 self.context.api(),
-                &self.context.mls_storage()
+                self.context.mls_storage(),
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
             .await?;
@@ -884,7 +852,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::Client;
-    use crate::context::{XmtpContextProvider, XmtpSharedContext};
+    use crate::context::XmtpSharedContext;
     use crate::identity::IdentityError;
     use crate::subscriptions::StreamMessages;
     use crate::tester;

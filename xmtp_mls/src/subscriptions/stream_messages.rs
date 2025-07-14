@@ -24,7 +24,7 @@ use super::{
     Result, SubscribeError,
 };
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::MlsGroup,
     subscriptions::process_message::ProcessedMessage,
 };

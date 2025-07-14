@@ -48,7 +48,6 @@ use xmtp_db::{
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::configuration::DeviceSyncUrls;
-use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;

@@ -13,7 +13,7 @@ use xmtp_db::{
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::MlsGroup,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };

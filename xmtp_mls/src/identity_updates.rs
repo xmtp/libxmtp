@@ -1,6 +1,6 @@
 use crate::{
     client::ClientError,
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::group_membership::{GroupMembership, MembershipDiff},
     subscriptions::SyncWorkerEvent,
     XmtpApi,
@@ -629,7 +629,6 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
         builder::ClientBuilder,
-        context::XmtpContextProvider,
         groups::group_membership::GroupMembership,
         identity_updates::IdentityUpdates,
         tester,

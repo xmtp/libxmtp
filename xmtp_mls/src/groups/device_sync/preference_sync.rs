@@ -129,7 +129,7 @@ impl From<PreferenceUpdate> for PreferenceUpdateProto {
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::XmtpContextProvider, groups::device_sync::worker::SyncMetric, tester};
+    use crate::{groups::device_sync::worker::SyncMetric, tester};
     use xmtp_db::user_preferences::StoredUserPreferences;
 
     #[rstest::rstest]

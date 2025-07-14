@@ -1,5 +1,4 @@
 use super::*;
-use crate::context::XmtpContextProvider;
 use crate::context::XmtpMlsLocalContext;
 use crate::groups::{
     build_group_membership_extension,

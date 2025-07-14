@@ -6,7 +6,6 @@ mod test_key_updates;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
-use crate::context::XmtpContextProvider;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -474,7 +473,7 @@ async fn test_add_inbox() {
 async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -3403,7 +3402,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
 
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;

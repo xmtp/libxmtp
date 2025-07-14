@@ -7,6 +7,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::StorageProvider;
+use std::borrow::Cow;
 
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
@@ -27,6 +28,20 @@ impl<'a, T> XmtpMlsStorageProvider for T where
 pub struct XmtpOpenMlsProvider<S> {
     crypto: RustCrypto,
     mls_storage: S,
+}
+
+pub struct XmtpOpenMlsProviderRef<'a, S: ToOwned> {
+    crypto: RustCrypto,
+    mls_storage: Cow<'a, S>,
+}
+
+impl<'a, S: ToOwned> XmtpOpenMlsProviderRef<'a, S> {
+    pub fn new(mls_storage: &'a S) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            mls_storage: Cow::Borrowed(mls_storage),
+        }
+    }
 }
 
 impl<S> XmtpOpenMlsProvider<S> {

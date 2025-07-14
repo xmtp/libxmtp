@@ -51,7 +51,6 @@ mod test {
             FILE_DESCRIPTOR_SET, PublishIdentityUpdateRequest,
         };
         let pnq = crate::path_and_query::<PublishIdentityUpdateRequest>(FILE_DESCRIPTOR_SET);
-        println!("{}", pnq);
     }
 
     #[xmtp_common::test]

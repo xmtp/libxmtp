@@ -9,6 +9,7 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
+use crate::groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update;
 use crate::{
     client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
     mls_store::MlsStore, subscriptions::stream_messages::extract_message_cursor,
@@ -29,10 +30,6 @@ use crate::{
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
     utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
-};
-use crate::{
-    context::XmtpContextProvider,
-    groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
 };
 use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
@@ -627,8 +624,9 @@ where
                 self.context.inbox_id(),
                 intent.id
             );
-            let provider = XmtpOpenMlsProvider::new(&conn);
-            if let Err(err) = mls_group.merge_staged_commit(&provider, staged_commit) {
+            if let Err(err) =
+                mls_group.merge_staged_commit(&self.context.mls_provider(), staged_commit)
+            {
                 tracing::error!("error merging commit: {err}");
                 return Ok((IntentState::ToPublish, None));
             }
@@ -1053,8 +1051,7 @@ where
                 );
                 identifier.group_context(staged_commit.group_context().clone());
 
-                let provider = XmtpOpenMlsProvider::new(&conn);
-                mls_group.merge_staged_commit(&provider, staged_commit)?;
+                mls_group.merge_staged_commit(&self.context.mls_provider(), staged_commit)?;
                 let epoch = mls_group.epoch().as_u64();
                 track!(
                     "Commit merged",

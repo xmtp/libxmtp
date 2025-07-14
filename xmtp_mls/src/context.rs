@@ -91,11 +91,15 @@ where
     }
 
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        self.context_ref().worker_events()
+        self.context_ref().worker_events
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
         self.context_ref().local_events()
+    }
+
+    fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
+        self.context_ref().mls_commit_lock()
     }
 }
 
@@ -128,147 +132,6 @@ where
         &self,
     ) -> &Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>> {
         <T as XmtpSharedContext>::context_ref(self)
-    }
-}
-
-pub trait XmtpContextProvider: Sized {
-    type Db: XmtpDb;
-    type ApiClient: XmtpApi;
-    type MlsStorage: XmtpMlsStorageProvider;
-
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>;
-
-    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
-
-    fn identity(&self) -> &Identity;
-
-    fn installation_id(&self) -> InstallationId {
-        (*self.identity().installation_keys.public_bytes()).into()
-    }
-
-    fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.identity().inbox_id()
-    }
-
-    fn version_info(&self) -> &VersionInfo;
-
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
-
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
-}
-
-impl<XApiClient, XDb, S> XmtpContextProvider for XmtpMlsLocalContext<XApiClient, XDb, S>
-where
-    XApiClient: XmtpApi,
-    XDb: XmtpDb,
-    S: XmtpMlsStorageProvider,
-{
-    type Db = XDb;
-    type ApiClient = XApiClient;
-    type MlsStorage = S;
-
-    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
-        XmtpMlsLocalContext::<XApiClient, XDb>::db(self)
-    }
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        &self.api_client
-    }
-
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
-        self
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        &self.version_info
-    }
-
-    fn identity(&self) -> &Identity {
-        &self.identity
-    }
-
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        &self.local_events
-    }
-
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        &self.worker_events
-    }
-}
-
-impl<T> XmtpContextProvider for Arc<T>
-where
-    T: XmtpContextProvider,
-{
-    type Db = <T as XmtpContextProvider>::Db;
-    type ApiClient = <T as XmtpContextProvider>::ApiClient;
-    type MlsStorage = <T as XmtpContextProvider>::MlsStorage;
-
-    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
-        <T as XmtpContextProvider>::db(&**self)
-    }
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        <T as XmtpContextProvider>::api(&**self)
-    }
-
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
-        <T as XmtpContextProvider>::context_ref(&**self)
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        <T as XmtpContextProvider>::version_info(&**self)
-    }
-
-    fn identity(&self) -> &Identity {
-        <T as XmtpContextProvider>::identity(&**self)
-    }
-
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        <T as XmtpContextProvider>::local_events(&**self)
-    }
-
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        <T as XmtpContextProvider>::worker_events(&**self)
-    }
-}
-
-impl<T> XmtpContextProvider for &T
-where
-    T: XmtpContextProvider,
-{
-    type Db = <T as XmtpContextProvider>::Db;
-    type ApiClient = <T as XmtpContextProvider>::ApiClient;
-    type MlsStorage = <T as XmtpContextProvider>::MlsStorage;
-
-    fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
-        <T as XmtpContextProvider>::db(*self)
-    }
-
-    fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        <T as XmtpContextProvider>::api(*self)
-    }
-
-    fn context_ref(&self) -> &XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage> {
-        <T as XmtpContextProvider>::context_ref(*self)
-    }
-
-    fn version_info(&self) -> &VersionInfo {
-        <T as XmtpContextProvider>::version_info(*self)
-    }
-
-    fn identity(&self) -> &Identity {
-        <T as XmtpContextProvider>::identity(*self)
-    }
-
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        <T as XmtpContextProvider>::local_events(*self)
-    }
-
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        <T as XmtpContextProvider>::worker_events(*self)
     }
 }
 

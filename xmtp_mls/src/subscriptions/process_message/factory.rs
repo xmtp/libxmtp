@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::ProcessedMessage;
 use crate::context::XmtpSharedContext;
 use crate::subscriptions::process_message::MessageIdentifierBuilder;
-use crate::{context::XmtpContextProvider, subscriptions::SubscribeError};
+use crate::subscriptions::SubscribeError;
 use crate::{
     context::XmtpMlsLocalContext,
     groups::{

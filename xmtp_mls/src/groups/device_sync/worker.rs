@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     client::ClientError,
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::{

@@ -33,12 +33,16 @@ xmtp_proto.workspace = true
 zeroize.workspace = true
 
 mockall = { workspace = true, optional = true }
+openmls_memory_storage = { workspace = true, features = [
+  "test-utils",
+], optional = true }
 tokio = { workspace = true, optional = true, features = [
   "macros",
   "tracing",
   "rt-multi-thread",
 ] }
 toml = { version = "0.8.4", optional = true }
+
 
 # TODO: possibly separate these crates
 xmtp_content_types.workspace = true
@@ -91,4 +95,8 @@ wasm-bindgen-test.workspace = true
 
 [features]
 update-schema = ["dep:toml"]
-test-utils = ["xmtp_common/test-utils", "dep:mockall"]
+test-utils = [
+  "xmtp_common/test-utils",
+  "dep:mockall",
+  "dep:openmls_memory_storage",
+]

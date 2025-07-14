@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     subscriptions::stream_messages::MessagesApiSubscription,
 };
 use crate::{groups::welcome_sync::WelcomeService, track};
@@ -146,7 +146,6 @@ where
                 if self.sync_groups.contains(&msg.group_id) {
                     let _ = self
                         .context
-                        .context_ref()
                         .worker_events()
                         .send(SyncWorkerEvent::NewSyncGroupMsg);
                     cx.waker().wake_by_ref();

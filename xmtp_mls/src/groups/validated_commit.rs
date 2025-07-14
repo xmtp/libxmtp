@@ -6,7 +6,7 @@ use super::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 use crate::{
-    context::{XmtpContextProvider, XmtpSharedContext},
+    context::XmtpSharedContext,
     identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
 use openmls::{

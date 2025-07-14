@@ -191,7 +191,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity
         } else {
             identity_strategy
-                .initialize_identity(&api_client, &conn, &scw_verifier)
+                .initialize_identity(&api_client, &conn, &mls_storage, &scw_verifier)
                 .await?
         };
 
@@ -446,6 +446,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         })
     }
 
@@ -465,6 +466,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         }
     }
 
@@ -495,6 +497,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         })
     }
 }

@@ -1,5 +1,4 @@
 use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-use crate::context::XmtpContextProvider;
 use crate::context::XmtpMlsLocalContext;
 use crate::context::XmtpSharedContext;
 use crate::identity::pq_key_package_references_key;
@@ -189,6 +188,7 @@ where
                 .rotate_and_upload_key_package(
                     &conn,
                     self.context.api(),
+                    self.context.mls_storage(),
                     CREATE_PQ_KEY_PACKAGE_EXTENSION,
                 )
                 .await?;

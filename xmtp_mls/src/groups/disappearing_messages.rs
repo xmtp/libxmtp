@@ -1,4 +1,4 @@
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};

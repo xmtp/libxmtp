@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::client::ClientError;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
 use crate::groups::device_sync::worker::SyncMetric;
 use crate::groups::device_sync::DeviceSyncClient;
 use crate::Client;

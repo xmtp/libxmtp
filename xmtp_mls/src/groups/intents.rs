@@ -823,7 +823,7 @@ pub(crate) mod tests {
 
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
-    use crate::{builder::ClientBuilder, context::XmtpContextProvider, utils::ConcreteMlsGroup};
+    use crate::{builder::ClientBuilder, utils::ConcreteMlsGroup};
 
     use super::*;
 

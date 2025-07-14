@@ -121,10 +121,15 @@ impl IdentityStrategy {
      *
      **/
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn initialize_identity<ApiClient: XmtpApi, C: ConnectionExt>(
+    pub(crate) async fn initialize_identity<
+        ApiClient: XmtpApi,
+        C: ConnectionExt,
+        S: XmtpMlsStorageProvider,
+    >(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         conn: &impl DbQuery<C>,
+        mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
         use IdentityStrategy::*;
@@ -167,6 +172,7 @@ impl IdentityStrategy {
                         legacy_signed_private_key,
                         api_client,
                         conn,
+                        mls_storage,
                         scw_signature_verifier,
                     )
                     .await
@@ -333,13 +339,14 @@ impl Identity {
     ///
     /// If no legacy key is provided, a wallet signature is always required.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn new<ApiClient: XmtpApi, C: ConnectionExt>(
+    pub(crate) async fn new<ApiClient: XmtpApi, C: ConnectionExt, S: XmtpMlsStorageProvider>(
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         conn: &impl DbQuery<C>,
+        mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
@@ -465,7 +472,7 @@ impl Identity {
                 is_ready: AtomicBool::new(true),
             };
 
-            identity.register(conn, api_client).await?;
+            identity.register(conn, api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
@@ -618,10 +625,15 @@ impl Identity {
         })
     }
     #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn register<ApiClient: XmtpApi, C: ConnectionExt>(
+    pub(crate) async fn register<
+        ApiClient: XmtpApi,
+        C: ConnectionExt,
+        S: XmtpMlsStorageProvider,
+    >(
         &self,
         conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
+        mls_storage: &S,
     ) -> Result<(), IdentityError> {
         let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
         if stored_identity.is_some() {
@@ -629,8 +641,13 @@ impl Identity {
             return Ok(());
         }
 
-        self.rotate_and_upload_key_package(conn, api_client, CREATE_PQ_KEY_PACKAGE_EXTENSION)
-            .await?;
+        self.rotate_and_upload_key_package(
+            conn,
+            api_client,
+            mls_storage,
+            CREATE_PQ_KEY_PACKAGE_EXTENSION,
+        )
+        .await?;
         Ok(StoredIdentity::try_from(self)?.store(conn)?)
     }
 
@@ -653,7 +670,7 @@ impl Identity {
         &self,
         conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
-        mls_storage: S,
+        mls_storage: &S,
         include_post_quantum: bool,
     ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
@@ -814,7 +831,6 @@ fn store_key_package_references(
 
 #[cfg(test)]
 mod tests {
-    use crate::context::XmtpContextProvider;
     use crate::groups::mls_ext::WrapperAlgorithm;
     use crate::{
         builder::ClientBuilder,
@@ -887,12 +903,12 @@ mod tests {
     async fn ensure_pq_keys_are_deleted() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.context.db();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let storage = client.context.mls_storage();
         // As long as we have `config::CREATE_PQ_KEY_PACKAGE_EXTENSION` set to false, we need to do this step to force a PQ key package to be created
         let api_client = client.context.api();
         client
             .identity()
-            .rotate_and_upload_key_package(&conn, api_client, true)
+            .rotate_and_upload_key_package(&conn, api_client, &storage, true)
             .await
             .unwrap();
 
@@ -969,18 +985,20 @@ mod tests {
             let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             let amal_conn = amal.context.db();
             let amal_api = amal.context.api();
+            let amal_mls = amal.context.mls_storage();
 
             let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             let bola_conn = bola.context.db();
             let bola_api = bola.context.api();
+            let bola_mls = bola.context.mls_storage();
 
             // Give amal a post quantum key package and bola a legacy key package
             amal.identity()
-                .rotate_and_upload_key_package(&amal_conn, amal_api, amal_has_pq)
+                .rotate_and_upload_key_package(&amal_conn, amal_api, amal_mls, amal_has_pq)
                 .await
                 .unwrap();
             bola.identity()
-                .rotate_and_upload_key_package(&bola_conn, bola_api, bola_has_pq)
+                .rotate_and_upload_key_package(&bola_conn, bola_api, bola_mls, bola_has_pq)
                 .await
                 .unwrap();
 

@@ -28,6 +28,7 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
+use crate::identity_updates::IdentityUpdates;
 use crate::{
     client::ClientError,
     configuration::{
@@ -39,7 +40,6 @@ use crate::{
     subscriptions::LocalEvents,
     utils::id::calculate_message_id,
 };
-use crate::{context::XmtpContextProvider, identity_updates::IdentityUpdates};
 use crate::{context::XmtpSharedContext, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
@@ -403,7 +403,7 @@ where
         let mls_group = if let Some(group_id) = group_id {
             OpenMlsGroup::new_with_group_id(
                 &provider,
-                &context.identity.installation_keys,
+                &context.identity().installation_keys,
                 &group_config,
                 GroupId::from_slice(group_id),
                 CredentialWithKey {
@@ -723,11 +723,11 @@ where
         )?;
         let mls_group = OpenMlsGroup::new(
             &provider,
-            &context.identity.installation_keys,
+            &context.identity().installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
+                credential: context.identity().credential(),
+                signature_key: context.identity().installation_keys.public_slice().into(),
             },
         )?;
 

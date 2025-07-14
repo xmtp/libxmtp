@@ -44,7 +44,6 @@ use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::common::group_mutable_metadata::MetadataField;
-use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::device_sync::archive::insert_importer;
 use xmtp_mls::groups::device_sync::archive::ArchiveImporter;

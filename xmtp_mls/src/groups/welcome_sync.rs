@@ -1,5 +1,5 @@
 use crate::client::ClientError;
-use crate::context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
 use crate::mls_store::MlsStore;
 use crate::{
     groups::{GroupError, MlsGroup},

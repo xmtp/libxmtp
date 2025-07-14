@@ -139,7 +139,7 @@ pub struct DeviceSyncClient<Context> {
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<Context> DeviceSyncClient<Context> {
+impl<Context: Clone> DeviceSyncClient<Context> {
     pub fn new(context: &Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
