@@ -289,7 +289,7 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
     let mut published = conn.intents_published() as usize;
     xmtp_common::time::timeout(Duration::from_secs(5), async {
         while published < n {
-            xmtp_common::yield_().await;
+            xmtp_common::task::yield_now().await;
             published = conn.intents_published() as usize;
         }
     })

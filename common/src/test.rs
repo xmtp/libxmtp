@@ -223,7 +223,7 @@ where
             if let Some(r) = f().await {
                 return r;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -241,7 +241,7 @@ where
             if let Ok(r) = f().await {
                 return r;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -260,7 +260,7 @@ where
             if expected == result {
                 return result;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
@@ -282,7 +282,7 @@ where
             if result >= expected {
                 return result;
             } else {
-                crate::yield_().await;
+                crate::task::yield_now().await;
             }
         }
     })
