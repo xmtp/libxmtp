@@ -209,6 +209,26 @@ impl RetryableError for GroupMessageProcessingError {
     }
 }
 
+#[derive(Debug, Error)]
+pub struct IntentValidationError {
+    processing_error: GroupMessageProcessingError,
+    // The next intent state to transition to, if the error is non-retriable.
+    // Should not be used for retryable errors.
+    next_intent_state: IntentState,
+}
+
+impl std::fmt::Display for IntentValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IntentValidationError: {}", self.processing_error)
+    }
+}
+
+impl RetryableError for IntentValidationError {
+    fn is_retryable(&self) -> bool {
+        self.processing_error.is_retryable()
+    }
+}
+
 #[derive(Debug)]
 struct PublishIntentData {
     staged_commit: Option<Vec<u8>>,
@@ -492,10 +512,7 @@ where
         intent: &StoredGroupIntent,
         message: &ProtocolMessage,
         envelope: &GroupMessageV1,
-    ) -> Result<
-        Option<(StagedCommit, ValidatedCommit)>,
-        Result<IntentState, GroupMessageProcessingError>,
-    > {
+    ) -> Result<Option<(StagedCommit, ValidatedCommit)>, IntentValidationError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -514,6 +531,7 @@ where
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
+                    // TODO(rich): Merge into validate_message_epoch()
                     if published_in_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
@@ -526,18 +544,49 @@ where
                             published_in_epoch,
                             group_epoch
                         );
+                        let processing_error = if published_in_epoch < group_epoch {
+                            GroupMessageProcessingError::OldEpoch(
+                                published_in_epoch as u64,
+                                group_epoch as u64,
+                            )
+                        } else {
+                            GroupMessageProcessingError::FutureEpoch(
+                                published_in_epoch as u64,
+                                group_epoch as u64,
+                            )
+                        };
 
-                        return Err(Ok(IntentState::ToPublish));
+                        return Err(IntentValidationError {
+                            processing_error,
+                            next_intent_state: IntentState::ToPublish,
+                        });
                     }
 
-                    let staged_commit = if let Some(staged_commit) = &intent.staged_commit {
-                        match decode_staged_commit(staged_commit) {
-                            Err(err) => return Err(Err(err)),
-                            Ok(staged_commit) => staged_commit,
-                        }
-                    } else {
-                        return Err(Err(GroupMessageProcessingError::IntentMissingStagedCommit));
-                    };
+                    let staged_commit = intent
+                        .staged_commit
+                        .as_ref()
+                        .map_or(
+                            Err(GroupMessageProcessingError::IntentMissingStagedCommit),
+                            |staged_commit| decode_staged_commit(staged_commit),
+                        )
+                        .map_err(|err| {
+                            // If we can't retrieve the cached staged commit from the intent, we can't
+                            // apply it. It is indeterminate whether other members were able to apply it
+                            // or not - if they did apply it, then we are forked.
+                            tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                                installation_id = %self.context.installation_id(),
+                                group_id = hex::encode(&self.group_id),
+                                cursor = cursor,
+                                intent_id = intent.id,
+                                intent.kind = %intent.kind,
+                                "Error decoding staged commit for intent, now may be forked: {err:?}",
+                            );
+                            IntentValidationError {
+                                processing_error: err,
+                                next_intent_state: IntentState::Error,
+                            }
+                        })?;
 
                     tracing::info!(
                         "[{}] Validating commit for intent {}. Message timestamp: {envelope_timestamp_ns}",
@@ -564,9 +613,12 @@ where
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
-                            // Return before merging commit since it does not pass validation
-                            // Return OK so that the group intent update is still written to the DB
-                            return Err(Ok(IntentState::Error));
+                            return Err(IntentValidationError {
+                                processing_error: GroupMessageProcessingError::CommitValidation(
+                                    err,
+                                ),
+                                next_intent_state: IntentState::Error,
+                            });
                         }
                         Ok(validated_commit) => validated_commit,
                     };
@@ -583,7 +635,10 @@ where
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 )
-                .map_err(|_| Ok(IntentState::ToPublish))?;
+                .map_err(|err| IntentValidationError {
+                    processing_error: err,
+                    next_intent_state: IntentState::ToPublish,
+                })?;
             }
         }
 
@@ -1193,82 +1248,76 @@ where
                 );
 
                 let message = message.into();
-                // TODO: the return type of stage_and_validated_commit should be fixed
-                // We should never be nesting Result types within the error return type, it is
-                // super confusing. Instead of failing one way, this function can now fail
-                // in four ways with ambiguous meaning:
-                //  - Be OK but produce a null pointer (None) -- what does this mean?
-                //  - Be Ok but produce a staged commit and validated commit
-                //  - be an Error but produce a valid intent state?
-                //  - be an error and produce a GroupMessage Processing Error
                 let maybe_validated_commit = self
                     .stage_and_validate_intent(mls_group, &intent, &message, envelope)
                     .await;
 
                 provider.transaction(|provider| {
-                        let requires_processing = if allow_cursor_increment {
-                            self.update_cursor_if_needed(provider, &envelope.group_id, cursor)?
-                        } else {
-                            tracing::info!(
-                                "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
-                                hex::encode(envelope.group_id.as_slice()),
-                                cursor
-                            );
-                            let current_cursor = provider
-                                .db()
-                                .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                            current_cursor < cursor as i64
-                        };
-                        if !requires_processing {
-                            tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                                envelope.id,
-                                xmtp_common::fmt::debug_hex(&envelope.group_id),
-                                envelope.created_ns
-                            );
+                    let requires_processing = if allow_cursor_increment {
+                        self.update_cursor_if_needed(provider, &envelope.group_id, cursor)?
+                    } else {
+                        tracing::info!(
+                            "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                            hex::encode(envelope.group_id.as_slice()),
+                            cursor
+                        );
+                        let current_cursor = provider
+                            .db()
+                            .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                        current_cursor < cursor as i64
+                    };
+                    if !requires_processing {
+                        tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                            envelope.id,
+                            xmtp_common::fmt::debug_hex(&envelope.group_id),
+                            envelope.created_ns
+                        );
 
-                            // early return if the message is already procesed
-                            // _NOTE_: Not early returning and re-processing a message that
-                            // has already been processed, has the potential to result in forks.
-                            // In some cases, we may want to roll back the cursor if we updated the
-                            // cursor, but actually cannot process the message.
-                            identifier.previously_processed(true);
-                            return Ok(());
-                        }
-                        let (intent_state, internal_message_id) = match maybe_validated_commit {
-                            // the error is also a Result
-                            Err(err) => match err {
-                                Ok(intent_state) => (intent_state, None),
-                                Err(e) => return Err(e)
-                            },
-                            Ok(commit) => {
-                                self
-                                .process_own_message(mls_group, commit, &intent, &message, envelope)?
+                        // early return if the message is already procesed
+                        // _NOTE_: Not early returning and re-processing a message that
+                        // has already been processed, has the potential to result in forks.
+                        // In some cases, we may want to roll back the cursor if we updated the
+                        // cursor, but actually cannot process the message.
+                        identifier.previously_processed(true);
+                        return Ok(());
+                    }
+                    let (intent_state, internal_message_id) = match maybe_validated_commit {
+                        Err(err) => {
+                            if err.processing_error.is_retryable() {
+                                // Rollback the transaction so that we can retry
+                                return Err(err.processing_error);
                             }
-                        };
-                        identifier.internal_id(internal_message_id.clone());
+                            (err.next_intent_state, None)
+                        }
+                        Ok(commit) => {
+                            self
+                            .process_own_message(mls_group, commit, &intent, &message, envelope)?
+                        }
+                    };
+                    identifier.internal_id(internal_message_id.clone());
 
-                        match intent_state {
-                            IntentState::ToPublish => {
-                                provider.db().set_group_intent_to_publish(intent_id)?;
-                            }
-                            IntentState::Committed => {
-                                self.handle_metadata_update_from_intent(&intent)?;
-                                provider.db().set_group_intent_committed(intent_id)?;
-                            }
-                            IntentState::Published => {
-                                tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
-                            }
-                            IntentState::Error => {
-                                tracing::error!("Intent [{}] moved to error status", intent_id);
-                                provider.db().set_group_intent_error(intent_id)?;
-                            }
-                            IntentState::Processed => {
-                                tracing::debug!("Intent [{}] moved to Processed status", intent_id);
-                                provider.db().set_group_intent_processed(intent_id)?;
-                            }
+                    match intent_state {
+                        IntentState::ToPublish => {
+                            provider.db().set_group_intent_to_publish(intent_id)?;
                         }
-                        Ok(())
-                    })?;
+                        IntentState::Committed => {
+                            self.handle_metadata_update_from_intent(&intent)?;
+                            provider.db().set_group_intent_committed(intent_id)?;
+                        }
+                        IntentState::Published => {
+                            tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
+                        }
+                        IntentState::Error => {
+                            tracing::error!("Intent [{}] moved to error status", intent_id);
+                            provider.db().set_group_intent_error(intent_id)?;
+                        }
+                        IntentState::Processed => {
+                            tracing::debug!("Intent [{}] moved to Processed status", intent_id);
+                            provider.db().set_group_intent_processed(intent_id)?;
+                        }
+                    }
+                    Ok(())
+                })?;
                 identifier.build()
             }
             // No matching intent found. The message did not originate here.
