@@ -6,7 +6,7 @@ use super::{
         groups::dsl as groups_dsl,
     },
 };
-use crate::{StorageError, Store, impl_store};
+use crate::{StorageError, impl_store};
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -59,7 +59,7 @@ impl StoredConsentRecord {
 
     /// This function will perform some logic to see if a new group should be auto-consented
     /// or auto-denied based on past consent.
-    pub fn persist_consent<C: ConnectionExt>(
+    pub fn stitch_dm_consent<C: ConnectionExt>(
         conn: &DbConnection<C>,
         group: &StoredGroup,
     ) -> Result<(), StorageError> {
@@ -74,7 +74,7 @@ impl StoredConsentRecord {
                 last_consent.state,
                 hex::encode(&group.id),
             );
-            cr.store(conn)?;
+            conn.insert_newer_consent_record(cr)?;
         }
 
         Ok(())
