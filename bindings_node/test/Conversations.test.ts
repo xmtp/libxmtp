@@ -24,7 +24,8 @@ import {
 } from '../dist'
 
 const SLEEP_MS = 100
-const sleep = () => new Promise((resolve) => setTimeout(resolve, SLEEP_MS))
+const sleep = (timeout: number = SLEEP_MS) =>
+  new Promise((resolve) => setTimeout(resolve, timeout))
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -716,7 +717,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     stream2.end()
