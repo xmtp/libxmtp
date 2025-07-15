@@ -110,6 +110,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       conversation_type: opts.conversation_type.map(Into::into),
       include_sync_groups: false,
       activity_after_ns: None,
+      should_publish_commit_log: None,
     }
   }
 }
