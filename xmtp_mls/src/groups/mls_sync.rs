@@ -9,6 +9,9 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
+use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
+use crate::subscriptions::SyncWorkerEvent;
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use crate::{
     client::ClientError, groups::mls_ext::MlsGroupReload, mls_store::MlsStore,
     subscriptions::stream_messages::extract_message_cursor,
@@ -41,9 +44,7 @@ use crate::{
 };
 use crate::{
     groups::mls_ext::{wrap_welcome, CommitLogStorer, WrapWelcomeError},
-    subscriptions::SyncWorkerEvent,
     track, track_err,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use xmtp_api::XmtpApi;
 use xmtp_db::{
@@ -60,7 +61,6 @@ use xmtp_db::{
 };
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -95,7 +95,6 @@ use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCo
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -110,6 +109,7 @@ use xmtp_proto::xmtp::mls::{
         GroupUpdated, PlaintextEnvelope,
     },
 };
+use xmtp_proto::{mls_v1::WelcomeMetadata, xmtp::mls::message_contents::group_updated};
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
@@ -322,7 +322,7 @@ where
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
-        let result = self.receive().await;
+        let result = self.receive(None).await;
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -335,7 +335,7 @@ where
         }
 
         let result = self.post_commit().await;
-        track_err!("Post commit", &result, group: &self.group_id);
+        track_err!("Send Welcomes", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
             summary.add_post_commit_err(e);
@@ -1253,7 +1253,7 @@ where
                             }
                             IntentState::Committed => {
                                 self.handle_metadata_update_from_intent(&intent)?;
-                                provider.db().set_group_intent_committed(intent_id)?;
+                                provider.db().set_group_intent_committed(intent_id, cursor as i64)?;
                             }
                             IntentState::Published => {
                                 tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
@@ -1520,22 +1520,24 @@ where
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "debug")]
-    pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
+    pub async fn receive(&self, limit: Option<u32>) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
         let messages = MlsStore::new(self.context.clone())
-            .query_group_messages(&self.group_id, provider.db())
+            .query_group_messages(&self.group_id, provider.db(), limit)
             .await?;
+
         let summary = self.process_messages(messages).await;
 
         track!(
-            "Fetched messages",
+            "Receive messages",
             {
                 "total": summary.total_messages.len(),
                 "errors": summary.errored.iter().map(|(_, err)| format!("{err:?}")).collect::<Vec<_>>(),
-                "new": summary.new_messages.len()
+                "new": summary.new_messages.len(),
+                "limit": limit
             },
             group: &self.group_id,
-            icon: "🐕🦴"
+            icon: "🫴"
         );
 
         Ok(summary)
@@ -2079,7 +2081,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        self.send_welcomes(action).await?;
+                        self.send_welcomes(action, intent.sequence_id).await?;
                     }
                 }
             }
@@ -2253,7 +2255,11 @@ where
      * Internally, this breaks the request into chunks to avoid exceeding the GRPC max message size limits
      */
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(super) async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
+    pub(super) async fn send_welcomes(
+        &self,
+        action: SendWelcomesAction,
+        message_cursor: Option<i64>,
+    ) -> Result<(), GroupError> {
         let welcomes = action
             .installations
             .into_iter()
@@ -2261,6 +2267,16 @@ where
                 |installation| -> Result<WelcomeMessageInput, WrapWelcomeError> {
                     let installation_key = installation.installation_key;
                     let algorithm = installation.welcome_wrapper_algorithm;
+
+                    let welcome_metadata = WelcomeMetadata {
+                        message_cursor: message_cursor.unwrap_or(0) as u64,
+                    };
+                    let wrapped_welcome_metadata = wrap_welcome(
+                        &welcome_metadata.encode_to_vec(),
+                        &installation.hpke_public_key,
+                        &algorithm,
+                    )?;
+
                     let wrapped_welcome = wrap_welcome(
                         &action.welcome_message,
                         &installation.hpke_public_key,
@@ -2272,7 +2288,7 @@ where
                             data: wrapped_welcome,
                             hpke_public_key: installation.hpke_public_key,
                             wrapper_algorithm: algorithm.into(),
-                            welcome_metadata: Vec::new(),
+                            welcome_metadata: wrapped_welcome_metadata,
                         })),
                     })
                 },

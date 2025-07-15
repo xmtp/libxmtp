@@ -104,13 +104,15 @@ use xmtp_mls_common::{
         MessageDisappearingSettings, MetadataField,
     },
 };
-use xmtp_proto::xmtp::mls::{
-    api::v1::welcome_message,
-    message_contents::{
-        content_types::ReactionV2,
-        group_updated::Inbox,
-        plaintext_envelope::{Content, V1},
-        ContentTypeId, EncodedContent, GroupUpdated, PlaintextEnvelope,
+use xmtp_proto::{
+    xmtp::mls::{
+        api::v1::welcome_message,
+        message_contents::{
+            content_types::ReactionV2,
+            group_updated::Inbox,
+            plaintext_envelope::{Content, V1},
+            ContentTypeId, EncodedContent, GroupUpdated, PlaintextEnvelope,
+        },
     },
 };
 
@@ -555,6 +557,7 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             );
             Err(StorageError::IntentionalRollback)
@@ -605,12 +608,14 @@ where
                 provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
+                &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             )?;
             let DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
                 added_by_installation_id,
+                welcome_metadata
             } = decrypted_welcome;
 
             tracing::debug!(
@@ -792,6 +797,10 @@ where
             if context.inbox_id() == metadata.creator_inbox_id {
                 group.quietly_update_consent_state(ConsentState::Allowed)?;
             }
+
+            // Set the message cursor
+            let cursor = welcome_metadata.map(|m| m.message_cursor as i64).unwrap_or_default();
+            provider.db().update_cursor(&group.group_id, EntityKind::Group, cursor)?;
 
             Ok(group)
         })
