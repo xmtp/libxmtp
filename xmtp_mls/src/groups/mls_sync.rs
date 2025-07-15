@@ -2235,11 +2235,11 @@ where
                     let installation_key = installation.installation_key;
                     let algorithm = installation.welcome_wrapper_algorithm;
 
-                    let welcome_metadadta = WelcomeMetadata {
+                    let welcome_metadata = WelcomeMetadata {
                         message_cursor: message_cursor.unwrap_or(0) as u64,
                     };
                     let wrapped_welcome_metadata = wrap_welcome(
-                        &welcome_metadadta.encode_to_vec(),
+                        &welcome_metadata.encode_to_vec(),
                         &installation.hpke_public_key,
                         &algorithm,
                     )?;

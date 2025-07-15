@@ -27,6 +27,7 @@ pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
     pub(crate) added_by_installation_id: Vec<u8>,
+    pub(crate) welcome_metadata: Option<WelcomeMetadata>,
 }
 
 impl DecryptedWelcome {
@@ -40,7 +41,7 @@ impl DecryptedWelcome {
         encrypted_welcome_bytes: &[u8],
         encrypted_welcome_metadata_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
-    ) -> Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> {
+    ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
@@ -61,6 +62,9 @@ impl DecryptedWelcome {
                 wrapper_ciphersuite,
             )?;
             welcome_metadata = Some(deserialize_welcome_metadata(&metadata_bytes)?);
+        } else {
+            tracing::warn!(
+                "Welcome Metadata is empty; proceeding without metadata.");
         }
 
         let join_config = build_group_join_config();
@@ -81,14 +85,12 @@ impl DecryptedWelcome {
         let added_by_inbox_id = parse_credential(added_by_credential.identity())?;
         let added_by_installation_id = added_by_node.signature_key().as_slice().to_vec();
 
-        Ok((
-            DecryptedWelcome {
-                staged_welcome,
-                added_by_inbox_id,
-                added_by_installation_id,
-            },
+        Ok(DecryptedWelcome {
+            staged_welcome,
+            added_by_inbox_id,
+            added_by_installation_id,
             welcome_metadata,
-        ))
+        })
     }
 }
 

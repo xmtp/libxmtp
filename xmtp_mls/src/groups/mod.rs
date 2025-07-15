@@ -105,7 +105,6 @@ use xmtp_mls_common::{
     },
 };
 use xmtp_proto::{
-    mls_v1::WelcomeMetadata,
     xmtp::mls::{
         api::v1::welcome_message,
         message_contents::{
@@ -551,7 +550,7 @@ where
             return Ok(group);
         };
 
-        let mut decrypt_result: Result<(DecryptedWelcome, Option<WelcomeMetadata>), GroupError> =
+        let mut decrypt_result: Result<DecryptedWelcome, GroupError> =
             Err(GroupError::UninitializedResult);
         let transaction_result = provider.transaction(|provider| {
             decrypt_result = DecryptedWelcome::from_encrypted_bytes(
@@ -569,7 +568,7 @@ where
             return Err(transaction_result?);
         };
 
-        let (DecryptedWelcome { staged_welcome, .. }, welcome_metadata) = decrypt_result?;
+        let DecryptedWelcome { staged_welcome, .. } = decrypt_result?;
         // Ensure that the list of members in the group's MLS tree matches the list of inboxes specified
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
@@ -612,11 +611,12 @@ where
                 &welcome.welcome_metadata,
                 welcome.wrapper_algorithm.into(),
             )?;
-            let (DecryptedWelcome {
+            let DecryptedWelcome {
                 staged_welcome,
                 added_by_inbox_id,
                 added_by_installation_id,
-            }, _) = decrypted_welcome;
+                welcome_metadata
+            } = decrypted_welcome;
 
             tracing::debug!(
                 "calling update cursor for welcome {}",
