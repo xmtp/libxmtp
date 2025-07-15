@@ -191,6 +191,7 @@ impl<'a, C> StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>
 where
     C: XmtpSharedContext + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
+    C::Db: 'a
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -265,6 +266,7 @@ impl<C> StreamConversations<'static, C, WelcomesApiSubscription<'static, C::ApiC
 where
     C: XmtpSharedContext + 'static,
     C::ApiClient: XmtpMlsStreams + 'static,
+    C::Db: 'static
 {
     pub async fn new_owned(
         context: C,
@@ -291,13 +293,13 @@ where
         // We don't care if this is:
         // - Pending: we return pending by-default in the next section
         // - Ready(None): this just means the JoinSet is empty (no welcome syncs ongoing)
-        // - Ready(Err(welcome_result)): processing the welcome failed and the task failed with
+        // - Ready(Some(Err(welcome_result))): processing the welcome failed and the task failed with
         // a panic/error, we just ignore this.
         if let Poll::Ready(Some(Ok(welcome_result))) =
             self.as_mut().project().welcome_syncs.poll_join_next(cx)
         {
             // if filter is None, we continue to poll the innner stream.
-            // the inner stream propogates a Pending, if its not pending, we register the task for
+            // the inner stream propagates a Pending, if its not pending, we register the task for
             // wakeup again. Therefore, we can ignore the None.
             if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
                 return Poll::Ready(Some(new_welcome));
@@ -618,5 +620,39 @@ mod test {
         let result =
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
+    }
+
+    #[rstest::rstest]
+    #[case::five_dms(5)]
+    #[case::onehundred_dms(100)]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(120))]
+    #[awt]
+    async fn test_many_concurrent_dm_invites(#[future] alix: FullXmtpClient, #[case] dms: usize) {
+        let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
+        let mut clients = vec![];
+        for _ in 0..dms {
+            let client =
+                Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
+            clients.push(client);
+        }
+
+        let stream = alix.stream_all_messages(None, None).await.unwrap();
+        for client in clients.iter().take(dms) {
+            xmtp_common::task::spawn({
+                let id = alix_inbox_id.clone();
+                let c = client.clone();
+                async move {
+                    xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
+                    dm.send_message(b"hi").await?;
+                    Ok::<_, crate::client::ClientError>(())
+                }
+            });
+        }
+        futures::pin_mut!(stream);
+        for _ in 0..dms {
+            let _welcome = stream.next().await;
+        }
     }
 }

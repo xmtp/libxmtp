@@ -522,6 +522,7 @@ where
     pub(super) async fn create_from_welcome(
         context: Context,
         welcome: &welcome_message::V1,
+        cursor_increment: bool,
     ) -> Result<Self, GroupError> {
         let conn = &context.db();
         // Check if this welcome was already processed. Return the existing group if so.
@@ -613,17 +614,24 @@ where
                 "calling update cursor for welcome {}",
                 welcome.id
             );
-            // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
-            // failed due to retriable errors, this will permanently skip them.
-            let requires_processing = db.update_cursor(
-                context.installation_id(),
-                EntityKind::Welcome,
-                welcome.id as i64,
-            )?;
+            let requires_processing = {
+                let current_cursor = db.get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?;
+                welcome.id > current_cursor as u64
+            };
             if !requires_processing {
                 tracing::error!("Skipping already processed welcome {}", welcome.id);
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
+            if cursor_increment {
+                // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
+                // failed due to retriable errors, this will permanently skip them.
+                db.update_cursor(
+                    context.installation_id(),
+                    EntityKind::Welcome,
+                    welcome.id as i64,
+                )?;
+            }
+
 
             let mls_group = OpenMlsGroup::from_welcome_logged(&provider, staged_welcome, &added_by_inbox_id, &added_by_installation_id)?;
             let group_id = mls_group.group_id().to_vec();

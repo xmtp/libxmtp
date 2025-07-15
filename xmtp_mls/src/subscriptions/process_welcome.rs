@@ -279,7 +279,10 @@ where
             "Trying to process streamed welcome"
         );
         let welcomes = WelcomeService::new(context.clone());
-        retry_async!(Retry::default(), (async { welcomes.sync_welcomes().await }))?;
+        retry_async!(
+            Retry::default(),
+            (async { welcomes.process_new_welcome(welcome, false).await })
+        )?;
 
         self.load_from_store(id)
     }
