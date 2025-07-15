@@ -366,7 +366,13 @@ class Client(
             } else {
                 File(appContext.filesDir.absolutePath, "xmtp_db")
             }
-            directoryFile.mkdir()
+
+            if (!directoryFile.exists()) {
+                val created = directoryFile.mkdirs()
+                if (!created) {
+                    throw XMTPException("Failed to create directory for database at ${directoryFile.absolutePath}")
+                }
+            }
             val dbPath = directoryFile.absolutePath + "/$alias.db3"
 
             val ffiClient = createClient(
