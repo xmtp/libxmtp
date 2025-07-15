@@ -6967,7 +6967,7 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 3)
+            .wait(SyncMetric::ConsentSent, 2)
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -8386,7 +8386,7 @@ mod tests {
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
         alix.worker()
-            .wait(SyncMetric::ConsentSent, 3)
+            .wait(SyncMetric::ConsentSent, 2)
             .await
             .unwrap();
 

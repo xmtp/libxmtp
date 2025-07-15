@@ -92,6 +92,7 @@ use thiserror::Error;
 use tracing::debug;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
+use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
@@ -112,8 +113,12 @@ use xmtp_proto::xmtp::mls::{
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
+    #[error("intent already processed")]
+    IntentAlreadyProcessed,
     #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
     MessageAlreadyProcessed(MessageIdentifier),
+    #[error("message identifier not found")]
+    MessageIdentifierNotFound,
     #[error("welcome with cursor [{0}] already processed")]
     WelcomeAlreadyProcessed(u64),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
@@ -185,7 +190,9 @@ impl RetryableError for GroupMessageProcessingError {
             Self::ClearPendingCommit(err) => err.is_retryable(),
             Self::Client(err) => err.is_retryable(),
             Self::Db(e) => e.is_retryable(),
-            Self::WrongCredentialType(_)
+            Self::IntentAlreadyProcessed
+            | Self::MessageIdentifierNotFound
+            | Self::WrongCredentialType(_)
             | Self::Codec(_)
             | Self::MessageAlreadyProcessed(_)
             | Self::WelcomeAlreadyProcessed(_)
@@ -205,6 +212,26 @@ impl RetryableError for GroupMessageProcessingError {
             | Self::OldEpoch(_, _) => false,
             Self::Builder(_) => false,
         }
+    }
+}
+
+#[derive(Debug, Error)]
+pub struct IntentResolutionError {
+    processing_error: GroupMessageProcessingError,
+    // The next intent state to transition to, if the error is non-retriable.
+    // Should not be used for retryable errors.
+    next_intent_state: IntentState,
+}
+
+impl std::fmt::Display for IntentResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IntentValidationError: {}", self.processing_error)
+    }
+}
+
+impl RetryableError for IntentResolutionError {
+    fn is_retryable(&self) -> bool {
+        self.processing_error.is_retryable()
     }
 }
 
@@ -347,7 +374,7 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.mls_provider().db().find_group_intents(
             self.group_id.clone(),
@@ -491,10 +518,7 @@ where
         intent: &StoredGroupIntent,
         message: &ProtocolMessage,
         envelope: &GroupMessageV1,
-    ) -> Result<
-        Option<(StagedCommit, ValidatedCommit)>,
-        Result<IntentState, GroupMessageProcessingError>,
-    > {
+    ) -> Result<Option<(StagedCommit, ValidatedCommit)>, IntentResolutionError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
             id: ref cursor,
@@ -513,6 +537,7 @@ where
                 if let Some(published_in_epoch) = intent.published_in_epoch {
                     let group_epoch = group_epoch.as_u64() as i64;
 
+                    // TODO(rich): Merge into validate_message_epoch()
                     if published_in_epoch != group_epoch {
                         tracing::warn!(
                             inbox_id = self.context.inbox_id(),
@@ -525,18 +550,49 @@ where
                             published_in_epoch,
                             group_epoch
                         );
+                        let processing_error = if published_in_epoch < group_epoch {
+                            GroupMessageProcessingError::OldEpoch(
+                                published_in_epoch as u64,
+                                group_epoch as u64,
+                            )
+                        } else {
+                            GroupMessageProcessingError::FutureEpoch(
+                                published_in_epoch as u64,
+                                group_epoch as u64,
+                            )
+                        };
 
-                        return Err(Ok(IntentState::ToPublish));
+                        return Err(IntentResolutionError {
+                            processing_error,
+                            next_intent_state: IntentState::ToPublish,
+                        });
                     }
 
-                    let staged_commit = if let Some(staged_commit) = &intent.staged_commit {
-                        match decode_staged_commit(staged_commit) {
-                            Err(err) => return Err(Err(err)),
-                            Ok(staged_commit) => staged_commit,
-                        }
-                    } else {
-                        return Err(Err(GroupMessageProcessingError::IntentMissingStagedCommit));
-                    };
+                    let staged_commit = intent
+                        .staged_commit
+                        .as_ref()
+                        .map_or(
+                            Err(GroupMessageProcessingError::IntentMissingStagedCommit),
+                            |staged_commit| decode_staged_commit(staged_commit),
+                        )
+                        .map_err(|err| {
+                            // If we can't retrieve the cached staged commit from the intent, we can't
+                            // apply it. It is indeterminate whether other members were able to apply it
+                            // or not - if they did apply it, then we are forked.
+                            tracing::error!(
+                                inbox_id = self.context.inbox_id(),
+                                installation_id = %self.context.installation_id(),
+                                group_id = hex::encode(&self.group_id),
+                                cursor = cursor,
+                                intent_id = intent.id,
+                                intent.kind = %intent.kind,
+                                "Error decoding staged commit for intent, now may be forked: {err:?}",
+                            );
+                            IntentResolutionError {
+                                processing_error: err,
+                                next_intent_state: IntentState::Error,
+                            }
+                        })?;
 
                     tracing::info!(
                         "[{}] Validating commit for intent {}. Message timestamp: {envelope_timestamp_ns}",
@@ -563,9 +619,12 @@ where
                                 "Error validating commit for own message. Intent ID [{}]: {err:?}",
                                 intent.id,
                             );
-                            // Return before merging commit since it does not pass validation
-                            // Return OK so that the group intent update is still written to the DB
-                            return Err(Ok(IntentState::Error));
+                            return Err(IntentResolutionError {
+                                processing_error: GroupMessageProcessingError::CommitValidation(
+                                    err,
+                                ),
+                                next_intent_state: IntentState::Error,
+                            });
                         }
                         Ok(validated_commit) => validated_commit,
                     };
@@ -582,13 +641,20 @@ where
                     message_epoch,
                     MAX_PAST_EPOCHS,
                 )
-                .map_err(|_| Ok(IntentState::ToPublish))?;
+                .map_err(|err| IntentResolutionError {
+                    processing_error: err,
+                    next_intent_state: IntentState::ToPublish,
+                })?;
             }
         }
 
         Ok(None)
     }
 
+    // Applies the message/commit to the mls group. If it was successfully applied, return Ok(()),
+    // so that the caller can mark the intent as committed.
+    // If any error occurs, return an IntentResolutionError with the error, and the next intent state
+    // to use in the event the error is non-retriable.
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "debug", skip(mls_group, commit, intent, message, envelope))]
     fn process_own_message(
@@ -598,9 +664,21 @@ where
         intent: &StoredGroupIntent,
         message: &ProtocolMessage,
         envelope: &GroupMessageV1,
-    ) -> Result<(IntentState, Option<Vec<u8>>), GroupMessageProcessingError> {
-        if intent.state == IntentState::Committed {
-            return Ok((IntentState::Committed, None));
+    ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
+        if intent.state == IntentState::Committed
+            || intent.state == IntentState::Processed
+            || intent.state == IntentState::Error
+        {
+            tracing::warn!(
+                "Skipping already processed intent {} of kind {} because it is in state {:?}",
+                intent.id,
+                intent.kind,
+                intent.state
+            );
+            return Err(IntentResolutionError {
+                processing_error: GroupMessageProcessingError::IntentAlreadyProcessed,
+                next_intent_state: intent.state,
+            });
         }
 
         let provider = self.mls_provider();
@@ -641,7 +719,13 @@ where
                 *cursor as i64,
             ) {
                 tracing::error!("error merging commit: {err}");
-                return Ok((IntentState::ToPublish, None));
+                return Err(IntentResolutionError {
+                    processing_error: err,
+                    // If the error is non-retriable, it means the commit failed to apply due to some
+                    // issue with the commit (e.g. encryption problem). We reset the intent state to
+                    // ToPublish so that we can republish it.
+                    next_intent_state: IntentState::ToPublish,
+                });
             }
             let epoch = mls_group.epoch().as_u64();
             track!(
@@ -659,16 +743,45 @@ where
             );
 
             // If no error committing the change, write a transcript message
-            let msg =
-                self.save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)?;
-            return Ok((IntentState::Committed, msg.map(|m| m.id)));
-        } else if let Some(id) = calculate_message_id_for_intent(intent)? {
-            tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-            conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)?;
-            return Ok((IntentState::Processed, Some(id)));
+            let msg = self
+                .save_transcript_message(validated_commit, envelope_timestamp_ns, *cursor)
+                .map_err(|err| IntentResolutionError {
+                    processing_error: err,
+                    // If it is a non-retriable error, the commit will be applied, but the transcript message
+                    // will be missing. We mark the intent state as errored and continue.
+                    next_intent_state: IntentState::Error,
+                })?;
+            return Ok(msg.map(|m| m.id));
         }
-        // TODO: Should clarify when this would happen
-        Ok((IntentState::Committed, None))
+
+        let result: Result<Option<Vec<u8>>, IntentError> = calculate_message_id_for_intent(intent);
+        let id = result
+            .map_err(GroupMessageProcessingError::Intent)
+            .transpose()
+            .unwrap_or(Err(GroupMessageProcessingError::MessageIdentifierNotFound))
+            .map_err(|err| {
+                if !err.is_retryable() {
+                    tracing::error!(
+                        "Message identifier not found for intent {} with kind {}, {err:?}",
+                        intent.id,
+                        intent.kind
+                    );
+                }
+                IntentResolutionError {
+                    processing_error: err,
+                    // If the error is non-retriable, it means that the optimistic message (which is already in
+                    // the db) will never have its delivery status updated to published. We mark the intent state
+                    // as errored and continue.
+                    next_intent_state: IntentState::Error,
+                }
+            })?;
+        tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
+        conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)
+            .map_err(|err| IntentResolutionError {
+                processing_error: GroupMessageProcessingError::Db(err),
+                next_intent_state: IntentState::Error,
+            })?;
+        Ok(Some(id))
     }
 
     #[tracing::instrument(level = "debug", skip(mls_group, message, envelope))]
@@ -1107,16 +1220,24 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        self.load_mls_group_with_lock_async(|mls_group| {
-            self.process_message_inner(mls_group, envelope, trust_message_order)
+        self.load_mls_group_with_lock_async(|mut mls_group| async move {
+            let mut result = self
+                .process_message_inner(&mut mls_group, envelope, trust_message_order)
+                .await;
+            if trust_message_order {
+                result = self
+                    .post_process_message(&mls_group, result, envelope)
+                    .await;
+            }
+            result
         })
         .await
     }
 
-    #[tracing::instrument(skip(envelope), level = "debug")]
+    #[tracing::instrument(skip(mls_group, envelope), level = "debug")]
     async fn process_message_inner(
         &self,
-        mut mls_group: OpenMlsGroup,
+        mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
@@ -1184,95 +1305,83 @@ where
                 );
 
                 let message = message.into();
-                // TODO: the return type of stage_and_validated_commit should be fixed
-                // We should never be nesting Result types within the error return type, it is
-                // super confusing. Instead of failing one way, this function can now fail
-                // in four ways with ambiguous meaning:
-                //  - Be OK but produce a null pointer (None) -- what does this mean?
-                //  - Be Ok but produce a staged commit and validated commit
-                //  - be an Error but produce a valid intent state?
-                //  - be an error and produce a GroupMessage Processing Error
                 let maybe_validated_commit = self
-                    .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
+                    .stage_and_validate_intent(mls_group, &intent, &message, envelope)
                     .await;
 
                 provider.transaction(|provider| {
-                        let requires_processing = if allow_cursor_increment {
-                            tracing::info!(
-                                "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
-                                hex::encode(envelope.group_id.as_slice()),
-                                cursor
-                            );
-                            let updated = provider.db().update_cursor(
-                                &envelope.group_id,
-                                EntityKind::Group,
-                                cursor as i64,
-                            )?;
-                            if updated {
-                                tracing::debug!("cursor updated to [{}]", cursor as i64);
-                            } else { tracing::debug!("no cursor update required"); }
-                            updated
-                        } else {
-                            tracing::info!(
-                                "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
-                                hex::encode(envelope.group_id.as_slice()),
-                                cursor
-                            );
-                            let current_cursor = provider
-                                .db()
-                                .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
-                            current_cursor < cursor as i64
-                        };
-                        if !requires_processing {
-                            tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
-                                envelope.id,
-                                xmtp_common::fmt::debug_hex(&envelope.group_id),
-                                envelope.created_ns
-                            );
+                    let requires_processing = if allow_cursor_increment {
+                        self.update_cursor_if_needed(provider, &envelope.group_id, cursor)?
+                    } else {
+                        tracing::info!(
+                            "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
+                            hex::encode(envelope.group_id.as_slice()),
+                            cursor
+                        );
+                        let current_cursor = provider
+                            .db()
+                            .get_last_cursor_for_id(&envelope.group_id, EntityKind::Group)?;
+                        current_cursor < cursor as i64
+                    };
+                    if !requires_processing {
+                        tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
+                            envelope.id,
+                            xmtp_common::fmt::debug_hex(&envelope.group_id),
+                            envelope.created_ns
+                        );
 
-                            // early return if the message is already procesed
-                            // _NOTE_: Not early returning and re-processing a message that
-                            // has already been processed, has the potential to result in forks.
-                            // In some cases, we may want to roll back the cursor if we updated the
-                            // cursor, but actually cannot process the message.
-                            identifier.previously_processed(true);
-                            return Ok(());
+                        // early return if the message is already procesed
+                        // _NOTE_: Not early returning and re-processing a message that
+                        // has already been processed, has the potential to result in forks.
+                        // In some cases, we may want to roll back the cursor if we updated the
+                        // cursor, but actually cannot process the message.
+                        identifier.previously_processed(true);
+                        return Ok(());
+                    }
+                    let result: Result<Option<Vec<u8>>, IntentResolutionError> = match maybe_validated_commit {
+                        Err(err) => Err(err),
+                        Ok(commit) => {
+                            self.process_own_message(mls_group, commit, &intent, &message, envelope)
                         }
-                        let (intent_state, internal_message_id) = match maybe_validated_commit {
-                            // the error is also a Result
-                            Err(err) => match err {
-                                Ok(intent_state) => (intent_state, None),
-                                Err(e) => return Err(e)
-                            },
-                            Ok(commit) => {
-                                self
-                                .process_own_message(&mut mls_group, commit, &intent, &message, envelope)?
+                    };
+                    let (next_intent_state, internal_message_id) = match result {
+                        Err(err) => {
+                            if err.processing_error.is_retryable() {
+                                // Rollback the transaction so that we can retry
+                                return Err(err.processing_error);
                             }
-                        };
-                        identifier.internal_id(internal_message_id.clone());
+                            (err.next_intent_state, None)
+                        },
+                        Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
+                    };
+                    identifier.internal_id(internal_message_id.clone());
 
-                        match intent_state {
-                            IntentState::ToPublish => {
-                                provider.db().set_group_intent_to_publish(intent_id)?;
-                            }
-                            IntentState::Committed => {
-                                self.handle_metadata_update_from_intent(&intent)?;
-                                provider.db().set_group_intent_committed(intent_id)?;
-                            }
-                            IntentState::Published => {
-                                tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
-                            }
-                            IntentState::Error => {
-                                tracing::error!("Intent [{}] moved to error status", intent_id);
-                                provider.db().set_group_intent_error(intent_id)?;
-                            }
-                            IntentState::Processed => {
-                                tracing::debug!("Intent [{}] moved to Processed status", intent_id);
-                                provider.db().set_group_intent_processed(intent_id)?;
-                            }
+                    if next_intent_state == intent.state {
+                        tracing::warn!("Intent [{}] is already in state [{:?}]", intent_id, next_intent_state);
+                        return Ok(());
+                    }
+                    match next_intent_state {
+                        IntentState::ToPublish => {
+                            provider.db().set_group_intent_to_publish(intent_id)?;
                         }
-                        Ok(())
-                    })?;
+                        IntentState::Committed => {
+                            self.handle_metadata_update_from_intent(&intent)?;
+                            provider.db().set_group_intent_committed(intent_id)?;
+                        }
+                        IntentState::Published => {
+                            tracing::error!("Unexpected behaviour: returned intent state published from process_own_message");
+                        }
+                        IntentState::Error => {
+                            tracing::error!("Intent [{}] moved to error status", intent_id);
+                            provider.db().set_group_intent_error(intent_id)?;
+                        }
+                        IntentState::Processed => {
+                            tracing::debug!("Intent [{}] moved to Processed status", intent_id);
+                            provider.db().set_group_intent_processed(intent_id)?;
+                        }
+                    }
+                    Ok(())
+                })?;
                 identifier.build()
             }
             // No matching intent found. The message did not originate here.
@@ -1288,7 +1397,7 @@ where
                 );
                 let identifier = self
                     .validate_and_process_external_message(
-                        &mut mls_group,
+                        mls_group,
                         message,
                         envelope,
                         allow_cursor_increment,
@@ -1399,10 +1508,18 @@ where
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
         // apply the update after the provided `ProcessingFn` has completed successfully.
-        let result = self.process_message(msgv1, true).await;
+        self.process_message(msgv1, true).await
+    }
 
-        track_err!("Process message", &result, group: &msgv1.group_id);
-        let message = match result {
+    async fn post_process_message(
+        &self,
+        mls_group: &OpenMlsGroup,
+        process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
+        msgv1: &GroupMessageV1,
+    ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+        let provider = self.mls_provider();
+        track_err!("Process message", &process_result, group: &msgv1.group_id);
+        let message = match process_result {
             Ok(m) => {
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
@@ -1431,8 +1548,19 @@ where
                     msgv1.id,
                     e
                 );
-                if let Err(accounting_error) =
-                    self.insert_commit_entry_for_failed_commit(msgv1.id, mls_message_in, &e)
+
+                // Do not update the cursor if you have been removed from the group - you may be readded
+                // later
+                if !e.is_retryable() && mls_group.is_active() {
+                    if let Err(update_cursor_error) =
+                        self.update_cursor_if_needed(&provider, &msgv1.group_id, msgv1.id)
+                    {
+                        // We don't need to propagate the error if the cursor fails to update - the worst case is
+                        // that the non-retriable error is processed again
+                        tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
+                    }
+                }
+                if let Err(accounting_error) = self.insert_commit_entry_for_failed_commit(msgv1, &e)
                 {
                     tracing::error!(
                         "Error inserting commit entry for failed commit: {}",
@@ -1440,7 +1568,7 @@ where
                     );
                 }
                 if let Err(accounting_error) = self
-                    .process_group_message_error_for_fork_detection(msgv1, &e)
+                    .process_group_message_error_for_fork_detection(msgv1, &e, mls_group)
                     .await
                 {
                     tracing::error!(
@@ -1526,6 +1654,29 @@ where
         Ok(summary)
     }
 
+    #[tracing::instrument(skip_all, level = "debug")]
+    fn update_cursor_if_needed(
+        &self,
+        provider: &XmtpOpenMlsProvider<<Db as XmtpDb>::Connection>,
+        group_id: &[u8],
+        cursor: u64,
+    ) -> Result<bool, StorageError> {
+        tracing::info!(
+            "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
+            hex::encode(group_id),
+            cursor
+        );
+        let updated = provider
+            .db()
+            .update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        if updated {
+            tracing::debug!("cursor updated to [{}]", cursor as i64);
+        } else {
+            tracing::debug!("no cursor update required");
+        }
+        Ok(updated)
+    }
+
     fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,
@@ -1596,16 +1747,19 @@ where
 
     fn insert_commit_entry_for_failed_commit(
         &self,
-        message_cursor: u64,
-        mls_message_in: MlsMessageIn,
+        envelope: &GroupMessageV1,
         error: &GroupMessageProcessingError,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), GroupMessageProcessingError> {
         if !crate::configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
         if error.is_retryable() {
             return Ok(());
         }
+
+        let message_cursor = envelope.id;
+        // TODO(rich): Remove extra deserialization step
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
         if let MlsMessageBodyIn::PrivateMessage(message) = mls_message_in.extract() {
             if message.content_type() != openmls::framing::ContentType::Commit {
                 return Ok(());
@@ -1658,22 +1812,14 @@ where
         &self,
         message: &GroupMessageV1,
         error: &GroupMessageProcessingError,
+        mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
         let group_id = message.group_id.clone();
         if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::WrongEpoch,
         )) = error
         {
-            let group_epoch = match self.epoch().await {
-                Ok(epoch) => epoch,
-                Err(error) => {
-                    tracing::info!(
-                        "WrongEpoch encountered but group_epoch could not be calculated, error:{}",
-                        error
-                    );
-                    return Ok(());
-                }
-            };
+            let group_epoch = mls_group.epoch().as_u64();
 
             let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
                 Ok(msg) => msg,
