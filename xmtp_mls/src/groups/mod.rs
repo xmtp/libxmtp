@@ -919,6 +919,7 @@ where
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
+    #[tracing::instrument(skip_all, level = "debug")]
     pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
@@ -1380,6 +1381,7 @@ where
         Ok(paused_for_version)
     }
 
+    #[tracing::instrument(skip_all, level = "debug")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
         let provider = self.context().mls_provider();
         if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
@@ -1511,6 +1513,7 @@ where
         Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
     }
 
+    #[tracing::instrument(skip_all, level = "debug")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let new_records: Vec<PreferenceUpdate> = self
             .quietly_update_consent_state(state)?
@@ -1589,6 +1592,7 @@ where
     /// Checks if the current user is active in the group.
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
+    #[tracing::instrument(skip_all, level = "debug")]
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
         let provider = self.mls_provider();
