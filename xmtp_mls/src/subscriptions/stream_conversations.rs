@@ -7,6 +7,7 @@ use crate::{
         stream_utils::{multiplexed, MultiplexedStream},
     },
 };
+use xmtp_common::task::JoinSet;
 use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
 
 use futures::Stream;
@@ -14,7 +15,6 @@ use pin_project_lite::pin_project;
 use std::{
     borrow::Cow,
     collections::HashSet,
-    future::Future,
     pin::Pin,
     sync::Arc,
     task::{ready, Context, Poll},
@@ -157,7 +157,7 @@ pin_project! {
     ///   - `Ready(None)` when the stream has ended
     pub struct StreamConversations<'a, ApiClient, Db, Subscription> {
         #[pin] inner: Subscription,
-        #[pin] state: ProcessState<'a, ApiClient, Db>,
+        #[pin] welcome_syncs: JoinSet<Result<ProcessWelcomeResult<ApiClient, Db>>>,
         context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
@@ -189,8 +189,8 @@ pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
 
 impl<'a, A, D> StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
-    D: XmtpDb + Send + 'a,
+    A: XmtpApi + XmtpMlsStreams + 'a,
+    D: XmtpDb + 'a,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -263,15 +263,15 @@ where
             inner: stream,
             known_welcome_ids,
             conversation_type,
-            state: ProcessState::Waiting,
+            welcome_syncs: JoinSet::new(),
         })
     }
 }
 
 impl<A, D> StreamConversations<'static, A, D, WelcomesApiSubscription<'static, A>>
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    D: XmtpDb + Send + 'static,
+    A: XmtpApi + XmtpMlsStreams + 'static,
+    D: XmtpDb + 'static,
 {
     pub async fn new_owned(
         context: Arc<XmtpMlsLocalContext<A, D>>,
@@ -284,9 +284,9 @@ where
 impl<'a, ApiClient, Db, Subscription> Stream
     for StreamConversations<'a, ApiClient, Db, Subscription>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
-    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
 {
     type Item = Result<MlsGroup<ApiClient, Db>>;
 
@@ -295,117 +295,76 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        use std::task::Poll::*;
-        use ProcessProject::*;
-
-        let this = self.as_mut().project();
-        let state = this.state.project();
-
-        match state {
-            Waiting => {
-                match this.inner.poll_next(cx) {
-                    Ready(Some(item)) => {
-                        let mut this = self.as_mut().project();
-                        let future = ProcessWelcomeFuture::new(
-                            this.known_welcome_ids.clone(),
-                            this.context.clone().into_owned(),
-                            item?,
-                            *this.conversation_type,
-                        )?;
-
-                        this.state.set(ProcessState::Processing {
-                            future: FutureWrapper::new(future.process()),
-                        });
-                        // try to process the future immediately
-                        // this will return immediately if we have already processed the welcome
-                        // and it exists in the db
-                        let Processing { future } = this.state.project() else {
-                            unreachable!("Streaming processing future should exist.")
-                        };
-                        let poll = future.poll(cx);
-                        self.as_mut().try_process(poll, cx)
-                    }
-                    // stream ended
-                    Ready(None) => Ready(None),
-                    Pending => Pending,
-                }
+        // We don't care if this is:
+        // - Pending: we return pending by-default in the next section
+        // - Ready(None): this just means the JoinSet is empty (no welcome syncs ongoing)
+        // - Ready(Err(welcome_result)): processing the welcome failed and the task failed with
+        // a panic/error, we just ignore this.
+        if let Poll::Ready(Some(Ok(welcome_result))) =
+            self.as_mut().project().welcome_syncs.poll_join_next(cx)
+        {
+            // if filter is None, we continue to poll the innner stream.
+            // the inner stream propogates a Pending, if its not pending, we register the task for
+            // wakeup again. Therefore, we can ignore the None.
+            if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
+                return Poll::Ready(Some(new_welcome));
             }
-            Processing { future } => {
-                let poll = future.poll(cx);
-                self.as_mut().try_process(poll, cx)
+        }
+
+        let mut this = self.as_mut().project();
+        match ready!(this.inner.poll_next(cx)) {
+            Some(welcome_envelope) => {
+                let future = ProcessWelcomeFuture::new(
+                    this.known_welcome_ids.clone(),
+                    this.context.clone().into_owned(),
+                    welcome_envelope?,
+                    *this.conversation_type,
+                )?;
+                this.welcome_syncs.spawn(future.process());
+                cx.waker().wake_by_ref();
+                Poll::Pending
             }
+            None => Poll::Ready(None),
         }
     }
 }
 
 impl<'a, ApiClient, Db, Subscription> StreamConversations<'a, ApiClient, Db, Subscription>
 where
-    ApiClient: XmtpApi + 'a,
-    Db: XmtpDb + 'a,
-    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
+    ApiClient: XmtpApi + 'static,
+    Db: XmtpDb + 'static,
+    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
 {
-    /// Processes the result of a welcome future.
-    ///
-    /// This method handles the state transitions and output generation based on
-    /// the result of processing a welcome message or group. It implements the core
-    /// logic for determining what to do with each processed welcome:
-    ///
-    /// - For new groups: Updates tracking and yields the group
-    /// - For groups to ignore: Updates tracking and continues polling
-    /// - For previously stored groups: Yields the group
-    /// - For errors: Propagates the error and returns to waiting state
-    ///
-    /// # Arguments
-    /// * `poll` - The polling result from the welcome processing future
-    /// * `cx` - The task context for polling
-    ///
-    /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<ApiClient, Db>>>>` - The polling result based on
-    ///   the welcome processing outcome
-    ///
-    /// # Note
-    /// This method is critical for maintaining the stream's state machine and
-    /// ensuring proper handling of all possible processing outcomes.
-    fn try_process(
+    /// Applies a filter to processed welcomes
+    fn filter_welcome(
         mut self: Pin<&mut Self>,
-        poll: Poll<Result<ProcessWelcomeResult<ApiClient, Db>>>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<<Self as Stream>::Item>> {
-        use Poll::*;
-        let mut this = self.as_mut().project();
-        match poll {
-            Ready(Ok(ProcessWelcomeResult::New {
+        welcome: Result<ProcessWelcomeResult<ApiClient, Db>>,
+    ) -> Option<<Self as Stream>::Item> {
+        let this = self.as_mut().project();
+        match welcome {
+            Ok(ProcessWelcomeResult::New {
                 group,
                 id: welcome_id,
-            })) => {
+            }) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
                     hex::encode(&group.group_id)
                 );
                 this.known_welcome_ids.insert(welcome_id);
-                this.state.set(ProcessState::Waiting);
-                Ready(Some(Ok(group)))
+                Some(Ok(group))
             }
             // we are ignoring this payload with id
-            Ready(Ok(ProcessWelcomeResult::IgnoreId { id })) => {
+            Ok(ProcessWelcomeResult::IgnoreId { id }) => {
                 tracing::debug!("ignoring streamed conversation payload with welcome id {id}");
                 this.known_welcome_ids.insert(id);
-                this.state.as_mut().set(ProcessState::Waiting);
-                // we have to re-ad this task to the queue
-                // to let http know we are waiting on the next item
-                cx.waker().wake_by_ref();
-                Poll::Pending
+                None
             }
-            Ready(Ok(ProcessWelcomeResult::Ignore)) => {
+            Ok(ProcessWelcomeResult::Ignore) => {
                 tracing::debug!("ignoring streamed conversation payload");
-                this.state.as_mut().set(ProcessState::Waiting);
-                // we have to re-ad this task to the queue
-                // to let http know we are waiting on the next item
-                cx.waker().wake_by_ref();
-                Poll::Pending
+                None
             }
-            Ready(Ok(ProcessWelcomeResult::NewStored { group, maybe_id })) => {
+            Ok(ProcessWelcomeResult::NewStored { group, maybe_id }) => {
                 tracing::debug!(
                     group_id = hex::encode(&group.group_id),
                     "finished processing with group {}",
@@ -414,14 +373,9 @@ where
                 if let Some(id) = maybe_id {
                     this.known_welcome_ids.insert(id);
                 }
-                this.state.set(ProcessState::Waiting);
-                Ready(Some(Ok(group)))
+                Some(Ok(group))
             }
-            Ready(Err(e)) => {
-                this.state.as_mut().set(ProcessState::Waiting);
-                Ready(Some(Err(e)))
-            }
-            Pending => Pending,
+            Err(e) => Some(Err(e)),
         }
     }
 }

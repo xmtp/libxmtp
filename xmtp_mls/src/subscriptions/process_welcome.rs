@@ -128,6 +128,7 @@ where
     /// # Tracing
     #[tracing::instrument(skip_all)]
     pub async fn process(self) -> Result<ProcessWelcomeResult<ApiClient, Db>> {
+        tracing::info!("\n\nSpawned process welcome task.\n\n");
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
