@@ -37,6 +37,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
+      - name: Cargo Clean
+        run: cargo clean
       - name: Build target
         run: |
           cargo ndk --platform 23 -o bindings_ffi/jniLibs/ --manifest-path bindings_ffi/Cargo.toml -t ${{ matrix.target }} -- build --release
