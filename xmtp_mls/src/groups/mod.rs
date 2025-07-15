@@ -708,7 +708,7 @@ where
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            StoredConsentRecord::stitch_dm_consent(provider.db(), &stored_group)?;
             track!(
                 "Group Welcome",
                 {
