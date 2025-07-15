@@ -12,6 +12,7 @@
 , flamegraph
 , cargo-flamegraph
 , cargo-udeps
+, cargo-nextest
 , inferno
 , openssl
 , sqlcipher
@@ -82,6 +83,7 @@ mkShell ({
       flamegraph
       cargo-udeps
       cargo-flamegraph
+      cargo-nextest
       inferno
       lnav
       jq

@@ -196,7 +196,7 @@ where
                 tracing::info!("Key package deletion successful");
             }
             Ok(_) => {
-                tracing::debug!("No expired key packages to delete");
+                tracing::trace!("No expired key packages to delete");
             }
             Err(e) => {
                 tracing::error!("Failed to fetch expired key packages: {:?}", e);
