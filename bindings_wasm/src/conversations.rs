@@ -571,7 +571,7 @@ impl Conversations {
         Ok(item) => callback.on_conversation(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || callback.on_close(),
     );
 
     Ok(StreamCloser::new(stream_closer))
@@ -595,7 +595,7 @@ impl Conversations {
         Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || callback.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }
@@ -612,7 +612,7 @@ impl Conversations {
         }
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || callback.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }
@@ -627,7 +627,7 @@ impl Conversations {
         }
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || callback.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }

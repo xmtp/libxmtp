@@ -37,6 +37,9 @@ extern "C" {
   /// Js Fn to call on error
   #[wasm_bindgen(structural, method)]
   pub fn on_error(this: &StreamCallback, error: JsError);
+
+  #[wasm_bindgen(structural, method)]
+  pub fn on_close(this: &StreamCallback);
 }
 
 #[wasm_bindgen]
