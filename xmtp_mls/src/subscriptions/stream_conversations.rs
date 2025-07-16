@@ -329,7 +329,7 @@ where
     C::Db: 'static,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
 {
-    /// Applies a filter to processed welcomes
+    /// adds the processed welcome id to our inner hashset
     fn filter_welcome(
         mut self: Pin<&mut Self>,
         welcome: Result<ProcessWelcomeResult<C>>,
