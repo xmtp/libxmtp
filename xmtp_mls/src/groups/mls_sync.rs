@@ -754,11 +754,8 @@ where
             return Ok(msg.map(|m| m.id));
         }
 
-        let result: Result<Option<Vec<u8>>, IntentError> = calculate_message_id_for_intent(intent);
-        let id = result
+        let id: Option<Vec<u8>> = calculate_message_id_for_intent(intent)
             .map_err(GroupMessageProcessingError::Intent)
-            .transpose()
-            .unwrap_or(Err(GroupMessageProcessingError::MessageIdentifierNotFound))
             .map_err(|err| {
                 if !err.is_retryable() {
                     tracing::error!(
@@ -775,6 +772,11 @@ where
                     next_intent_state: IntentState::Error,
                 }
             })?;
+        let Some(id) = id else {
+            // The message is likely to be a legacy envelope, probably from legacy device sync.
+            // We don't need to set the delivery status for these.
+            return Ok(None);
+        };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
         conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)
             .map_err(|err| IntentResolutionError {
