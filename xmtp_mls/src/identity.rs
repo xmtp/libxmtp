@@ -235,11 +235,12 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
-    #[error("Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first.")]
+    #[error("Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first. Installations: {installations}")]
     TooManyInstallations {
         inbox_id: String,
         count: usize,
         max: usize,
+        installations: String,
     },
     #[error(transparent)]
     GeneratePostQuantumKey(#[from] GeneratePostQuantumKeyError),
@@ -381,6 +382,12 @@ impl Identity {
                     inbox_id: associated_inbox_id.clone(),
                     count: current_installation_count,
                     max: MAX_INSTALLATIONS_PER_INBOX,
+                    installations: state
+                        .installation_ids()
+                        .iter()
+                        .map(hex::encode)
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 });
             }
 
