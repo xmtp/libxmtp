@@ -630,7 +630,7 @@ mod test {
     #[case::five_dms(5)]
     #[case::onehundred_dms(100)]
     #[xmtp_common::test]
-    #[timeout(std::time::Duration::from_secs(60))]
+    #[timeout(std::time::Duration::from_secs(120))]
     #[awt]
     async fn test_many_concurrent_dm_invites(#[future] alix: FullXmtpClient, #[case] dms: usize) {
         let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
@@ -641,23 +641,22 @@ mod test {
             clients.push(client);
         }
 
-        let stream = alix.stream_conversations(None).await.unwrap();
+        let stream = alix.stream_all_messages(None, None).await.unwrap();
         for client in clients.iter().take(dms) {
             xmtp_common::task::spawn({
                 let id = alix_inbox_id.clone();
                 let c = client.clone();
                 async move {
                     xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-                    c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await
+                    let dm = c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await?;
+                    dm.send_message(b"hi").await?;
+                    Ok::<_, crate::client::ClientError>(())
                 }
             });
         }
-        // create 100 dms
-
         futures::pin_mut!(stream);
-        for i in 0..dms {
+        for _ in 0..dms {
             let _welcome = stream.next().await;
-            tracing::error!("processed {i} welcome");
         }
     }
 }
