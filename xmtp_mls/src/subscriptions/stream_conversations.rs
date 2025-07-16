@@ -298,7 +298,7 @@ where
         // We don't care if this is:
         // - Pending: we return pending by-default in the next section
         // - Ready(None): this just means the JoinSet is empty (no welcome syncs ongoing)
-        // - Ready(Err(welcome_result)): processing the welcome failed and the task failed with
+        // - Ready(Some(Err(welcome_result))): processing the welcome failed and the task failed with
         // a panic/error, we just ignore this.
         if let Poll::Ready(Some(Ok(welcome_result))) =
             self.as_mut().project().welcome_syncs.poll_join_next(cx)
