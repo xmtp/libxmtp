@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use tokio::sync::Semaphore;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::{mls_v1::group_message, xmtp::mls::api::v1};
 
@@ -30,6 +31,7 @@ pub fn context() -> MockContext {
             mode: SyncWorkerMode::Disabled,
         },
         workers: WorkerRunner::new(),
+        sync_welcomes: Semaphore::new(1),
     }
 }
 

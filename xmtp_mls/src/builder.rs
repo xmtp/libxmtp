@@ -15,7 +15,7 @@ use crate::{
 };
 use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
@@ -208,6 +208,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
                 mode: device_sync_worker_mode,
             },
             workers: workers.clone(),
+            sync_welcomes: Semaphore::new(1),
         });
 
         // register workers

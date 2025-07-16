@@ -171,6 +171,8 @@ pub enum GroupError {
     UnwrapWelcome(#[from] UnwrapWelcomeError),
     #[error("Result was not initialized")]
     UninitializedResult,
+    #[error(transparent)]
+    Semaphore(#[from] tokio::sync::AcquireError),
 }
 
 impl From<SyncSummary> for GroupError {
@@ -258,6 +260,7 @@ impl RetryableError for GroupError {
             Self::MetadataPermissionsError(e) => e.is_retryable(),
             Self::WrapWelcome(e) => e.is_retryable(),
             Self::UnwrapWelcome(e) => e.is_retryable(),
+            Self::Semaphore(_) => true,
             Self::NotFound(_)
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership

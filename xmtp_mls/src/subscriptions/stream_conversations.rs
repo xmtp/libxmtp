@@ -625,4 +625,39 @@ mod test {
             xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
+
+    #[rstest::rstest]
+    #[case::five_dms(5)]
+    #[case::onehundred_dms(100)]
+    #[xmtp_common::test]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[awt]
+    async fn test_many_concurrent_dm_invites(#[future] alix: FullXmtpClient, #[case] dms: usize) {
+        let alix_inbox_id = Arc::new(alix.inbox_id().to_string());
+        let mut clients = vec![];
+        for _ in 0..dms {
+            let client =
+                Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
+            clients.push(client);
+        }
+
+        let stream = alix.stream_conversations(None).await.unwrap();
+        // create 100 dms
+        for i in 0..dms {
+            xmtp_common::task::spawn({
+                let id = alix_inbox_id.clone();
+                let c = clients[i].clone();
+                async move {
+                    xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+                    c.find_or_create_dm_by_inbox_id(id.as_ref(), None).await
+                }
+            });
+        }
+
+        futures::pin_mut!(stream);
+        for i in 0..dms {
+            let _welcome = stream.next().await;
+            tracing::error!("processed {i} welcome");
+        }
+    }
 }
