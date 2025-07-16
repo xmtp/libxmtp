@@ -264,6 +264,8 @@ impl<C: ConnectionExt> DbConnection<C> {
         let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
+                // State machine requires that the only valid state transition to Committed is from
+                // Published
                 .set(dsl::state.eq(IntentState::Processed))
                 .execute(conn)
         })?;
