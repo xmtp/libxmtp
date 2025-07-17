@@ -153,7 +153,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(res.is_valid);
 
-        // owner0 siganture must not be used to verify owner1
+        // owner0 signature must not be used to verify owner1
         let res = verifier
             .is_valid_signature(
                 account_id.clone(),
