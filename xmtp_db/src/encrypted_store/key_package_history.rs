@@ -90,11 +90,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         use crate::schema::key_package_history::dsl;
         self.raw_query_read(|conn| {
             dsl::key_package_history
-                .filter(
-                    dsl::delete_at_ns
-                        .le(now_ns())
-                        .or(dsl::delete_at_ns.is_null()),
-                )
+                .filter(dsl::delete_at_ns.le(now_ns()))
                 .load::<StoredKeyPackageHistoryEntry>(conn)
         })
         .map_err(StorageError::from) // convert ConnectionError into StorageError
