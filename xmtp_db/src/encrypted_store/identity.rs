@@ -43,13 +43,9 @@ impl<C: ConnectionExt> DbConnection<C> {
         let rotate_at_ns = now_ns() + 5 * NS_IN_SEC;
 
         self.raw_query_write(|conn| {
-            // Fetch the identity row (assuming a single row exists)
-            let identity = dsl::identity.first::<StoredIdentity>(conn)?;
-            if identity.next_key_package_rotation_ns.is_none() {
-                diesel::update(dsl::identity)
-                    .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
-                    .execute(conn)?;
-            }
+            diesel::update(dsl::identity)
+                .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
+                .execute(conn)?;
 
             Ok(())
         })?;

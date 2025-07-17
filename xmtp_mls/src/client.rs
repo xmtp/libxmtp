@@ -1010,7 +1010,7 @@ pub(crate) mod tests {
         let binding = kp1[&installation_public_key].clone().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_none());
+        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
@@ -1515,8 +1515,8 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Alix's key should rotate since we included the initial kps in the calculation
-        assert_ne!(alix_original_init_key, alix_key_2);
+        // Alix's key should not have changed at all
+        assert_eq!(alix_original_init_key, alix_key_2);
 
         alix.create_group_with_members(&[bo_wallet.identifier()], None, None)
             .await
