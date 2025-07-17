@@ -11,7 +11,7 @@ mod identity_lock;
 mod info;
 /// Inspect data on the XMTP Network
 mod inspect;
-/// Modify entitites on the network
+/// Modify entities on the network
 mod modify;
 /// Query for data on the network
 mod query;
@@ -124,7 +124,7 @@ fn generate_wallet() -> types::EthereumWallet {
 
 static FDLIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 /// Tries to raise the open file descriptor limit
-/// returns a default low-enough number if unsuccesful
+/// returns a default low-enough number if unsuccessful
 /// useful when dealing with lots of different sqlite databases
 fn get_fdlimit() -> usize {
     *FDLIMIT.get_or_init(|| {
