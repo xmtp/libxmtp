@@ -18,7 +18,7 @@ use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
 // enables combining arbitrary # of visitors into one, ext: process = (ValidateMessage::new(), ExtractMessage::new());
 // Therefore not re-doing deserialization for each processing step.
 // Each step is ran sequentially in order, so if one of the steps (like Validation) fails, the whole process
-// short-circuits. A combinator visitor wrapping a geenric EnvelopeVisitor, ie NoFailVisitor<V> can be created in order to avoid short-circuiting and
+// short-circuits. A combinator visitor wrapping a generic EnvelopeVisitor, ie NoFailVisitor<V> can be created in order to avoid short-circuiting and
 // store the errors somewhere else
 type ForError<'a, V> = <V as EnvelopeVisitor<'a>>::Error;
 
@@ -191,7 +191,7 @@ where
 * WARN: ProtocolEnvelope implementation for a Vec<T>
 * should be avoided, since it may cause Envelope
 * to implicity act on a collection when a single envelope is expected.
-* Theres a way to seal this trait implementation to
+* There's a way to seal this trait implementation to
 * avoid external implementations which should be done.
 impl<'env, T> ProtocolEnvelope<'env> for Vec<T>
 where
