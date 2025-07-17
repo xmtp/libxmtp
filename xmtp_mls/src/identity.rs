@@ -1,5 +1,5 @@
 use crate::configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, DEFAULT_INITIAL_KEY_PACKAGE_NEXT_ROTATION_NS,
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS,
     MAX_INSTALLATIONS_PER_INBOX,
 };
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
@@ -302,7 +302,7 @@ impl TryFrom<&Identity> for StoredIdentity {
             .inbox_id(identity.inbox_id.clone())
             .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
-            .next_key_package_rotation_ns(now_ns() + DEFAULT_INITIAL_KEY_PACKAGE_NEXT_ROTATION_NS)
+            .next_key_package_rotation_ns(now_ns() + KEY_PACKAGE_ROTATION_INTERVAL_NS)
             .build()
     }
 }
