@@ -39,7 +39,7 @@ impl<C: ConnectionExt> DbConnection<C> {
             key_package_hash_ref: key_package_hash_ref.clone(),
             post_quantum_public_key: post_quantum_public_key.clone(),
             created_at_ns: now_ns(),
-            delete_at_ns: Some(kp_valid_not_after * NS_IN_SEC)
+            delete_at_ns: Some(kp_valid_not_after * NS_IN_SEC),
         };
         entry.store_or_ignore(self)?;
 
@@ -132,7 +132,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::with_connection;
-    use xmtp_common::{rand_vec, NS_IN_SEC};
+    use xmtp_common::{NS_IN_SEC, rand_vec};
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
@@ -145,7 +145,7 @@ mod tests {
                 .store_key_package_history_entry(
                     hash_ref.clone(),
                     Some(post_quantum_public_key.clone()),
-                    1
+                    1,
                 )
                 .unwrap();
             assert_eq!(new_entry.key_package_hash_ref, hash_ref);
@@ -153,10 +153,7 @@ mod tests {
                 new_entry.post_quantum_public_key,
                 Some(post_quantum_public_key)
             );
-            assert_eq!(
-                new_entry.delete_at_ns,
-                Some(NS_IN_SEC)
-            );
+            assert_eq!(new_entry.delete_at_ns, Some(NS_IN_SEC));
             assert_eq!(new_entry.id, 1);
 
             // Now delete it
@@ -180,17 +177,17 @@ mod tests {
             conn.store_key_package_history_entry(
                 hash_ref1.clone(),
                 Some(post_quantum_public_key.clone()),
-                1
+                1,
             )
             .unwrap();
             conn.store_key_package_history_entry(
                 hash_ref2.clone(),
                 Some(post_quantum_public_key.clone()),
-                1
+                1,
             )
             .unwrap();
             let entry_3 = conn
-                .store_key_package_history_entry(hash_ref3.clone(), None,1)
+                .store_key_package_history_entry(hash_ref3.clone(), None, 1)
                 .unwrap();
 
             let all_entries = conn
