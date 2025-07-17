@@ -123,7 +123,7 @@ impl std::fmt::Display for SyncSummary {
         } else {
             writeln!(
                 f,
-                "================================= Errors Occured During Sync ==========================="
+                "================================= Errors Occurred During Sync ==========================="
             )?;
             if !self.publish_errors.is_empty() {
                 writeln!(f, "{} errors publishing intents", self.publish_errors.len())?;
@@ -272,7 +272,7 @@ impl ProcessSummary {
         self.new_messages.push(message);
     }
 
-    /// the last message procesed
+    /// the last message processed
     pub fn last(&self) -> Option<u64> {
         self.total_messages.iter().max().copied()
     }
