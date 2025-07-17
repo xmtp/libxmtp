@@ -147,6 +147,23 @@ where
         })
     }
 
+    // TODO(cvoell): implement
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn publish_commit_log(
+        &self,
+        _request: mls_v1::BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    // TODO(cvoell): implement
+    async fn query_commit_log(
+        &self,
+        _request: mls_v1::BatchQueryCommitLogRequest,
+    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
+    }
+
     fn stats(&self) -> ApiStats {
         Default::default()
     }

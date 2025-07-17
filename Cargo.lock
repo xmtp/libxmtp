@@ -8477,6 +8477,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "mockall",
+ "prost",
  "thiserror 2.0.12",
  "tokio",
  "tracing",

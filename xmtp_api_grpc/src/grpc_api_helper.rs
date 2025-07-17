@@ -6,6 +6,9 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request};
 use tower::ServiceExt;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
+use xmtp_proto::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+};
 use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
@@ -227,6 +230,32 @@ impl XmtpMlsClient for Client {
             .await
             .map(|r| r.into_inner())
             .map_err(|e| ApiClientError::new(ApiEndpoint::QueryWelcomeMessages, e.into()))
+    }
+
+    async fn publish_commit_log(
+        &self,
+        req: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        self.stats.publish_commit_log.count_request();
+        let client = &mut self.mls_client.clone();
+        client
+            .batch_publish_commit_log(self.build_request(req))
+            .await
+            .map_err(|e| ApiClientError::new(ApiEndpoint::PublishCommitLog, e.into()))?;
+        Ok(())
+    }
+
+    async fn query_commit_log(
+        &self,
+        req: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
+        self.stats.query_commit_log.count_request();
+        let client = &mut self.mls_client.clone();
+        client
+            .batch_query_commit_log(self.build_request(req))
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| ApiClientError::new(ApiEndpoint::QueryCommitLog, e.into()))
     }
 
     fn stats(&self) -> ApiStats {
