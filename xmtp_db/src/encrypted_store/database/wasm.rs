@@ -182,8 +182,6 @@ impl ConnectionExt for WasmDbConnection {
 
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {

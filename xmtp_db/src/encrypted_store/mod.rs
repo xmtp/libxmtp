@@ -37,8 +37,8 @@ pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls_traits::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
-use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use crate::{DbQuery, Store};
+use super::StorageError;
+use crate::{Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -368,28 +368,9 @@ where
 }
 
 pub trait MlsProviderExt: OpenMlsProvider {
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<<Self as OpenMlsProvider>::StorageProvider>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>,
-        C: ConnectionExt,
-        D: DbQuery<C>;
+    type Storage: XmtpMlsStorageProvider;
 
-    fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider;
+    fn key_store<'a>(&self) -> &Self::Storage;
 }
 
 #[cfg(test)]

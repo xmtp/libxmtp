@@ -74,7 +74,7 @@ impl StorageProvider<CURRENT_VERSION> for MemoryStorage {
         interim_transcript_hash: &InterimTranscriptHash,
     ) -> Result<(), Self::Error> {
         self.inner
-            .write_mls_join_config(group_id, interim_transcript_hash)
+            .write_interim_transcript_hash(group_id, interim_transcript_hash)
             .map_err(SqlKeyStoreError::from)
     }
 
@@ -316,7 +316,7 @@ impl StorageProvider<CURRENT_VERSION> for MemoryStorage {
         group_id: &GroupId,
     ) -> Result<Option<InterimTranscriptHash>, Self::Error> {
         self.inner
-            .interim_transcript_has(group_id)
+            .interim_transcript_hash(group_id)
             .map_err(SqlKeyStoreError::from)
     }
 
@@ -427,7 +427,7 @@ impl StorageProvider<CURRENT_VERSION> for MemoryStorage {
         leaf_index: u32,
     ) -> Result<Vec<HpkeKeyPair>, Self::Error> {
         self.inner
-            .encryption_epoch_key_pairs(group_id)
+            .encryption_epoch_key_pairs(group_id, epoch, leaf_index)
             .map_err(SqlKeyStoreError::from)
     }
 
@@ -583,7 +583,7 @@ impl StorageProvider<CURRENT_VERSION> for MemoryStorage {
         group_id: &GroupId,
     ) -> Result<(), Self::Error> {
         self.inner
-            .clear_proposal_queue(group_id)
+            .clear_proposal_queue::<GroupId, ProposalRef>(group_id)
             .map_err(SqlKeyStoreError::from)
     }
 
@@ -652,7 +652,6 @@ impl From<MemoryStorageError> for SqlKeyStoreError {
             }
             MemoryStorageError::UnsupportedMethod => SqlKeyStoreError::UnsupportedMethod,
             MemoryStorageError::SerializationError => SqlKeyStoreError::SerializationError,
-            MemoryStorageError::None => SqlKeyStoreError::NotFound,
         }
     }
 }

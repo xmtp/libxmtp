@@ -1,13 +1,10 @@
+use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
-use crate::{ConnectionExt, DbQuery};
-use diesel::Connection;
-use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
 use openmls_traits::storage::StorageProvider;
-use std::borrow::Cow;
 
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
@@ -18,11 +15,18 @@ use std::borrow::Cow;
 pub trait XmtpMlsStorageProvider:
     StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
-}
+    /// An Opaque Database connection type. Can be anything.
+    type Connection;
+    type Storage<'a>
+    where
+        Self::Connection: 'a;
+    fn conn(&self) -> &Self::Connection;
 
-impl<'a, T> XmtpMlsStorageProvider for T where
-    T: ?Sized + StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
-{
+    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, diesel::result::Error>,
+        for<'a> Self::Connection: 'a,
+        E: From<crate::ConnectionError> + std::error::Error;
 }
 
 pub struct XmtpOpenMlsProvider<S> {
@@ -30,70 +34,11 @@ pub struct XmtpOpenMlsProvider<S> {
     mls_storage: S,
 }
 
-pub struct XmtpOpenMlsProviderRef<'a, S: ToOwned> {
-    crypto: RustCrypto,
-    mls_storage: Cow<'a, S>,
-}
-
-impl<'a, S: ToOwned> XmtpOpenMlsProviderRef<'a, S> {
-    pub fn new(mls_storage: &'a S) -> Self {
-        Self {
-            crypto: RustCrypto::default(),
-            mls_storage: Cow::Borrowed(mls_storage),
-        }
-    }
-}
-
 impl<S> XmtpOpenMlsProvider<S> {
     pub fn new(mls_storage: S) -> Self {
         Self {
             crypto: RustCrypto::default(),
             mls_storage,
-        }
-    }
-}
-
-impl<S> XmtpOpenMlsProvider<S>
-where
-    S: XmtpMlsStorageProvider,
-{
-    #[tracing::instrument(level = "debug", skip_all)]
-    fn inner_transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
-        E: From<crate::ConnectionError> + std::error::Error,
-        C: ConnectionExt,
-        D: DbQuery<C>,
-    {
-        tracing::debug!("Transaction beginning");
-
-        let _guard = conn.start_transaction()?;
-
-        match fun(self) {
-            Ok(value) => {
-                conn.raw_query_write(|conn| {
-                    <<D as ConnectionExt>::Connection as Connection>::TransactionManager::commit_transaction(
-                        &mut *conn,
-                    )
-                })?;
-                tracing::debug!("Transaction being committed");
-                Ok(value)
-            }
-            Err(err) => {
-                tracing::debug!("Transaction being rolled back");
-                let result = conn.raw_query_write(|conn| {
-                    <<D as ConnectionExt>::Connection as Connection>::TransactionManager::rollback_transaction(
-                        &mut *conn,
-                    )
-                });
-                match result {
-                    Ok(()) => Err(err),
-                    Err(crate::ConnectionError::Database(
-                        diesel::result::Error::BrokenTransactionManager,
-                    )) => Err(err),
-                    Err(rollback) => Err(rollback.into()),
-                }
-            }
         }
     }
 }
@@ -107,39 +52,11 @@ impl<S> XmtpOpenMlsProvider<S> {
 impl<S> MlsProviderExt for XmtpOpenMlsProvider<S>
 where
     S: XmtpMlsStorageProvider,
+    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
-    #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
-        E: From<crate::ConnectionError> + std::error::Error,
-        C: ConnectionExt,
-        D: DbQuery<C>,
-    {
-        XmtpOpenMlsProvider::inner_transaction(self, conn, fun)
-    }
+    type Storage = S;
 
-    fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {
-        &self.mls_storage
-    }
-}
-
-impl<S> MlsProviderExt for &XmtpOpenMlsProvider<S>
-where
-    S: XmtpMlsStorageProvider,
-{
-    #[tracing::instrument(level = "debug", skip_all)]
-    fn transaction<T, F, E, C, D>(&self, conn: &D, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<S>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>,
-        C: ConnectionExt,
-        D: DbQuery<C>,
-    {
-        XmtpOpenMlsProvider::inner_transaction(self, conn, fun)
-    }
-
-    fn key_store(&self) -> &<Self as OpenMlsProvider>::StorageProvider {
+    fn key_store(&self) -> &Self::Storage {
         &self.mls_storage
     }
 }
@@ -164,14 +81,85 @@ where
     }
 }
 
-impl<S> OpenMlsProvider for &XmtpOpenMlsProvider<S>
+pub struct XmtpOpenMlsProviderRef<'a, S> {
+    crypto: RustCrypto,
+    mls_storage: &'a S,
+}
+
+impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRef<'a, S>
+where
+    S: XmtpMlsStorageProvider,
+    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
+{
+    type Storage = S;
+
+    fn key_store(&self) -> &Self::Storage {
+        &self.mls_storage
+    }
+}
+
+impl<'a, S> OpenMlsProvider for XmtpOpenMlsProviderRef<'a, S>
 where
     S: XmtpMlsStorageProvider,
 {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
     type StorageProvider = S;
+    fn crypto(&self) -> &Self::CryptoProvider {
+        &self.crypto
+    }
 
+    fn rand(&self) -> &Self::RandProvider {
+        &self.crypto
+    }
+
+    fn storage(&self) -> &Self::StorageProvider {
+        &self.mls_storage
+    }
+}
+
+impl<'a, S> XmtpOpenMlsProviderRef<'a, S> {
+    pub fn new(mls_storage: &'a S) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            mls_storage,
+        }
+    }
+}
+
+pub struct XmtpOpenMlsProviderRefMut<'a, S> {
+    crypto: RustCrypto,
+    mls_storage: &'a mut S,
+}
+
+impl<'a, S> XmtpOpenMlsProviderRefMut<'a, S> {
+    pub fn new(mls_storage: &'a mut S) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            mls_storage,
+        }
+    }
+}
+
+impl<'a, S> MlsProviderExt for XmtpOpenMlsProviderRefMut<'a, S>
+where
+    S: XmtpMlsStorageProvider,
+    <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
+{
+    type Storage = S;
+
+    fn key_store(&self) -> &Self::Storage {
+        &self.mls_storage
+    }
+}
+
+impl<'a, S> OpenMlsProvider for XmtpOpenMlsProviderRefMut<'a, S>
+where
+    S: XmtpMlsStorageProvider,
+{
+    type CryptoProvider = RustCrypto;
+    type RandProvider = RustCrypto;
+    type StorageProvider = S;
     fn crypto(&self) -> &Self::CryptoProvider {
         &self.crypto
     }

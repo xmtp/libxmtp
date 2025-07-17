@@ -547,9 +547,9 @@ where
         };
 
         let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.transaction(&conn, |provider| {
+        let result = provider.transaction(|mls_storage| {
             let result = DecryptedWelcome::from_encrypted_bytes(
-                provider,
+                &XmtpOpenMlsProvider::new(mls_storage),
                 &welcome.hpke_public_key,
                 &welcome.data,
                 welcome.wrapper_algorithm.into(),

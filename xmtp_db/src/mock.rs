@@ -39,7 +39,6 @@ impl ConnectionExt for MockConnection {
     fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.transaction_lock.lock();
         let mut c = self.inner.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
