@@ -29,7 +29,7 @@ impl RetryableError for SyncSummary {
 }
 
 impl SyncSummary {
-    /// synced a single message succesfully
+    /// synced a single message successfully
     pub fn single(msg: MessageIdentifier) -> Self {
         let mut process = ProcessSummary::default();
         process.add(msg);
@@ -372,7 +372,7 @@ impl ProcessSummary {
         let max = success_range.clone().max();
         writeln!(
             f,
-            "Succesfully processed {} messages in range {:?} ... {:?}",
+            "Successfully processed {} messages in range {:?} ... {:?}",
             self.new_messages.len(),
             min,
             max
