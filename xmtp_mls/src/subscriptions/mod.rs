@@ -268,7 +268,8 @@ where
             + 'static,
         #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
             + 'static,
-        on_close: impl FnOnce() + Send + 'static,
+        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -325,7 +326,8 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
-        on_close: impl FnOnce() + Send + 'static,
+        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -352,7 +354,8 @@ where
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
             + 'static,
-        on_close: impl FnOnce() + Send + 'static,
+        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
@@ -377,7 +380,8 @@ where
             + Send
             + 'static,
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>) + 'static,
-        on_close: impl FnOnce() + Send + 'static,
+        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
