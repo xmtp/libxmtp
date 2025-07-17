@@ -1,4 +1,4 @@
-//! Implementions of traits
+//! Implementations of traits
 use super::traits::{EnvelopeError, EnvelopeVisitor, ProtocolEnvelope};
 use prost::Message;
 use xmtp_proto::xmtp::xmtpv4::message_api::get_newest_envelope_response;
