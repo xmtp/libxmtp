@@ -1676,7 +1676,7 @@ async fn test_group_mutable_data_group_permissions() {
     bola_group
         .update_group_name("New Group Name 2".to_string())
         .await
-        .expect("non creator failed to udpate group name");
+        .expect("non creator failed to update group name");
 
     // Verify amal group sees an update
     amal_group.sync().await.unwrap();
@@ -2116,7 +2116,7 @@ async fn test_can_update_permissions_after_group_creation() {
         .await
         .unwrap();
 
-    // Step 3: Bola attemps to add Caro, but fails because group is admin only
+    // Step 3: Bola attempts to add Caro, but fails because group is admin only
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
@@ -2259,7 +2259,7 @@ async fn test_dm_creation() {
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-    // Amal creates a dm group targetting bola
+    // Amal creates a dm group targeting bola
     let amal_dm = amal
         .find_or_create_dm_by_inbox_id(bola.inbox_id().to_string(), None)
         .await
@@ -3667,7 +3667,7 @@ async fn non_retryable_error_increments_cursor() {
     // set cursor to the max u64 value -1_000 to ensure its higher than the cursor in the backend
     // TODO: using u64::MAX here causes an implicit overflow for the i64 comparison (i think),
     // making us actually return the message as already processed, since it loops back to 0,
-    // thereby less than group cursor. Thats why we take i64 max before casting to u64, rather than
+    // thereby less than group cursor. That's why we take i64 max before casting to u64, rather than
     // u64::MAX.
     let new_cursor = i64::MAX - 1_000;
 
