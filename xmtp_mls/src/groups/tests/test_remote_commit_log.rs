@@ -48,7 +48,7 @@ async fn test_commit_log_publish_and_query() {
 
     let raw_bytes = &response[0].commit_log_entries[0].encrypted_commit_log_entry;
 
-    // TODO: this will require decryption once encrypted key is added
+    // TODO(cvoell): this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
     assert_eq!(entry.group_id, commit_log_entry.group_id);
     assert_eq!(

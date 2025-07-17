@@ -398,7 +398,7 @@ where
     }
 }
 
-/// TODO: Encrypt the commit log entry instead of just encoding to bytes
+/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
 pub fn convert_plaintext_to_publish_request(
     entry: PlaintextCommitLogEntry,
 ) -> PublishCommitLogRequest {
