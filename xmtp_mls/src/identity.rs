@@ -667,7 +667,7 @@ impl Identity {
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
         let history_id = conn
-            .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone())?
+            .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone(), kp.life_time().not_after() as i64)?
             .id;
 
         match api_client.upload_key_package(kp_bytes, true).await {
