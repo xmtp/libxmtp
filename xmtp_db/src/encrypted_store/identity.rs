@@ -58,12 +58,18 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn clear_key_package_rotation_queue(&self) -> Result<(), StorageError> {
+    pub fn reset_key_package_rotation_queue(
+        &self,
+        new_kp_valid_not_after: i64,
+    ) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
-                .set(dsl::next_key_package_rotation_ns.eq::<Option<i64>>(None))
+                .set(
+                    dsl::next_key_package_rotation_ns
+                        .eq::<Option<i64>>(Some(new_kp_valid_not_after * NS_IN_SEC)),
+                )
                 .execute(conn)?;
             Ok(())
         })?;
@@ -80,7 +86,10 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .first::<Option<i64>>(conn)
         })?;
 
-        Ok(matches!(next_rotation_opt, Some(rotate_at) if now_ns() >= rotate_at))
+        Ok(match next_rotation_opt {
+            Some(rotate_at) => now_ns() >= rotate_at,
+            None => true,
+        })
     }
 }
 

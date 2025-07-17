@@ -667,11 +667,7 @@ impl Identity {
         let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
         let history_id = conn
-            .store_key_package_history_entry(
-                hash_ref.clone(),
-                pq_pub_key.clone(),
-                kp.life_time().not_after() as i64,
-            )?
+            .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone())?
             .id;
 
         match api_client.upload_key_package(kp_bytes, true).await {
@@ -681,7 +677,7 @@ impl Identity {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<(), StorageError>(())
                 })?;
-                conn.clear_key_package_rotation_queue()?;
+                conn.reset_key_package_rotation_queue(kp.life_time().not_after() as i64)?;
                 Ok(())
             }
             Err(err) => {
