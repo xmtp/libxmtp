@@ -96,7 +96,7 @@ async fn test_double_sync_works_fine() {
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_hmac_and_consent_prefrence_sync() {
+async fn test_hmac_and_consent_preference_sync() {
     tester!(alix1, sync_worker, sync_server, stream);
     tester!(bo);
 
@@ -108,8 +108,9 @@ async fn test_hmac_and_consent_prefrence_sync() {
 
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
-    let alix1_keys = dm.hmac_keys(-1..=1)?;
     alix1.worker().wait(SyncMetric::HmacSent, 1).await?;
+    alix1.worker().wait(SyncMetric::HmacReceived, 1).await?;
+    let alix1_keys = dm.hmac_keys(-1..=1)?;
 
     alix2.worker().wait(SyncMetric::HmacReceived, 1).await?;
 

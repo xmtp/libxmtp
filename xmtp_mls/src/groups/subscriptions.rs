@@ -70,7 +70,8 @@ where
         #[cfg(not(target_arch = "wasm32"))] callback: impl FnMut(Result<StoredGroupMessage>)
             + Send
             + 'static,
-        on_close: impl FnOnce() + Send + 'static,
+        #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+        #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>>
     where
         ApiClient: 'static,
@@ -99,7 +100,8 @@ pub(crate) fn stream_messages_with_callback<ApiClient, Db>(
     #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
         + Send
         + 'static,
-    on_close: impl FnOnce() + Send + 'static,
+    #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
+    #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     ApiClient: XmtpApi + XmtpMlsStreams + 'static,
