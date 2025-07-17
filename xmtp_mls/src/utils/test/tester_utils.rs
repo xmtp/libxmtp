@@ -53,7 +53,7 @@ pub static TOXIPROXY: OnceCell<toxiproxy_rust::client::Client> = OnceCell::const
 pub static TOXI_PORT: AtomicUsize = AtomicUsize::new(21100);
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
-/// Makes testing easier and less repetetive.
+/// Makes testing easier and less repetitive.
 pub struct Tester<Owner, Client>
 where
     Owner: InboxOwner,
