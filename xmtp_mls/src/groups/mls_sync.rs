@@ -64,7 +64,6 @@ use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use openmls::group::{ProcessMessageError, ValidationError};
-use openmls::schedule::EpochAuthenticator;
 use openmls::{
     credentials::BasicCredential,
     extensions::Extensions,
@@ -1237,18 +1236,59 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
+        let message_entity_kind = match mls_message_in.wire_format() {
+            WireFormat::Welcome => EntityKind::Welcome,
+            _ => EntityKind::Group,
+        };
+
+        if trust_message_order {
+            let provider = self.mls_provider();
+            let last_cursor = provider
+                .db()
+                .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
+            if last_cursor > envelope.id as i64 {
+                tracing::info!(
+                    inbox_id = self.context.inbox_id(),
+                    installation_id = %self.context.installation_id(),
+                    group_id = hex::encode(&self.group_id),
+                    "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
+                    envelope.id,
+                    message_entity_kind,
+                    last_cursor
+                );
+                // early return if the message is already procesed
+                // _NOTE_: Not early returning and re-processing a message that
+                // has already been processed, has the potential to result in forks.
+                return MessageIdentifierBuilder::from(envelope).build();
+            }
+        }
+
         self.load_mls_group_with_lock_async(|mut mls_group| async move {
+            let private_message = match mls_message_in.extract() {
+                MlsMessageBodyIn::PrivateMessage(private_message) => Ok(private_message),
+                other => Err(GroupMessageProcessingError::UnsupportedMessageType(
+                    discriminant(&other),
+                )),
+            }?;
+            let message_type = private_message.content_type();
+            let message_epoch = private_message.epoch();
             let mut result = self
-                .process_message_inner(&mut mls_group, envelope, trust_message_order)
+                .process_message_inner(
+                    &mut mls_group,
+                    envelope,
+                    private_message,
+                    trust_message_order,
+                )
                 .await;
             if trust_message_order {
                 result = self
                     .post_process_message(
                         &mls_group,
                         result,
-                        envelope,
-                        mls_group.epoch(),
-                        mls_group.epoch_authenticator(),
+                        envelope.id,
+                        message_type,
+                        message_epoch,
                     )
                     .await;
             }
@@ -1262,20 +1302,13 @@ where
         &self,
         mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessageV1,
+        message: PrivateMessageIn,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
         let allow_epoch_increment = trust_message_order;
         let allow_cursor_increment = trust_message_order;
         let cursor = envelope.id;
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
-
-        let message = match mls_message_in.extract() {
-            MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
-            other => Err(GroupMessageProcessingError::UnsupportedMessageType(
-                discriminant(&other),
-            )),
-        }?;
         if !allow_epoch_increment && message.content_type() == MlsContentType::Commit {
             return Err(GroupMessageProcessingError::EpochIncrementNotAllowed);
         }
@@ -1497,36 +1530,10 @@ where
         &self,
         envelope: &GroupMessage,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-        let provider = self.mls_provider();
         let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
             _ => return Err(GroupMessageProcessingError::InvalidPayload),
         };
-
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&msgv1.data)?;
-        let message_entity_kind = match mls_message_in.wire_format() {
-            WireFormat::Welcome => EntityKind::Welcome,
-            _ => EntityKind::Group,
-        };
-
-        let last_cursor = provider
-            .db()
-            .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-        if last_cursor > msgv1.id as i64 {
-            tracing::info!(
-                inbox_id = self.context.inbox_id(),
-                installation_id = %self.context.installation_id(),
-                group_id = hex::encode(&self.group_id),
-                "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                msgv1.id,
-                message_entity_kind,
-                last_cursor
-            );
-            // early return if the message is already procesed
-            // _NOTE_: Not early returning and re-processing a message that
-            // has already been processed, has the potential to result in forks.
-            return MessageIdentifierBuilder::from(msgv1).build();
-        }
 
         // Download all unread welcome messages and convert to groups.Run `man nix.conf` for more information on the `substituters` configuration option.
         // In a database transaction, increment the cursor for a given entity and
@@ -1538,18 +1545,18 @@ where
         &self,
         mls_group: &OpenMlsGroup,
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
-        msgv1: &GroupMessageV1,
-        epoch_number: GroupEpoch,
-        epoch_authenticator: &EpochAuthenticator,
+        message_cursor: u64,
+        message_type: MlsContentType,
+        message_epoch: GroupEpoch,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let provider = self.mls_provider();
-        track_err!("Process message", &process_result, group: &msgv1.group_id);
+        track_err!("Process message", &process_result, group: &self.group_id);
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
                 "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
-                hex::encode(&msgv1.group_id),
-                msgv1.id
+                hex::encode(&self.group_id),
+                message_cursor
             );
                 Ok(m)
             }
@@ -1569,8 +1576,8 @@ where
             Err(e) => {
                 tracing::info!(
                     "Transaction failed: process for group [{}] envelope cursor [{}] error:[{}]",
-                    hex::encode(&msgv1.group_id),
-                    msgv1.id,
+                    hex::encode(&self.group_id),
+                    message_cursor,
                     e
                 );
 
@@ -1578,26 +1585,34 @@ where
                 // later
                 if !e.is_retryable() && mls_group.is_active() {
                     if let Err(update_cursor_error) =
-                        self.update_cursor_if_needed(&provider, &msgv1.group_id, msgv1.id)
+                        self.update_cursor_if_needed(&provider, &self.group_id, message_cursor)
                     {
                         // We don't need to propagate the error if the cursor fails to update - the worst case is
                         // that the non-retriable error is processed again
                         tracing::error!("Error updating cursor for non-retriable error: {update_cursor_error:?}");
                     }
+                    if message_type == MlsContentType::Commit {
+                        if let Err(accounting_error) = mls_group.mark_failed_commit_logged(
+                            &provider,
+                            message_cursor,
+                            message_epoch,
+                            &e,
+                        ) {
+                            tracing::error!(
+                                "Error inserting commit entry for failed commit: {}",
+                                accounting_error
+                            );
+                        }
+                    }
                 }
-                if let Err(accounting_error) = self.insert_commit_entry_for_failed_commit(
-                    msgv1,
-                    &e,
-                    epoch_number,
-                    epoch_authenticator,
-                ) {
-                    tracing::error!(
-                        "Error inserting commit entry for failed commit: {}",
-                        accounting_error
-                    );
-                }
+
                 if let Err(accounting_error) = self
-                    .process_group_message_error_for_fork_detection(msgv1, &e, mls_group)
+                    .process_group_message_error_for_fork_detection(
+                        message_cursor,
+                        message_epoch,
+                        &e,
+                        mls_group,
+                    )
                     .await
                 {
                     tracing::error!(
@@ -1774,76 +1789,18 @@ where
         Ok(Some(msg))
     }
 
-    fn insert_commit_entry_for_failed_commit(
-        &self,
-        envelope: &GroupMessageV1,
-        error: &GroupMessageProcessingError,
-        last_epoch_number: GroupEpoch,
-        last_epoch_authenticator: &EpochAuthenticator,
-    ) -> Result<(), GroupMessageProcessingError> {
-        if !crate::configuration::ENABLE_COMMIT_LOG {
-            return Ok(());
-        }
-        if error.is_retryable() {
-            return Ok(());
-        }
-
-        let message_cursor = envelope.id;
-        // TODO(rich): Remove extra deserialization step
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
-        let MlsMessageBodyIn::PrivateMessage(message) = mls_message_in.extract() else {
-            return Ok(());
-        };
-        if message.content_type() != openmls::framing::ContentType::Commit {
-            return Ok(());
-        }
-
-        OpenMlsGroup::mark_failed_commit_logged(
-            &self.mls_provider(),
-            &self.group_id,
-            message_cursor,
-            message.epoch(),
-            error,
-            last_epoch_number,
-            last_epoch_authenticator,
-        )?;
-
-        Ok(())
-    }
-
     async fn process_group_message_error_for_fork_detection(
         &self,
-        message: &GroupMessageV1,
+        message_cursor: u64,
+        message_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
         mls_group: &OpenMlsGroup,
     ) -> Result<(), GroupMessageProcessingError> {
-        let group_id = message.group_id.clone();
         if let OpenMlsProcessMessage(ProcessMessageError::ValidationError(
             ValidationError::WrongEpoch,
         )) = error
         {
             let group_epoch = mls_group.epoch().as_u64();
-
-            let mls_message_in = match MlsMessageIn::tls_deserialize_exact(&message.data) {
-                Ok(msg) => msg,
-                Err(error) => {
-                    tracing::info!(
-                        "WrongEpoch encountered but failed to deserialize the message, error:{}",
-                        error
-                    );
-                    return Ok(());
-                }
-            };
-
-            let protocol_message = match mls_message_in.extract() {
-                MlsMessageBodyIn::PrivateMessage(msg) => msg,
-                _ => {
-                    tracing::info!("WrongEpoch encountered but failed to extract PrivateMessage");
-                    return Ok(());
-                }
-            };
-
-            let message_epoch = protocol_message.epoch();
             let epoch_validation_result = Self::validate_message_epoch(
                 self.context().inbox_id(),
                 0,
@@ -1855,7 +1812,7 @@ where
             if let Err(GroupMessageProcessingError::FutureEpoch(_, _)) = &epoch_validation_result {
                 let fork_details = format!(
                     "Message cursor [{}] epoch [{}] is greater than group epoch [{}], your group may be forked",
-                    message.id, message_epoch, group_epoch
+                    message_cursor, message_epoch, group_epoch
                 );
                 tracing::error!(
                     inbox_id = self.context.inbox_id(),
@@ -1876,7 +1833,7 @@ where
                 let _ = self
                     .context()
                     .db()
-                    .mark_group_as_maybe_forked(&group_id, fork_details);
+                    .mark_group_as_maybe_forked(&self.group_id, fork_details);
                 return epoch_validation_result;
             }
 
