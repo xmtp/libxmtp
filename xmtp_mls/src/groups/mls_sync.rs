@@ -924,7 +924,7 @@ where
                 current_cursor < *cursor as i64
             };
             if !requires_processing {
-                // early return if the message is already procesed
+                // early return if the message is already processed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
                 tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
@@ -961,7 +961,7 @@ where
     }
 
     /// Process an external message
-    /// returns a MessageIdentifier, identifiying the message processed if any.
+    /// returns a MessageIdentifier, identifying the message processed if any.
     #[tracing::instrument(
         level = "debug",
         skip(mls_group, processed_message, envelope, validated_commit)
@@ -1289,7 +1289,7 @@ where
             .db()
             .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
-            // early return if the message is already procesed
+            // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
             return MessageIdentifierBuilder::from(envelope)
@@ -1353,7 +1353,7 @@ where
                             envelope.created_ns
                         );
 
-                        // early return if the message is already procesed
+                        // early return if the message is already processed
                         // _NOTE_: Not early returning and re-processing a message that
                         // has already been processed, has the potential to result in forks.
                         // In some cases, we may want to roll back the cursor if we updated the
@@ -1522,7 +1522,7 @@ where
                 message_entity_kind,
                 last_cursor
             );
-            // early return if the message is already procesed
+            // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
             return MessageIdentifierBuilder::from(msgv1).build();
@@ -1659,8 +1659,8 @@ where
 
     /// Receive messages from the last cursor network and try to process each message
     /// Return all the cursors of the messages we tried to process regardless
-    /// if they were succesfull or not. It is important to return _all_
-    /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
+    /// if they were successful or not. It is important to return _all_
+    /// cursor ids, so that streams do not unintentionally retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "debug")]
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
