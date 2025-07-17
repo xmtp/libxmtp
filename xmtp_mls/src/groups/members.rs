@@ -34,7 +34,7 @@ where
     Db: XmtpDb,
 {
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
-    pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
+    pub async fn members(&self, limit: usize) -> Result<Vec<GroupMember>, GroupError> {
         let provider = self.mls_provider();
         let group_membership = self.load_mls_group_with_lock(&provider, |mls_group| {
             Ok(extract_group_membership(mls_group.extensions())?)
@@ -44,6 +44,7 @@ where
             .into_iter()
             .map(|(inbox_id, sequence_id)| (inbox_id, sequence_id as i64))
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
+            .take(limit)
             .collect::<Vec<_>>();
 
         let conn = provider.db();
