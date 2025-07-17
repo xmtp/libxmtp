@@ -1,5 +1,6 @@
 use crate::configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX,
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, DEFAULT_INITIAL_KEY_PACKAGE_NEXT_ROTATION_NS,
+    MAX_INSTALLATIONS_PER_INBOX,
 };
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
@@ -27,6 +28,7 @@ use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
+use xmtp_common::time::now_ns;
 use xmtp_common::types::InstallationId;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
@@ -300,6 +302,7 @@ impl TryFrom<&Identity> for StoredIdentity {
             .inbox_id(identity.inbox_id.clone())
             .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
+            .next_key_package_rotation_ns(now_ns() + DEFAULT_INITIAL_KEY_PACKAGE_NEXT_ROTATION_NS)
             .build()
     }
 }

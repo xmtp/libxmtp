@@ -1,6 +1,6 @@
 use openmls::versions::ProtocolVersion;
 
-use xmtp_common::{NS_IN_30_DAYS, NS_IN_HOUR, NS_IN_SEC};
+use xmtp_common::{NS_IN_30_DAYS, NS_IN_DAY, NS_IN_HOUR, NS_IN_SEC};
 pub use xmtp_cryptography::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
 
 pub struct DeviceSyncUrls;
@@ -23,6 +23,10 @@ pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
 pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS;
+
+/// Only used to seed the initial `next_key_package_rotation_ns`.
+/// This does *not* affect the actual key-package lifetime.
+pub const DEFAULT_INITIAL_KEY_PACKAGE_NEXT_ROTATION_NS: i64 = 90 * NS_IN_DAY; // 90 days
 
 #[allow(dead_code)]
 const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
@@ -54,7 +58,7 @@ pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 #[cfg(any(test, feature = "test-utils"))]
 pub mod debug_config {
     use super::*;
-    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600;
+    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_SEC;
     // 1 second
 }
 

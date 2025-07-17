@@ -17,7 +17,6 @@ pub struct StoredIdentity {
     pub credential_bytes: Vec<u8>,
     #[builder(setter(skip))]
     rowid: Option<i32>,
-    #[builder(setter(skip))]
     pub next_key_package_rotation_ns: Option<i64>,
 }
 
@@ -66,10 +65,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
-                .set(
-                    dsl::next_key_package_rotation_ns
-                        .eq::<Option<i64>>(Some(new_kp_valid_not_after * NS_IN_SEC)),
-                )
+                .set(dsl::next_key_package_rotation_ns.eq(Some(new_kp_valid_not_after * NS_IN_SEC)))
                 .execute(conn)?;
             Ok(())
         })?;
