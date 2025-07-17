@@ -27,7 +27,7 @@ pub fn path_and_query<Type: prost::Name>(file_descriptor: &'static [u8]) -> Cow<
     }
 
     let fds: FileDescriptorSet = Message::decode(file_descriptor).unwrap();
-    // protoc-gen-prost explicity generates file descriptors with one per module
+    // protoc-gen-prost explicitly generates file descriptors with one per module
     let Some((service, method)) = fds.file.into_iter().find_map(|f| {
         f.service.into_iter().find_map(|s| {
             let method = s
