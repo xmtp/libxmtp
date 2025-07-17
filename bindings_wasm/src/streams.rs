@@ -19,6 +19,7 @@ type StreamHandle = Box<GenericStreamHandle<Result<(), XmtpSubscribeError>>>;
 
 #[wasm_bindgen]
 extern "C" {
+  #[derive(Clone)]
   pub type StreamCallback;
 
   /// Js Fn to call on an item

@@ -505,6 +505,7 @@ impl Conversation {
 
   #[wasm_bindgen(js_name = stream)]
   pub fn stream(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
       self.group_id.clone(),
@@ -512,7 +513,7 @@ impl Conversation {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || callback.on_close(),
+      move || on_close_cb.on_close(),
     );
 
     Ok(StreamCloser::new(stream_closer))
