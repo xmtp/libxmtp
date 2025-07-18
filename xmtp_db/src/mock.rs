@@ -32,7 +32,7 @@ impl AsRef<MockConnection> for MockConnection {
 // TODO: We should use diesels test transaction
 impl ConnectionExt for MockConnection {
     type Connection = SqliteConnection;
-
+/*
     fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.transaction_lock.lock();
         self.in_transaction.store(true, Ordering::SeqCst);
@@ -42,7 +42,7 @@ impl ConnectionExt for MockConnection {
             in_transaction: self.in_transaction.clone(),
         })
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -487,11 +487,11 @@ mock! {
 
 impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
     type Connection = <C as ConnectionExt>::Connection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         todo!()
     }
-
+*/
     fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

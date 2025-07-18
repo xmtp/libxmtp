@@ -42,14 +42,14 @@ where
     M: ConnectionExt<Connection = P::Connection>,
 {
     type Connection = P::Connection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         match self {
             Self::Persistent(p) => p.start_transaction(),
             Self::Mem(m) => m.start_transaction(),
         }
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

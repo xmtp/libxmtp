@@ -105,7 +105,7 @@ pub trait ConnectionExt {
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
         + Send;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError>;
+//    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError>;
 
     /// Run a scoped read-only query
     /// Implementors are expected to store an instance of 'TransactionGuard'
@@ -134,11 +134,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -173,11 +173,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -212,11 +212,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

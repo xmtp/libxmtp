@@ -1,7 +1,9 @@
+use std::cell::RefCell;
+
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
-use crate::sql_key_store::XmtpMlsTransactionProvider;
+// use crate::sql_key_store::XmtpMlsTransactionProvider;
 use diesel::connection::LoadConnection;
 use diesel::migration::MigrationConnection;
 use diesel::sqlite::Sqlite;
@@ -27,10 +29,6 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    type Transaction<'a>: XmtpMlsTransactionProvider
-    where
-        <Self::Connection as ConnectionExt>::Connection: 'a;
-
     fn conn(&self) -> &Self::Connection;
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>
@@ -39,9 +37,8 @@ pub trait XmtpMlsStorageProvider:
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(&'a Self::Transaction<'a>) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
-        for<'a> Self::Connection: 'a;
+        F: FnOnce(RefCell<&mut <Self::Connection as ConnectionExt>::Connection>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 }

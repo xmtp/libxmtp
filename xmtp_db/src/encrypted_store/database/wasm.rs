@@ -179,7 +179,7 @@ impl WasmDbConnection {
 
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, diesel::result::Error> {
         let guard = self.transaction_lock.lock();
         self.in_transaction.store(true, Ordering::SeqCst);
@@ -189,7 +189,7 @@ impl ConnectionExt for WasmDbConnection {
             in_transaction: self.in_transaction.clone(),
         })
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

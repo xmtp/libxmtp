@@ -251,7 +251,7 @@ impl EphemeralDbConnection {
 
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
         self.in_transaction.store(true, Ordering::SeqCst);
@@ -261,7 +261,7 @@ impl ConnectionExt for EphemeralDbConnection {
             in_transaction: self.in_transaction.clone(),
         })
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -367,7 +367,7 @@ impl NativeDbConnection {
 
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
-
+/*
     fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         if self.in_transaction.load(Ordering::SeqCst) {
             tracing::warn!("already in transaction, acquiring lock..");
@@ -380,7 +380,7 @@ impl ConnectionExt for NativeDbConnection {
             in_transaction: self.in_transaction.clone(),
         })
     }
-
+*/
     #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where

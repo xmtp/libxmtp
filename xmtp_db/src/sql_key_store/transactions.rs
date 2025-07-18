@@ -4,6 +4,7 @@ use diesel::connection::LoadConnection;
 use diesel::migration::MigrationConnection;
 use diesel::sqlite::Sqlite;
 use diesel_migrations::MigrationHarness;
+use std::cell::RefCell;
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
@@ -16,7 +17,7 @@ pub struct MutableTransactionConnection<'a, C> {
     conn: RefCell<&'a mut C>,
 }
 
-impl<'a, C> ConnectionExt for MutableTransactionConnection<'a, C>
+impl<'a, C> ConnectionExt for RefCell<&'a mut C>
 where
     C: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -26,19 +27,19 @@ where
         + Send,
 {
     type Connection = C;
-
+/*
     fn start_transaction(&self) -> Result<TransactionGuard<'a>, crate::ConnectionError> {
         Err(crate::ConnectionError::Database(
             diesel::result::Error::AlreadyInTransaction,
         ))
     }
-
+*/
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.borrow_mut();
+        let mut conn = self.borrow_mut();
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 
@@ -47,7 +48,7 @@ where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.borrow_mut();
+        let mut conn = self.borrow_mut();
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 
@@ -65,7 +66,7 @@ where
         Ok(())
     }
 }
-
+/*
 impl<'store, C> SqlKeyStoreRef<'store, C>
 where
     C: ConnectionExt + 'store,
@@ -73,7 +74,7 @@ where
     fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
         for<'a> F: FnOnce(
-            &'a SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>,
+            SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>,
         ) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
@@ -81,20 +82,21 @@ where
         let conn = &self.conn;
 
         // one call to raw_query_write = mutex only locked once for entire transaciton
-        let r = conn.raw_query_write(|c| {
-            Ok(c.transaction(|sqlite_c| {
+        let r = conn.raw_query_write(move |c| {
+            Ok(c.transaction(move |sqlite_c| {
                 let s = SqlKeyStoreRef {
                     conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
                         conn: RefCell::new(sqlite_c),
                     }),
                 };
-                fun(&s)
+                fun(s)
             }))
         })?;
         Ok(r?)
     }
 }
-
+*/
+/*
 impl<'a, C> XmtpMlsTransactionProvider
     for SqlKeyStoreRef<'a, MutableTransactionConnection<'a, C>>
 where
@@ -117,6 +119,11 @@ pub trait XmtpMlsTransactionProvider {
 
     fn storage(&self) -> &Self::Storage;
 }
+*/
+
+pub trait KeyStoreContextProvider<C> {
+    fn key_store<'a>(self) -> SqlKeyStoreRef<'a, RefCell<&'a mut C>>;
+}
 
 impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store, C> {
     type Connection = C;
@@ -125,11 +132,6 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
         = DbConnection<&'a C>
     where
         Self::Connection: 'a;
-
-    type Transaction<'a>
-        = SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>
-    where
-        <C as ConnectionExt>::Connection: 'a;
 
     fn conn(&self) -> &Self::Connection {
         &self.conn
@@ -144,11 +146,26 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(&'a Self::Transaction<'a>) -> Result<T, E>,
-        for<'a> C: 'a,
-        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+       F: FnOnce(RefCell<&mut <C as ConnectionExt>::Connection>) -> Result<T, E>,
+       E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
-        self.inner_transaction(f)
+        // let _guard = self.conn.start_transaction()?;
+        let conn = &self.conn;
+
+        // one call to raw_query_write = mutex only locked once for entire transaciton
+        let r = conn.raw_query_write(move |c| {
+            Ok(c.transaction(move |sqlite_c| {
+                /*
+                let s = SqlKeyStoreRef {
+                    conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
+                        conn: RefCell::new(sqlite_c),
+                    }),
+                };*/
+                f(RefCell::new(sqlite_c))
+            }))
+        })?;
+        Ok(r?)
+
     }
 }
 
@@ -181,7 +198,9 @@ mod tests {
 
             self.key_store
                 .transaction(|storage| {
-                    storage.storage().db().insert_group_intent(NewGroupIntent {
+                    // let storage = SqlKeyStoreRef::new(storage);
+                   let db = DbConnection::new(storage);
+                   db.insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
                         group_id: vec![],
                         data: vec![],
