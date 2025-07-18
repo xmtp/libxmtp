@@ -30,7 +30,7 @@ async fn test_commit_log_publish_and_query_apis() {
 
     let result = alix
         .api()
-        .publish_commit_log(vec![commit_log_entry.clone()])
+        .publish_commit_log(&[commit_log_entry.clone()])
         .await;
     assert!(result.is_ok());
 
@@ -123,7 +123,7 @@ async fn test_publish_commit_log_to_remote() {
     let bo_group = binding.first().unwrap();
     assert_eq!(bo_group.group.group_id, alix_group.group_id);
 
-    // Alix has one commit log entry
+    // Alix has two local commit log entry
     let commit_log_entries = alix
         .provider
         .db()
@@ -131,36 +131,36 @@ async fn test_publish_commit_log_to_remote() {
         .unwrap();
     assert_eq!(commit_log_entries.len(), 2);
 
-    // Since Alix has never written to the remote commit log, the refresh state is None
-    let refresh_state = alix
+    // Since Alix has never written to the remote commit log, the last cursor should be 0
+    let published_commit_log_cursor = alix
         .provider
         .db()
-        .get_refresh_state(
+        .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::CommitLog,
+            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
         )
         .unwrap();
-    assert!(refresh_state.is_none());
+    assert_eq!(published_commit_log_cursor, 0);
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
     let result = commit_log_worker.run_test(Some(1)).await;
     assert!(result.is_ok());
 
-    let refresh_state = alix
+    let published_commit_log_cursor = alix
         .provider
         .db()
-        .get_refresh_state(
+        .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::CommitLog,
+            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
         )
         .unwrap();
-    assert!(refresh_state.is_some());
+    assert!(published_commit_log_cursor > 0);
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
         last_commit_log_entry.commit_sequence_id,
-        refresh_state.unwrap().cursor
+        published_commit_log_cursor
     );
 
     // Query the remote commit log to make sure it matches the local commit log entry

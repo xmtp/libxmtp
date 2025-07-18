@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_api::ApiError;
-use xmtp_db::{StorageError, XmtpDb};
+use xmtp_db::{DbConnection, StorageError, XmtpDb};
 use xmtp_proto::{
     api_client::trait_impls::XmtpApi, xmtp::mls::message_contents::PlaintextCommitLogEntry,
 };
@@ -145,77 +145,75 @@ where
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
         let conversation_ids_for_remote_log = conn.get_conversation_ids_for_remote_log()?;
 
-        // Step 2 is to check if for each `conversation_id` for remote log whether its `refresh_state` cursor is lower than the local commit log sequence id.
-        // If so - save cursor we should publish from to `cursor_map`
-        let mut cursor_map: HashMap<Vec<u8>, Option<i64>> = HashMap::new();
-        for conversation_id in conversation_ids_for_remote_log {
-            let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation_id)
-                .ok()
-                .flatten();
-            let remote_commit_log_cursor = conn
-                .get_last_cursor_for_id(
-                    &conversation_id,
-                    xmtp_db::refresh_state::EntityKind::CommitLog,
-                )
-                .ok();
-
-            match (local_commit_log_cursor, remote_commit_log_cursor) {
-                (Some(local_commit_log_cursor), Some(remote_commit_log_cursor)) => {
-                    if local_commit_log_cursor > remote_commit_log_cursor {
-                        // We have new commits that have not been published to remote commit log yet
-                        cursor_map.insert(conversation_id, Some(remote_commit_log_cursor));
-                    } else {
-                        cursor_map.insert(conversation_id, None); // Remote log is up to date with local commit log
-                    }
-                }
-                (Some(_local_commit_log_cursor), None) => {
-                    cursor_map.insert(conversation_id, Some(0)); // We have not published to the remote log yet, publish from the beginning
-                }
-                _ => {
-                    tracing::warn!("No local commit log for conversation id: {:?} which should be published to remote commit log", conversation_id);
-                    cursor_map.insert(conversation_id, None); // No local commit log to publish
-                }
-            }
-        }
+        // Step 2 is to map the cursor positions we should publish from, for each conversation
+        let conversation_cursor_map =
+            self.map_conversation_to_commit_log_cursor(conn, conversation_ids_for_remote_log);
 
         // Step 3 is to publish any new local commit logs and to update relevant cursors
         let api = self.context.api();
-        for (conversation_id, cursor) in cursor_map {
-            if let Some(cursor) = cursor {
+        for (conversation_id, published_commit_log_cursor) in conversation_cursor_map {
+            if let Some(published_commit_log_cursor) = published_commit_log_cursor {
                 // Local commit log entries are returned sorted in ascending order of `commit_sequence_id`
-                let sorted_local_commit_log_entries =
-                    conn.get_group_logs_after_cursor(&conversation_id, cursor)?;
-                let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> =
-                    sorted_local_commit_log_entries
-                        .iter()
-                        .map(PlaintextCommitLogEntry::from)
-                        .collect();
+                let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = conn
+                    .get_group_logs_after_cursor(&conversation_id, published_commit_log_cursor)?
+                    .iter()
+                    .map(PlaintextCommitLogEntry::from)
+                    .collect();
                 // Publish commit log entries to the API
-                let result = api.publish_commit_log(plaintext_commit_log_entries).await;
-
-                if result.is_ok() {
-                    let last_entry = sorted_local_commit_log_entries.last();
-                    if let Some(last_entry) = last_entry {
-                        // If publish is successful, update the cursor to the last entry's `commit_sequence_id`
-
-                        conn.update_cursor(
-                            &conversation_id,
-                            xmtp_db::refresh_state::EntityKind::CommitLog,
-                            last_entry.commit_sequence_id,
-                        )?;
-                    } else {
-                        tracing::error!(
-                            "No last entry found for conversation id: {:?}",
-                            conversation_id
-                        );
+                match api.publish_commit_log(&plaintext_commit_log_entries).await {
+                    Ok(_) => {
+                        if let Some(last_entry) = plaintext_commit_log_entries.last() {
+                            // If publish is successful, update the cursor to the last entry's `commit_sequence_id`
+                            conn.update_cursor(
+                                &conversation_id,
+                                xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+                                last_entry.commit_sequence_id as i64,
+                            )?;
+                        } else {
+                            tracing::error!(
+                                "No last entry found for conversation id: {:?}",
+                                conversation_id
+                            );
+                        }
                     }
-                } else {
-                    // In this case we do not update the cursor, so next worker iteration will try again
-                    tracing::error!("Failed to publish commit log entries to remote commit log for conversation id: {:?}", conversation_id);
+                    Err(e) => {
+                        // In this case we do not update the cursor, so next worker iteration will try again
+                        tracing::error!("Failed to publish commit log entries to remote commit log for conversation id: {:?}, error: {:?}", conversation_id, e);
+                    }
                 }
             }
         }
         Ok(())
+    }
+
+    // Check if for each `conversation_id` whether its `PublishedCommitLog` cursor is lower than the local commit log sequence id.
+    //  If so - map to the `PublishedCommitLog` cursor in `cursor_map`, otherwise map to None
+    fn map_conversation_to_commit_log_cursor(
+        &self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conversation_ids: Vec<Vec<u8>>,
+    ) -> HashMap<Vec<u8>, Option<i64>> {
+        let mut cursor_map: HashMap<Vec<u8>, Option<i64>> = HashMap::new();
+        for conversation_id in conversation_ids {
+            let local_commit_log_cursor = conn
+                .get_local_commit_log_cursor(&conversation_id)
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+            let published_commit_log_cursor = conn
+                .get_last_cursor_for_id(
+                    &conversation_id,
+                    xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+                )
+                .unwrap_or(0);
+
+            if local_commit_log_cursor > published_commit_log_cursor {
+                // We have new commits that have not been published to remote commit log yet
+                cursor_map.insert(conversation_id, Some(published_commit_log_cursor));
+            } else {
+                cursor_map.insert(conversation_id, None); // Remote log is up to date with local commit log
+            }
+        }
+        cursor_map
     }
 }
