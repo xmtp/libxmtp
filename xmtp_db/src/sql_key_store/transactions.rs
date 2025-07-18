@@ -153,8 +153,8 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
         let conn = &self.conn;
 
         // one call to raw_query_write = mutex only locked once for entire transaciton
-        let r = conn.raw_query_write(move |c| {
-            Ok(c.transaction(move |sqlite_c| {
+        let r = conn.raw_query_write(|c| {
+            Ok(c.transaction(|sqlite_c| {
                 /*
                 let s = SqlKeyStoreRef {
                     conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
@@ -166,6 +166,16 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
         })?;
         Ok(r?)
 
+    }
+}
+
+pub trait XmtpMlsTransactions<'a, C> {
+    fn key_store(self) -> SqlKeyStore<RefCell<&'a mut C>>;
+}
+
+impl<'a, C> XmtpMlsTransactions<'a, C> for RefCell<&'a mut C> {
+    fn key_store(self) -> SqlKeyStore<RefCell<&'a mut C>> {
+        SqlKeyStore::new(self)
     }
 }
 
@@ -194,13 +204,13 @@ mod tests {
         }
 
         async fn db_op(&self) {
-            // self.long_async_call().await;
+            self.long_async_call().await;
 
             self.key_store
                 .transaction(|storage| {
-                    // let storage = SqlKeyStoreRef::new(storage);
-                   let db = DbConnection::new(storage);
-                   db.insert_group_intent(NewGroupIntent {
+                    let storage = SqlKeyStore::new(storage);
+                   // let db = DbConnection::new(storage);
+                   storage.db().insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
                         group_id: vec![],
                         data: vec![],
@@ -209,7 +219,7 @@ mod tests {
                     })
                 })
                 .unwrap();
-            // self.long_async_call().await;
+            self.long_async_call().await;
         }
     }
 
