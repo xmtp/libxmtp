@@ -367,12 +367,12 @@ where
             .map_err(crate::dyn_err)
     }
 
-    pub async fn publish_commit_log(&self, commit_log: Vec<PlaintextCommitLogEntry>) -> Result<()> {
+    pub async fn publish_commit_log(&self, commit_log: &[PlaintextCommitLogEntry]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
         self.api_client
             .publish_commit_log(BatchPublishCommitLogRequest {
                 requests: commit_log
-                    .into_iter()
+                    .iter()
                     .map(convert_plaintext_to_publish_request)
                     .collect(),
             })
@@ -400,7 +400,7 @@ where
 
 /// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
 pub fn convert_plaintext_to_publish_request(
-    entry: PlaintextCommitLogEntry,
+    entry: &PlaintextCommitLogEntry,
 ) -> PublishCommitLogRequest {
     PublishCommitLogRequest {
         group_id: entry.group_id.clone(),
