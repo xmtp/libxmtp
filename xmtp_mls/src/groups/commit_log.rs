@@ -154,8 +154,9 @@ where
         for (conversation_id, published_commit_log_cursor) in conversation_cursor_map {
             if let Some(published_commit_log_cursor) = published_commit_log_cursor {
                 // Local commit log entries are returned sorted in ascending order of `commit_sequence_id`
+                // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
                 let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = conn
-                    .get_group_logs_after_cursor(&conversation_id, published_commit_log_cursor)?
+                    .get_group_logs_for_publishing(&conversation_id, published_commit_log_cursor)?
                     .iter()
                     .map(PlaintextCommitLogEntry::from)
                     .collect();
@@ -207,7 +208,7 @@ where
                 )
                 .unwrap_or(0);
 
-            if local_commit_log_cursor > published_commit_log_cursor {
+            if local_commit_log_cursor as i64 > published_commit_log_cursor {
                 // We have new commits that have not been published to remote commit log yet
                 cursor_map.insert(conversation_id, Some(published_commit_log_cursor));
             } else {

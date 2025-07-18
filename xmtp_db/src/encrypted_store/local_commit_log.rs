@@ -133,17 +133,25 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    // Local commit log entries are returned sorted in ascending order of `commit_sequence_id`
-    pub fn get_group_logs_after_cursor(
+    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
+    pub fn get_group_logs_for_publishing(
         &self,
         group_id: &[u8],
-        cursor: i64,
+        after_cursor: i64,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        // convert i64 to i32 and log an error if it's greater than i32::MAX
+        if after_cursor > i32::MAX as i64 {
+            tracing::error!("Commit log cursor is greater than i32::MAX, converting to i32");
+        }
+        let after_cursor = after_cursor as i32;
+
         self.raw_query_read(|db| {
             dsl::local_commit_log
                 .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::commit_sequence_id.gt(cursor))
-                .order_by(dsl::commit_sequence_id.asc())
+                .filter(dsl::rowid.gt(after_cursor))
+                .filter(dsl::commit_sequence_id.ne(0))
+                .order_by(dsl::rowid.asc())
                 .load(db)
         })
     }
@@ -160,5 +168,18 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .first(db)
                 .optional()
         })
+    }
+
+    pub fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        let query = dsl::local_commit_log
+            .filter(dsl::group_id.eq(group_id))
+            .select(dsl::rowid)
+            .order(dsl::rowid.desc())
+            .limit(1);
+
+        self.raw_query_read(|conn| query.first::<i32>(conn).optional())
     }
 }
