@@ -168,6 +168,45 @@ where
     }
 }
 
+impl<C> ConnectionExt for &mut C
+where
+    C: ConnectionExt,
+{
+    type Connection = <C as ConnectionExt>::Connection;
+
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+        <C as ConnectionExt>::start_transaction(self)
+    }
+
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_read(self, fun)
+    }
+
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
+    }
+}
+
 impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,

@@ -180,7 +180,7 @@ impl WasmDbConnection {
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, diesel::result::Error> {
         let guard = self.transaction_lock.lock();
         self.in_transaction.store(true, Ordering::SeqCst);
 

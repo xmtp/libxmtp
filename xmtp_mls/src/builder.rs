@@ -191,7 +191,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity
         } else {
             identity_strategy
-                .initialize_identity(&api_client, &conn, &mls_storage, &scw_verifier)
+                .initialize_identity(&api_client, &mls_storage, &scw_verifier)
                 .await?
         };
 

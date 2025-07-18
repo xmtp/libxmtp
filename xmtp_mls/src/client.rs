@@ -241,6 +241,8 @@ where
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
+    <<Context as XmtpSharedContext>::MlsStorage as xmtp_db::XmtpMlsStorageProvider>::Connection:
+        'static,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {
@@ -692,11 +694,7 @@ where
         tracing::info!("registering identity");
         // Register the identity before applying the signature request
         self.identity()
-            .register(
-                &self.context.db(),
-                self.context.api(),
-                self.context.mls_storage(),
-            )
+            .register(self.context.api(), self.context.mls_storage())
             .await?;
         let updates = IdentityUpdates::new(self.context.clone());
         updates.apply_signature_request(signature_request).await?;
@@ -715,10 +713,13 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
+    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError>
+    where
+        <<Context as XmtpSharedContext>::MlsStorage as xmtp_db::XmtpMlsStorageProvider>::Connection:
+            'static,
+    {
         self.identity()
             .rotate_and_upload_key_package(
-                &self.context.db(),
                 self.context.api(),
                 self.context.mls_storage(),
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,

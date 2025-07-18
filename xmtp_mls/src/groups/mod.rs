@@ -72,7 +72,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_db::user_preferences::HmacKey;
-use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use xmtp_db::xmtp_openmls_provider::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{consent_record::ConsentType, Fetch};
@@ -547,7 +547,7 @@ where
         };
 
         let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.transaction(|mls_storage| {
+        let result = provider.key_store().transaction(|mls_storage| {
             let result = DecryptedWelcome::from_encrypted_bytes(
                 &XmtpOpenMlsProvider::new(mls_storage),
                 &welcome.hpke_public_key,
@@ -569,9 +569,10 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
 
-        provider.transaction(&conn, |provider| {
+        provider.key_store().transaction(|storage| {
+            let provider = XmtpOpenMlsProviderRef::new(&storage);
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
-                provider,
+                &provider,
                 &welcome.hpke_public_key,
                 &welcome.data,
                 welcome.wrapper_algorithm.into(),
@@ -597,7 +598,7 @@ where
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
             }
 
-            let mls_group = staged_welcome.into_group(provider)?;
+            let mls_group = staged_welcome.into_group(&provider)?;
             let group_id = mls_group.group_id().to_vec();
             let metadata = extract_group_metadata(&mls_group).map_err(MetadataPermissionsError::from)?;
             let dm_members = metadata.dm_members;

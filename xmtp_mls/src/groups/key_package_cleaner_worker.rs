@@ -186,7 +186,6 @@ where
             self.context
                 .identity()
                 .rotate_and_upload_key_package(
-                    &conn,
                     self.context.api(),
                     self.context.mls_storage(),
                     CREATE_PQ_KEY_PACKAGE_EXTENSION,

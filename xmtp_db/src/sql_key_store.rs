@@ -10,6 +10,8 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+use std::cell::RefCell;
+mod transactions;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -31,55 +33,6 @@ pub struct SqlKeyStore<C> {
     conn: C,
 }
 
-impl<C> SqlKeyStore<C>
-where
-    C: ConnectionExt,
-{
-    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        for<'a> F: FnOnce(
-            SqlKeyStore<&'a mut <C as ConnectionExt>::Connection>,
-        ) -> Result<T, diesel::result::Error>,
-        E: From<crate::ConnectionError> + std::error::Error,
-    {
-        // start transaction guard to set the transaction flag to true
-        let _guard = self.conn.start_transaction()?;
-        let conn = &self.conn;
-
-        // one call to raw_query_write = mutex only locked once for entire transaciton
-        let r = conn.raw_query_write(|c| {
-            c.transaction(|sqlite_c| {
-                let s = SqlKeyStore { conn: sqlite_c };
-                fun(s)
-            })
-        })?;
-        Ok(r)
-    }
-}
-
-impl<'conn, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C>
-where
-    C: 'conn,
-{
-    type Connection = C;
-    type Storage<'a>
-        = SqlKeyStore<&'a mut <C as ConnectionExt>::Connection>
-    where
-        Self::Connection: 'a;
-
-    fn conn(&self) -> &Self::Connection {
-        &self.conn
-    }
-
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, diesel::result::Error>,
-        for<'a> C: 'a,
-        E: From<crate::ConnectionError> + std::error::Error,
-    {
-        self.inner_transaction(fun)
-    }
-}
 impl<C> SqlKeyStore<C> {
     pub fn new(conn: C) -> Self {
         Self { conn }

@@ -19,9 +19,10 @@ pub mod test_utils;
 pub use test_utils::*;
 
 pub use diesel;
-use diesel::connection::SimpleConnection;
 pub use encrypted_store::*;
 pub use errors::*;
+
+use diesel::connection::SimpleConnection;
 
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;

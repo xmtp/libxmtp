@@ -16,17 +16,26 @@ pub trait XmtpMlsStorageProvider:
     StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>
 {
     /// An Opaque Database connection type. Can be anything.
-    type Connection;
-    type Storage<'a>
+    type Connection: ConnectionExt;
+    type Storage<'a>: StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>;
+
+    type DbQuery<'a>: crate::DbQuery<&'a Self::Connection>
     where
         Self::Connection: 'a;
+
     fn conn(&self) -> &Self::Connection;
+
+    fn db<'a>(&'a self) -> Self::DbQuery<'a>
+    where
+        Self::Connection: 'a;
 
     fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, diesel::result::Error>,
+        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, E>,
         for<'a> Self::Connection: 'a,
-        E: From<crate::ConnectionError> + std::error::Error;
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+
+    fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 }
 
 pub struct XmtpOpenMlsProvider<S> {

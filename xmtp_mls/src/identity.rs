@@ -36,7 +36,7 @@ use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
     SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProvider};
+use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
 use xmtp_id::associations::unverified::UnverifiedSignature;
@@ -121,21 +121,20 @@ impl IdentityStrategy {
      *
      **/
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn initialize_identity<
-        ApiClient: XmtpApi,
-        C: ConnectionExt,
-        S: XmtpMlsStorageProvider,
-    >(
+    pub(crate) async fn initialize_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        conn: &impl DbQuery<C>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
-    ) -> Result<Identity, IdentityError> {
+    ) -> Result<Identity, IdentityError>
+    where
+        <S as XmtpMlsStorageProvider>::Connection: 'static,
+    {
         use IdentityStrategy::*;
 
         info!("Initializing identity");
-        let stored_identity: Option<Identity> = conn
+        let stored_identity: Option<Identity> = mls_storage
+            .db()
             .fetch(&())?
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
@@ -171,7 +170,6 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
-                        conn,
                         mls_storage,
                         scw_signature_verifier,
                     )
@@ -339,16 +337,18 @@ impl Identity {
     ///
     /// If no legacy key is provided, a wallet signature is always required.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn new<ApiClient: XmtpApi, C: ConnectionExt, S: XmtpMlsStorageProvider>(
+    pub(crate) async fn new<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
-        conn: &impl DbQuery<C>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
-    ) -> Result<Self, IdentityError> {
+    ) -> Result<Self, IdentityError>
+    where
+        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
+    {
         // check if address is already associated with an inbox_id
         let inbox_ids = api_client
             .get_inbox_ids(vec![identifier.clone().into()])
@@ -364,21 +364,26 @@ impl Identity {
             }
 
             // get sequence_id from identity updates and loaded into the DB
-            load_identity_updates(api_client, conn, &[associated_inbox_id.as_str()])
-                .await
-                .map_err(|e| {
-                    IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
-                })?;
+            load_identity_updates(
+                api_client,
+                &mls_storage.db(),
+                &[associated_inbox_id.as_str()],
+            )
+            .await
+            .map_err(|e| {
+                IdentityError::NewIdentity(format!("Failed to load identity updates: {e}"))
+            })?;
 
-            let state =
-                get_association_state_with_verifier(conn, &inbox_id, None, &scw_signature_verifier)
-                    .await
-                    .map_err(|err| {
-                        IdentityError::NewIdentity(format!(
-                            "Error resolving identity state: {}",
-                            err
-                        ))
-                    })?;
+            let state = get_association_state_with_verifier(
+                &mls_storage.db(),
+                &inbox_id,
+                None,
+                &scw_signature_verifier,
+            )
+            .await
+            .map_err(|err| {
+                IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
+            })?;
 
             let current_installation_count = state.installation_ids().len();
             if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
@@ -472,7 +477,7 @@ impl Identity {
                 is_ready: AtomicBool::new(true),
             };
 
-            identity.register(conn, api_client, mls_storage).await?;
+            identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
@@ -572,7 +577,7 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) fn new_key_package(
         &self,
-        provider: impl MlsProviderExt,
+        provider: &impl MlsProviderExt,
         include_post_quantum: bool,
     ) -> Result<NewKeyPackageResult, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
@@ -610,7 +615,7 @@ impl Identity {
             .key_package_extensions(key_package_extensions)
             .build(
                 CIPHERSUITE,
-                &provider,
+                provider,
                 &self.installation_keys,
                 CredentialWithKey {
                     credential: self.credential(),
@@ -625,30 +630,27 @@ impl Identity {
         })
     }
     #[tracing::instrument(level = "debug", skip_all)]
-    pub(crate) async fn register<
-        ApiClient: XmtpApi,
-        C: ConnectionExt,
-        S: XmtpMlsStorageProvider,
-    >(
+    pub(crate) async fn register<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         &self,
-        conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
-    ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = conn.fetch(&())?;
+    ) -> Result<(), IdentityError>
+    where
+        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
+    {
+        let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
             return Ok(());
         }
 
         self.rotate_and_upload_key_package(
-            conn,
             api_client,
             mls_storage,
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )
         .await?;
-        Ok(StoredIdentity::try_from(self)?.store(conn)?)
+        Ok(StoredIdentity::try_from(self)?.store(&mls_storage.db())?)
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
@@ -664,36 +666,43 @@ impl Identity {
     #[tracing::instrument(level = "debug", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
         ApiClient: XmtpApi,
-        C: ConnectionExt,
         S: XmtpMlsStorageProvider,
     >(
         &self,
-        conn: &impl DbQuery<C>,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         include_post_quantum: bool,
-    ) -> Result<(), IdentityError> {
+    ) -> Result<(), IdentityError>
+    where
+        // static bound is req b/c of the async call.
+        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
+    {
         tracing::info!("Start rotating keys and uploading the new key package");
 
-        let provider = XmtpOpenMlsProvider::new(mls_storage);
+        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
         let NewKeyPackageResult {
             key_package: kp,
             pq_pub_key,
         } = self.new_key_package(&provider, include_post_quantum)?;
-        let kp_bytes = kp.tls_serialize_detached()?;
         let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
-        let history_id = conn
+        let history_id = provider
+            .storage()
+            .db()
             .store_key_package_history_entry(hash_ref.clone(), pq_pub_key.clone())?
             .id;
+        let kp_bytes = kp.tls_serialize_detached()?;
 
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                provider.transaction(&conn, |_provider| {
-                    conn.mark_key_package_before_id_to_be_deleted(history_id)?;
+                provider.storage().transaction(|storage| {
+                    storage
+                        .db()
+                        .mark_key_package_before_id_to_be_deleted(history_id)?;
+                    storage.db().clear_key_package_rotation_queue()?;
                     Ok::<(), StorageError>(())
                 })?;
-                conn.clear_key_package_rotation_queue()?;
+                // conn.clear_key_package_rotation_queue()?;
                 Ok(())
             }
             Err(err) => {
@@ -787,7 +796,7 @@ pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQua
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.
 // If a post quantum key is present, we also have a pointer from the key package hash ref -> the post quantum private key.
 fn store_key_package_references(
-    provider: impl MlsProviderExt,
+    provider: &impl MlsProviderExt,
     kp: &KeyPackage,
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
     post_quantum_keypair: &Option<HpkeKeyPair>,
@@ -908,7 +917,7 @@ mod tests {
         let api_client = client.context.api();
         client
             .identity()
-            .rotate_and_upload_key_package(&conn, api_client, &storage, true)
+            .rotate_and_upload_key_package(api_client, &storage, true)
             .await
             .unwrap();
 
@@ -994,11 +1003,11 @@ mod tests {
 
             // Give amal a post quantum key package and bola a legacy key package
             amal.identity()
-                .rotate_and_upload_key_package(&amal_conn, amal_api, amal_mls, amal_has_pq)
+                .rotate_and_upload_key_package(amal_api, amal_mls, amal_has_pq)
                 .await
                 .unwrap();
             bola.identity()
-                .rotate_and_upload_key_package(&bola_conn, bola_api, bola_mls, bola_has_pq)
+                .rotate_and_upload_key_package(bola_api, bola_mls, bola_has_pq)
                 .await
                 .unwrap();
 

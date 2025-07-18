@@ -83,7 +83,7 @@ where
     ) -> Result<StoredGroupIntent, GroupError> {
         let conn = self.context.db();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let res = provider.transaction(|_| {
+        let res = provider.key_store().transaction(|_| {
             self.queue_intent_with_conn(&conn, intent_kind, intent_data, should_push)
         });
 

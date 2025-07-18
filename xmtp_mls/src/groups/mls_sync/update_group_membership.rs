@@ -11,20 +11,16 @@ use openmls::{
     prelude::{tls_codec::Serialize, LeafNodeIndex, MlsGroup as OpenMlsGroup},
 };
 use openmls_traits::signatures::Signer;
-use std::sync::Arc;
-use xmtp_api::XmtpApi;
-use xmtp_db::MlsProviderExt;
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn apply_update_group_membership_intent(
-    context: &impl XmtpSharedContext,
+pub async fn apply_update_group_membership_intent<C: XmtpSharedContext>(
+    context: &C,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
-    let provider = context.mls_provider();
     let extensions: Extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
@@ -56,30 +52,31 @@ pub async fn apply_update_group_membership_intent(
 
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
-    let db = context.db();
-    let (commit, post_commit_action, staged_commit) = provider.transaction(&db, |provider| {
-        // Create the commit
-        let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
-            &provider,
-            &signer,
-            &changes_with_kps.new_key_packages,
-            &leaf_nodes_to_remove,
-            new_extensions,
-        )?;
+    let (commit, post_commit_action, staged_commit) =
+        context.mls_storage().transaction(|storage| {
+            let provider = XmtpOpenMlsProvider::new(storage);
+            // Create the commit
+            let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(
+                &provider,
+                &signer,
+                &changes_with_kps.new_key_packages,
+                &leaf_nodes_to_remove,
+                new_extensions,
+            )?;
 
-        let post_commit_action = match maybe_welcome_message {
-            Some(welcome_message) => Some(PostCommitAction::from_welcome(
-                welcome_message,
-                changes_with_kps.new_installations,
-            )?),
-            None => None,
-        };
+            let post_commit_action = match maybe_welcome_message {
+                Some(welcome_message) => Some(PostCommitAction::from_welcome(
+                    welcome_message,
+                    changes_with_kps.new_installations,
+                )?),
+                None => None,
+            };
 
-        let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
-            .ok_or_else(|| GroupError::MissingPendingCommit)?;
+            let staged_commit = get_and_clear_pending_commit(openmls_group, provider.storage())?
+                .ok_or_else(|| GroupError::MissingPendingCommit)?;
 
-        Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
-    })?;
+            Ok::<_, GroupError>((commit, post_commit_action, staged_commit))
+        })?;
 
     Ok(Some(PublishIntentData {
         payload_to_publish: commit.tls_serialize_detached()?,

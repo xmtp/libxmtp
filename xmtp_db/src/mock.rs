@@ -3,10 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use diesel::{
-    connection::{AnsiTransactionManager, TransactionManager},
-    prelude::SqliteConnection,
-};
+use diesel::prelude::SqliteConnection;
 use mockall::mock;
 use parking_lot::Mutex;
 
@@ -38,7 +35,6 @@ impl ConnectionExt for MockConnection {
 
     fn start_transaction(&self) -> Result<crate::TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.transaction_lock.lock();
-        let mut c = self.inner.lock();
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {

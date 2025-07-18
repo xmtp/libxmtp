@@ -91,7 +91,7 @@ where
     }
 
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        self.context_ref().worker_events
+        &self.context_ref().worker_events
     }
 
     fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
