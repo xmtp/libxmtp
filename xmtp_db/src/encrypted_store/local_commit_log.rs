@@ -140,9 +140,11 @@ impl<C: ConnectionExt> DbConnection<C> {
         group_id: &[u8],
         after_cursor: i64,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        // convert i64 to i32 and log an error if it's greater than i32::MAX
+        // i64 cursor is populated by i32 local_commit_log rowid value, so we should never hit this error
         if after_cursor > i32::MAX as i64 {
-            tracing::error!("Commit log cursor is greater than i32::MAX, converting to i32");
+            return Err(crate::ConnectionError::Database(
+                diesel::result::Error::QueryBuilderError("Cursor value exceeds i32::MAX".into()),
+            ));
         }
         let after_cursor = after_cursor as i32;
 
