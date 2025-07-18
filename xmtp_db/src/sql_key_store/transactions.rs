@@ -8,15 +8,15 @@ use diesel_migrations::MigrationHarness;
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
 /// This connection _must only_ be created from starting a transaction
-pub struct MutableTransactionConnection<C> {
+pub struct MutableTransactionConnection<'a, C> {
     // we cannot avoid interior mutability here
     // because raw_query methods require &self, as do MlsStorage trait methods.
     // Since we no longer have async transactions, once a transaction is started
     // we can ensure it occurs all on one thread.
-    conn: RefCell<C>,
+    conn: RefCell<&'a mut C>,
 }
 
-impl<C> ConnectionExt for MutableTransactionConnection<C>
+impl<'a, C> ConnectionExt for MutableTransactionConnection<'a, C>
 where
     C: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -70,12 +70,18 @@ impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
 {
-    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn inner_transaction<T, F, E, C2>(&self, fun: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(
-            SqlKeyStore<MutableTransactionConnection<<C as ConnectionExt>::Connection>>,
-        ) -> Result<T, E>,
+        for<'a> F: FnOnce(SqlKeyStore<MutableTransactionConnection<'a, C2>>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+        for<'a> C2: diesel::Connection<Backend = Sqlite>
+            + diesel::connection::SimpleConnection
+            + LoadConnection
+            + MigrationConnection
+            + MigrationHarness<<C2 as diesel::Connection>::Backend>
+            + Send
+            + 'a,
+        C: ConnectionExt<Connection = C2>,
     {
         let _guard = self.conn.start_transaction()?;
         let conn = &self.conn;
@@ -95,13 +101,46 @@ where
     }
 }
 
+impl<'a, C> XmtpMlsTransactionProvider<'a> for SqlKeyStore<MutableTransactionConnection<'a, C>>
+where
+    C: diesel::Connection<Backend = Sqlite>
+        + diesel::connection::SimpleConnection
+        + LoadConnection
+        + MigrationConnection
+        + MigrationHarness<<C as diesel::Connection>::Backend>
+        + Send,
+{
+    type Storage = SqlKeyStore<MutableTransactionConnection<'a, C>>;
+
+    fn storage(&self) -> &Self::Storage {
+        &self
+    }
+}
+
+pub trait XmtpMlsTransactionProvider<'a> {
+    type Storage: XmtpMlsStorageProvider;
+
+    fn storage(&self) -> &Self::Storage;
+}
+
 impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     type Connection = C;
-    type Storage<'a> = SqlKeyStore<MutableTransactionConnection<<C as ConnectionExt>::Connection>>;
+
     type DbQuery<'a>
         = DbConnection<&'a C>
     where
         Self::Connection: 'a;
+
+    type Transaction<'a, C2>
+        = SqlKeyStore<MutableTransactionConnection<'a, C2>>
+    where
+        C2: diesel::Connection<Backend = Sqlite>
+            + diesel::connection::SimpleConnection
+            + LoadConnection
+            + MigrationConnection
+            + MigrationHarness<<C2 as diesel::Connection>::Backend>
+            + Send
+            + 'a;
 
     fn conn(&self) -> &Self::Connection {
         &self.conn
@@ -114,12 +153,19 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         DbConnection::new(&self.conn)
     }
 
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn transaction<T, E, F, C2>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, E>,
-        for<'a> C: 'a,
+        for<'a> F: FnOnce(Self::Transaction<'a, C2>) -> Result<T, E>,
+        for<'a> C2: diesel::Connection<Backend = Sqlite>
+            + diesel::connection::SimpleConnection
+            + LoadConnection
+            + MigrationConnection
+            + MigrationHarness<<C2 as diesel::Connection>::Backend>
+            + Send
+            + 'a,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+        C: ConnectionExt<Connection = C2>,
     {
-        self.inner_transaction(fun)
+        self.inner_transaction(f)
     }
 }

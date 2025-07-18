@@ -1,6 +1,11 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
+use crate::sql_key_store::XmtpMlsTransactionProvider;
+use diesel::connection::LoadConnection;
+use diesel::migration::MigrationConnection;
+use diesel::sqlite::Sqlite;
+use diesel_migrations::MigrationHarness;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
@@ -17,11 +22,20 @@ pub trait XmtpMlsStorageProvider:
 {
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;
-    type Storage<'a>: StorageProvider<CURRENT_VERSION, Error = SqlKeyStoreError>;
 
     type DbQuery<'a>: crate::DbQuery<&'a Self::Connection>
     where
         Self::Connection: 'a;
+
+    type Transaction<'a, C2>: XmtpMlsTransactionProvider<'a>
+    where
+        C2: diesel::Connection<Backend = Sqlite>
+            + diesel::connection::SimpleConnection
+            + LoadConnection
+            + MigrationConnection
+            + MigrationHarness<<C2 as diesel::Connection>::Backend>
+            + Send
+            + 'a;
 
     fn conn(&self) -> &Self::Connection;
 
@@ -29,11 +43,18 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    fn transaction<T, E, F, C2>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(Self::Storage<'a>) -> Result<T, E>,
-        for<'a> Self::Connection: 'a,
-        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+        for<'a> F: FnOnce(Self::Transaction<'a, C2>) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+        for<'a> C2: diesel::Connection<Backend = Sqlite>
+            + diesel::connection::SimpleConnection
+            + LoadConnection
+            + MigrationConnection
+            + MigrationHarness<<C2 as diesel::Connection>::Backend>
+            + Send
+            + 'a,
+        Self::Connection: ConnectionExt<Connection = C2>;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 }

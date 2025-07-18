@@ -43,7 +43,6 @@ use crate::{
 };
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_api::XmtpApi;
-use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, StoredGroup},
@@ -55,6 +54,7 @@ use xmtp_db::{
     ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
 };
 use xmtp_db::{prelude::*, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
+use xmtp_db::{sql_key_store::XmtpMlsTransactionProvider, XmtpMlsStorageProvider};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
@@ -1179,8 +1179,8 @@ where
                     .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
                     .await;
                 self.context.mls_storage().transaction(|storage| {
-                    let provider = XmtpOpenMlsProvider::new(storage);
-                        let requires_processing = if allow_cursor_increment {
+                    let db = storage.storage().db();
+                    let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
                                 hex::encode(envelope.group_id.as_slice()),

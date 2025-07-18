@@ -12,6 +12,7 @@ use openmls_traits::storage::*;
 use serde::Serialize;
 use std::cell::RefCell;
 mod transactions;
+pub use transactions::XmtpMlsTransactionProvider;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
