@@ -241,8 +241,6 @@ where
 impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
-    <<Context as XmtpSharedContext>::MlsStorage as xmtp_db::XmtpMlsStorageProvider>::Connection:
-        'static,
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {
@@ -713,11 +711,7 @@ where
 
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
-    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError>
-    where
-        <<Context as XmtpSharedContext>::MlsStorage as xmtp_db::XmtpMlsStorageProvider>::Connection:
-            'static,
-    {
+    pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
         self.identity()
             .rotate_and_upload_key_package(
                 self.context.api(),

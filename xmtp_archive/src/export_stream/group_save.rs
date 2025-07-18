@@ -23,7 +23,7 @@ impl BackupRecordProvider for GroupSave {
     where
         Self: Sized,
         C: ConnectionExt,
-        D: DbQuery<C>,
+        D: DbQuery<C> + 'static,
     {
         let mut args = GroupQueryArgs::default();
 
@@ -37,7 +37,7 @@ impl BackupRecordProvider for GroupSave {
         args.limit = Some(Self::BATCH_SIZE);
 
         let batch = db.find_groups_by_id_paged(args, cursor)?;
-        let storage = SqlKeyStore::new(&db);
+        let storage = SqlKeyStore::new(db);
         let records = batch
             .into_iter()
             .filter_map(|record| {

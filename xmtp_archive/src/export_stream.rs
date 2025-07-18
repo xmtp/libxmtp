@@ -102,7 +102,7 @@ pub(crate) trait BackupRecordProvider: Send {
     where
         Self: Sized,
         C: ConnectionExt,
-        D: DbQuery<C>;
+        D: DbQuery<C> + 'static;
 }
 
 pub(crate) struct BackupRecordStreamer<R, D, C> {
@@ -134,7 +134,7 @@ impl<R, D, C> Iterator for BackupRecordStreamer<R, D, C>
 where
     R: BackupRecordProvider + Send,
     C: ConnectionExt,
-    D: DbQuery<C>,
+    D: DbQuery<C> + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn next(&mut self) -> Option<Self::Item> {

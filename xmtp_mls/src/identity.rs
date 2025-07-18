@@ -34,7 +34,8 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+    SqlKeyStoreError, XmtpMlsTransactionProvider, KEY_PACKAGE_REFERENCES,
+    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
 };
 use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
@@ -126,10 +127,7 @@ impl IdentityStrategy {
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
-    ) -> Result<Identity, IdentityError>
-    where
-        <S as XmtpMlsStorageProvider>::Connection: 'static,
-    {
+    ) -> Result<Identity, IdentityError> {
         use IdentityStrategy::*;
 
         info!("Initializing identity");
@@ -345,10 +343,7 @@ impl Identity {
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
-    ) -> Result<Self, IdentityError>
-    where
-        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
-    {
+    ) -> Result<Self, IdentityError> {
         // check if address is already associated with an inbox_id
         let inbox_ids = api_client
             .get_inbox_ids(vec![identifier.clone().into()])
@@ -634,10 +629,7 @@ impl Identity {
         &self,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
-    ) -> Result<(), IdentityError>
-    where
-        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
-    {
+    ) -> Result<(), IdentityError> {
         let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
         if stored_identity.is_some() {
             info!("Identity already registered. skipping key package publishing");
@@ -672,11 +664,7 @@ impl Identity {
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         include_post_quantum: bool,
-    ) -> Result<(), IdentityError>
-    where
-        // static bound is req b/c of the async call.
-        <S as xmtp_db::XmtpMlsStorageProvider>::Connection: 'static,
-    {
+    ) -> Result<(), IdentityError> {
         tracing::info!("Start rotating keys and uploading the new key package");
 
         let provider = XmtpOpenMlsProviderRef::new(mls_storage);
@@ -697,12 +685,13 @@ impl Identity {
                 // Successfully uploaded. Delete previous KPs
                 provider.storage().transaction(|storage| {
                     storage
+                        .storage()
                         .db()
                         .mark_key_package_before_id_to_be_deleted(history_id)?;
-                    storage.db().clear_key_package_rotation_queue()?;
+                    storage.storage().db().clear_key_package_rotation_queue()?;
                     Ok::<(), StorageError>(())
                 })?;
-                // conn.clear_key_package_rotation_queue()?;
+                mls_storage.db().clear_key_package_rotation_queue()?;
                 Ok(())
             }
             Err(err) => {

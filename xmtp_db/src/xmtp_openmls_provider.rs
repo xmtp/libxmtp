@@ -27,15 +27,9 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    type Transaction<'a, C2>: XmtpMlsTransactionProvider<'a>
+    type Transaction<'a>: XmtpMlsTransactionProvider
     where
-        C2: diesel::Connection<Backend = Sqlite>
-            + diesel::connection::SimpleConnection
-            + LoadConnection
-            + MigrationConnection
-            + MigrationHarness<<C2 as diesel::Connection>::Backend>
-            + Send
-            + 'a;
+        <Self::Connection as ConnectionExt>::Connection: 'a;
 
     fn conn(&self) -> &Self::Connection;
 
@@ -43,18 +37,11 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    fn transaction<T, E, F, C2>(&self, f: F) -> Result<T, E>
+    fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(Self::Transaction<'a, C2>) -> Result<T, E>,
+        for<'a> F: FnOnce(&'a Self::Transaction<'a>) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
-        for<'a> C2: diesel::Connection<Backend = Sqlite>
-            + diesel::connection::SimpleConnection
-            + LoadConnection
-            + MigrationConnection
-            + MigrationHarness<<C2 as diesel::Connection>::Backend>
-            + Send
-            + 'a,
-        Self::Connection: ConnectionExt<Connection = C2>;
+        for<'a> Self::Connection: 'a;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
 }

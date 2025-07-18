@@ -27,7 +27,7 @@ where
 {
     type Connection = C;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'a>, crate::ConnectionError> {
         Err(crate::ConnectionError::Database(
             diesel::result::Error::AlreadyInTransaction,
         ))
@@ -66,22 +66,16 @@ where
     }
 }
 
-impl<C> SqlKeyStore<C>
+impl<'store, C> SqlKeyStoreRef<'store, C>
 where
-    C: ConnectionExt,
+    C: ConnectionExt + 'store,
 {
-    fn inner_transaction<T, F, E, C2>(&self, fun: F) -> Result<T, E>
+    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(SqlKeyStore<MutableTransactionConnection<'a, C2>>) -> Result<T, E>,
+        for<'a> F: FnOnce(
+            &'a SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>,
+        ) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
-        for<'a> C2: diesel::Connection<Backend = Sqlite>
-            + diesel::connection::SimpleConnection
-            + LoadConnection
-            + MigrationConnection
-            + MigrationHarness<<C2 as diesel::Connection>::Backend>
-            + Send
-            + 'a,
-        C: ConnectionExt<Connection = C2>,
     {
         let _guard = self.conn.start_transaction()?;
         let conn = &self.conn;
@@ -89,19 +83,20 @@ where
         // one call to raw_query_write = mutex only locked once for entire transaciton
         let r = conn.raw_query_write(|c| {
             Ok(c.transaction(|sqlite_c| {
-                let s = SqlKeyStore {
-                    conn: MutableTransactionConnection {
+                let s = SqlKeyStoreRef {
+                    conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
                         conn: RefCell::new(sqlite_c),
-                    },
+                    }),
                 };
-                fun(s)
+                fun(&s)
             }))
         })?;
         Ok(r?)
     }
 }
 
-impl<'a, C> XmtpMlsTransactionProvider<'a> for SqlKeyStore<MutableTransactionConnection<'a, C>>
+impl<'a, C> XmtpMlsTransactionProvider
+    for SqlKeyStoreRef<'a, MutableTransactionConnection<'a, C>>
 where
     C: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -110,20 +105,20 @@ where
         + MigrationHarness<<C as diesel::Connection>::Backend>
         + Send,
 {
-    type Storage = SqlKeyStore<MutableTransactionConnection<'a, C>>;
+    type Storage = SqlKeyStoreRef<'a, MutableTransactionConnection<'a, C>>;
 
     fn storage(&self) -> &Self::Storage {
         &self
     }
 }
 
-pub trait XmtpMlsTransactionProvider<'a> {
+pub trait XmtpMlsTransactionProvider {
     type Storage: XmtpMlsStorageProvider;
 
     fn storage(&self) -> &Self::Storage;
 }
 
-impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
+impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store, C> {
     type Connection = C;
 
     type DbQuery<'a>
@@ -131,16 +126,10 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     where
         Self::Connection: 'a;
 
-    type Transaction<'a, C2>
-        = SqlKeyStore<MutableTransactionConnection<'a, C2>>
+    type Transaction<'a>
+        = SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>
     where
-        C2: diesel::Connection<Backend = Sqlite>
-            + diesel::connection::SimpleConnection
-            + LoadConnection
-            + MigrationConnection
-            + MigrationHarness<<C2 as diesel::Connection>::Backend>
-            + Send
-            + 'a;
+        <C as ConnectionExt>::Connection: 'a;
 
     fn conn(&self) -> &Self::Connection {
         &self.conn
@@ -153,19 +142,64 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         DbConnection::new(&self.conn)
     }
 
-    fn transaction<T, E, F, C2>(&self, f: F) -> Result<T, E>
+    fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        for<'a> F: FnOnce(Self::Transaction<'a, C2>) -> Result<T, E>,
-        for<'a> C2: diesel::Connection<Backend = Sqlite>
-            + diesel::connection::SimpleConnection
-            + LoadConnection
-            + MigrationConnection
-            + MigrationHarness<<C2 as diesel::Connection>::Backend>
-            + Send
-            + 'a,
+        for<'a> F: FnOnce(&'a Self::Transaction<'a>) -> Result<T, E>,
+        for<'a> C: 'a,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
-        C: ConnectionExt<Connection = C2>,
     {
         self.inner_transaction(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{
+        EphemeralDbConnection, NativeDbConnection, PersistentOrMem, TestDb, XmtpTestDb,
+        group_intent::{IntentKind, IntentState, NewGroupIntent},
+        prelude::QueryGroupIntent,
+    };
+
+    use super::*;
+
+    struct Foo<'a, C> {
+        key_store: SqlKeyStoreRef<'a, C>,
+    }
+
+    impl<'a, C> Foo<'a, C>
+    where
+        C: ConnectionExt,
+    {
+        async fn long_async_call(&self) {
+            xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        async fn db_op(&self) {
+            // self.long_async_call().await;
+
+            self.key_store
+                .transaction(|storage| {
+                    storage.storage().db().insert_group_intent(NewGroupIntent {
+                        kind: IntentKind::SendMessage,
+                        group_id: vec![],
+                        data: vec![],
+                        should_push: false,
+                        state: IntentState::ToPublish,
+                    })
+                })
+                .unwrap();
+            // self.long_async_call().await;
+        }
+    }
+
+    #[xmtp_common::test]
+    async fn test_tx() {
+        let store = TestDb::create_persistent_store(None).await;
+        let conn = store.conn();
+        let key_store = SqlKeyStoreRef::new(conn);
+
+        // long_async_call
     }
 }

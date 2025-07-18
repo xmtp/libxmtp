@@ -10,7 +10,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
-use std::cell::RefCell;
+use std::{borrow::Cow, cell::RefCell, ops::Deref};
 mod transactions;
 pub use transactions::XmtpMlsTransactionProvider;
 
@@ -29,18 +29,50 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub struct SqlKeyStore<C> {
+pub type SqlKeyStore<C> = SqlKeyStoreRef<'static, C>;
+
+enum BorrowedOrOwned<'a, T> {
+    Borrowed(&'a T),
+    Owned(T),
+}
+
+impl<'a, T> AsRef<T> for BorrowedOrOwned<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Borrowed(t) => t,
+            Self::Owned(t) => t,
+        }
+    }
+}
+
+impl<'a, T> Deref for BorrowedOrOwned<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(t) => t,
+            Self::Owned(t) => t,
+        }
+    }
+}
+
+pub struct SqlKeyStoreRef<'a, C> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: C,
+    conn: BorrowedOrOwned<'a, C>,
 }
 
 impl<C> SqlKeyStore<C> {
     pub fn new(conn: C) -> Self {
-        Self { conn }
+        Self {
+            conn: BorrowedOrOwned::Owned(conn),
+        }
     }
 
-    pub fn conn(&self) -> &C {
-        &self.conn
+    pub fn conn(&self) -> &C
+    where
+        C: AsRef<C>,
+    {
+        self.conn.as_ref()
     }
 }
 
@@ -51,12 +83,14 @@ where
     C: ConnectionExt,
 {
     fn from(value: D) -> Self {
-        Self { conn: value }
+        Self {
+            conn: BorrowedOrOwned::Owned(value),
+        }
     }
 }
 
 // refactor to use diesel directly
-impl<C> SqlKeyStore<C>
+impl<'a, C> SqlKeyStoreRef<'a, C>
 where
     C: ConnectionExt,
 {
@@ -298,7 +332,7 @@ const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
-impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
+impl<'a, C> StorageProvider<CURRENT_VERSION> for SqlKeyStoreRef<'a, C>
 where
     C: ConnectionExt,
 {
