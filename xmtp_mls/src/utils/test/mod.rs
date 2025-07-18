@@ -8,7 +8,6 @@ pub mod fixtures;
 
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
-    context::XmtpContextProvider,
     identity::IdentityStrategy,
     Client, InboxOwner, XmtpApi,
 };

@@ -5,8 +5,8 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, event_backup::Event
 
 impl BackupRecordProvider for EventSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
-        provider: &XmtpOpenMlsProvider<C>,
+    fn backup_records<D, C>(
+        db: Arc<D>,
         _start_ns: Option<i64>,
         _end_ns: Option<i64>,
         cursor: i64,
@@ -14,8 +14,9 @@ impl BackupRecordProvider for EventSave {
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C>,
     {
-        let batch = Events::all_events_paged(provider.db(), Self::BATCH_SIZE, cursor)?;
+        let batch = Events::all_events_paged(&db, Self::BATCH_SIZE, cursor)?;
 
         let records = batch
             .into_iter()

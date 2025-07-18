@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use xmtp_api::GetIdentityUpdatesV2Filter;
 use xmtp_id::associations::unverified::UnverifiedAction;
 use xmtp_id::InboxUpdate;
-use xmtp_mls::context::XmtpContextProvider;
 use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version as GroupMessageVersion;
 use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version as WelcomeMessageVersion;

@@ -180,10 +180,8 @@ impl WasmDbConnection {
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, diesel::result::Error> {
         let guard = self.transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
@@ -225,12 +223,13 @@ impl ConnectionExt for WasmDbConnection {
 
 impl XmtpDb for WasmDb {
     type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 

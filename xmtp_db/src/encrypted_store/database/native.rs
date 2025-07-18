@@ -3,12 +3,11 @@ mod sqlcipher_connection;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use crate::{StorageError, TransactionGuard};
-use diesel::connection::TransactionManager;
 use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     Connection,
-    connection::{AnsiTransactionManager, SimpleConnection},
+    connection::SimpleConnection,
     r2d2::{self, CustomizeConnection, PooledConnection},
 };
 use parking_lot::{Mutex, RwLock};
@@ -186,12 +185,13 @@ impl NativeDb {
 
 impl XmtpDb for NativeDb {
     type Connection = Arc<PersistentOrMem<NativeDbConnection, EphemeralDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 
@@ -254,8 +254,6 @@ impl ConnectionExt for EphemeralDbConnection {
 
     fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
         let guard = self.global_transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
@@ -375,8 +373,6 @@ impl ConnectionExt for NativeDbConnection {
             tracing::warn!("already in transaction, acquiring lock..");
         }
         let guard = self.global_transaction_lock.lock();
-        let mut write = self.write.lock();
-        AnsiTransactionManager::begin_transaction(&mut *write)?;
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {

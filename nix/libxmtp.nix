@@ -1,7 +1,6 @@
 { stdenv
 , darwin
 , lib
-, fenix
 , mkToolchain
 , pkg-config
 , mktemp
@@ -37,7 +36,7 @@
 
 let
   inherit (stdenv) isDarwin;
-  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
+  rust-toolchain = mkToolchain [ "wasm32-unknown-unknown" "x86_64-unknown-linux-gnu" ] [ "rust-src" "clippy-preview" "rust-docs" "rustfmt-preview" "llvm-tools-preview" ];
   darwinAttrs = {
     # set the linker for macos
     # libcxx is needed to find standard library headers (like 'limits.h')
@@ -60,7 +59,6 @@ mkShell ({
   buildInputs =
     [
       rust-toolchain
-      fenix.rust-analyzer
       foundry-bin
 
       # native libs

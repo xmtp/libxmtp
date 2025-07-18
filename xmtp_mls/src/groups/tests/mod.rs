@@ -6,7 +6,6 @@ mod test_key_updates;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
-use crate::context::XmtpContextProvider;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -44,6 +43,7 @@ use xmtp_db::{
     group::{ConversationType, GroupQueryArgs},
     group_intent::{IntentKind, IntentState},
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
+    prelude::*,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
@@ -69,12 +69,12 @@ async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]
-async fn force_add_member<C: xmtp_db::ConnectionExt>(
+async fn force_add_member<S: openmls::storage::StorageProvider>(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
     sender_group: &ConcreteMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
-    sender_provider: &XmtpOpenMlsProvider<C>,
+    sender_provider: &XmtpOpenMlsProvider<S>,
 ) {
     use crate::{
         configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,
@@ -271,23 +271,24 @@ async fn test_add_member_conflict() {
     assert!(summary.is_errored());
 
     // Check Amal's MLS group state.
-    let amal_db = XmtpOpenMlsProvider::from(amal.context.db());
+    let amal_db = amal.context.db();
+    let amal_provider = XmtpOpenMlsProvider::new(&amal_db);
     let amal_members_len = amal_group
-        .load_mls_group_with_lock(&amal_db, |mls_group| Ok(mls_group.members().count()))
+        .load_mls_group_with_lock(&amal_provider, |mls_group| Ok(mls_group.members().count()))
         .unwrap();
 
     assert_eq!(amal_members_len, 3);
 
     // Check Bola's MLS group state.
-    let bola_db = XmtpOpenMlsProvider::from(bola.context.db());
+    let bola_db = bola.context.db();
+    let bola_provider = XmtpOpenMlsProvider::new(&bola_db);
     let bola_members_len = bola_group
-        .load_mls_group_with_lock(&bola_db, |mls_group| Ok(mls_group.members().count()))
+        .load_mls_group_with_lock(&bola_provider, |mls_group| Ok(mls_group.members().count()))
         .unwrap();
 
     assert_eq!(bola_members_len, 3);
 
     let amal_uncommitted_intents = amal_db
-        .db()
         .find_group_intents(
             amal_group.group_id.clone(),
             Some(vec![
@@ -301,7 +302,6 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .db()
         .find_group_intents(
             bola_group.group_id.clone(),
             Some(vec![IntentState::Error]),
@@ -398,7 +398,7 @@ async fn test_dm_stitching() {
 
     // The dm shows up
     let alix_groups = alix
-        .provider
+        .context
         .db()
         .raw_query_read(|conn| {
             groups::table
@@ -412,7 +412,7 @@ async fn test_dm_stitching() {
 
     // The dm is filtered out up
     let mut alix_filtered_groups = alix
-        .provider
+        .context
         .db()
         .find_groups(GroupQueryArgs::default())
         .unwrap();
@@ -473,7 +473,7 @@ async fn test_add_inbox() {
 async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -2408,8 +2408,8 @@ async fn skip_already_processed_intents() {
     let bo_groups = bo_client.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = bo_groups.first().unwrap();
     bo_group.send_message(&[2]).await.unwrap();
-    let bo_provider = bo_client.mls_provider();
-    let intent = bo_provider
+    let intent = bo_client
+        .context
         .db()
         .find_group_intents(
             bo_group.clone().group_id,
@@ -3402,7 +3402,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-    use crate::{context::XmtpContextProvider, utils::set_test_mode_upload_malformed_keypackage};
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
 
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3506,7 +3506,7 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     assert!(group_debug_info.maybe_forked);
     assert!(!group_debug_info.fork_details.is_empty());
     client_b
-        .mls_provider()
+        .context
         .db()
         .clear_fork_flag_for_group(&group_b.group_id)
         .unwrap();

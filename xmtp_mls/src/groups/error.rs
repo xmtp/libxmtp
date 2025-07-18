@@ -166,6 +166,8 @@ pub enum GroupError {
     WrapWelcome(#[from] WrapWelcomeError),
     #[error(transparent)]
     UnwrapWelcome(#[from] UnwrapWelcomeError),
+    #[error(transparent)]
+    Diesel(#[from] xmtp_db::diesel::result::Error),
 }
 
 impl From<SyncSummary> for GroupError {

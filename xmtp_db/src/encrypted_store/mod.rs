@@ -37,9 +37,8 @@ pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls_traits::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
-use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use crate::Store;
-use crate::sql_key_store::SqlKeyStore;
+use super::StorageError;
+use crate::{Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -169,6 +168,45 @@ where
     }
 }
 
+impl<C> ConnectionExt for &mut C
+where
+    C: ConnectionExt,
+{
+    type Connection = <C as ConnectionExt>::Connection;
+
+    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+        <C as ConnectionExt>::start_transaction(self)
+    }
+
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_read(self, fun)
+    }
+
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
+    }
+}
+
 impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
@@ -208,12 +246,19 @@ where
     }
 }
 
-pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
+pub type BoxedDatabase = Box<
+    dyn XmtpDb<
+            Connection = diesel::SqliteConnection,
+            DbQuery = DbConnection<diesel::SqliteConnection>,
+        >,
+>;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery<crate::mock::MockConnection>;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;
+
+    type DbQuery: crate::DbQuery<Self::Connection> + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.validate(opts)?;
@@ -245,7 +290,7 @@ pub trait XmtpDb: Send + Sync {
 
     /// Returns a higher-level wrapeped DbConnection from which high-level queries may be
     /// accessed.
-    fn db(&self) -> DbConnection<Self::Connection>;
+    fn db(&self) -> Self::DbQuery;
 
     /// Reconnect to the database
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -362,31 +407,9 @@ where
 }
 
 pub trait MlsProviderExt: OpenMlsProvider {
-    type Connection: ConnectionExt;
+    type Storage: XmtpMlsStorageProvider;
 
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>;
-
-    /// Get the underlying DbConnection this provider is using
-    fn db(&self) -> &DbConnection<Self::Connection>;
-
-    fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
+    fn key_store<'a>(&self) -> &Self::Storage;
 }
 
 #[cfg(test)]

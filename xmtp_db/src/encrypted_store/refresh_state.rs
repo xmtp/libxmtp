@@ -65,8 +65,29 @@ pub struct RefreshState {
 impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
+pub trait QueryRefreshState<C: ConnectionExt> {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError>;
+
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        &self,
+        id: Id,
+        entity_kind: EntityKind,
+    ) -> Result<i64, StorageError>;
+
+    fn update_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError>;
+}
+
+impl<C: ConnectionExt> QueryRefreshState<C> for DbConnection<C> {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
@@ -82,7 +103,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
@@ -102,7 +123,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         }
     }
 
-    pub fn update_cursor<Id: AsRef<[u8]>>(
+    fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entity_kind: EntityKind,
