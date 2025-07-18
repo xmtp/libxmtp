@@ -23,7 +23,7 @@ import {
   PermissionUpdateType,
 } from '../dist'
 
-const SLEEP_MS = 100
+const SLEEP_MS = 300
 const sleep = (timeout: number = SLEEP_MS) =>
   new Promise((resolve) => setTimeout(resolve, timeout))
 

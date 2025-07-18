@@ -205,12 +205,6 @@ impl CommitLogStorer for MlsGroup {
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
         if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)? {
-            // Because we don't increment the cursor for non-retryable errors, we may have already logged this commit
-            if latest_log.commit_sequence_id == commit_sequence_id as i64
-                && latest_log.commit_result != CommitResult::Success
-            {
-                return Ok(());
-            }
             if latest_log.commit_type != Some(CommitType::Welcome.to_string()) {
                 maybe_recently_welcomed = false;
             }
