@@ -1,6 +1,7 @@
 use crate::{context::XmtpContextProvider, tester};
 use prost::Message;
 use rand::Rng;
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_proto::mls_v1::QueryCommitLogRequest;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
@@ -55,4 +56,38 @@ async fn test_commit_log_publish_and_query() {
         entry.commit_sequence_id,
         commit_log_entry.commit_sequence_id
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_should_publish_commit_log() {
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None).unwrap();
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+    bo.sync_all_welcomes_and_groups(None).await.unwrap();
+
+    let binding = bo.list_conversations(GroupQueryArgs::default()).unwrap();
+    let bo_group = binding.first().unwrap();
+    assert_eq!(bo_group.group.group_id, alix_group.group_id);
+
+    let alix_should_publish_commit_log_groups = alix
+        .find_groups(GroupQueryArgs {
+            should_publish_commit_log: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let bo_should_publish_commit_log_groups = bo
+        .find_groups(GroupQueryArgs {
+            should_publish_commit_log: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(alix_should_publish_commit_log_groups.len(), 1);
+    assert_eq!(bo_should_publish_commit_log_groups.len(), 0);
 }

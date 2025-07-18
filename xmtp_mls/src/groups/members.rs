@@ -49,7 +49,6 @@ where
         let conn = provider.db();
         let mut association_states: Vec<AssociationState> =
             StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
-        let mutable_metadata = self.mutable_metadata()?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
             let missing_requests: Vec<_> = requests
@@ -83,7 +82,7 @@ where
                 return Err(GroupError::InvalidGroupMembership);
             }
         }
-
+        let mutable_metadata = self.mutable_metadata()?;
         let members = association_states
             .into_iter()
             .map(|association_state| {

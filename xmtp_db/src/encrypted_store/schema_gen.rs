@@ -84,6 +84,7 @@ diesel::table! {
         fork_details -> Text,
         sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
+        should_publish_commit_log -> Bool,
     }
 }
 
