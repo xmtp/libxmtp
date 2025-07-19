@@ -50,6 +50,7 @@ pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 pub const ENABLE_COMMIT_LOG: bool = false;
 #[cfg(test)]
 pub const ENABLE_COMMIT_LOG: bool = true;
+pub(crate) const COMMIT_LOG_SECRET_LENGTH: usize = 32;
 
 // If a metadata field name starts with this character,
 // and it does not have a policy set, it is a super admin only field
