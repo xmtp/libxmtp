@@ -735,7 +735,8 @@ where
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: None,
-                        originator_id: None
+                        originator_id: None,
+                        message_disappear_in_ns: None, //todo: get it from the conversationListItem view
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");

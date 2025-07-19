@@ -71,6 +71,8 @@ pub struct StoredGroupMessage {
     pub sequence_id: Option<i64>,
     /// The Originator Node ID
     pub originator_id: Option<i64>,
+    /// How long a message in the group can live in NS
+    pub message_disappear_in_ns: Option<i64>,
 }
 
 pub struct StoredGroupMessageWithReactions {
@@ -552,6 +554,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         msg_id: &MessageId,
         timestamp: u64,
         sequence_id: i64,
+        disappear_in_ns: Option<i64>,
     ) -> Result<usize, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             diesel::update(dsl::group_messages)
@@ -560,6 +563,7 @@ impl<C: ConnectionExt> DbConnection<C> {
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
                     dsl::sequence_id.eq(sequence_id),
+                    dsl::message_disappear_in_ns.eq(disappear_in_ns),
                 ))
                 .execute(conn)
         })
@@ -618,6 +622,24 @@ impl<C: ConnectionExt> DbConnection<C> {
             let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;
 
             // Then delete the rows by their IDs
+            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
+                .execute(conn)
+        })
+    }
+
+    pub fn delete_expired_messages_2(&self) -> Result<usize, crate::ConnectionError> {
+        self.raw_query_write(|conn| {
+            use diesel::prelude::*;
+            let now = now_ns();
+
+            let expired_messages = dsl::group_messages
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .filter(dsl::kind.eq(GroupMessageKind::Application))
+                .filter(dsl::message_disappear_in_ns.is_not_null())
+                .filter(dsl::message_disappear_in_ns.between(0, now))
+                .select(dsl::id);
+
+            let expired_message_ids = expired_messages.load::<Vec<u8>>(conn)?;
             diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
                 .execute(conn)
         })

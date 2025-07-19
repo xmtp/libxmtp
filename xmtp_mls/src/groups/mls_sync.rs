@@ -57,7 +57,7 @@ use xmtp_db::{
     user_preferences::StoredUserPreferences,
     ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
 };
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls_common::group_mutable_metadata::{extract_group_mutable_metadata, MetadataField};
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
@@ -114,7 +114,8 @@ use xmtp_proto::xmtp::mls::{
 pub enum GroupMessageProcessingError {
     #[error("intent already processed")]
     IntentAlreadyProcessed,
-    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id))]
+    #[error("message with cursor [{}] for group [{}] already processed", _0.cursor, xmtp_common::fmt::debug_hex(&_0.group_id)
+    )]
     MessageAlreadyProcessed(MessageIdentifier),
     #[error("message identifier not found")]
     MessageIdentifierNotFound,
@@ -792,11 +793,18 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-        conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)
-            .map_err(|err| IntentResolutionError {
-                processing_error: GroupMessageProcessingError::Db(err),
-                next_intent_state: IntentState::Error,
-            })?;
+        let disappear_in_ns =
+            Self::get_message_disappearing_at(mls_group, envelope_timestamp_ns as i64);
+        conn.set_delivery_status_to_published(
+            &id,
+            envelope_timestamp_ns,
+            envelope.id as i64,
+            disappear_in_ns,
+        )
+        .map_err(|err| IntentResolutionError {
+            processing_error: GroupMessageProcessingError::Db(err),
+            next_intent_state: IntentState::Error,
+        })?;
         Ok(Some(id))
     }
 
@@ -1029,6 +1037,10 @@ where
                             reference_id: queryable_content_fields.reference_id,
                             sequence_id: Some(*cursor as i64),
                             originator_id: None,
+                            message_disappear_in_ns: Self::get_message_disappearing_at(
+                                mls_group,
+                                envelope_timestamp_ns as i64,
+                            ),
                         };
                         message.store_or_ignore(provider.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1081,6 +1093,10 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
+                                    message_disappear_in_ns: Self::get_message_disappearing_at(
+                                        mls_group,
+                                        envelope_timestamp_ns as i64,
+                                    ),
                                 };
                                 message.store_or_ignore(provider.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1118,6 +1134,10 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
+                                    message_disappear_in_ns: Self::get_message_disappearing_at(
+                                        mls_group,
+                                        envelope_timestamp_ns as i64,
+                                    ),
                                 };
                                 message.store_or_ignore(provider.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1223,6 +1243,18 @@ where
         identifier.build()
     }
 
+    fn get_message_disappearing_at(
+        mls_group: &OpenMlsGroup,
+        message_sent_at_ns: i64,
+    ) -> Option<i64> {
+        let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
+        let group_disappearing_settings =
+            Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
+                .ok()?;
+
+        Some(message_sent_at_ns + group_disappearing_settings.in_ns)
+    }
+
     /// This function is idempotent. No need to wrap in a transaction.
     ///
     /// # Parameters
@@ -1322,7 +1354,7 @@ where
             .db()
             .get_last_cursor_for_id(&self.group_id, EntityKind::Group)?;
         if group_cursor >= cursor as i64 {
-            // early return if the message is already procesed
+            // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
             return MessageIdentifierBuilder::from(envelope)
@@ -1411,7 +1443,7 @@ where
                                 tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             (err.next_intent_state, None)
-                        },
+                        }
                         Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
                     };
                     identifier.internal_id(internal_message_id.clone());
@@ -1793,6 +1825,7 @@ where
             reference_id: None,
             sequence_id: Some(cursor as i64),
             originator_id: None,
+            message_disappear_in_ns: None,
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
@@ -1957,7 +1990,6 @@ where
                         provider.db().set_group_intent_processed(intent.id)?
                     }
                 }
-
             }
 
             Ok(())

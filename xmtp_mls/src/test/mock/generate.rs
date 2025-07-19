@@ -144,5 +144,6 @@ pub fn generate_stored_msg(id: u64, group_id: Vec<u8>) -> StoredGroupMessage {
         reference_id: None,
         sequence_id: Some(id as i64),
         originator_id: Some(100),
+        message_disappear_in_ns: None,
     }
 }
