@@ -89,6 +89,7 @@ use std::{
 };
 use thiserror::Error;
 use tracing::debug;
+use xmtp_common::time::now_ns;
 use xmtp_common::{retry_async, Retry, RetryableError};
 use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProvider;
@@ -793,8 +794,7 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-        let disappear_in_ns =
-            Self::get_message_disappearing_at(mls_group, envelope_timestamp_ns as i64);
+        let disappear_in_ns = Self::get_message_disappearing_at(mls_group);
         conn.set_delivery_status_to_published(
             &id,
             envelope_timestamp_ns,
@@ -1037,10 +1037,7 @@ where
                             reference_id: queryable_content_fields.reference_id,
                             sequence_id: Some(*cursor as i64),
                             originator_id: None,
-                            message_disappear_in_ns: Self::get_message_disappearing_at(
-                                mls_group,
-                                envelope_timestamp_ns as i64,
-                            ),
+                            message_disappear_in_ns: Self::get_message_disappearing_at(mls_group),
                         };
                         message.store_or_ignore(provider.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1095,7 +1092,6 @@ where
                                     originator_id: None,
                                     message_disappear_in_ns: Self::get_message_disappearing_at(
                                         mls_group,
-                                        envelope_timestamp_ns as i64,
                                     ),
                                 };
                                 message.store_or_ignore(provider.db())?;
@@ -1136,7 +1132,6 @@ where
                                     originator_id: None,
                                     message_disappear_in_ns: Self::get_message_disappearing_at(
                                         mls_group,
-                                        envelope_timestamp_ns as i64,
                                     ),
                                 };
                                 message.store_or_ignore(provider.db())?;
@@ -1243,16 +1238,13 @@ where
         identifier.build()
     }
 
-    fn get_message_disappearing_at(
-        mls_group: &OpenMlsGroup,
-        message_sent_at_ns: i64,
-    ) -> Option<i64> {
+    fn get_message_disappearing_at(mls_group: &OpenMlsGroup) -> Option<i64> {
         let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
                 .ok()?;
 
-        Some(message_sent_at_ns + group_disappearing_settings.in_ns)
+        Some(now_ns() + group_disappearing_settings.in_ns)
     }
 
     /// This function is idempotent. No need to wrap in a transaction.
