@@ -35,7 +35,7 @@ impl EthereumWallet {
 
 impl Default for EthereumWallet {
     fn default() -> Self {
-        Self(SigningKey::random(&mut xmtp_cryptography::utils::rng()))
+        Self(SigningKey::random(&mut xmtp_cryptography::rand::rng()))
     }
 }
 

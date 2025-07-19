@@ -8684,7 +8684,6 @@ dependencies = [
  "owo-colors",
  "parking_lot 0.12.4",
  "rand 0.8.5",
- "rand_chacha 0.3.1",
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
@@ -8699,6 +8698,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-time",
+ "xmtp_cryptography",
  "xmtp_macro",
 ]
 
@@ -8924,6 +8924,7 @@ dependencies = [
  "thiserror 2.0.12",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
  "xmtp_proto",

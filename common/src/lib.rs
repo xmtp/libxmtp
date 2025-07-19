@@ -31,29 +31,9 @@ pub mod types;
 pub mod r#const;
 pub use r#const::*;
 
+pub use xmtp_cryptography::rand::*;
+
 #[cfg(feature = "logging")]
 pub mod logging;
 #[cfg(feature = "logging")]
 pub use logging::*;
-
-use rand::distributions::Alphanumeric;
-use rand::distributions::DistString;
-use rand::{RngCore, SeedableRng};
-use rand_chacha::ChaCha20Rng;
-pub fn rng() -> ChaCha20Rng {
-    ChaCha20Rng::from_entropy()
-}
-
-pub fn rand_string<const N: usize>() -> String {
-    Alphanumeric.sample_string(&mut rng(), N)
-}
-
-pub fn rand_array<const N: usize>() -> [u8; N] {
-    let mut buffer = [0u8; N];
-    rng().fill_bytes(&mut buffer);
-    buffer
-}
-
-pub fn rand_vec<const N: usize>() -> Vec<u8> {
-    rand_array::<N>().to_vec()
-}
