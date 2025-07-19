@@ -2,8 +2,13 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
+use prost::Message;
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
+    QueryCommitLogRequest, QueryCommitLogResponse,
+};
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
@@ -12,6 +17,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -359,6 +365,46 @@ where
             })
             .await
             .map_err(crate::dyn_err)
+    }
+
+    pub async fn publish_commit_log(&self, commit_log: &[PlaintextCommitLogEntry]) -> Result<()> {
+        tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
+        self.api_client
+            .publish_commit_log(BatchPublishCommitLogRequest {
+                requests: commit_log
+                    .iter()
+                    .map(convert_plaintext_to_publish_request)
+                    .collect(),
+            })
+            .await
+            .map_err(crate::dyn_err)
+    }
+
+    pub async fn query_commit_log(
+        &self,
+        query_log_requests: Vec<QueryCommitLogRequest>,
+    ) -> Result<Vec<QueryCommitLogResponse>> {
+        tracing::debug!(inbox_id = self.inbox_id, "querying commit log");
+        let responses: Vec<QueryCommitLogResponse> = self
+            .api_client
+            .query_commit_log(BatchQueryCommitLogRequest {
+                requests: query_log_requests,
+            })
+            .await
+            .map_err(crate::dyn_err)?
+            .responses;
+
+        Ok(responses)
+    }
+}
+
+/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
+pub fn convert_plaintext_to_publish_request(
+    entry: &PlaintextCommitLogEntry,
+) -> PublishCommitLogRequest {
+    PublishCommitLogRequest {
+        group_id: entry.group_id.clone(),
+        encrypted_commit_log_entry: entry.encode_to_vec(),
     }
 }
 

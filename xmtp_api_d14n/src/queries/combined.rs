@@ -9,7 +9,9 @@ use crate::protocol::TopicKind;
 use crate::protocol::WelcomeMessageExtractor;
 use crate::protocol::traits::EnvelopeCollection;
 use crate::protocol::traits::Extractor;
+use crate::v3::PublishCommitLog;
 use crate::v3::PublishIdentityUpdate;
+use crate::v3::QueryCommitLog;
 use crate::v3::VerifySmartContractWalletSignatures;
 use crate::v3::{SendGroupMessages, SendWelcomeMessages, UploadKeyPackage};
 use crate::{d14n::QueryEnvelopes, endpoints::d14n::GetInboxIds as GetInboxIdsV4};
@@ -147,6 +149,28 @@ where
             messages,
             paging_info: None,
         })
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: mls_v1::BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        PublishCommitLog::builder()
+            .commit_log_entries(request.requests)
+            .build()?
+            .query(&self.xmtpd_client)
+            .await
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: mls_v1::BatchQueryCommitLogRequest,
+    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        QueryCommitLog::builder()
+            .query_log_requests(request.requests)
+            .build()?
+            .query(&self.xmtpd_client)
+            .await
     }
 
     fn stats(&self) -> ApiStats {

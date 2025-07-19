@@ -3,6 +3,9 @@ use xmtp_common::RetryableError;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
+use xmtp_proto::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
+};
 use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request;
 use xmtp_proto::xmtp::identity::api::v1::GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response;
@@ -149,6 +152,28 @@ where
     ) -> Result<QueryWelcomeMessagesResponse, Self::Error> {
         wrap_err(
             || self.inner.query_welcome_messages(request),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn publish_commit_log(
+        &self,
+        request: BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        wrap_err(
+            || self.inner.publish_commit_log(request),
+            || self.inner.aggregate_stats(),
+        )
+        .await
+    }
+
+    async fn query_commit_log(
+        &self,
+        request: BatchQueryCommitLogRequest,
+    ) -> Result<BatchQueryCommitLogResponse, Self::Error> {
+        wrap_err(
+            || self.inner.query_commit_log(request),
             || self.inner.aggregate_stats(),
         )
         .await

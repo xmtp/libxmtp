@@ -78,6 +78,9 @@ pub struct StoredGroup {
     /// The Originator Node ID of the WelcomeMessage
     #[builder(default = None)]
     pub originator_id: Option<i64>,
+    /// Whether the user should publish the commit log for this group
+    #[builder(default = false)]
+    pub should_publish_commit_log: bool,
 }
 
 // TODO: Create two more structs that delegate to StoredGroup
@@ -132,6 +135,7 @@ pub struct GroupQueryArgs {
     pub consent_states: Option<Vec<ConsentState>>,
     pub include_sync_groups: bool,
     pub include_duplicate_dms: bool,
+    pub should_publish_commit_log: Option<bool>,
 }
 
 impl AsRef<GroupQueryArgs> for GroupQueryArgs {
@@ -157,6 +161,7 @@ impl<C: ConnectionExt> DbConnection<C> {
             include_sync_groups,
             include_duplicate_dms,
             activity_after_ns,
+            should_publish_commit_log,
         } = args.as_ref();
 
         let mut query = dsl::groups
@@ -218,6 +223,10 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
         let includes_all = effective_consent_states.len() == 3;
+
+        if let Some(should_publish_commit_log) = should_publish_commit_log {
+            query = query.filter(dsl::should_publish_commit_log.eq(should_publish_commit_log));
+        }
 
         let filtered_states: Vec<_> = effective_consent_states
             .iter()
@@ -564,6 +573,24 @@ impl<C: ConnectionExt> DbConnection<C> {
                 Ok(false)
             }
         })
+    }
+
+    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
+    pub fn get_conversation_ids_for_remote_log(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(
+                dsl::conversation_type
+                    .eq(ConversationType::Dm)
+                    .or(dsl::conversation_type
+                        .eq(ConversationType::Group)
+                        .and(dsl::should_publish_commit_log.eq(true))),
+            )
+            .select(dsl::id)
+            .order(dsl::created_at_ns.asc());
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
     }
 }
 

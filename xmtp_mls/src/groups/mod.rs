@@ -1,3 +1,4 @@
+pub mod commit_log;
 pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;
@@ -392,7 +393,7 @@ where
 
     pub(crate) fn insert(
         context: &XmtpMlsLocalContext<ApiClient, Db>,
-        group_id: Option<&[u8]>,
+        existing_group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
@@ -412,7 +413,7 @@ where
         )?;
 
         let provider = context.mls_provider();
-        let mls_group = if let Some(group_id) = group_id {
+        let mls_group = if let Some(existing_group_id) = existing_group_id {
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
@@ -423,13 +424,16 @@ where
                 &provider,
                 &context.identity,
                 &group_config,
-                GroupId::from_slice(group_id),
+                GroupId::from_slice(existing_group_id),
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?
         };
 
         let group_id = mls_group.group_id().to_vec();
+        // If not an existing group, the creator is a super admin and should publish the commit log
+        // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
+        let should_publish_commit_log = existing_group_id.is_none();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())
@@ -441,6 +445,7 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .should_publish_commit_log(should_publish_commit_log)
             .build()?;
 
         stored_group.store_or_ignore(provider.db())?;
@@ -635,11 +640,11 @@ where
             let dm_members = metadata.dm_members;
             let conversation_type = metadata.conversation_type;
             let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
-            let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
+            let disappearing_settings = mutable_metadata.as_ref().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
 
-            let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
+            let paused_for_version: Option<String> = mutable_metadata.as_ref().and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
                     let current_version_str = context.version_info().pkg_version();
@@ -673,7 +678,8 @@ where
                 .conversation_type(conversation_type)
                 .dm_id(dm_members.map(String::from))
                 .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
-                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
+                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+                .should_publish_commit_log(Self::check_should_publish_commit_log(context.inbox_id().to_string(), mutable_metadata));
 
 
 
@@ -797,6 +803,18 @@ where
         })
     }
 
+    // Super admin status is only criteria for whether to publish the commit log for now
+    fn check_should_publish_commit_log(
+        inbox_id: String,
+        mutable_metadata: Option<GroupMutableMetadata>,
+    ) -> bool {
+        mutable_metadata
+            .as_ref()
+            .map(|metadata| metadata.is_super_admin(&inbox_id))
+            .unwrap_or(false) // Default to false if no mutable metadata
+    }
+
+    /// Create a sync group and insert it into the database.
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     ) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
@@ -1179,7 +1197,7 @@ where
     }
 
     fn min_protocol_version_from_extensions(
-        mutable_metadata: GroupMutableMetadata,
+        mutable_metadata: &GroupMutableMetadata,
     ) -> Option<String> {
         mutable_metadata
             .attributes
@@ -1385,11 +1403,12 @@ where
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        Self::conversation_message_disappearing_settings_from_extensions(self.mutable_metadata()?)
+        let metadata = self.mutable_metadata()?;
+        Self::conversation_message_disappearing_settings_from_extensions(&metadata)
     }
 
     pub fn conversation_message_disappearing_settings_from_extensions(
-        mutable_metadata: GroupMutableMetadata,
+        mutable_metadata: &GroupMutableMetadata,
     ) -> Result<MessageDisappearingSettings, GroupError> {
         let disappear_from_ns = mutable_metadata
             .attributes
@@ -1618,8 +1637,9 @@ where
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         let provider = self.mls_provider();
         self.load_mls_group_with_lock(provider, |mls_group| {
-            Ok(GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)?)
+            GroupMutableMetadata::try_from(&mls_group)
+                .map_err(MetadataPermissionsError::from)
+                .map_err(GroupError::from)
         })
     }
 

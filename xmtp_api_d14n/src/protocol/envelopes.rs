@@ -137,6 +137,8 @@ impl<'env> ProtocolEnvelope<'env> for GroupMessageInput {
     }
 }
 
+// TODO(cvoell): impl<'env> ProtocolEnvelope<'env> for BatchPublishCommitLogRequest {
+
 impl<'env> ProtocolEnvelope<'env> for GroupMessageVersion {
     type Nested<'a> = ();
 

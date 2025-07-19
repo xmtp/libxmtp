@@ -2,6 +2,7 @@ use super::{DbConnection, remote_commit_log::CommitResult, schema::local_commit_
 use crate::{ConnectionExt, impl_store, schema::local_commit_log};
 use diesel::{Insertable, Queryable, prelude::*};
 use xmtp_common::snippet::Snippet;
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 pub enum CommitType {
     GroupCreation,
@@ -62,6 +63,41 @@ pub struct LocalCommitLog {
     pub commit_type: Option<String>,
 }
 
+impl From<&LocalCommitLog> for PlaintextCommitLogEntry {
+    fn from(local_commit_log: &LocalCommitLog) -> Self {
+        PlaintextCommitLogEntry {
+            group_id: local_commit_log.group_id.clone(),
+            commit_sequence_id: local_commit_log.commit_sequence_id as u64,
+            last_epoch_authenticator: local_commit_log.last_epoch_authenticator.clone(),
+            commit_result: local_commit_log.commit_result.into(),
+            applied_epoch_number: local_commit_log.applied_epoch_number as u64,
+            applied_epoch_authenticator: local_commit_log.applied_epoch_authenticator.clone(),
+        }
+    }
+}
+
+impl From<CommitResult> for i32 {
+    fn from(commit_result: CommitResult) -> Self {
+        match commit_result {
+            CommitResult::Success => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Applied as i32
+            }
+            CommitResult::WrongEpoch => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::WrongEpoch as i32
+            }
+            CommitResult::Undecryptable => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Undecryptable as i32
+            }
+            CommitResult::Invalid => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Invalid as i32
+            }
+            CommitResult::Unknown => {
+                xmtp_proto::xmtp::mls::message_contents::CommitResult::Unspecified as i32
+            }
+        }
+    }
+}
+
 impl_store!(NewLocalCommitLog, local_commit_log);
 
 impl std::fmt::Debug for LocalCommitLog {
@@ -97,6 +133,31 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
+    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
+    pub fn get_group_logs_for_publishing(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        // i64 cursor is populated by i32 local_commit_log rowid value, so we should never hit this error
+        if after_cursor > i32::MAX as i64 {
+            return Err(crate::ConnectionError::Database(
+                diesel::result::Error::QueryBuilderError("Cursor value exceeds i32::MAX".into()),
+            ));
+        }
+        let after_cursor = after_cursor as i32;
+
+        self.raw_query_read(|db| {
+            dsl::local_commit_log
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::rowid.gt(after_cursor))
+                .filter(dsl::commit_sequence_id.ne(0))
+                .order_by(dsl::rowid.asc())
+                .load(db)
+        })
+    }
+
     pub fn get_latest_log_for_group(
         &self,
         group_id: &[u8],
@@ -109,5 +170,18 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .first(db)
                 .optional()
         })
+    }
+
+    pub fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        let query = dsl::local_commit_log
+            .filter(dsl::group_id.eq(group_id))
+            .select(dsl::rowid)
+            .order(dsl::rowid.desc())
+            .limit(1);
+
+        self.raw_query_read(|conn| query.first::<i32>(conn).optional())
     }
 }

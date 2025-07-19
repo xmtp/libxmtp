@@ -7,7 +7,6 @@ use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
 use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
-use openmls::schedule::EpochAuthenticator;
 use xmtp_db::{
     local_commit_log::{CommitType, NewLocalCommitLog},
     remote_commit_log::CommitResult,
@@ -50,13 +49,11 @@ pub trait CommitLogStorer: std::marker::Sized {
     /// Specifically, do not call this for retryable errors, or
     /// VersionTooLow/GroupPaused errors.
     fn mark_failed_commit_logged<Db: ConnectionExt>(
+        &self,
         provider: &XmtpOpenMlsProvider<Db>,
-        group_id: &[u8],
         commit_sequence_id: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
-        last_epoch_number: GroupEpoch,
-        last_epoch_authenticator: &EpochAuthenticator,
     ) -> Result<(), StorageError>;
 }
 
@@ -192,27 +189,22 @@ impl CommitLogStorer for MlsGroup {
     }
 
     fn mark_failed_commit_logged<Db: ConnectionExt>(
+        &self,
         provider: &XmtpOpenMlsProvider<Db>,
-        group_id: &[u8],
         commit_sequence_id: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
-        last_epoch_number: GroupEpoch,
-        last_epoch_authenticator: &EpochAuthenticator,
     ) -> Result<(), StorageError> {
         if !crate::configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
+        let group_id = self.group_id().to_vec();
+        let last_epoch_number = self.epoch();
+        let last_epoch_authenticator = self.epoch_authenticator();
         let conn = provider.db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
-        if let Some(latest_log) = conn.get_latest_log_for_group(group_id)? {
-            // Because we don't increment the cursor for non-retryable errors, we may have already logged this commit
-            if latest_log.commit_sequence_id == commit_sequence_id as i64
-                && latest_log.commit_result != CommitResult::Success
-            {
-                return Ok(());
-            }
+        if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)? {
             if latest_log.commit_type != Some(CommitType::Welcome.to_string()) {
                 maybe_recently_welcomed = false;
             }
