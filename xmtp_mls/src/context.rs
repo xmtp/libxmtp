@@ -212,6 +212,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db = xmtp_db::DefaultDatabase> {
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) workers: WorkerRunner,
+    pub(crate) sync_welcomes: tokio::sync::Semaphore,
 }
 
 impl<ApiClient, Db> XmtpMlsLocalContext<ApiClient, Db>

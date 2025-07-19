@@ -68,6 +68,8 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Api, Db>>, GroupError> {
+        // only allow a single sync welcomes at once
+        let _permit = self.context.sync_welcomes.acquire().await?;
         let provider = self.context.mls_provider();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages(provider.db()).await?;

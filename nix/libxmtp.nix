@@ -57,7 +57,7 @@ mkShell ({
   OPENSSL_LIB_DIR = "${lib.getLib openssl}/lib";
   OPENSSL_NO_VENDOR = 1;
   STACK_OVERFLOW_CHECK = 0;
-  nativeBuildInputs = [ pkg-config wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
+  nativeBuildInputs = [ pkg-config sqlite wasm-pack wasm-bindgen-cli_0_2_100 binaryen emscripten ];
   buildInputs =
     [
       rust-toolchain

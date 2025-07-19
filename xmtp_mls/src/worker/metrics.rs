@@ -99,7 +99,7 @@ where
         xmtp_common::time::timeout(Duration::from_secs(20), async {
             while metric.load(Ordering::SeqCst) < count {
                 f().await;
-                xmtp_common::yield_().await;
+                xmtp_common::task::yield_now().await;
             }
         })
         .await

@@ -39,6 +39,9 @@ pub fn now_ns() -> i64 {
     duration_since_epoch().as_nanos() as i64
 }
 
+pub fn now_ms() -> u64 {
+    duration_since_epoch().as_millis() as u64
+}
 pub fn now_secs() -> i64 {
     duration_since_epoch().as_secs() as i64
 }
