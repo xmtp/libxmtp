@@ -9,6 +9,7 @@ use xmtp_proto::mls_v1::{
     BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
     QueryCommitLogRequest, QueryCommitLogResponse,
 };
+use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
@@ -398,13 +399,17 @@ where
     }
 }
 
-/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
 pub fn convert_plaintext_to_publish_request(
     entry: &PlaintextCommitLogEntry,
 ) -> PublishCommitLogRequest {
     PublishCommitLogRequest {
         group_id: entry.group_id.clone(),
-        encrypted_commit_log_entry: entry.encode_to_vec(),
+        serialized_commit_log_entry: entry.encode_to_vec(),
+        // TODO(rich): Sign the commit log entry
+        signature: Some(RecoverableEd25519Signature {
+            bytes: vec![0u8; 32],
+            public_key: vec![0u8; 32],
+        }),
     }
 }
 

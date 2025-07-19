@@ -348,7 +348,7 @@ where
         for entry in commit_log_response.commit_log_entries {
             // TODO(cam): we will have to decrypt here
             let log_entry =
-                PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
+                PlaintextCommitLogEntry::decode(entry.serialized_commit_log_entry.as_slice())?;
             RemoteCommitLog {
                 log_sequence_id: entry.sequence_id as i64,
                 group_id: log_entry.group_id,
