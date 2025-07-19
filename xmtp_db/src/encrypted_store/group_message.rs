@@ -21,7 +21,6 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::ops::Sub;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::{
     attachment, group_updated, membership_change, reaction, read_receipt, remote_attachment, reply,
