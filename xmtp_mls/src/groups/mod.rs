@@ -1023,8 +1023,10 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn add_members(
         &self,
-        account_identifiers: &[Identifier],
+        account_identifiers: impl AsRef<[Identifier]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
+        let account_identifiers = account_identifiers.as_ref();
+
         // Fetch the associated inbox_ids
         let requests = account_identifiers.iter().map(Into::into).collect();
         let inbox_id_map: HashMap<Identifier, String> = self

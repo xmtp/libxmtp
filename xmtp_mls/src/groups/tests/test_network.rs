@@ -1,9 +1,11 @@
-use xmtp_db::group::GroupQueryArgs;
+use std::time::Duration;
 
 use crate::tester;
+use toxiproxy_rust::toxic::ToxicPack;
+use xmtp_db::group::GroupQueryArgs;
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_bad_network() {
+async fn test_network_drop() {
     tester!(alix, proxy);
     tester!(bo);
 
@@ -32,4 +34,32 @@ async fn test_bad_network() {
     // Bo should get the welcome for the group.
     bo.sync_welcomes().await?;
     assert!(bo.group(&g.group_id).is_ok());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_stream_drop() {
+    tester!(alix, proxy, stream);
+    tester!(bo);
+
+    let (alix_group, mut other_groups) = alix.test_talk_in_new_group_with(&[&bo]).await?;
+    let bo_group = other_groups.pop()?;
+
+    // Test that alix is streaming messages from bo
+    bo_group.send_message(b"Hi").await?;
+    assert!(alix_group.test_last_message_eq(b"Hi")?);
+
+    // Cut the network connection and make a group with members
+    alix.proxy().disable().await?;
+    // The connection is severed. Alix should not be streaming messages from bo.
+    bo_group.send_message(b"Ho").await?;
+    assert!(!alix_group.test_last_message_eq(b"Ho")?);
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    // Turn the connection back on.
+    alix.proxy().enable().await?;
+
+    // The stream should reconnect and start streaming messages from bo again.
+    bo_group.send_message(b"Hi").await?;
+    assert!(alix_group.test_last_message_eq(b"Hi")?);
 }
