@@ -30,6 +30,7 @@ pub(crate) fn generate_message(
         reference_id: None,
         sequence_id: None,
         originator_id: None,
+        message_disappear_in_ns: None,
     }
 }
 
