@@ -398,13 +398,14 @@ where
     }
 }
 
-/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
 pub fn convert_plaintext_to_publish_request(
     entry: &PlaintextCommitLogEntry,
 ) -> PublishCommitLogRequest {
     PublishCommitLogRequest {
         group_id: entry.group_id.clone(),
-        encrypted_commit_log_entry: entry.encode_to_vec(),
+        serialized_commit_log_entry: entry.encode_to_vec(),
+        // TODO(rich): Sign the commit log entry
+        signature: None,
     }
 }
 
