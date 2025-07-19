@@ -11,8 +11,6 @@ use super::{
 };
 use crate::{impl_fetch, impl_store, impl_store_or_ignore};
 use derive_builder::Builder;
-use diesel::dsl::sql;
-use diesel::sql_types::BigInt;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -584,64 +582,16 @@ impl<C: ConnectionExt> DbConnection<C> {
     pub fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError> {
         self.raw_query_write(|conn| {
             use diesel::prelude::*;
-            let disappear_from_ns = groups_dsl::message_disappear_from_ns
-                .assume_not_null()
-                .into_sql::<BigInt>();
-            let disappear_duration_ns = groups_dsl::message_disappear_in_ns
-                .assume_not_null()
-                .into_sql::<BigInt>();
             let now = now_ns();
 
-            let expire_messages = dsl::group_messages
-                .left_join(
-                    groups_dsl::groups.on(sql::<diesel::sql_types::Text>(
-                        "lower(hex(group_messages.group_id))",
-                    )
-                    .eq(sql::<diesel::sql_types::Text>("lower(hex(groups.id))"))),
-                )
-                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
-                .filter(dsl::kind.eq(GroupMessageKind::Application))
-                .filter(
-                    groups_dsl::message_disappear_from_ns
-                        .is_not_null()
-                        .and(groups_dsl::message_disappear_in_ns.is_not_null()),
-                )
-                .filter(
-                    disappear_from_ns
-                        .gt(0) // to make sure the settings are correct
-                        .and(
-                            dsl::sent_at_ns.gt(disappear_from_ns).and(
-                                dsl::sent_at_ns.lt(sql::<BigInt>("")
-                                    .bind::<BigInt, _>(now)
-                                    .assume_not_null()
-                                    .sub(disappear_duration_ns)),
-                            ),
-                        ),
-                )
-                .select(dsl::id);
-            let expired_message_ids = expire_messages.load::<Vec<u8>>(conn)?;
-
-            // Then delete the rows by their IDs
-            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
-                .execute(conn)
-        })
-    }
-
-    pub fn delete_expired_messages_2(&self) -> Result<usize, crate::ConnectionError> {
-        self.raw_query_write(|conn| {
-            use diesel::prelude::*;
-            let now = now_ns();
-
-            let expired_messages = dsl::group_messages
-                .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
-                .filter(dsl::kind.eq(GroupMessageKind::Application))
-                .filter(dsl::message_disappear_in_ns.is_not_null())
-                .filter(dsl::message_disappear_in_ns.between(0, now))
-                .select(dsl::id);
-
-            let expired_message_ids = expired_messages.load::<Vec<u8>>(conn)?;
-            diesel::delete(dsl::group_messages.filter(dsl::id.eq_any(expired_message_ids)))
-                .execute(conn)
+            diesel::delete(
+                dsl::group_messages
+                    .filter(dsl::delivery_status.eq(DeliveryStatus::Published))
+                    .filter(dsl::kind.eq(GroupMessageKind::Application))
+                    .filter(dsl::message_disappear_in_ns.is_not_null())
+                    .filter(dsl::message_disappear_in_ns.le(now)),
+            )
+            .execute(conn)
         })
     }
 }
