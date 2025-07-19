@@ -1010,7 +1010,7 @@ pub(crate) mod tests {
         let binding = kp1[&installation_public_key].clone().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_none());
+        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
@@ -1438,6 +1438,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
+        let alix_fetched_identity: StoredIdentity = alix.context.db().fetch(&()).unwrap().unwrap();
+        tracing::error!("{:?}", alix_fetched_identity);
+        assert!(alix_fetched_identity.next_key_package_rotation_ns.is_some());
+        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
         // Bo's original key should be deleted
         let bo_original_from_db = bo_store
             .db()
@@ -1470,7 +1475,7 @@ pub(crate) mod tests {
         assert!(!bo_keys_queued_for_rotation);
 
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_none());
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.unwrap() > 0);
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
             .await
