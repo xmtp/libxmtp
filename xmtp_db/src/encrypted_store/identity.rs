@@ -55,13 +55,13 @@ impl<C: ConnectionExt> DbConnection<C> {
 
     pub fn reset_key_package_rotation_queue(
         &self,
-        new_kp_valid_not_after: i64,
+        rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
-                .set(dsl::next_key_package_rotation_ns.eq(Some(new_kp_valid_not_after * NS_IN_SEC)))
+                .set(dsl::next_key_package_rotation_ns.eq(Some(rotation_interval_ns)))
                 .execute(conn)?;
             Ok(())
         })?;

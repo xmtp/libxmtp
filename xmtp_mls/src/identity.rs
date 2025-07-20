@@ -680,7 +680,7 @@ impl Identity {
                     conn.mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<(), StorageError>(())
                 })?;
-                conn.reset_key_package_rotation_queue(kp.life_time().not_after() as i64)?;
+                conn.reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
                 Ok(())
             }
             Err(err) => {
