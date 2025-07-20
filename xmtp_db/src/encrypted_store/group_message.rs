@@ -68,7 +68,7 @@ pub struct StoredGroupMessage {
     pub sequence_id: Option<i64>,
     /// The Originator Node ID
     pub originator_id: Option<i64>,
-    /// When the message expires and must be deleted in NS
+    /// Timestamp (in NS) after which the message must be deleted
     pub expire_at_ns: Option<i64>,
 }
 
