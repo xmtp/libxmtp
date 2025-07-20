@@ -1,1 +1,1 @@
-ALTER TABLE group_messages DROP COLUMN message_disappear_in_ns;
+ALTER TABLE group_messages DROP COLUMN expire_at_ns;

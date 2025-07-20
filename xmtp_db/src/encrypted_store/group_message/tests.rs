@@ -13,6 +13,7 @@ pub(crate) fn generate_message(
     group_id: Option<&[u8]>,
     sent_at_ns: Option<i64>,
     content_type: Option<ContentType>,
+    expire_at_ns: Option<i64>,
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
@@ -30,7 +31,7 @@ pub(crate) fn generate_message(
         reference_id: None,
         sequence_id: None,
         originator_id: None,
-        message_disappear_in_ns: None,
+        expire_at_ns,
     }
 }
 
@@ -47,7 +48,7 @@ async fn it_does_not_error_on_empty_messages() {
 async fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
-        let message = generate_message(None, Some(&group.id), None, None);
+        let message = generate_message(None, Some(&group.id), None, None, None);
         group.store(conn).unwrap();
         let id = message.id.clone();
 
@@ -67,7 +68,7 @@ async fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     let store = EncryptedMessageStore::new_test().await;
     let conn = DbConnection::new(store.conn());
-    let message = generate_message(None, None, None, None);
+    let message = generate_message(None, None, None, None, None);
     let result = message.store(&conn);
     assert_err!(
         result,
@@ -86,7 +87,7 @@ async fn it_gets_many_messages() {
         group.store(conn).unwrap();
 
         for idx in 0..50 {
-            let msg = generate_message(None, Some(&group.id), Some(idx), None);
+            let msg = generate_message(None, Some(&group.id), Some(idx), None, None);
             assert_ok!(msg.store(conn));
         }
 
@@ -119,10 +120,10 @@ async fn it_gets_messages_by_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000), None),
-            generate_message(None, Some(&group.id), Some(100_000), None),
-            generate_message(None, Some(&group.id), Some(10_000), None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
         ];
         assert_ok!(messages.store(conn));
         let message = conn
@@ -176,9 +177,21 @@ async fn it_deletes_middle_message_by_expiration_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000_000_000), None),
-            generate_message(None, Some(&group.id), Some(1_001_000_000), None),
-            generate_message(None, Some(&group.id), Some(2_000_000_000_000_000_000), None),
+            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_001_000_000),
+                None,
+                Some(1_001_000_000),
+            ),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(2_000_000_000_000_000_000),
+                None,
+                None,
+            ),
         ];
         assert_ok!(messages.store(conn));
 
@@ -225,6 +238,7 @@ async fn it_gets_messages_by_kind() {
                         Some(&group.id),
                         None,
                         Some(ContentType::Text),
+                        None,
                     );
                     msg.store(conn).unwrap();
                 }
@@ -234,6 +248,7 @@ async fn it_gets_messages_by_kind() {
                         Some(&group.id),
                         None,
                         Some(ContentType::GroupMembershipChange),
+                        None,
                     );
                     msg.store(conn).unwrap();
                 }
@@ -274,10 +289,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(group.last_message_ns, None);
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(10_000), None),
-            generate_message(None, Some(&group.id), Some(1_000), None),
-            generate_message(None, Some(&group.id), Some(100_000), None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
         ];
 
         assert_ok!(messages.store(conn));
@@ -325,18 +340,26 @@ async fn it_gets_messages_by_content_type() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000), Some(ContentType::Text)),
+            generate_message(
+                None,
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+            ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(2_000),
                 Some(ContentType::GroupMembershipChange),
+                None,
             ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(3_000),
                 Some(ContentType::GroupUpdated),
+                None,
             ),
         ];
         assert_ok!(messages.store(conn));
@@ -406,6 +429,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(&group.id),
             Some(5_000),
             Some(ContentType::GroupUpdated),
+            None,
         );
 
         let earlier_msg = generate_message(
@@ -413,6 +437,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(&group.id),
             Some(1_000),
             Some(ContentType::Text),
+            None,
         );
 
         let later_msg = generate_message(
@@ -420,6 +445,7 @@ async fn it_places_group_updated_message_correctly_based_on_sort_order() {
             Some(&group.id),
             Some(10_000),
             Some(ContentType::Text),
+            None,
         );
 
         assert_ok!(

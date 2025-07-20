@@ -736,7 +736,7 @@ where
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: None,
                         originator_id: None,
-                        message_disappear_in_ns: None, //Question: do we need to include this in conversation last message?
+                        expire_at_ns: None, //Question: do we need to include this in conversation last message?
                     });
                     if msg.is_none() {
                         tracing::warn!("tried listing message, but message had missing fields so it was skipped");

@@ -1,1 +1,1 @@
-ALTER TABLE group_messages ADD COLUMN message_disappear_in_ns BIGINT;
+ALTER TABLE group_messages ADD COLUMN expire_at_ns BIGINT;

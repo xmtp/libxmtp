@@ -778,7 +778,7 @@ where
                     reference_id: None,
                     sequence_id: Some(welcome.id as i64),
                     originator_id: None,
-                    message_disappear_in_ns: None,
+                    expire_at_ns: None,
                 };
 
                 added_msg.store_or_ignore(provider.db())?;
@@ -973,7 +973,7 @@ where
             reference_id: queryable_content_fields.reference_id,
             sequence_id: None,
             originator_id: None,
-            message_disappear_in_ns: None,
+            expire_at_ns: None,
         };
         group_message.store(provider.db())?;
 

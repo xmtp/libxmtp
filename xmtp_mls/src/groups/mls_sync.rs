@@ -794,12 +794,12 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-        let disappear_in_ns = Self::get_message_disappearing_at(mls_group);
+        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
         conn.set_delivery_status_to_published(
             &id,
             envelope_timestamp_ns,
             envelope.id as i64,
-            disappear_in_ns,
+            message_expire_at_ns,
         )
         .map_err(|err| IntentResolutionError {
             processing_error: GroupMessageProcessingError::Db(err),
@@ -1037,7 +1037,7 @@ where
                             reference_id: queryable_content_fields.reference_id,
                             sequence_id: Some(*cursor as i64),
                             originator_id: None,
-                            message_disappear_in_ns: Self::get_message_disappearing_at(mls_group),
+                            expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                         };
                         message.store_or_ignore(provider.db())?;
                         // make sure internal id is on return type after its stored successfully
@@ -1090,9 +1090,7 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
-                                    message_disappear_in_ns: Self::get_message_disappearing_at(
-                                        mls_group,
-                                    ),
+                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(provider.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1130,9 +1128,7 @@ where
                                     reference_id: None,
                                     sequence_id: Some(*cursor as i64),
                                     originator_id: None,
-                                    message_disappear_in_ns: Self::get_message_disappearing_at(
-                                        mls_group,
-                                    ),
+                                    expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                                 };
                                 message.store_or_ignore(provider.db())?;
                                 identifier.internal_id(message_id.clone());
@@ -1238,7 +1234,7 @@ where
         identifier.build()
     }
 
-    fn get_message_disappearing_at(mls_group: &OpenMlsGroup) -> Option<i64> {
+    fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
         let mutable_metadata = extract_group_mutable_metadata(mls_group).ok()?;
         let group_disappearing_settings =
             Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
@@ -1817,7 +1813,7 @@ where
             reference_id: None,
             sequence_id: Some(cursor as i64),
             originator_id: None,
-            message_disappear_in_ns: None,
+            expire_at_ns: None,
         };
         msg.store_or_ignore(conn)?;
         Ok(Some(msg))
