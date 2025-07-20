@@ -61,7 +61,7 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
-                .set(dsl::next_key_package_rotation_ns.eq(Some(rotation_interval_ns)))
+                .set(dsl::next_key_package_rotation_ns.eq(Some(now_ns() + rotation_interval_ns)))
                 .execute(conn)?;
             Ok(())
         })?;
