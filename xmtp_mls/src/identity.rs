@@ -568,7 +568,7 @@ impl Identity {
     }
 
     /// Generate a new key package and store the associated keys in the database.
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn new_key_package(
         &self,
         provider: impl MlsProviderExt,
@@ -623,7 +623,7 @@ impl Identity {
             pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
         })
     }
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn register<ApiClient: XmtpApi>(
         &self,
         provider: impl MlsProviderExt + Copy,
@@ -650,7 +650,7 @@ impl Identity {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<ApiClient: XmtpApi>(
         &self,
         provider: impl MlsProviderExt + Copy,

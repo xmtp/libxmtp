@@ -207,7 +207,7 @@ where
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_latest_association_state(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,

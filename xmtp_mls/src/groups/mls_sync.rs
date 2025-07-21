@@ -390,7 +390,7 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.mls_provider().db().find_group_intents(
             self.group_id.clone(),
@@ -420,7 +420,7 @@ where
      *
      * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn sync_until_intent_resolved(
         &self,
         intent_id: ID,
@@ -672,7 +672,10 @@ where
     // If any error occurs, return an IntentResolutionError with the error, and the next intent state
     // to use in the event the error is non-retriable.
     #[allow(clippy::too_many_arguments)]
-    #[tracing::instrument(level = "debug", skip(mls_group, commit, intent, message, envelope))]
+    #[tracing::instrument(
+        level = "trace",
+        skip(self, mls_group, commit, intent, message, envelope)
+    )]
     fn process_own_message(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -808,7 +811,7 @@ where
         Ok(Some(id))
     }
 
-    #[tracing::instrument(level = "debug", skip(mls_group, message, envelope))]
+    #[tracing::instrument(level = "trace", skip(mls_group, message, envelope))]
     async fn validate_and_process_external_message(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -970,7 +973,7 @@ where
     /// Process an external message
     /// returns a MessageIdentifier, identifiying the message processed if any.
     #[tracing::instrument(
-        level = "debug",
+        level = "trace",
         skip(mls_group, processed_message, envelope, validated_commit)
     )]
     fn process_external_message(
@@ -1250,7 +1253,7 @@ where
     /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip(envelope), level = "debug")]
+    #[tracing::instrument(skip(self, envelope), level = "trace")]
     pub(crate) async fn process_message(
         &self,
         envelope: &GroupMessageV1,
@@ -1317,7 +1320,7 @@ where
         .await
     }
 
-    #[tracing::instrument(skip(mls_group, envelope), level = "debug")]
+    #[tracing::instrument(skip(self, mls_group, envelope), level = "trace")]
     async fn process_message_inner(
         &self,
         mls_group: &mut OpenMlsGroup,
@@ -1549,7 +1552,7 @@ where
     /// Consume a message, decrypting its contents and processing it
     /// Applies the message if it is a commit.
     /// Returns a 'MessageIdentifier' for this message
-    #[tracing::instrument(level = "debug", skip(envelope))]
+    #[tracing::instrument(level = "trace", skip(envelope))]
     async fn consume_message(
         &self,
         envelope: &GroupMessage,
@@ -1655,7 +1658,7 @@ where
         Ok(message)
     }
 
-    #[tracing::instrument(level = "debug", skip(messages))]
+    #[tracing::instrument(level = "trace", skip(self, messages))]
     pub async fn process_messages(&self, messages: Vec<GroupMessage>) -> ProcessSummary {
         let mut summary = ProcessSummary::default();
         for message in messages {
@@ -1705,7 +1708,7 @@ where
     /// Return all the cursors of the messages we tried to process regardless
     /// if they were succesfull or not. It is important to return _all_
     /// cursor ids, so that streams do not unintentially retry O(n^2) messages.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let provider = self.mls_provider();
         let messages = MlsStore::new(self.context.clone())
@@ -1727,7 +1730,7 @@ where
         Ok(summary)
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     fn update_cursor_if_needed(
         &self,
         provider: &XmtpOpenMlsProvider<<Db as XmtpDb>::Connection>,

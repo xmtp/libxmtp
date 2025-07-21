@@ -311,7 +311,7 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(provider, operation))]
+    #[tracing::instrument(level = "trace", skip(provider, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
         provider: impl OpenMlsProvider,
@@ -336,7 +336,7 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(operation))]
+    #[tracing::instrument(level = "trace", skip(operation))]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         operation: F,
@@ -528,7 +528,7 @@ where
     /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn create_from_welcome(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
@@ -853,7 +853,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`].
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
@@ -929,7 +929,7 @@ where
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
@@ -1392,7 +1392,7 @@ where
         Ok(paused_for_version)
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
         let provider = self.context().mls_provider();
         if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
@@ -1525,7 +1525,7 @@ where
         Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let new_records: Vec<PreferenceUpdate> = self
             .quietly_update_consent_state(state)?
@@ -1604,7 +1604,7 @@ where
     /// Checks if the current user is active in the group.
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
         let provider = self.mls_provider();
