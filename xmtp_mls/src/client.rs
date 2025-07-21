@@ -814,7 +814,7 @@ where
 
     /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
     /// Returns any new groups created in the operation
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient, Db>>, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_welcomes()

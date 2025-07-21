@@ -23,7 +23,7 @@ napi-derive = "2.16.6"
 prost.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-tracing.workspace = true
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "fmt",
