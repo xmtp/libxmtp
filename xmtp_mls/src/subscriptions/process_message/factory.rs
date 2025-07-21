@@ -188,7 +188,7 @@ where
     ///
     /// # Tracing
     /// This function includes tracing instrumentation to aid in debugging and monitoring.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) async fn process(
         self,
         msg: group_message::V1,

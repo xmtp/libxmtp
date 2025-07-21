@@ -1426,7 +1426,7 @@ impl FfiConversations {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,

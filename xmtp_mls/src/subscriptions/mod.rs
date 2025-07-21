@@ -122,7 +122,7 @@ pub(crate) trait StreamMessages {
 }
 
 impl StreamMessages for broadcast::Receiver<LocalEvents> {
-    #[instrument(level = "debug", skip_all)]
+    #[instrument(level = "trace", skip_all)]
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
@@ -131,7 +131,7 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
         })
     }
 
-    #[instrument(level = "debug", skip_all)]
+    #[instrument(level = "trace", skip_all)]
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>> {
         BroadcastStream::new(self).filter_map(|event| async {
             xmtp_common::optify!(event, "Missed message due to event queue lag")
@@ -231,7 +231,7 @@ where
         }
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
@@ -243,7 +243,7 @@ where
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
@@ -285,7 +285,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn stream_all_messages(
         &self,
         conversation_type: Option<ConversationType>,
@@ -301,7 +301,7 @@ where
         StreamAllMessages::new(&self.context, conversation_type, consent_state).await
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn stream_all_messages_owned(
         &self,
         conversation_type: Option<ConversationType>,
