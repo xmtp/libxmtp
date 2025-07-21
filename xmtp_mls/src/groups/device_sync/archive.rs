@@ -1,15 +1,13 @@
 use super::DeviceSyncError;
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::{group_permissions::PolicySet, MlsGroup},
 };
 use futures::StreamExt;
-use std::sync::Arc;
-use xmtp_api::XmtpApi;
 pub use xmtp_archive::*;
 use xmtp_db::{
     consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, prelude::*, StoreOrIgnore, XmtpDb,
+    group_message::StoredGroupMessage, prelude::*, StoreOrIgnore,
 };
 use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
@@ -123,14 +121,13 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.provider.clone(), &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
-        let alix2_provider = alix2.mls_provider();
 
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2
@@ -216,7 +213,7 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.provider.clone(), &key);
+        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;

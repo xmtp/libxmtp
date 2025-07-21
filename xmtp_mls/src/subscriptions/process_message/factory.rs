@@ -1,23 +1,18 @@
 //! Stream message processor that uses Syning to handle out of order messages
-use std::sync::Arc;
 
 use super::ProcessedMessage;
 use crate::context::XmtpSharedContext;
+use crate::groups::{
+    mls_sync::GroupMessageProcessingError,
+    summary::{MessageIdentifier, SyncSummary},
+    MlsGroup,
+};
 use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use crate::subscriptions::SubscribeError;
-use crate::{
-    context::XmtpMlsLocalContext,
-    groups::{
-        mls_sync::GroupMessageProcessingError,
-        summary::{MessageIdentifier, SyncSummary},
-        MlsGroup,
-    },
-};
 use tracing::Instrument;
-use xmtp_api::XmtpApi;
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::prelude::*;
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError, XmtpDb};
+use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
 use xmtp_proto::mls_v1::group_message;
 
 #[cfg_attr(test, mockall::automock)]

@@ -65,6 +65,7 @@ async fn test_double_sync_works_fine() {
     alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
     alix2
+        .context
         .device_sync_client()
         .get_sync_group()
         .await?
@@ -72,8 +73,13 @@ async fn test_double_sync_works_fine() {
         .await?;
     alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
 
-    alix2.device_sync_client().send_sync_request().await?;
+    alix2
+        .context
+        .device_sync_client()
+        .send_sync_request()
+        .await?;
     alix1
+        .context
         .device_sync_client()
         .get_sync_group()
         .await?
@@ -82,6 +88,7 @@ async fn test_double_sync_works_fine() {
     alix1.worker().wait(SyncMetric::PayloadSent, 2).await?;
 
     alix2
+        .context
         .device_sync_client()
         .get_sync_group()
         .await?

@@ -1,9 +1,9 @@
 use crate::{
     builder::SyncWorkerMode,
     configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION,
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::{
-        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric, DeviceSyncClient},
+        device_sync::{preference_sync::PreferenceUpdate, worker::SyncMetric},
         group_permissions::PolicySet,
         welcome_sync::WelcomeService,
         ConversationListItem, GroupError, MlsGroup,
@@ -16,16 +16,15 @@ use crate::{
     utils::VersionInfo,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
     worker::{metrics::WorkerMetrics, WorkerRunner},
-    XmtpApi,
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
-use openmls_traits::OpenMlsProvider;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_common::retryable;
 use xmtp_common::types::InstallationId;
 use xmtp_cryptography::signature::IdentifierValidationError;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     db_connection::DbConnection,
@@ -33,10 +32,8 @@ use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, GroupMembershipState, GroupQueryArgs},
     group_message::StoredGroupMessage,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    NotFound, StorageError, XmtpDb,
+    ConnectionExt, NotFound, StorageError, XmtpDb,
 };
-use xmtp_db::{prelude::*, sql_key_store::SqlKeyStore};
 use xmtp_id::{
     associations::{
         builder::{SignatureRequest, SignatureRequestError},
@@ -50,7 +47,7 @@ use xmtp_mls_common::{
     group_metadata::DmMembers,
     group_mutable_metadata::MessageDisappearingSettings,
 };
-use xmtp_proto::api_client::{ApiStats, IdentityStats};
+use xmtp_proto::api_client::{ApiStats, IdentityStats, XmtpIdentityClient, XmtpMlsClient};
 
 /// Enum representing the network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
@@ -174,10 +171,6 @@ impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
 {
-    pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
-        self.context.device_sync_client()
-    }
-
     /// Test only function to update the version of the client
     /// This test returns None if the version was not updated
     #[cfg(test)]
@@ -213,7 +206,7 @@ where
     }
 
     pub fn version_info(&self) -> &VersionInfo {
-        &self.context.version_info
+        &self.context.version_info()
     }
 }
 
@@ -223,7 +216,7 @@ where
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
-        self.context.store.reconnect().map_err(StorageError::from)?;
+        self.context.db().reconnect().map_err(StorageError::from)?;
         self.workers.spawn();
         Ok(())
     }
@@ -244,7 +237,7 @@ where
 {
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {
-        self.context.installation_public_key()
+        self.context.installation_id()
     }
     /// Retrieves the client's inbox ID
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
@@ -320,8 +313,8 @@ where
         conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
     ) -> Result<i64, StorageError> {
         self.context
-            .context_ref()
-            .inbox_sequence_id(conn)
+            .identity()
+            .sequence_id(conn)
             .map_err(Into::into)
     }
 
@@ -382,6 +375,7 @@ where
                 .local_events
                 .send(LocalEvents::PreferencesChanged(updates.clone()));
             let _ = self
+                .context
                 .worker_events()
                 .send(SyncWorkerEvent::SyncPreferences(updates));
         }
@@ -406,8 +400,10 @@ where
 
     /// Release the client's database connection
     pub fn release_db_connection(&self) -> Result<(), ClientError> {
-        let store = &self.context.store;
-        store.disconnect().map_err(xmtp_db::StorageError::from)?;
+        self.context
+            .db()
+            .disconnect()
+            .map_err(xmtp_db::StorageError::from)?;
         Ok(())
     }
 
@@ -640,7 +636,7 @@ where
         args: GroupQueryArgs,
     ) -> Result<Vec<ConversationListItem<Context>>, ClientError> {
         Ok(self
-            .context()
+            .context
             .db()
             .fetch_conversation_list(args)?
             .into_iter()
@@ -1285,7 +1281,7 @@ pub(crate) mod tests {
             })?
             .clone()?;
 
-        serialize_key_package_hash_ref(&kp_result.inner, &client.mls_provider())
+        serialize_key_package_hash_ref(&kp_result.inner, &client.context.mls_provider())
     }
 
     #[xmtp_common::test]
@@ -1294,7 +1290,6 @@ pub(crate) mod tests {
         let bo_wallet = generate_local_wallet();
         let alix = ClientBuilder::new_test_client(&alix_wallet).await;
         let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-        let bo_store = bo.store();
 
         let alix_original_init_key =
             get_key_package_init_key(&alix, alix.installation_public_key())
@@ -1305,7 +1300,7 @@ pub(crate) mod tests {
             .unwrap();
 
         // Bo's original key should be deleted
-        let bo_original_from_db = bo_store
+        let bo_original_from_db = bo
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_original_from_db.is_ok());
@@ -1389,7 +1384,7 @@ pub(crate) mod tests {
         assert_eq!(bo_groups.len(), 2);
 
         // Bo's original key should be deleted
-        let bo_original_after_delete = bo_store
+        let bo_original_after_delete = bo
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
         assert!(bo_original_after_delete.is_err());

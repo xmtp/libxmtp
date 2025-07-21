@@ -1,13 +1,13 @@
 #![allow(unused)]
 
-use super::{build_with_verifier, FullXmtpClient};
+use super::FullXmtpClient;
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     configuration::DeviceSyncUrls,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
-    utils::VersionInfo,
+    utils::{TestClient, TestMlsStorage, VersionInfo},
     worker::metrics::WorkerMetrics,
     Client,
 };
@@ -40,8 +40,7 @@ use xmtp_id::{
 };
 use xmtp_proto::prelude::XmtpTestClient;
 
-type XmtpMlsProvider =
-    XmtpOpenMlsProvider<SqlKeyStore<<xmtp_db::DefaultStore as xmtp_db::XmtpDb>::Connection>>;
+type XmtpMlsProvider = XmtpOpenMlsProvider<Arc<TestMlsStorage>>;
 
 /// A test client wrapper that auto-exposes all of the usual component access boilerplate.
 /// Makes testing easier and less repetetive.
@@ -121,17 +120,17 @@ where
             let ident = self.owner.get_identifier().unwrap();
             replace.add(&ident.to_string(), &format!("{name}_ident"));
         }
-        let api_client = ClientBuilder::new_api_client().await;
-        let client = build_with_verifier(
-            &self.owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            self.sync_url.as_deref(),
-            Some(self.sync_mode),
-            self.version.clone(),
-            Some(!self.events),
-        )
-        .await;
+        let api_client = TestClient::create_local();
+        let client = ClientBuilder::new_test_builder(&self.owner)
+            .await
+            .with_device_sync_worker_mode(Some(self.sync_mode))
+            .with_device_sync_server_url(self.sync_url.clone())
+            .maybe_version(self.version.clone())
+            .with_disable_events(Some(!self.events))
+            .build()
+            .await
+            .unwrap();
+
         let client = Arc::new(client);
         if let Some(name) = &self.name {
             replace.add(
@@ -140,7 +139,7 @@ where
             );
             replace.add(client.inbox_id(), name);
         }
-        let provider = client.mls_provider();
+        let provider = XmtpOpenMlsProvider::new(client.context.mls_storage.clone());
         let worker = client.context.sync_metrics();
         if let Some(worker) = &worker {
             if self.wait_for_init {

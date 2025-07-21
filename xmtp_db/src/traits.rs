@@ -2,6 +2,15 @@ use crate::ConnectionExt;
 use crate::StorageError;
 use crate::prelude::*;
 
+/// Get an MLS Key store
+pub trait MlsKeyStore {
+    type Store<'a>: XmtpMlsStorageProvider
+    where
+        Self: 'a;
+
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a>;
+}
+
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
     type Output;

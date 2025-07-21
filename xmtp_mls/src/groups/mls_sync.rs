@@ -1,6 +1,6 @@
 use super::{
     build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
-    build_extensions_for_permissions_update, build_group_membership_extension,
+    build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
@@ -42,19 +42,18 @@ use crate::{
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use update_group_membership::apply_update_group_membership_intent;
-use xmtp_api::XmtpApi;
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     refresh_state::EntityKind,
-    sql_key_store::{self, SqlKeyStore},
+    sql_key_store,
     user_preferences::StoredUserPreferences,
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
 };
 use xmtp_db::{prelude::*, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
-use xmtp_db::{sql_key_store::XmtpMlsTransactionProvider, XmtpMlsStorageProvider};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
@@ -75,11 +74,10 @@ use openmls::{
     treesync::LeafNodeParameters,
 };
 use openmls::{framing::WireFormat, prelude::BasicCredentialError};
-use openmls_traits::{signatures::Signer, OpenMlsProvider};
+use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
 use sha2::Sha256;
-use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
@@ -675,7 +673,6 @@ where
             maybe_mock_wrong_epoch_for_tests()?;
         }
 
-        let db = self.context.db();
         let provider = self.context.mls_provider();
 
         let GroupMessageV1 {
@@ -690,7 +687,8 @@ where
         // and roll the transaction back, so we can fetch updates from the server before
         // being ready to process the message for a second time.
         let mut processed_message = None;
-        let result = provider.key_store().transaction(|storage| {
+        let result = provider.key_store().transaction(|conn| {
+            let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
             processed_message = Some(mls_group.process_message(&provider, message.clone()));
             // Rollback the transaction. We want to synchronize with the server before committing.
@@ -732,7 +730,7 @@ where
                         match &e {
                             CommitValidationError::ProtocolVersionTooLow(_) => {}
                             _ => {
-                                db.update_cursor(
+                                self.context.db().update_cursor(
                                     &envelope.group_id,
                                     EntityKind::Group,
                                     *cursor as i64,
@@ -751,7 +749,9 @@ where
             _ => None,
         };
 
-        let identifier = provider.key_store().transaction(|provider| {
+        let identifier = provider.key_store().transaction(|conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
                 installation_id = %self.context.installation_id(),
@@ -1178,8 +1178,9 @@ where
                 let maybe_validated_commit = self
                     .stage_and_validate_intent(&mls_group, &intent, &message, envelope)
                     .await;
-                self.context.mls_storage().transaction(|storage| {
-                    let db = storage.storage().db();
+                self.context.mls_storage().transaction(|conn| {
+                    let storage = conn.key_store();
+                    let db = storage.db();
                     let requires_processing = if allow_cursor_increment {
                             tracing::info!(
                                 "calling update cursor for group {}, with cursor {}, allow_cursor_increment is true",
@@ -1683,8 +1684,10 @@ where
                         let has_staged_commit = staged_commit.is_some();
                         let intent_hash = sha256(payload_slice);
                         // removing this transaction causes missed messages
-                       self.context.mls_storage().transaction(|storage| {
-                            storage.db().set_group_intent_published(
+                       self.context.mls_storage().transaction(|conn| {
+                            let storage = conn.key_store();
+                            let db = storage.db();
+                            db.set_group_intent_published(
                                 intent.id,
                                 &intent_hash,
                                 post_commit_action,
@@ -1784,7 +1787,8 @@ where
                 }))
             }
             IntentKind::KeyUpdate => {
-                let result = storage.transaction(|storage| {
+                let result = storage.transaction(|conn| {
+                    let storage = conn.key_store();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let bundle = openmls_group.self_update(
                         &provider,
@@ -1816,8 +1820,9 @@ where
                     metadata_intent.field_value,
                 )?;
 
-                let result = storage.transaction(|storage| {
-                    let provider = XmtpOpenMlsProvider::new(storage);
+                let result = storage.transaction(|conn| {
+                    let storage = conn.key_store();
+                    let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1852,8 +1857,9 @@ where
                     admin_list_update_intent,
                 )?;
 
-                let result = storage.transaction(|storage| {
-                    let provider = XmtpOpenMlsProvider::new(storage);
+                let result = storage.transaction(|conn| {
+                    let storage = conn.key_store();
+                    let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         mutable_metadata_extensions,
@@ -1888,8 +1894,9 @@ where
                     update_permissions_intent,
                 )?;
 
-                let result = storage.transaction(|storage| {
-                    let provider = XmtpOpenMlsProvider::new(storage);
+                let result = storage.transaction(|conn| {
+                    let storage = conn.key_store();
+                    let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let (commit, _, _) = openmls_group.update_group_context_extensions(
                         &provider,
                         group_permissions_extensions,
@@ -2359,7 +2366,7 @@ async fn get_keypackages_for_installation_ids(
     failed_installations: &mut [Vec<u8>],
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
-    let my_installation_id = context.context_ref().installation_public_key().to_vec();
+    let my_installation_id = context.installation_id().to_vec();
     let store = MlsStore::new(context.clone());
     store
         .get_key_packages_for_installation_ids(
@@ -2407,7 +2414,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use super::*;
-    use crate::{builder::ClientBuilder, utils::ConcreteMlsGroup};
+    use crate::{builder::ClientBuilder, utils::TestMlsGroup};
     use std::sync::Arc;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -2460,7 +2467,7 @@ pub(crate) mod tests {
     async fn hmac_keys_work_as_expected() {
         let wallet = generate_local_wallet();
         let amal = Arc::new(ClientBuilder::new_test_client(&wallet).await);
-        let amal_group: Arc<ConcreteMlsGroup> =
+        let amal_group: Arc<TestMlsGroup> =
             Arc::new(amal.create_group(None, Default::default()).unwrap());
 
         let hmac_keys = amal_group.hmac_keys(-1..=1).unwrap();

@@ -34,8 +34,7 @@ use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    SqlKeyStoreError, XmtpMlsTransactionProvider, KEY_PACKAGE_REFERENCES,
-    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+    SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
 };
 use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
@@ -683,12 +682,11 @@ impl Identity {
         match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
-                provider.storage().transaction(|storage| {
+                provider.storage().transaction(|conn| {
+                    let storage = conn.key_store();
                     storage
-                        .storage()
                         .db()
                         .mark_key_package_before_id_to_be_deleted(history_id)?;
-                    storage.storage().db().clear_key_package_rotation_queue()?;
                     Ok::<(), StorageError>(())
                 })?;
                 mls_storage.db().clear_key_package_rotation_queue()?;
@@ -794,14 +792,10 @@ fn store_key_package_references(
     // keyed by the TLS serialized public init key instead of the slice version.
     let public_init_key = kp.hpke_init_key().tls_serialize_detached()?;
 
-    let hash_ref = serialize_key_package_hash_ref(kp, &provider)?;
+    let hash_ref = serialize_key_package_hash_ref(kp, provider)?;
     let storage = provider.key_store();
     // Write the normal init key to the key package references
-    storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
-        KEY_PACKAGE_REFERENCES,
-        &public_init_key,
-        &hash_ref,
-    )?;
+    storage.write(KEY_PACKAGE_REFERENCES, &public_init_key, &hash_ref)?;
 
     if let Some(post_quantum_keypair) = post_quantum_keypair {
         let post_quantum_public_key = pq_key_package_references_key(&post_quantum_keypair.public)?;
@@ -811,13 +805,9 @@ fn store_key_package_references(
             .map_err(|_| IdentityError::Bincode)?;
 
         // Write the post quantum wrapper encryption public key to the key package references
-        storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
-            KEY_PACKAGE_REFERENCES,
-            &post_quantum_public_key,
-            &hash_ref,
-        )?;
+        storage.write(KEY_PACKAGE_REFERENCES, &post_quantum_public_key, &hash_ref)?;
 
-        storage.write::<{ openmls_traits::storage::CURRENT_VERSION }>(
+        storage.write(
             KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
             &hash_ref,
             &post_quantum_private_key,
@@ -830,6 +820,8 @@ fn store_key_package_references(
 #[cfg(test)]
 mod tests {
     use crate::groups::mls_ext::WrapperAlgorithm;
+    use xmtp_db::XmtpMlsStorageProvider;
+    use crate::context::XmtpSharedContext;
     use crate::{
         builder::ClientBuilder,
         groups::key_package_cleaner_worker::KeyPackagesCleanerWorker,
@@ -841,7 +833,7 @@ mod tests {
     use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
     use tls_codec::Serialize;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::XmtpOpenMlsProvider;
+    use xmtp_db::XmtpOpenMlsProviderRef;
     use xmtp_db::{
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
@@ -867,7 +859,7 @@ mod tests {
         let welcomes = client
             .context
             .api()
-            .query_welcome_messages(client.installation_id(), None)
+            .query_welcome_messages(client.context.installation_id(), None)
             .await
             .unwrap();
 
@@ -888,7 +880,7 @@ mod tests {
     fn get_pq_private_key(provider: &impl MlsProviderExt, hash_ref: &[u8]) -> Option<Vec<u8>> {
         let val: Option<Vec<u8>> = provider
             .key_store()
-            .read::<{ openmls_traits::storage::CURRENT_VERSION }, Vec<u8>>(
+            .read::<Vec<u8>>(
                 KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
                 hash_ref,
             )
@@ -902,11 +894,13 @@ mod tests {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.context.db();
         let storage = client.context.mls_storage();
+        let provider = XmtpOpenMlsProviderRef::new(&storage);
+
         // As long as we have `config::CREATE_PQ_KEY_PACKAGE_EXTENSION` set to false, we need to do this step to force a PQ key package to be created
         let api_client = client.context.api();
         client
             .identity()
-            .rotate_and_upload_key_package(api_client, &storage, true)
+            .rotate_and_upload_key_package(api_client, storage, true)
             .await
             .unwrap();
 
@@ -919,7 +913,7 @@ mod tests {
             .unwrap();
 
         // Make sure we can find the init key
-        let init_key_hash_ref = get_hash_ref(&provider, &starting_init_key);
+        let init_key_hash_ref = get_hash_ref(provider, &starting_init_key);
         assert!(init_key_hash_ref.is_some());
 
         // Make sure we can find the post quantum public key

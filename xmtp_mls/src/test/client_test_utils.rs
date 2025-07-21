@@ -7,28 +7,25 @@ use xmtp_db::{sql_key_store::SqlKeyStore, XmtpDb};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
-    context::XmtpMlsLocalContext,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{GroupError, MlsGroup},
     Client,
 };
 
 use super::group_test_utils::TestError;
-type TestMlsGroup<ApiClient, Db> =
-    MlsGroup<Arc<XmtpMlsLocalContext<ApiClient, Db, SqlKeyStore<<Db as XmtpDb>::Connection>>>>;
 
 // Please ensure that all public functions defined in this module
 // start with `test_`
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb + Send + Sync,
+    Context: XmtpSharedContext,
 {
     /// Creates a DM with the other client, sends a message, and ensures delivery,
     /// returning the created dm and sent message contents
     pub async fn test_talk_in_dm_with(
         &self,
         other: &Self,
-    ) -> Result<(TestMlsGroup<ApiClient, Db>, String), TestError> {
+    ) -> Result<(MlsGroup<Context>, String), TestError> {
         self.sync_welcomes().await?;
         let dm = self
             .find_or_create_dm_by_inbox_id(other.inbox_id(), None)
@@ -51,8 +48,8 @@ where
     pub async fn test_has_same_sync_group_as(&self, other: &Self) -> Result<(), GroupError> {
         self.sync_welcomes().await?;
         other.sync_welcomes().await?;
-        let this_sync = self.device_sync_client();
-        let other_sync = other.device_sync_client();
+        let this_sync = self.context.device_sync_client();
+        let other_sync = other.context.device_sync_client();
         let mut sync_group = this_sync.get_sync_group().await?;
         let mut other_sync_group = other_sync.get_sync_group().await?;
         for i in 0..10 {

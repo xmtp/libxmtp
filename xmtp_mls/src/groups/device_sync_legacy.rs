@@ -205,9 +205,8 @@ where
     }
 
     #[cfg(test)]
-    async fn v1_get_latest_sync_reply<S: StorageProvider>(
+    async fn v1_get_latest_sync_reply(
         &self,
-        provider: &XmtpOpenMlsProvider<S>,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
@@ -612,6 +611,7 @@ mod tests {
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
         alix2
+            .context
             .device_sync_client()
             .get_sync_group()
             .await?
@@ -623,6 +623,7 @@ mod tests {
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
@@ -636,6 +637,7 @@ mod tests {
             .await?;
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;

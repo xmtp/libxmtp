@@ -3,22 +3,17 @@ mod tests;
 
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{ready, Poll},
 };
 
-use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
-    subscriptions::stream_messages::MessagesApiSubscription,
-};
+use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
 use crate::{groups::welcome_sync::WelcomeService, track};
 
 use xmtp_db::{
     group::{ConversationType, GroupQueryArgs},
     group_message::StoredGroupMessage,
-    XmtpDb,
 };
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+use xmtp_proto::api_client::XmtpMlsStreams;
 
 use super::{
     stream_conversations::{StreamConversations, WelcomesApiSubscription},

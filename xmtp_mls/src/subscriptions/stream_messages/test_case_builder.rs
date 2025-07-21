@@ -226,7 +226,7 @@ impl Default for StreamSequenceBuilder {
 }
 
 pub struct FinishedSequence {
-    pub context: Arc<MockContext>,
+    pub context: MockContext,
     // dont want to drop them
     #[allow(unused)]
     pub case_state: Arc<Mutex<CaseState>>,
@@ -355,7 +355,7 @@ impl StreamSequenceBuilder {
         (
             self.factory,
             FinishedSequence {
-                context: Arc::new(self.context),
+                context: self.context,
                 case_state: self.case_state,
                 process_sequence: self.process_sequence,
             },

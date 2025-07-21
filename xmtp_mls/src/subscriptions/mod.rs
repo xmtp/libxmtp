@@ -6,7 +6,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
 use tracing::instrument;
-use xmtp_db::{prelude::*, sql_key_store::SqlKeyStore, XmtpDb};
+use xmtp_db::prelude::*;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use process_welcome::ProcessWelcomeResult;
@@ -20,12 +20,12 @@ mod stream_conversations;
 pub(crate) mod stream_messages;
 
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::{
         device_sync::preference_sync::PreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
     },
-    Client, XmtpApi,
+    Client,
 };
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};

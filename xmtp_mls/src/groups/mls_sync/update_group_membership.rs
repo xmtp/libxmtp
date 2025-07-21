@@ -1,5 +1,4 @@
 use super::*;
-use crate::context::XmtpMlsLocalContext;
 use crate::groups::{
     build_group_membership_extension,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
@@ -53,7 +52,8 @@ pub async fn apply_update_group_membership_intent<C: XmtpSharedContext>(
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership));
 
     let (commit, post_commit_action, staged_commit) =
-        context.mls_storage().transaction(|storage| {
+        context.mls_storage().transaction(|conn| {
+            let storage = conn.key_store();
             let provider = XmtpOpenMlsProvider::new(storage);
             // Create the commit
             let (commit, maybe_welcome_message, _) = openmls_group.update_group_membership(

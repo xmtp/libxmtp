@@ -19,11 +19,10 @@ use openmls::{
 };
 use prost::Message;
 use serde::Serialize;
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 use thiserror::Error;
-use xmtp_api::XmtpApi;
 use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_db::{StorageError, XmtpDb};
+use xmtp_db::StorageError;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{associations::MemberIdentifier, InboxId};

@@ -28,13 +28,14 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
+#[cfg(test)]
+use crate::context::XmtpMlsLocalContext;
 use crate::identity_updates::IdentityUpdates;
 use crate::{
     client::ClientError,
     configuration::{
         CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     },
-    context::XmtpMlsLocalContext,
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
@@ -60,20 +61,18 @@ use openmls::{
         WireFormatPolicy,
     },
 };
-use openmls_traits::{storage::CURRENT_VERSION, OpenMlsProvider};
+use openmls_traits::storage::CURRENT_VERSION;
 use prost::Message;
 use std::collections::HashMap;
 use std::future::Future;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
-use xmtp_api::XmtpApi;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
-use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::{
@@ -282,7 +281,7 @@ where
         dm_id: Option<String>,
         created_at_ns: i64,
     ) -> Self {
-        let mut mutexes = context.context_ref().mutexes.clone();
+        let mut mutexes = context.mutexes().clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
@@ -547,7 +546,8 @@ where
         };
 
         let mut decrypted_welcome: Option<Result<DecryptedWelcome, GroupError>> = None;
-        let result = provider.key_store().transaction(|mls_storage| {
+        let result = provider.key_store().transaction(|conn| {
+            let mls_storage = conn.key_store();
             let result = DecryptedWelcome::from_encrypted_bytes(
                 &XmtpOpenMlsProvider::new(mls_storage),
                 &welcome.hpke_public_key,
@@ -569,7 +569,9 @@ where
         // in the `GroupMembership` extension.
         validate_initial_group_membership(&context, &staged_welcome).await?;
 
-        provider.key_store().transaction(|storage| {
+        provider.key_store().transaction(|conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
             let provider = XmtpOpenMlsProviderRef::new(&storage);
             let decrypted_welcome = DecryptedWelcome::from_encrypted_bytes(
                 &provider,
@@ -589,7 +591,7 @@ where
             );
             // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
             // failed due to retriable errors, this will permanently skip them.
-            let requires_processing = conn.update_cursor(
+            let requires_processing = db.update_cursor(
                 context.installation_id(),
                 EntityKind::Welcome,
                 welcome.id as i64,
@@ -625,7 +627,7 @@ where
                             current_version_str
                         );
                         Some(min_version)
-            } else {
+                    } else {
                         None
                     }
                 } else {
@@ -674,9 +676,9 @@ where
             tracing::warn!("storing group with welcome id {}", welcome.id);
             // Insert or replace the group in the database.
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
-            let stored_group = conn.insert_or_replace_group(to_store)?;
+            let stored_group = db.insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(&conn, &stored_group)?;
+            StoredConsentRecord::persist_consent(&db, &stored_group)?;
             track!(
                 "Group Welcome",
                 {
@@ -1547,7 +1549,7 @@ where
     /// See the `test_validate_dm_group` test function for more details.
     #[cfg(test)]
     pub fn create_test_dm_group(
-        context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+        context: Context,
         dm_target_inbox_id: InboxId,
         custom_protected_metadata: Option<Extension>,
         custom_mutable_metadata: Option<Extension>,
@@ -1555,8 +1557,7 @@ where
         custom_mutable_permissions: Option<PolicySet>,
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
-        let conn = context.store().conn();
-        let provider = XmtpOpenMlsProvider::new(&conn);
+        let provider = context.mls_provider();
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
@@ -1585,11 +1586,11 @@ where
 
         let mls_group = OpenMlsGroup::new(
             &provider,
-            &context.identity.installation_keys,
+            &context.identity().installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: context.identity.credential(),
-                signature_key: context.identity.installation_keys.public_slice().into(),
+                credential: context.identity().credential(),
+                signature_key: context.identity().installation_keys.public_slice().into(),
             },
         )?;
 
@@ -1608,7 +1609,7 @@ where
             ))
             .build()?;
 
-        stored_group.store(&conn)?;
+        stored_group.store(&context.db())?;
         Ok(Self::new_from_arc(
             context,
             group_id,

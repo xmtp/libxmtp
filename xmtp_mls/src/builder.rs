@@ -86,7 +86,7 @@ pub enum SyncWorkerMode {
 impl Client<()> {
     /// Get the builder for this [`Client`]
     pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<(), ()> {
-        ClientBuilder::<()>::new(strategy)
+        ClientBuilder::<(), ()>::new(strategy)
     }
 }
 
@@ -120,7 +120,7 @@ where
 {
     pub fn from_client(
         client: Client<ContextParts<ApiClient, S, Db>>,
-    ) -> ClientBuilder<ApiClient, S, Db> {
+    ) -> ClientBuilder<ApiClient, Arc<S>, Db> {
         let cloned_api = client.context.api_client.clone();
         ClientBuilder {
             api_client: Some(cloned_api),
@@ -136,7 +136,7 @@ where
             disable_events: true,
             #[cfg(not(test))]
             disable_events: false,
-            mls_storage: Some(client.context.mls_storage),
+            mls_storage: Some(client.context.mls_storage.clone()),
         }
     }
 }
@@ -289,7 +289,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    fn default_mls_store(
+    /// Use the default SQlite MLS Key-Value Store
+    pub fn default_mls_store(
         self,
     ) -> Result<
         ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>,
@@ -320,7 +321,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         })
     }
 
-    fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {
+    pub fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {
         ClientBuilder {
             store: self.store,
             api_client: self.api_client,
@@ -336,9 +337,23 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    pub fn with_device_sync_server_url(self, url: Option<String>) -> Self {
+        Self {
+            device_sync_server_url: url,
+            ..self
+        }
+    }
+
     pub fn device_sync_server_url(self, url: &str) -> Self {
         Self {
             device_sync_server_url: Some(url.into()),
+            ..self
+        }
+    }
+
+    pub fn with_device_sync_worker_mode(self, mode: Option<SyncWorkerMode>) -> Self {
+        Self {
+            device_sync_worker_mode: mode.unwrap_or(SyncWorkerMode::Enabled),
             ..self
         }
     }
@@ -366,6 +381,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: self.mls_storage,
         }
+    }
+
+    pub fn maybe_version(
+        mut self,
+        version: Option<VersionInfo>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
+        if let Some(v) = version {
+            self.version_info = v;
+        }
+        self
     }
 
     pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, S, Db> {
@@ -417,6 +442,17 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: true,
             ..self
         }
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn enable_sqlite_triggers(self) -> Self
+    where
+        Db: XmtpDb,
+    {
+        let db = self.store.as_ref().unwrap().db();
+        db.register_triggers();
+        db.disable_memory_security();
+        self
     }
 
     /// Wrap the Api Client in a Debug Adapter which prints api stats on error.

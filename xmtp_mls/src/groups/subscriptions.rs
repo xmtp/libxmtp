@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use super::MlsGroup;
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     subscriptions::{
         process_message::{ProcessFutureFactory, ProcessMessageFuture},
         stream_messages::{MessageStreamError, StreamGroupMessages},
@@ -10,13 +8,13 @@ use crate::{
     },
 };
 use xmtp_common::types::GroupId;
-use xmtp_db::{group_message::StoredGroupMessage, XmtpDb};
+use xmtp_db::group_message::StoredGroupMessage;
 
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot;
 use xmtp_common::StreamHandle;
-use xmtp_proto::api_client::{trait_impls::XmtpApi, XmtpMlsStreams};
+use xmtp_proto::api_client::XmtpMlsStreams;
 use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
 impl<Context> MlsGroup<Context>
@@ -89,8 +87,7 @@ where
     let (tx, rx) = oneshot::channel();
 
     xmtp_common::spawn(Some(rx), async move {
-        let context_ref = context.context_ref();
-        let stream = StreamGroupMessages::new(context_ref, active_conversations.collect()).await?;
+        let stream = StreamGroupMessages::new(&context, active_conversations.collect()).await?;
         futures::pin_mut!(stream);
         let _ = tx.send(());
         while let Some(message) = stream.next().await {

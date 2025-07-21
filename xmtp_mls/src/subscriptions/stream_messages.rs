@@ -15,7 +15,6 @@ use std::{
     collections::VecDeque,
     future::Future,
     pin::Pin,
-    sync::Arc,
     task::{ready, Poll},
 };
 
@@ -24,18 +23,16 @@ use super::{
     Result, SubscribeError,
 };
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
-    groups::MlsGroup,
-    subscriptions::process_message::ProcessedMessage,
+    context::XmtpSharedContext, groups::MlsGroup, subscriptions::process_message::ProcessedMessage,
 };
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
 use xmtp_common::types::GroupId;
 use xmtp_common::FutureWrapper;
-use xmtp_db::{group_message::StoredGroupMessage, XmtpDb};
+use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
+    api_client::XmtpMlsStreams,
     xmtp::mls::api::v1::{group_message, GroupMessage},
 };
 

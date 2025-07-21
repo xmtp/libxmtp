@@ -26,6 +26,7 @@ use diesel::connection::SimpleConnection;
 
 /// The default platform-specific store
 pub type DefaultStore = EncryptedMessageStore<database::DefaultDatabase>;
+pub type DefaultDbConnection = <DefaultStore as XmtpDb>::DbQuery;
 
 pub mod prelude {
     pub use super::ReadOnly;

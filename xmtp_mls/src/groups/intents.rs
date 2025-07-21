@@ -17,13 +17,12 @@ use openmls::prelude::{
 use prost::{bytes::Bytes, DecodeError, Message};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_api::XmtpApi;
 use xmtp_common::types::Address;
 use xmtp_db::{
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    MlsProviderExt, XmtpDb,
+    MlsProviderExt,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProvider};
+use xmtp_db::{prelude::*, ConnectionExt};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
@@ -81,22 +80,26 @@ where
         intent_data: Vec<u8>,
         should_push: bool,
     ) -> Result<StoredGroupIntent, GroupError> {
-        let conn = self.context.db();
-        let provider = XmtpOpenMlsProvider::new(&conn);
-        let res = provider.key_store().transaction(|_| {
-            self.queue_intent_with_conn(&conn, intent_kind, intent_data, should_push)
+        let provider = self.context.mls_provider();
+        let res = provider.key_store().transaction(|conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
+            self.queue_intent_with_conn(&db, intent_kind, intent_data, should_push)
         });
 
         res
     }
 
-    fn queue_intent_with_conn(
+    fn queue_intent_with_conn<C>(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<C>,
         intent_kind: IntentKind,
         intent_data: Vec<u8>,
         should_push: bool,
-    ) -> Result<StoredGroupIntent, GroupError> {
+    ) -> Result<StoredGroupIntent, GroupError>
+    where
+        C: ConnectionExt,
+    {
         if intent_kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn)?;
         }
@@ -123,10 +126,10 @@ where
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    fn maybe_insert_key_update_intent(
-        &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
-    ) -> Result<(), GroupError> {
+    fn maybe_insert_key_update_intent<C>(&self, conn: &impl DbQuery<C>) -> Result<(), GroupError>
+    where
+        C: ConnectionExt,
+    {
         let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
@@ -823,7 +826,7 @@ pub(crate) mod tests {
 
     use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
 
-    use crate::{builder::ClientBuilder, utils::ConcreteMlsGroup};
+    use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 
     use super::*;
 
@@ -931,7 +934,7 @@ pub(crate) mod tests {
     }
 
     async fn verify_num_payloads_in_group(
-        group: &ConcreteMlsGroup,
+        group: &TestMlsGroup,
         num_messages: usize,
     ) -> Vec<GroupMessage> {
         let messages = group
@@ -944,7 +947,7 @@ pub(crate) mod tests {
         messages
     }
 
-    fn verify_commit_updates_leaf_node(group: &ConcreteMlsGroup, payload: &GroupMessage) {
+    fn verify_commit_updates_leaf_node(group: &TestMlsGroup, payload: &GroupMessage) {
         let msgv1 = match &payload.version {
             Some(group_message::Version::V1(value)) => value,
             _ => panic!("error msgv1"),

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     client::ClientError,
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::{
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::{
@@ -29,10 +29,9 @@ use xmtp_db::prelude::*;
 use xmtp_db::{
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    StoreOrIgnore, XmtpDb,
+    StoreOrIgnore,
 };
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
     xmtp::device_sync::{
         content::{
             device_sync_content::Content as ContentProto, device_sync_key_type::Key,
@@ -63,7 +62,7 @@ where
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or_default();
-        let client = DeviceSyncClient::new(&context, metrics.clone());
+        let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
             client,
@@ -364,8 +363,7 @@ where
                 if !updated.is_empty() {
                     let _ = self
                         .context
-                        .context_ref()
-                        .local_events
+                        .local_events()
                         .send(LocalEvents::PreferencesChanged(updated));
                 }
             }

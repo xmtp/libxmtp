@@ -1,7 +1,7 @@
 use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
@@ -22,20 +22,17 @@ use xmtp_db::{
 };
 use xmtp_db::{prelude::*, XmtpDb};
 use xmtp_id::{associations::DeserializationError, InboxIdRef};
-use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
-    xmtp::{
-        device_sync::{
-            content::{
-                device_sync_content::Content as ContentProto,
-                DeviceSyncContent as DeviceSyncContentProto,
-            },
-            BackupElementSelection, BackupOptions,
+use xmtp_proto::xmtp::{
+    device_sync::{
+        content::{
+            device_sync_content::Content as ContentProto,
+            DeviceSyncContent as DeviceSyncContentProto,
         },
-        mls::message_contents::{
-            plaintext_envelope::{Content, V1},
-            ContentTypeId, EncodedContent, PlaintextEnvelope,
-        },
+        BackupElementSelection, BackupOptions,
+    },
+    mls::message_contents::{
+        plaintext_envelope::{Content, V1},
+        ContentTypeId, EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -139,12 +136,12 @@ pub struct DeviceSyncClient<Context> {
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<Context: Clone> DeviceSyncClient<Context> {
-    pub fn new(context: &Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
+impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
+    pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
-            mls_store: MlsStore::new(context.clone()),
+            mls_store: MlsStore::new(context),
             metrics,
         }
     }
@@ -220,8 +217,7 @@ where
         // Notify our own worker of our own message so it can process it.
         let _ = self
             .context
-            .context_ref()
-            .worker_events
+            .worker_events()
             .send(SyncWorkerEvent::NewSyncGroupMsg);
 
         Ok(message_id)

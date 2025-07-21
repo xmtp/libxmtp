@@ -1,13 +1,13 @@
-use openmls::storage::StorageProvider;
 use openmls::{
     group::{MlsGroupJoinConfig, ProcessedWelcome, StagedWelcome, WireFormatPolicy},
     prelude::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
 };
-use openmls_traits::OpenMlsProvider;
+use openmls_traits::storage::StorageProvider;
 use tls_codec::{Deserialize, Serialize};
-use xmtp_db::{sql_key_store::SqlKeyStoreError, MlsProviderExt};
+use xmtp_db::MlsProviderExt;
+use xmtp_db::XmtpMlsStorageProvider;
 
 use crate::{
     client::ClientError,
@@ -37,10 +37,7 @@ impl DecryptedWelcome {
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
-    ) -> Result<DecryptedWelcome, GroupError>
-    where
-        <P as OpenMlsProvider>::StorageProvider: StorageProvider<Error = SqlKeyStoreError>,
-    {
+    ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
@@ -80,7 +77,7 @@ pub(super) fn find_key_package_hash_ref(
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
     Ok(provider
-        .storage()
+        .key_store()
         .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
         .ok_or(NotFound::KeyPackageReference)?)
 }
@@ -95,7 +92,8 @@ pub(super) fn find_private_key(
 ) -> Result<Vec<u8>, GroupError> {
     match wrapper_ciphersuite {
         WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> = provider.storage().key_package(hash_ref)?;
+            let key_package: Option<KeyPackageBundle> =
+                provider.key_store().key_package(hash_ref)?;
             Ok(key_package
                 .map(|kp| kp.init_private_key().to_vec())
                 .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
@@ -104,11 +102,8 @@ pub(super) fn find_private_key(
             let serialized_hash_ref = bincode::serialize(hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
             let private_key = provider
-                .storage()
-                .read::<{ openmls_traits::storage::CURRENT_VERSION }, Vec<u8>>(
-                    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-                    &serialized_hash_ref,
-                )?;
+                .key_store()
+                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
 
             Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)
         }

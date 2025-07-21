@@ -6,12 +6,13 @@ mod test_key_updates;
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
+use crate::context::XmtpSharedContext;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 use crate::tester;
-use crate::utils::{ConcreteMlsGroup, Tester, VersionInfo};
+use crate::utils::{TestMlsGroup, Tester, VersionInfo};
 use crate::{
     builder::ClientBuilder,
     groups::{
@@ -45,6 +46,7 @@ use xmtp_db::{
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     prelude::*,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
+    MlsProviderExt,
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::associations::Identifier;
@@ -53,14 +55,14 @@ use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, Metad
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-async fn receive_group_invite(client: &FullXmtpClient) -> ConcreteMlsGroup {
+async fn receive_group_invite(client: &FullXmtpClient) -> TestMlsGroup {
     client.sync_welcomes().await.unwrap();
     let mut groups = client.find_groups(GroupQueryArgs::default()).unwrap();
 
     groups.remove(0)
 }
 
-async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
+async fn get_latest_message(group: &TestMlsGroup) -> StoredGroupMessage {
     group.sync().await.unwrap();
     let mut messages = group.find_messages(&MsgQueryArgs::default()).unwrap();
     messages.pop().unwrap()
@@ -69,12 +71,12 @@ async fn get_latest_message(group: &ConcreteMlsGroup) -> StoredGroupMessage {
 // Adds a member to the group without the usual validations on group membership
 // Used for testing adversarial scenarios
 #[cfg(not(target_arch = "wasm32"))]
-async fn force_add_member<S: openmls::storage::StorageProvider>(
+async fn force_add_member(
     sender_client: &FullXmtpClient,
     new_member_client: &FullXmtpClient,
-    sender_group: &ConcreteMlsGroup,
+    sender_group: &TestMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
-    sender_provider: &XmtpOpenMlsProvider<S>,
+    sender_provider: &impl MlsProviderExt,
 ) {
     use crate::{
         configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,
@@ -82,7 +84,7 @@ async fn force_add_member<S: openmls::storage::StorageProvider>(
 
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;
-    let new_member_provider = new_member_client.mls_provider();
+    let new_member_provider = new_member_client.context.mls_provider();
 
     let key_package_result = new_member_client
         .identity()
@@ -114,6 +116,7 @@ async fn force_add_member<S: openmls::storage::StorageProvider>(
         .prepare_group_messages(vec![(serialized_commit.as_slice(), false)])
         .unwrap();
     sender_client
+        .context
         .api()
         .send_group_messages(messages)
         .await
@@ -130,6 +133,7 @@ async fn test_send_message() {
     let group = alix.create_group(None, None)?;
     group.send_message(b"hello").await?;
     let messages = alix
+        .context
         .api()
         .query_group_messages(group.group_id.clone(), None)
         .await?;
@@ -460,6 +464,7 @@ async fn test_add_inbox() {
     let group_id = group.group_id;
 
     let messages = client
+        .context
         .api()
         .query_group_messages(group_id, None)
         .await
@@ -533,6 +538,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // Query messages from Bola_1's perspective
     let messages_bola_1 = bola_1
+        .context
         .api()
         .query_group_messages(group.clone().group_id.clone(), None)
         .await
@@ -543,6 +549,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 
     // Query messages from Alix's perspective
     let messages_alix = alix
+        .context
         .api()
         .query_group_messages(group.clone().group_id, None)
         .await
@@ -652,7 +659,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 
     assert_eq!(bola_groups.len(), 1, "Bola_1 should see the DM group");
 
-    let bola_1_dm: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_1_dm: &TestMlsGroup = bola_groups.first().unwrap();
     bola_1_dm.sync().await.unwrap();
 
     // 6) Ensure Bola_2 does NOT have the group
@@ -1018,6 +1025,7 @@ async fn test_remove_inbox() {
     // failed
     let group_id = group.group_id;
     let messages = client_1
+        .context
         .api()
         .query_group_messages(group_id, None)
         .await
@@ -1040,6 +1048,7 @@ async fn test_key_update() {
     group.key_update().await.unwrap();
 
     let messages = client
+        .context
         .api()
         .query_group_messages(group.group_id.clone(), None)
         .await
@@ -1078,6 +1087,7 @@ async fn test_post_commit() {
 
     // Check if the welcome was actually sent
     let welcome_messages = client
+        .context
         .api()
         .query_welcome_messages(client_2.installation_public_key(), None)
         .await
@@ -1167,7 +1177,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
 
     let message_text = b"hello";
 
-    let bola_group = ConcreteMlsGroup::new(
+    let bola_group = TestMlsGroup::new(
         bola.context.clone(),
         amal_group.group_id.clone(),
         amal_group.dm_id.clone(),
@@ -1717,7 +1727,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members_by_inbox_id(&[caro.inbox_id()])
@@ -1772,7 +1782,7 @@ async fn test_group_admin_list_update() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .add_members_by_inbox_id(&[charlie.inbox_id()])
@@ -1816,7 +1826,7 @@ async fn test_group_super_admin_list_update() {
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
     assert_eq!(bola_groups.len(), 1);
-    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_admin_list(UpdateAdminListType::Add, caro.inbox_id().to_string())
@@ -2056,7 +2066,7 @@ async fn test_can_update_gce_after_failed_commit() {
     // Step 3: Verify that Bola can update the group name, and amal sees the update
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
-    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     bola_group
         .update_group_name("Name Update 1".to_string())
@@ -2100,7 +2110,7 @@ async fn test_can_update_gce_after_failed_commit() {
 async fn test_can_update_permissions_after_group_creation() {
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let amal_group: &ConcreteMlsGroup = &amal.create_group(policy_set, None).unwrap();
+    let amal_group: &TestMlsGroup = &amal.create_group(policy_set, None).unwrap();
 
     // Step 2:  Amal adds Bola to the group
     let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -2114,7 +2124,7 @@ async fn test_can_update_permissions_after_group_creation() {
     bola.sync_welcomes().await.unwrap();
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
-    let bola_group: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_group: &TestMlsGroup = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let result = bola_group.add_members_by_inbox_id(&[caro.inbox_id()]).await;
     if let Err(e) = &result {
@@ -2274,7 +2284,7 @@ async fn test_dm_creation() {
     let _ = bola.sync_welcomes().await;
     let bola_groups = bola.find_groups(GroupQueryArgs::default()).unwrap();
 
-    let bola_dm: &ConcreteMlsGroup = bola_groups.first().unwrap();
+    let bola_dm: &TestMlsGroup = bola_groups.first().unwrap();
     bola_dm.send_message(b"test one").await.unwrap();
 
     // Amal sync and reads message
@@ -2455,6 +2465,7 @@ async fn test_parallel_syncs() {
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
+        .context
         .api()
         .query_welcome_messages(alix2.installation_public_key(), None)
         .await
@@ -2463,6 +2474,7 @@ async fn test_parallel_syncs() {
 
     // Make sure that only one group message was sent
     let group_messages = alix1
+        .context
         .api()
         .query_group_messages(alix1_group.group_id.clone(), None)
         .await
@@ -2499,7 +2511,7 @@ async fn test_parallel_syncs() {
 }
 
 // Create a membership update intent, but don't sync it yet
-async fn create_membership_update_no_sync(group: &ConcreteMlsGroup) {
+async fn create_membership_update_no_sync(group: &TestMlsGroup) {
     let intent_data = group.get_membership_update_intent(&[], &[]).await.unwrap();
 
     // If there is nothing to do, stop here
@@ -2550,6 +2562,7 @@ async fn add_missing_installs_reentrancy() {
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
+        .context
         .api()
         .query_welcome_messages(alix2.installation_public_key(), None)
         .await
@@ -2559,6 +2572,7 @@ async fn add_missing_installs_reentrancy() {
     // We expect two group messages to have been sent,
     // but only the first is valid
     let group_messages = alix1
+        .context
         .api()
         .query_group_messages(alix1_group.group_id.clone(), None)
         .await
@@ -2608,6 +2622,7 @@ async fn respect_allow_epoch_increment() {
 
     // Retrieve the envelope for the commit from the network
     let messages = client
+        .context
         .api()
         .query_group_messages(group.group_id.clone(), None)
         .await
@@ -2756,7 +2771,7 @@ async fn test_validate_dm_group() {
     let dm_target_inbox_id = added_by_inbox.to_string();
 
     // Test case 1: Valid DM group
-    let valid_dm_group = ConcreteMlsGroup::create_test_dm_group(
+    let valid_dm_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
@@ -2775,7 +2790,7 @@ async fn test_validate_dm_group() {
     // Test case 2: Invalid conversation type
     let invalid_protected_metadata =
         build_protected_metadata_extension(creator_inbox_id, ConversationType::Group).unwrap();
-    let invalid_type_group = ConcreteMlsGroup::create_test_dm_group(
+    let invalid_type_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),
         Some(invalid_protected_metadata),
@@ -2801,7 +2816,7 @@ async fn test_validate_dm_group() {
     let mismatched_dm_members =
         build_dm_protected_metadata_extension(creator_inbox_id, "wrong_inbox_id".to_string())
             .unwrap();
-    let mismatched_dm_members_group = ConcreteMlsGroup::create_test_dm_group(
+    let mismatched_dm_members_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),
         Some(mismatched_dm_members),
@@ -2826,7 +2841,7 @@ async fn test_validate_dm_group() {
     let non_empty_admin_list =
         build_mutable_metadata_extension_default(creator_inbox_id, GroupMetadataOptions::default())
             .unwrap();
-    let non_empty_admin_list_group = ConcreteMlsGroup::create_test_dm_group(
+    let non_empty_admin_list_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
@@ -2852,7 +2867,7 @@ async fn test_validate_dm_group() {
 
     // Test case 7: Invalid permissions
     let invalid_permissions = PolicySet::default();
-    let invalid_permissions_group = ConcreteMlsGroup::create_test_dm_group(
+    let invalid_permissions_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),
         None,
@@ -3592,6 +3607,7 @@ async fn can_stream_out_of_order_without_forking() {
 
     // Retrieve all messages from group B, verify they contain the two messages from client c even though they were sent from the wrong epoch
     let messages = client_b
+        .context
         .api()
         .query_group_messages(group_b.group_id.clone(), None)
         .await

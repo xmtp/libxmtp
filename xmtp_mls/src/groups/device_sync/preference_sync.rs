@@ -4,7 +4,6 @@ use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
 use xmtp_db::ConnectionExt;
-use xmtp_proto::api_client::trait_impls::XmtpApi;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
     device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
@@ -147,6 +146,7 @@ mod tests {
 
         // Wait for a to process the new hmac key
         amal_b
+            .context
             .device_sync_client()
             .get_sync_group()
             .await?
@@ -161,7 +161,7 @@ mod tests {
 
         amal_a
             .identity_updates()
-            .revoke_installations(vec![amal_b.installation_id().to_vec()])
+            .revoke_installations(vec![amal_b.context.installation_id().to_vec()])
             .await?;
 
         amal_a.sync_all_welcomes_and_history_sync_groups().await?;

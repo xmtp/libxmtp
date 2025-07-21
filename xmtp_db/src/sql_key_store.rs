@@ -1,7 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{
-    ConnectionExt, DbConnection, XmtpMlsStorageProvider,
+    ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider,
     sql_key_store::transactions::MutableTransactionConnection,
 };
 
@@ -13,9 +13,7 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
-use std::{borrow::Cow, cell::RefCell, ops::Deref};
 mod transactions;
-// pub use transactions::XmtpMlsTransactionProvider;
 
 const SELECT_QUERY: &str =
     "SELECT value_bytes FROM openmls_key_value WHERE key_bytes = ? AND version = ?";
@@ -32,51 +30,30 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-pub type SqlKeyStore<C> = SqlKeyStoreRef<'static, C>;
+impl MlsKeyStore for diesel::SqliteConnection {
+    type Store<'a>
+        = SqlKeyStore<MutableTransactionConnection<'a, Self>>
+    where
+        Self: 'a;
 
-enum BorrowedOrOwnedConnection<'a, T> {
-    Borrowed(&'a T),
-    Owned(T),
-    //     Tx(MutableTransactionConnection<'a, B>),
-}
-
-impl<'a, T> AsRef<T> for BorrowedOrOwnedConnection<'a, T> {
-    fn as_ref(&self) -> &T {
-        match self {
-            Self::Borrowed(t) => t,
-            Self::Owned(t) => t,
-        }
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a> {
+        SqlKeyStore::new_transactional(self)
     }
 }
 
-impl<'a, T> Deref for BorrowedOrOwnedConnection<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Borrowed(t) => t,
-            Self::Owned(t) => t,
-        }
-    }
-}
-
-pub struct SqlKeyStoreRef<'a, A> {
+pub struct SqlKeyStore<T> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: BorrowedOrOwnedConnection<'a, A>,
+    conn: T,
 }
 
-impl<'a, A> SqlKeyStoreRef<'a, A> {
+impl<'a, A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
-        Self {
-            conn: BorrowedOrOwnedConnection::Owned(conn),
-        }
+        Self { conn }
     }
 
-    pub fn new_transactional(
-        conn: &'a mut A,
-    ) -> SqlKeyStoreRef<'a, MutableTransactionConnection<'a, A>> {
-        SqlKeyStoreRef {
-            conn: BorrowedOrOwnedConnection::Owned(MutableTransactionConnection::new(conn)),
+    pub fn new_transactional(conn: &'a mut A) -> SqlKeyStore<MutableTransactionConnection<'a, A>> {
+        SqlKeyStore {
+            conn: MutableTransactionConnection::new(conn),
         }
     }
 }
@@ -88,14 +65,12 @@ where
     C: ConnectionExt,
 {
     fn from(value: D) -> Self {
-        Self {
-            conn: BorrowedOrOwnedConnection::Owned(value),
-        }
+        Self { conn: value }
     }
 }
 
 // refactor to use diesel directly
-impl<'a, C> SqlKeyStoreRef<'a, C>
+impl<C> SqlKeyStore<C>
 where
     C: ConnectionExt,
 {
@@ -337,7 +312,7 @@ const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
 const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
 const RESUMPTION_PSK_STORE_LABEL: &[u8] = b"ResumptionPskStore";
 
-impl<'a, C> StorageProvider<CURRENT_VERSION> for SqlKeyStoreRef<'a, C>
+impl<C> StorageProvider<CURRENT_VERSION> for SqlKeyStore<C>
 where
     C: ConnectionExt,
 {

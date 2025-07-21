@@ -34,11 +34,12 @@ pub mod user_preferences;
 
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
-use openmls_traits::OpenMlsProvider;
+use openmls::storage::OpenMlsProvider;
 use xmtp_common::{RetryableError, retryable};
 
 use super::StorageError;
-use crate::{Store, XmtpMlsStorageProvider};
+use crate::sql_key_store::SqlKeyStoreError;
+use crate::{MlsKeyStore, Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -68,12 +69,12 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-pub struct TransactionGuard<'a> {
+#[derive(Clone)]
+pub struct TransactionGuard {
     pub(crate) in_transaction: Arc<AtomicBool>,
-    pub(crate) _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
 
-impl Drop for TransactionGuard<'_> {
+impl Drop for TransactionGuard {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }
@@ -96,16 +97,16 @@ impl RetryableError for ConnectionError {
     }
 }
 
-// #[cfg_attr(any(test, feature = "test-utils"), mockall::automock(type Connection = diesel::SqliteConnection;))]
 pub trait ConnectionExt {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
+        + MlsKeyStore
         + Send;
 
-//    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError>;
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
 
     /// Run a scoped read-only query
     /// Implementors are expected to store an instance of 'TransactionGuard'
@@ -134,11 +135,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-/*
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-*/
+
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -173,11 +174,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-/*
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-*/
+
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -212,11 +213,11 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-/*
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
-*/
+
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -406,10 +407,10 @@ where
     }
 }
 
-pub trait MlsProviderExt: OpenMlsProvider {
-    type Storage: XmtpMlsStorageProvider;
+pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
+    type XmtpStorage: XmtpMlsStorageProvider;
 
-    fn key_store<'a>(&self) -> &Self::Storage;
+    fn key_store<'a>(&self) -> &Self::XmtpStorage;
 }
 
 #[cfg(test)]

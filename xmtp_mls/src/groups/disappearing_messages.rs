@@ -1,13 +1,11 @@
-use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::XmtpSharedContext;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::{StreamExt, TryFutureExt};
-use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::OnceCell;
-use xmtp_db::{prelude::*, StorageError, XmtpDb};
-use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_db::{prelude::*, StorageError};
 
 /// Interval at which the DisappearingMessagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(1);

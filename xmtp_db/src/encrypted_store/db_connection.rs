@@ -26,11 +26,10 @@ impl<C> DbConnection<C>
 where
     C: ConnectionExt,
 {
-    /*
-        pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-            <Self as ConnectionExt>::start_transaction(self)
-        }
-    */
+    pub fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
+        <Self as ConnectionExt>::start_transaction(self)
+    }
+
     pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
@@ -51,11 +50,11 @@ where
     C: ConnectionExt,
 {
     type Connection = C::Connection;
-    /*
-        fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-            self.conn.start_transaction()
-        }
-    */
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
+        self.conn.start_transaction()
+    }
+
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,

@@ -1,17 +1,11 @@
-use std::cell::RefCell;
-
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
 // use crate::sql_key_store::XmtpMlsTransactionProvider;
-use diesel::connection::LoadConnection;
-use diesel::migration::MigrationConnection;
-use diesel::sqlite::Sqlite;
-use diesel_migrations::MigrationHarness;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
-use openmls_traits::storage::StorageProvider;
+use openmls_traits::storage::{Entity, StorageProvider};
 
 /// Convenience super trait to constrain the storage provider to a
 /// specific error type and version
@@ -37,6 +31,31 @@ pub trait XmtpMlsStorageProvider:
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}
+
+    fn read<V: Entity<CURRENT_VERSION>>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Option<V>, SqlKeyStoreError>;
+
+    fn read_list<V: Entity<CURRENT_VERSION>>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    fn delete(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
+
+    fn write(
+        &self,
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error>;
 }
 
 pub struct XmtpOpenMlsProvider<S> {
@@ -64,9 +83,9 @@ where
     S: XmtpMlsStorageProvider,
     <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
-    type Storage = S;
+    type XmtpStorage = S;
 
-    fn key_store(&self) -> &Self::Storage {
+    fn key_store(&self) -> &Self::XmtpStorage {
         &self.mls_storage
     }
 }
@@ -101,9 +120,9 @@ where
     S: XmtpMlsStorageProvider,
     <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
-    type Storage = S;
+    type XmtpStorage = S;
 
-    fn key_store(&self) -> &Self::Storage {
+    fn key_store(&self) -> &Self::XmtpStorage {
         &self.mls_storage
     }
 }
@@ -156,9 +175,9 @@ where
     S: XmtpMlsStorageProvider,
     <S as XmtpMlsStorageProvider>::Connection: ConnectionExt,
 {
-    type Storage = S;
+    type XmtpStorage = S;
 
-    fn key_store(&self) -> &Self::Storage {
+    fn key_store(&self) -> &Self::XmtpStorage {
         &self.mls_storage
     }
 }
@@ -181,16 +200,4 @@ where
     fn storage(&self) -> &Self::StorageProvider {
         &self.mls_storage
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use openmls_memory_storage::MemoryStorage;
-    /*
-        fn create_provider_with_reference() {
-            let storage = MemoryStorage::default();
-            XmtpOpenMlsProvider::new(storage)
-        }
-    */
 }

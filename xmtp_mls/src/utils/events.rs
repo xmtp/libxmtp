@@ -1,22 +1,21 @@
 use crate::{
     client::ClientError,
     configuration::DeviceSyncUrls,
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 use std::{
     fmt::Debug,
-    sync::{atomic::Ordering, Arc, LazyLock},
+    sync::{atomic::Ordering, LazyLock},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
-use xmtp_api::XmtpApi;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events, EVENTS_ENABLED},
-    ConnectionExt, DbQuery, StorageError, Store, XmtpDb, XmtpOpenMlsProvider,
+    ConnectionExt, DbQuery, StorageError, Store,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -425,7 +424,7 @@ mod tests {
 
         g.sync().await?;
 
-        let k = upload_debug_archive(&alix.provider, Some(DeviceSyncUrls::LOCAL_ADDRESS)).await?;
+        let k = upload_debug_archive(alix.db(), Some(DeviceSyncUrls::LOCAL_ADDRESS)).await?;
         tracing::info!("{k}");
 
         // Exported and uploaded no problem

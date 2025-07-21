@@ -1,17 +1,13 @@
 use crate::client::ClientError;
-use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::XmtpSharedContext;
+use crate::groups::{GroupError, MlsGroup};
 use crate::mls_store::MlsStore;
-use crate::{
-    groups::{GroupError, MlsGroup},
-    XmtpApi,
-};
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 use xmtp_common::{retry_async, Retry};
-use xmtp_db::XmtpDb;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
 

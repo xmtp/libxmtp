@@ -32,16 +32,17 @@ where
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<C as diesel::Connection>::Backend>
+        + crate::MlsKeyStore
         + Send,
 {
     type Connection = C;
-    /*
-        fn start_transaction(&self) -> Result<TransactionGuard<'a>, crate::ConnectionError> {
-            Err(crate::ConnectionError::Database(
-                diesel::result::Error::AlreadyInTransaction,
-            ))
-        }
-    */
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
+        Err(crate::ConnectionError::Database(
+            diesel::result::Error::AlreadyInTransaction,
+        ))
+    }
+
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -74,80 +75,8 @@ where
         Ok(())
     }
 }
-/*
-impl<'store, C> SqlKeyStoreRef<'store, C>
-where
-    C: ConnectionExt + 'store,
-{
-    fn inner_transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        for<'a> F: FnOnce(
-            SqlKeyStoreRef<'a, MutableTransactionConnection<'a, <C as ConnectionExt>::Connection>>,
-        ) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
-    {
-        let _guard = self.conn.start_transaction()?;
-        let conn = &self.conn;
 
-        // one call to raw_query_write = mutex only locked once for entire transaciton
-        let r = conn.raw_query_write(move |c| {
-            Ok(c.transaction(move |sqlite_c| {
-                let s = SqlKeyStoreRef {
-                    conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
-                        conn: RefCell::new(sqlite_c),
-                    }),
-                };
-                fun(s)
-            }))
-        })?;
-        Ok(r?)
-    }
-}
-*/
-/*
-impl<'a, C> XmtpMlsTransactionProvider
-    for SqlKeyStoreRef<'a, MutableTransactionConnection<'a, C>>
-where
-    C: diesel::Connection<Backend = Sqlite>
-        + diesel::connection::SimpleConnection
-        + LoadConnection
-        + MigrationConnection
-        + MigrationHarness<<C as diesel::Connection>::Backend>
-        + Send,
-{
-    type Storage = SqlKeyStoreRef<'a, MutableTransactionConnection<'a, C>>;
-
-    fn storage(&self) -> &Self::Storage {
-        &self
-    }
-}
-
-pub trait XmtpMlsTransactionProvider {
-    type Storage: XmtpMlsStorageProvider;
-
-    fn storage(&self) -> &Self::Storage;
-}
-*/
-/*
-pub trait KeyStoreContextProvider<C> {
-    fn key_store<'a>(self) -> SqlKeyStoreRef<'a, C>;
-}
-*/
-
-pub trait XmtpMlsTransactionProvider<C: ConnectionExt> {
-    type Storage: XmtpMlsStorageProvider<Connection = C>;
-
-    type DbQuery<'a>: crate::DbQuery<&'a C>
-    where
-        Self: 'a,
-        C: 'a;
-
-    fn storage(&self) -> &Self::Storage;
-
-    fn db<'a>(&'a self) -> Self::DbQuery<'a>;
-}
-
-impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store, C> {
+impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     type Connection = C;
 
     type DbQuery<'a>
@@ -164,42 +93,71 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
         F: FnOnce(&mut <C as ConnectionExt>::Connection) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
-        // let _guard = self.conn.start_transaction()?;
         let conn = &self.conn;
 
+        let _guard = self.conn.start_transaction(); // still needed so any reads use tx
         // one call to raw_query_write = mutex only locked once for entire transaciton
-        let r = conn.raw_query_write(|c| {
-            Ok(c.transaction(|sqlite_c| {
-                /*
-                let s = SqlKeyStoreRef {
-                    conn: BorrowedOrOwned::Owned(MutableTransactionConnection {
-                        conn: RefCell::new(sqlite_c),
-                    }),
-                };*/
-                f(sqlite_c)
-            }))
-        })?;
+        let r = conn.raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?;
         Ok(r?)
+    }
+
+    fn read<V: Entity<CURRENT_VERSION>>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Option<V>, SqlKeyStoreError> {
+        self.read(label, key)
+    }
+
+    fn read_list<V: Entity<CURRENT_VERSION>>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Vec<V>, <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        self.read_list(label, key)
+    }
+
+    fn delete(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        self.delete::<CURRENT_VERSION>(label, key)
+    }
+
+    fn write(
+        &self,
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), <Self as StorageProvider<CURRENT_VERSION>>::Error> {
+        self.write::<CURRENT_VERSION>(label, key, value)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+
+    #![allow(unused)]
 
     use crate::{
-        EphemeralDbConnection, NativeDbConnection, PersistentOrMem, TestDb, XmtpTestDb,
+        TestDb, XmtpTestDb,
         group_intent::{IntentKind, IntentState, NewGroupIntent},
         prelude::QueryGroupIntent,
     };
 
     use super::*;
 
-    struct Foo<'a, C> {
-        key_store: SqlKeyStoreRef<'a, C>,
+    // Test to ensure that we can use the transaction() callback without requiring a 'static
+    // lifetimes
+    // This ensures we do not propogate 'static throughout all of our code.
+    // have not figured out a good, ergonomic way to pass SqlKeyStore directly into the
+    // transaction callback
+    struct Foo<C> {
+        key_store: SqlKeyStore<C>,
     }
 
-    impl<'a, C> Foo<'a, C>
+    impl<C> Foo<C>
     where
         C: ConnectionExt,
     {
@@ -211,9 +169,8 @@ mod tests {
             self.long_async_call().await;
 
             self.key_store
-                .transaction(|storage| {
-                    let storage = SqlKeyStoreRef::new_transactional(storage);
-                    // let db = DbConnection::new(storage);
+                .transaction(|conn| {
+                    let storage = conn.key_store();
                     storage.db().insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
                         group_id: vec![],
@@ -225,14 +182,5 @@ mod tests {
                 .unwrap();
             self.long_async_call().await;
         }
-    }
-
-    #[xmtp_common::test]
-    async fn test_tx() {
-        let store = TestDb::create_persistent_store(None).await;
-        let conn = store.conn();
-        let key_store = SqlKeyStoreRef::new(conn);
-
-        // long_async_call
     }
 }

@@ -7,7 +7,6 @@ use crate::context::XmtpSharedContext;
 use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
-use crate::XmtpApi;
 use xmtp_api::test_utils::*;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
@@ -216,6 +215,8 @@ async fn test_client_creation() {
                     .await
                     .unwrap(),
             )
+            .default_mls_store()
+            .unwrap()
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .build()
             .await;
@@ -256,6 +257,8 @@ async fn test_turn_local_telemetry_off() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .with_disable_events(Some(true))
         .build()
@@ -293,6 +296,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -307,6 +312,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -328,6 +335,8 @@ async fn test_2nd_time_client_creation() {
             .await
             .unwrap(),
     )
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -345,6 +354,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -578,6 +589,8 @@ async fn identity_persistence_test() {
             .unwrap(),
     )
     .store(store_a)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true));
     let client_a = client_a.build().await.unwrap();
 
@@ -603,6 +616,8 @@ async fn identity_persistence_test() {
             .unwrap(),
     )
     .store(store_b)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -639,6 +654,8 @@ async fn identity_persistence_test() {
                 .unwrap(),
         )
         .store(store_d)
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await

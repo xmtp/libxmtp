@@ -1,13 +1,11 @@
 use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
-use xmtp_api::XmtpApi;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
-    XmtpDb,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProvider};
 use xmtp_id::{
     associations::{AssociationState, Identifier},
     InboxId,

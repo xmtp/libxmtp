@@ -1,8 +1,5 @@
 use openmls::group::MlsGroup as OpenMlsGroup;
-use xmtp_db::{
-    ConnectionExt, MlsProviderExt, NotFound, StorageError, XmtpMlsStorageProvider,
-    XmtpOpenMlsProvider,
-};
+use xmtp_db::{NotFound, StorageError, XmtpMlsStorageProvider};
 
 use crate::groups::mls_sync::GroupMessageProcessingError;
 

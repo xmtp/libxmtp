@@ -1,15 +1,12 @@
 use crate::{
     client::ClientError,
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
     subscriptions::SyncWorkerEvent,
     XmtpApi,
 };
 use futures::future::try_join_all;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
@@ -629,6 +626,7 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
         builder::ClientBuilder,
+        context::XmtpSharedContext,
         groups::group_membership::GroupMembership,
         identity_updates::IdentityUpdates,
         tester,
@@ -657,12 +655,12 @@ pub(crate) mod tests {
 
     use super::{is_member_of_association_state, load_identity_updates};
 
-    async fn get_association_state<ApiClient>(
-        client: &Client<ApiClient>,
+    async fn get_association_state<Context>(
+        client: &Client<Context>,
         inbox_id: &str,
     ) -> AssociationState
     where
-        ApiClient: XmtpApi,
+        Context: XmtpSharedContext,
     {
         let conn = client.context.db();
         load_identity_updates(client.context.api(), &conn, &[inbox_id])
@@ -714,7 +712,7 @@ pub(crate) mod tests {
         // The installation, wallet1 address, and the newly associated wallet2 address
         assert_eq!(state.members().len(), 3);
 
-        let api_client = client.api();
+        let api_client = client.context.api();
 
         // Check that the second wallet is associated with our new static helper
         let is_member = is_member_of_association_state(
@@ -944,7 +942,7 @@ pub(crate) mod tests {
         let other_conn = other_client.context.db();
         let ids = inbox_ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
         // Load all the identity updates for the new inboxes
-        load_identity_updates(other_client.api(), &other_conn, ids.as_slice())
+        load_identity_updates(other_client.context.api(), &other_conn, ids.as_slice())
             .await
             .expect("load should succeed");
 
@@ -1026,6 +1024,7 @@ pub(crate) mod tests {
 
         // Make sure the inbox ID is correctly registered
         let inbox_ids = client
+            .context
             .api()
             .get_inbox_ids(vec![second_wallet.identifier().into()])
             .await
@@ -1054,6 +1053,7 @@ pub(crate) mod tests {
 
         // Make sure the inbox ID is correctly unregistered
         let inbox_ids = client
+            .context
             .api()
             .get_inbox_ids(vec![second_wallet.identifier().into()])
             .await

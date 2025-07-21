@@ -8,13 +8,11 @@
 pub mod factory;
 
 use super::Result;
-use crate::context::{XmtpMlsLocalContext, XmtpSharedContext};
+use crate::context::XmtpSharedContext;
 use crate::groups::summary::MessageIdentifierBuilder;
 use factory::{GroupDatabase, GroupDb, MessageProcessor, Syncer};
-use std::sync::Arc;
-use xmtp_api::XmtpApi;
 use xmtp_common::FutureWrapper;
-use xmtp_db::{group_message::StoredGroupMessage, XmtpDb};
+use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::xmtp::mls::api::v1::group_message;
 
 /// Creates a future that processes sa single message

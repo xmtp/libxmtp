@@ -1,10 +1,9 @@
 use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
-    groups::MlsGroup,
+    context::XmtpSharedContext, groups::MlsGroup,
     subscriptions::process_welcome::ProcessWelcomeFuture,
 };
-use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
+use xmtp_db::{group::ConversationType, refresh_state::EntityKind};
 
 use futures::{prelude::stream::Select, Stream};
 use pin_project_lite::pin_project;
@@ -13,16 +12,12 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    sync::Arc,
     task::{ready, Poll},
 };
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
 use xmtp_db::prelude::*;
-use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::WelcomeMessage,
-};
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -242,9 +237,8 @@ where
             id_cursor
         );
 
-        let events = BroadcastGroupStream::new(BroadcastStream::new(
-            context.context_ref().local_events.subscribe(),
-        ));
+        let events =
+            BroadcastGroupStream::new(BroadcastStream::new(context.local_events().subscribe()));
 
         let subscription = context
             .api()

@@ -1,9 +1,9 @@
 //! Higher level queries against the local database
 //! These queries return their mls-typed equivalents after converting
 //! from the data in DB/Api
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use xmtp_api::{ApiError, XmtpApi};
+use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
@@ -13,7 +13,7 @@ use xmtp_db::{
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 
 use crate::{
-    context::{XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     groups::MlsGroup,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };

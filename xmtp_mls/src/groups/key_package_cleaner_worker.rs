@@ -1,5 +1,4 @@
 use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-use crate::context::XmtpMlsLocalContext;
 use crate::context::XmtpSharedContext;
 use crate::identity::pq_key_package_references_key;
 use crate::identity::IdentityError;
@@ -10,17 +9,13 @@ use crate::worker::{Worker, WorkerFactory, WorkerKind};
 use futures::StreamExt;
 use futures::TryFutureExt;
 use openmls_traits::storage::StorageProvider;
-use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::OnceCell;
 use xmtp_db::prelude::*;
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-    MlsProviderExt, StorageError, XmtpDb,
+    MlsProviderExt, StorageError,
 };
-
-use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
@@ -128,14 +123,11 @@ where
         key_store.delete_key_package(&openmls_hash_ref)?;
 
         if let Some(pq_pub_key) = pq_pub_key {
-            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
+            key_store.delete(
                 KEY_PACKAGE_REFERENCES,
                 pq_key_package_references_key(&pq_pub_key)?.as_slice(),
             )?;
-            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
-                KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-                &hash_ref,
-            )?;
+            key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
         }
 
         Ok(())
