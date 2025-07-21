@@ -134,6 +134,19 @@ pub trait KeyStoreContextProvider<C> {
 }
 */
 
+pub trait XmtpMlsTransactionProvider<C: ConnectionExt> {
+    type Storage: XmtpMlsStorageProvider<Connection = C>;
+
+    type DbQuery<'a>: crate::DbQuery<&'a C>
+    where
+        Self: 'a,
+        C: 'a;
+
+    fn storage(&self) -> &Self::Storage;
+
+    fn db<'a>(&'a self) -> Self::DbQuery<'a>;
+}
+
 impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store, C> {
     type Connection = C;
 
@@ -142,10 +155,7 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
     where
         Self::Connection: 'a;
 
-    fn db<'a>(&'a self) -> Self::DbQuery<'a>
-    where
-        C: 'a,
-    {
+    fn db<'a>(&'a self) -> Self::DbQuery<'a> {
         DbConnection::new(&self.conn)
     }
 

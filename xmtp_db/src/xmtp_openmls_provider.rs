@@ -29,9 +29,7 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    fn db<'a>(&'a self) -> Self::DbQuery<'a>
-    where
-        Self::Connection: 'a;
+    fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where

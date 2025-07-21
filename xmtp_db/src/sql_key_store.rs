@@ -60,66 +60,6 @@ impl<'a, T> Deref for BorrowedOrOwnedConnection<'a, T> {
     }
 }
 
-impl<'a, C> ConnectionExt for BorrowedOrOwnedConnection<'a, C>
-where
-    C: ConnectionExt,
-{
-    type Connection = <C as ConnectionExt>::Connection;
-
-    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        use BorrowedOrOwnedConnection::*;
-        match self {
-            Borrowed(t) => t.raw_query_read(fun),
-            Owned(t) => t.raw_query_read(fun),
-            //Tx(t) => t.raw_query_read(fun),
-        }
-    }
-
-    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
-    where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
-        Self: Sized,
-    {
-        use BorrowedOrOwnedConnection::*;
-        match self {
-            Borrowed(t) => t.raw_query_write(fun),
-            Owned(t) => t.raw_query_write(fun),
-            // Tx(t) => t.raw_query_write(fun),
-        }
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        use BorrowedOrOwnedConnection::*;
-        match self {
-            Borrowed(t) => t.is_in_transaction(),
-            Owned(t) => t.is_in_transaction(),
-            // Tx(t) => t.is_in_transaction(),
-        }
-    }
-
-    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
-        use BorrowedOrOwnedConnection::*;
-        match self {
-            Borrowed(t) => t.disconnect(),
-            Owned(t) => t.disconnect(),
-            // Tx(t) => t.disconnect(),
-        }
-    }
-
-    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
-        use BorrowedOrOwnedConnection::*;
-        match self {
-            Borrowed(t) => t.reconnect(),
-            Owned(t) => t.reconnect(),
-            // Tx(t) => t.reconnect(),
-        }
-    }
-}
-
 pub struct SqlKeyStoreRef<'a, A> {
     // Directly wrap the DbConnection which is a SqliteConnection in this case
     conn: BorrowedOrOwnedConnection<'a, A>,
