@@ -1,6 +1,9 @@
 use xmtp_common::{RetryableError, retryable};
 
-use crate::{ConnectionExt, XmtpMlsStorageProvider};
+use crate::{
+    ConnectionExt, DbConnection, XmtpMlsStorageProvider,
+    sql_key_store::transactions::MutableTransactionConnection,
+};
 
 use bincode;
 use diesel::{
@@ -31,12 +34,13 @@ struct StorageData {
 
 pub type SqlKeyStore<C> = SqlKeyStoreRef<'static, C>;
 
-enum BorrowedOrOwned<'a, T> {
+enum BorrowedOrOwnedConnection<'a, T> {
     Borrowed(&'a T),
     Owned(T),
+    //     Tx(MutableTransactionConnection<'a, B>),
 }
 
-impl<'a, T> AsRef<T> for BorrowedOrOwned<'a, T> {
+impl<'a, T> AsRef<T> for BorrowedOrOwnedConnection<'a, T> {
     fn as_ref(&self) -> &T {
         match self {
             Self::Borrowed(t) => t,
@@ -45,7 +49,7 @@ impl<'a, T> AsRef<T> for BorrowedOrOwned<'a, T> {
     }
 }
 
-impl<'a, T> Deref for BorrowedOrOwned<'a, T> {
+impl<'a, T> Deref for BorrowedOrOwnedConnection<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -56,23 +60,84 @@ impl<'a, T> Deref for BorrowedOrOwned<'a, T> {
     }
 }
 
-pub struct SqlKeyStoreRef<'a, C> {
-    // Directly wrap the DbConnection which is a SqliteConnection in this case
-    conn: BorrowedOrOwned<'a, C>,
-}
+impl<'a, C> ConnectionExt for BorrowedOrOwnedConnection<'a, C>
+where
+    C: ConnectionExt,
+{
+    type Connection = <C as ConnectionExt>::Connection;
 
-impl<C> SqlKeyStore<C> {
-    pub fn new(conn: C) -> Self {
-        Self {
-            conn: BorrowedOrOwned::Owned(conn),
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        use BorrowedOrOwnedConnection::*;
+        match self {
+            Borrowed(t) => t.raw_query_read(fun),
+            Owned(t) => t.raw_query_read(fun),
+            //Tx(t) => t.raw_query_read(fun),
         }
     }
 
-    pub fn conn(&self) -> &C
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        C: AsRef<C>,
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
     {
-        self.conn.as_ref()
+        use BorrowedOrOwnedConnection::*;
+        match self {
+            Borrowed(t) => t.raw_query_write(fun),
+            Owned(t) => t.raw_query_write(fun),
+            // Tx(t) => t.raw_query_write(fun),
+        }
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        use BorrowedOrOwnedConnection::*;
+        match self {
+            Borrowed(t) => t.is_in_transaction(),
+            Owned(t) => t.is_in_transaction(),
+            // Tx(t) => t.is_in_transaction(),
+        }
+    }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        use BorrowedOrOwnedConnection::*;
+        match self {
+            Borrowed(t) => t.disconnect(),
+            Owned(t) => t.disconnect(),
+            // Tx(t) => t.disconnect(),
+        }
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        use BorrowedOrOwnedConnection::*;
+        match self {
+            Borrowed(t) => t.reconnect(),
+            Owned(t) => t.reconnect(),
+            // Tx(t) => t.reconnect(),
+        }
+    }
+}
+
+pub struct SqlKeyStoreRef<'a, A> {
+    // Directly wrap the DbConnection which is a SqliteConnection in this case
+    conn: BorrowedOrOwnedConnection<'a, A>,
+}
+
+impl<'a, A> SqlKeyStoreRef<'a, A> {
+    pub fn new(conn: A) -> Self {
+        Self {
+            conn: BorrowedOrOwnedConnection::Owned(conn),
+        }
+    }
+
+    pub fn new_transactional(
+        conn: &'a mut A,
+    ) -> SqlKeyStoreRef<'a, MutableTransactionConnection<'a, A>> {
+        SqlKeyStoreRef {
+            conn: BorrowedOrOwnedConnection::Owned(MutableTransactionConnection::new(conn)),
+        }
     }
 }
 
@@ -84,7 +149,7 @@ where
 {
     fn from(value: D) -> Self {
         Self {
-            conn: BorrowedOrOwned::Owned(value),
+            conn: BorrowedOrOwnedConnection::Owned(value),
         }
     }
 }

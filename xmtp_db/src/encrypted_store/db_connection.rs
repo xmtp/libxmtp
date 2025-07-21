@@ -27,10 +27,10 @@ where
     C: ConnectionExt,
 {
     /*
-    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        <Self as ConnectionExt>::start_transaction(self)
-    }
-*/
+        pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+            <Self as ConnectionExt>::start_transaction(self)
+        }
+    */
     pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
@@ -51,11 +51,11 @@ where
     C: ConnectionExt,
 {
     type Connection = C::Connection;
-/*
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        self.conn.start_transaction()
-    }
-*/
+    /*
+        fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+            self.conn.start_transaction()
+        }
+    */
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -90,7 +90,7 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<SqlKeyStore<C>> {
+impl<C: ConnectionExt> From<DbConnection<C>> for XmtpOpenMlsProvider<SqlKeyStore<C>> {
     fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<SqlKeyStore<C>> {
         XmtpOpenMlsProvider::new(SqlKeyStore::new(db.conn))
     }

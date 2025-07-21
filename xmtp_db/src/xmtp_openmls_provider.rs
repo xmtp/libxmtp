@@ -29,15 +29,13 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    fn conn(&self) -> &Self::Connection;
-
     fn db<'a>(&'a self) -> Self::DbQuery<'a>
     where
         Self::Connection: 'a;
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(RefCell<&mut <Self::Connection as ConnectionExt>::Connection>) -> Result<T, E>,
+        F: FnOnce(&mut <Self::Connection as ConnectionExt>::Connection) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}

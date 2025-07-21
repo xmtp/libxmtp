@@ -14,10 +14,18 @@ pub struct MutableTransactionConnection<'a, C> {
     // because raw_query methods require &self, as do MlsStorage trait methods.
     // Since we no longer have async transactions, once a transaction is started
     // we can ensure it occurs all on one thread.
-    conn: RefCell<&'a mut C>,
+    pub(crate) conn: RefCell<&'a mut C>,
 }
 
-impl<'a, C> ConnectionExt for RefCell<&'a mut C>
+impl<'a, C> MutableTransactionConnection<'a, C> {
+    pub fn new(conn: &'a mut C) -> Self {
+        Self {
+            conn: RefCell::new(conn),
+        }
+    }
+}
+
+impl<'a, C> ConnectionExt for MutableTransactionConnection<'a, C>
 where
     C: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
@@ -27,19 +35,19 @@ where
         + Send,
 {
     type Connection = C;
-/*
-    fn start_transaction(&self) -> Result<TransactionGuard<'a>, crate::ConnectionError> {
-        Err(crate::ConnectionError::Database(
-            diesel::result::Error::AlreadyInTransaction,
-        ))
-    }
-*/
+    /*
+        fn start_transaction(&self) -> Result<TransactionGuard<'a>, crate::ConnectionError> {
+            Err(crate::ConnectionError::Database(
+                diesel::result::Error::AlreadyInTransaction,
+            ))
+        }
+    */
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.borrow_mut();
+        let mut conn = self.conn.borrow_mut();
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 
@@ -48,7 +56,7 @@ where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.borrow_mut();
+        let mut conn = self.conn.borrow_mut();
         fun(&mut conn).map_err(crate::ConnectionError::from)
     }
 
@@ -120,10 +128,11 @@ pub trait XmtpMlsTransactionProvider {
     fn storage(&self) -> &Self::Storage;
 }
 */
-
+/*
 pub trait KeyStoreContextProvider<C> {
-    fn key_store<'a>(self) -> SqlKeyStoreRef<'a, RefCell<&'a mut C>>;
+    fn key_store<'a>(self) -> SqlKeyStoreRef<'a, C>;
 }
+*/
 
 impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store, C> {
     type Connection = C;
@@ -132,10 +141,6 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
         = DbConnection<&'a C>
     where
         Self::Connection: 'a;
-
-    fn conn(&self) -> &Self::Connection {
-        &self.conn
-    }
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>
     where
@@ -146,8 +151,8 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-       F: FnOnce(RefCell<&mut <C as ConnectionExt>::Connection>) -> Result<T, E>,
-       E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+        F: FnOnce(&mut <C as ConnectionExt>::Connection) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         // let _guard = self.conn.start_transaction()?;
         let conn = &self.conn;
@@ -161,21 +166,10 @@ impl<'store, C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStoreRef<'store,
                         conn: RefCell::new(sqlite_c),
                     }),
                 };*/
-                f(RefCell::new(sqlite_c))
+                f(sqlite_c)
             }))
         })?;
         Ok(r?)
-
-    }
-}
-
-pub trait XmtpMlsTransactions<'a, C> {
-    fn key_store(self) -> SqlKeyStore<RefCell<&'a mut C>>;
-}
-
-impl<'a, C> XmtpMlsTransactions<'a, C> for RefCell<&'a mut C> {
-    fn key_store(self) -> SqlKeyStore<RefCell<&'a mut C>> {
-        SqlKeyStore::new(self)
     }
 }
 
@@ -208,9 +202,9 @@ mod tests {
 
             self.key_store
                 .transaction(|storage| {
-                    let storage = SqlKeyStore::new(storage);
-                   // let db = DbConnection::new(storage);
-                   storage.db().insert_group_intent(NewGroupIntent {
+                    let storage = SqlKeyStoreRef::new_transactional(storage);
+                    // let db = DbConnection::new(storage);
+                    storage.db().insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
                         group_id: vec![],
                         data: vec![],
