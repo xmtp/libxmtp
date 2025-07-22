@@ -717,7 +717,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep(1000)
+    await sleep(2000)
 
     stream.end()
     stream2.end()
