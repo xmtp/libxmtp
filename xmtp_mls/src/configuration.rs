@@ -24,6 +24,11 @@ pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;
 
 pub const GROUP_KEY_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS;
 
+/// Interval in NS used to compute `next_key_package_rotation_ns`.
+/// This defines how often a new KeyPackage should be *rotated*,
+/// but does *not* determine the actual KeyPackage expiration.
+pub const KEY_PACKAGE_ROTATION_INTERVAL_NS: i64 = NS_IN_30_DAYS; // 30 days
+
 #[allow(dead_code)]
 const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 2; // 30 min
 
@@ -54,7 +59,7 @@ pub(crate) const HMAC_SALT: &[u8] = b"libXMTP HKDF salt!";
 #[cfg(any(test, feature = "test-utils"))]
 pub mod debug_config {
     use super::*;
-    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_HOUR / 3600;
+    pub(crate) const SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NS_IN_SEC;
     // 1 second
 }
 
