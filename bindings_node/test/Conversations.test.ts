@@ -526,7 +526,7 @@ describe('Conversations', () => {
     )
 
     await startNewConvo()
-    await sleep()
+    await sleep(2000)
     expect(groups.length).toBe(1)
     await client1.withTimeout('downstream', 60000, 1.0)
     await startNewConvo()
