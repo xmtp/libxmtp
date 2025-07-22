@@ -31,7 +31,7 @@ pub const SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = 5 * NS_IN_SEC;
 
 pub const MAX_GROUP_SIZE: usize = 250;
 
-pub const MAX_INSTALLATIONS_PER_INBOX: usize = 5;
+pub const MAX_INSTALLATIONS_PER_INBOX: usize = 15;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
