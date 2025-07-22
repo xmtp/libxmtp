@@ -322,7 +322,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     #[tracing::instrument(
-        level = "debug",
+        level = "trace",
         skip_all,
         fields(payload_hash = hex::encode(payload_hash))
     )]
