@@ -489,7 +489,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(3)
@@ -647,6 +647,8 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
+    await sleep(2000)
+
     const messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
       (err, message) => {
@@ -717,7 +719,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep(1000)
+    await sleep(2000)
 
     stream.end()
     stream2.end()
@@ -758,6 +760,8 @@ describe('Conversations', () => {
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
+
+    await sleep(2000)
 
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
@@ -822,6 +826,8 @@ describe('Conversations', () => {
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
+
+    await sleep(2000)
 
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
