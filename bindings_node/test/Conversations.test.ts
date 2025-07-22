@@ -794,7 +794,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm2!')
     )
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(messages.length).toBe(2)
@@ -858,7 +858,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(messages.length).toBe(1)
