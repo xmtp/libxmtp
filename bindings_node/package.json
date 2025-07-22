@@ -35,7 +35,7 @@
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
-    "test": "yarn build:clean && yarn build:test && yarn build:finish && vitest run",
+    "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },
   "devDependencies": {
