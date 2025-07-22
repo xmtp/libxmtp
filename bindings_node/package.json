@@ -27,7 +27,6 @@
     "build:debug": "napi build --platform --esm",
     "build:finish": "mkdir dist && mv index.js dist && mv index.d.ts dist && mv *.node dist",
     "build:release": "napi build --platform --release --esm",
-    "build:test": "napi build --platform --esm --features test-utils",
     "clean": "yarn build:clean && yarn test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
@@ -35,7 +34,7 @@
     "lint": "yarn lint:clippy && yarn lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
-    "test": "yarn build:clean && yarn build:test && yarn build:finish && vitest run",
+    "test": "vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },
   "devDependencies": {

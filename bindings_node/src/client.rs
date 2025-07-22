@@ -24,7 +24,6 @@ pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::Defau
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
-#[derive(Clone)]
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   pub account_identifier: Identifier,
@@ -99,6 +98,7 @@ fn init_logging(options: LogOptions) -> Result<()> {
       } else {
         EnvFilter::builder().parse_lossy("info")
       };
+
       if options.structured.unwrap_or_default() {
         let fmt = tracing_subscriber::fmt::layer()
           .json()
