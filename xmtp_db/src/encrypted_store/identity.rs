@@ -1,9 +1,9 @@
+use crate::configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 use crate::encrypted_store::schema::identity;
 use crate::schema::identity::dsl;
 use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
-use xmtp_common::NS_IN_SEC;
 use xmtp_common::time::now_ns;
 
 /// Identity of this installation
@@ -40,10 +40,10 @@ impl StoredIdentity {
 }
 impl<C: ConnectionExt> DbConnection<C> {
     pub fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        let rotate_at_ns = now_ns() + 5 * NS_IN_SEC;
-
+        let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
+                .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
                 .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
                 .execute(conn)?;
 
@@ -59,8 +59,14 @@ impl<C: ConnectionExt> DbConnection<C> {
     ) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
+        let queue_interval_ns = now_ns() - KEY_PACKAGE_QUEUE_INTERVAL_NS;
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
+                .filter(
+                    dsl::next_key_package_rotation_ns
+                        .is_null()
+                        .or(dsl::next_key_package_rotation_ns.gt(queue_interval_ns)),
+                )
                 .set(dsl::next_key_package_rotation_ns.eq(Some(now_ns() + rotation_interval_ns)))
                 .execute(conn)?;
             Ok(())

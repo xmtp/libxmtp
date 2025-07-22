@@ -1,10 +1,12 @@
-use xmtp_common::NS_IN_DAY;
+use xmtp_common::{NS_IN_DAY, NS_IN_SEC};
 
 #[allow(unused)]
 pub const MAX_DB_POOL_SIZE: u32 = 25;
 
 #[allow(dead_code)]
 const KEYS_EXPIRATION_INTERVAL_NS: i64 = NS_IN_DAY; // 1 day
+
+pub const KEY_PACKAGE_QUEUE_INTERVAL_NS: i64 = 5 * NS_IN_SEC; // 5 secs
 
 #[cfg(target_arch = "wasm32")]
 pub use wasm::*;
