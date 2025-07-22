@@ -571,7 +571,7 @@ describe('Conversations', () => {
       },
     ])
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(2)
@@ -614,7 +614,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(1)
