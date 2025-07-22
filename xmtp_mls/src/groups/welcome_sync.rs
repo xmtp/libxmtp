@@ -10,6 +10,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use tracing::{trace_span, Instrument};
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::XmtpDb;
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs};
@@ -107,6 +108,7 @@ where
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn sync_all_groups(
         &self,
         groups: Vec<MlsGroup<Api, Db>>,
@@ -148,6 +150,7 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
         let provider = self.context.mls_provider();
         self.sync_welcomes().await?;
@@ -164,6 +167,7 @@ where
 
     /// Sync all unread welcome messages and then sync groups in descending order of recent activity.
     /// Returns number of active groups successfully synced.
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn sync_all_welcomes_and_groups(
         &self,
         consent_states: Option<Vec<ConsentState>>,
@@ -194,6 +198,7 @@ where
     }
 
     /// Sync groups concurrently with a limit. Returns success count.
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn sync_groups_in_batches(
         &self,
         groups: Vec<MlsGroup<Api, Db>>,
@@ -208,7 +213,7 @@ where
                 let active_group_count = Arc::clone(&active_group_count);
                 let failed_group_count = Arc::clone(&failed_group_count);
                 let inbox_id = self.context.inbox_id();
-
+                let span = trace_span!("concurrent_group_sync");
                 async move {
                     tracing::info!(inbox_id, "[{}] syncing group", inbox_id);
 
@@ -241,6 +246,7 @@ where
                         }
                     }
                 }
+                .instrument(span)
             })
             .await;
 
