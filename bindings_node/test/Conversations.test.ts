@@ -761,6 +761,8 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
+    await sleep(2000)
+
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
       (err, message) => {
@@ -824,6 +826,8 @@ describe('Conversations', () => {
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
+
+    await sleep(2000)
 
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
