@@ -6,7 +6,6 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
 import {
   createClient as create,
-  createLocalToxicClient,
   generateInboxId,
   getInboxIdForIdentifier,
   IdentifierKind,
@@ -57,7 +56,7 @@ export const createClient = async (user: User) => {
     undefined,
     undefined,
     SyncWorkerMode.disabled,
-    { level: LogLevel.error },
+    { level: LogLevel.off },
     undefined,
     true
   )
@@ -76,49 +75,6 @@ export const createRegisteredClient = async (user: User) => {
     }
   }
   return client
-}
-
-export const createToxicClient = async (user: User) => {
-  const dbPath = join(__dirname, `${user.uuid}.db3`)
-  const inboxId =
-    (await getInboxIdForIdentifier(TEST_API_URL, false, {
-      identifier: user.account.address,
-      identifierKind: IdentifierKind.Ethereum,
-    })) ||
-    generateInboxId({
-      identifier: user.account.address,
-      identifierKind: IdentifierKind.Ethereum,
-    })
-  return createLocalToxicClient(
-    dbPath,
-    inboxId,
-    {
-      identifier: user.account.address,
-      identifierKind: IdentifierKind.Ethereum,
-    },
-    undefined,
-    undefined,
-    SyncWorkerMode.disabled,
-    { level: LogLevel.debug },
-    undefined,
-    true
-  )
-}
-
-export const createToxicRegisteredClient = async (user: User) => {
-  const toxic_client = await createToxicClient(user)
-  const client = toxic_client.client
-  if (!client.isRegistered()) {
-    const signatureRequest = await client.createInboxSignatureRequest()
-    if (signatureRequest) {
-      const signature = await user.wallet.signMessage({
-        message: await signatureRequest.signatureText(),
-      })
-      await signatureRequest.addEcdsaSignature(toBytes(signature))
-      await client.registerIdentity(signatureRequest)
-    }
-  }
-  return toxic_client
 }
 
 export const encodeTextMessage = (text: string) => {

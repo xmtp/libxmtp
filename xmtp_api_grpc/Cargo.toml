@@ -7,10 +7,7 @@ version.workspace = true
 [dependencies]
 async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
-h2 = "0.4"
 http = "1.2"
-hyper = "1.6"
-pin-project-lite = "0.2.15"
 prost = { workspace = true, features = ["prost-derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "time"] }
