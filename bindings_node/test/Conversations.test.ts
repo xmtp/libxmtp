@@ -489,7 +489,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(3)
@@ -526,7 +526,7 @@ describe('Conversations', () => {
     )
 
     await startNewConvo()
-    await sleep()
+    await sleep(2000)
     expect(groups.length).toBe(1)
     await client1.withTimeout('downstream', 60000, 1.0)
     await startNewConvo()
@@ -571,7 +571,7 @@ describe('Conversations', () => {
       },
     ])
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(2)
@@ -614,7 +614,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(groups.length).toBe(1)
@@ -646,6 +646,8 @@ describe('Conversations', () => {
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
+
+    await sleep(2000)
 
     const messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
@@ -717,7 +719,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep(1000)
+    await sleep(2000)
 
     stream.end()
     stream2.end()
@@ -759,6 +761,8 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
+    await sleep(2000)
+
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
       (err, message) => {
@@ -790,7 +794,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm2!')
     )
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(messages.length).toBe(2)
@@ -823,6 +827,8 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
+    await sleep(2000)
+
     let messages: Message[] = []
     const stream = client1.conversations().streamAllMessages(
       (err, message) => {
@@ -852,7 +858,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep()
+    await sleep(2000)
 
     stream.end()
     expect(messages.length).toBe(1)

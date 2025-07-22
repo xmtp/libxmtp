@@ -264,8 +264,6 @@ impl<C: ConnectionExt> DbConnection<C> {
         let rows_changed = self.raw_query_write(|conn| {
             diesel::update(dsl::group_intents)
                 .filter(dsl::id.eq(intent_id))
-                // State machine requires that the only valid state transition to Committed is from
-                // Published
                 .set(dsl::state.eq(IntentState::Processed))
                 .execute(conn)
         })?;
@@ -324,7 +322,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     #[tracing::instrument(
-        level = "debug",
+        level = "trace",
         skip_all,
         fields(payload_hash = hex::encode(payload_hash))
     )]
