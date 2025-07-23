@@ -2,8 +2,13 @@ use std::collections::HashMap;
 
 use super::ApiClientWrapper;
 use crate::{Result, XmtpApi};
+use prost::Message;
 use xmtp_common::retry_async;
 use xmtp_proto::api_client::XmtpMlsStreams;
+use xmtp_proto::mls_v1::{
+    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, PublishCommitLogRequest,
+    QueryCommitLogRequest, QueryCommitLogResponse,
+};
 use xmtp_proto::xmtp::mls::api::v1::{
     subscribe_group_messages_request::Filter as GroupFilterProto,
     subscribe_welcome_messages_request::Filter as WelcomeFilterProto, FetchKeyPackagesRequest,
@@ -12,6 +17,7 @@ use xmtp_proto::xmtp::mls::api::v1::{
     SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
     UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
 };
+use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 // the max page size for queries
 const MAX_PAGE_SIZE: u32 = 100;
 
@@ -75,7 +81,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpApi,
 {
-    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(&group_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(&group_id)))]
     pub async fn query_group_messages(
         &self,
         group_id: Vec<u8>,
@@ -131,7 +137,7 @@ where
     }
 
     /// Query for the latest message on a group
-    #[tracing::instrument(level = "debug", skip(self), fields(group_id = hex::encode(group_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(group_id = hex::encode(group_id)))]
     pub async fn query_latest_group_message<Id: AsRef<[u8]> + Copy>(
         &self,
         group_id: Id,
@@ -161,7 +167,7 @@ where
         Ok(result.messages.into_iter().next())
     }
 
-    #[tracing::instrument(level = "debug", skip(self), fields(installation_id = hex::encode(installation_id)))]
+    #[tracing::instrument(level = "trace", skip_all, fields(installation_id = hex::encode(installation_id)))]
     pub async fn query_welcome_messages<Id: AsRef<[u8]> + Copy>(
         &self,
         installation_id: Id,
@@ -216,7 +222,7 @@ where
     /// New InboxID clients should set `is_inbox_id_credential` to true.
     /// V3 clients should have `is_inbox_id_credential` to `false`.
     /// Not indicating your client version will result in validation failure.
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn upload_key_package(
         &self,
         key_package: Vec<u8>,
@@ -241,7 +247,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn fetch_key_packages(
         &self,
         installation_keys: Vec<Vec<u8>>,
@@ -288,7 +294,7 @@ where
         Ok(mapping)
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_welcome_messages(&self, messages: &[WelcomeMessageInput]) -> Result<()> {
         tracing::debug!(inbox_id = self.inbox_id, "send welcome messages");
         retry_async!(
@@ -306,7 +312,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn send_group_messages(&self, group_messages: Vec<GroupMessageInput>) -> Result<()> {
         tracing::debug!(
             inbox_id = self.inbox_id,
@@ -366,6 +372,46 @@ where
             })
             .await
             .map_err(crate::dyn_err)
+    }
+
+    pub async fn publish_commit_log(&self, commit_log: &[PlaintextCommitLogEntry]) -> Result<()> {
+        tracing::debug!(inbox_id = self.inbox_id, "publishing commit log");
+        self.api_client
+            .publish_commit_log(BatchPublishCommitLogRequest {
+                requests: commit_log
+                    .iter()
+                    .map(convert_plaintext_to_publish_request)
+                    .collect(),
+            })
+            .await
+            .map_err(crate::dyn_err)
+    }
+
+    pub async fn query_commit_log(
+        &self,
+        query_log_requests: Vec<QueryCommitLogRequest>,
+    ) -> Result<Vec<QueryCommitLogResponse>> {
+        tracing::debug!(inbox_id = self.inbox_id, "querying commit log");
+        let responses: Vec<QueryCommitLogResponse> = self
+            .api_client
+            .query_commit_log(BatchQueryCommitLogRequest {
+                requests: query_log_requests,
+            })
+            .await
+            .map_err(crate::dyn_err)?
+            .responses;
+
+        Ok(responses)
+    }
+}
+
+/// TODO(cvoell): Encrypt the commit log entry instead of just encoding to bytes
+pub fn convert_plaintext_to_publish_request(
+    entry: &PlaintextCommitLogEntry,
+) -> PublishCommitLogRequest {
+    PublishCommitLogRequest {
+        group_id: entry.group_id.clone(),
+        encrypted_commit_log_entry: entry.encode_to_vec(),
     }
 }
 

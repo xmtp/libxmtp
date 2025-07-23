@@ -1,3 +1,4 @@
+pub mod commit_log;
 pub mod device_sync;
 pub mod device_sync_legacy;
 mod error;
@@ -312,7 +313,7 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(provider, operation))]
+    #[tracing::instrument(level = "trace", skip(provider, operation))]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
         provider: impl OpenMlsProvider,
@@ -337,7 +338,7 @@ where
     }
 
     // Load the stored OpenMLS group from the OpenMLS provider's keystore
-    #[tracing::instrument(level = "debug", skip(operation))]
+    #[tracing::instrument(level = "trace", skip(operation))]
     pub(crate) async fn load_mls_group_with_lock_async<F, E, R, Fut>(
         &self,
         operation: F,
@@ -394,7 +395,7 @@ where
 
     pub(crate) fn insert(
         context: &XmtpMlsLocalContext<ApiClient, Db>,
-        group_id: Option<&[u8]>,
+        existing_group_id: Option<&[u8]>,
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
@@ -414,7 +415,7 @@ where
         )?;
 
         let provider = context.mls_provider();
-        let mls_group = if let Some(group_id) = group_id {
+        let mls_group = if let Some(existing_group_id) = existing_group_id {
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
@@ -425,13 +426,16 @@ where
                 &provider,
                 &context.identity,
                 &group_config,
-                GroupId::from_slice(group_id),
+                GroupId::from_slice(existing_group_id),
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, &context.identity, &group_config)?
         };
 
         let group_id = mls_group.group_id().to_vec();
+        // If not an existing group, the creator is a super admin and should publish the commit log
+        // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
+        let should_publish_commit_log = existing_group_id.is_none();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
             .created_at_ns(now_ns())
@@ -443,6 +447,7 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .should_publish_commit_log(should_publish_commit_log)
             .build()?;
 
         stored_group.store_or_ignore(provider.db())?;
@@ -525,7 +530,7 @@ where
     /// * `allow_cursor_increment` - Controls whether to allow cursor increments during processing.
     ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
     ///   processing from potentially out-of-order sources like streams.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn create_from_welcome(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
         welcome: &welcome_message::V1,
@@ -640,11 +645,11 @@ where
             let dm_members = metadata.dm_members;
             let conversation_type = metadata.conversation_type;
             let mutable_metadata = extract_group_mutable_metadata(&mls_group).ok();
-            let disappearing_settings = mutable_metadata.clone().and_then(|metadata| {
+            let disappearing_settings = mutable_metadata.as_ref().and_then(|metadata| {
                 Self::conversation_message_disappearing_settings_from_extensions(metadata).ok()
             });
 
-            let paused_for_version: Option<String> = mutable_metadata.and_then(|metadata| {
+            let paused_for_version: Option<String> = mutable_metadata.as_ref().and_then(|metadata| {
                 let min_version = Self::min_protocol_version_from_extensions(metadata);
                 if let Some(min_version) = min_version {
                     let current_version_str = context.version_info().pkg_version();
@@ -678,7 +683,8 @@ where
                 .conversation_type(conversation_type)
                 .dm_id(dm_members.map(String::from))
                 .message_disappear_from_ns(disappearing_settings.as_ref().map(|m| m.from_ns))
-                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns));
+                .message_disappear_in_ns(disappearing_settings.as_ref().map(|m| m.in_ns))
+                .should_publish_commit_log(Self::check_should_publish_commit_log(context.inbox_id().to_string(), mutable_metadata));
 
 
 
@@ -713,7 +719,7 @@ where
             // Replacement can happen in the case that the user has been removed from and subsequently re-added to the group.
             let stored_group = provider.db().insert_or_replace_group(to_store)?;
 
-            StoredConsentRecord::persist_consent(provider.db(), &stored_group)?;
+            StoredConsentRecord::stitch_dm_consent(provider.db(), &stored_group)?;
             track!(
                 "Group Welcome",
                 {
@@ -777,6 +783,7 @@ where
                     reference_id: None,
                     sequence_id: Some(welcome.id as i64),
                     originator_id: None,
+                    expire_at_ns: None,
                 };
 
                 added_msg.store_or_ignore(provider.db())?;
@@ -806,6 +813,18 @@ where
         })
     }
 
+    // Super admin status is only criteria for whether to publish the commit log for now
+    fn check_should_publish_commit_log(
+        inbox_id: String,
+        mutable_metadata: Option<GroupMutableMetadata>,
+    ) -> bool {
+        mutable_metadata
+            .as_ref()
+            .map(|metadata| metadata.is_super_admin(&inbox_id))
+            .unwrap_or(false) // Default to false if no mutable metadata
+    }
+
+    /// Create a sync group and insert it into the database.
     pub(crate) fn create_and_insert_sync_group(
         context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
     ) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
@@ -843,7 +862,7 @@ where
     }
 
     /// Send a message on this users XMTP [`Client`].
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         if !self.is_active()? {
             tracing::warn!("Unable to send a message on an inactive group.");
@@ -919,7 +938,7 @@ where
     /// * conn: Connection to SQLite database
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) fn prepare_message<F>(
         &self,
         message: &[u8],
@@ -963,6 +982,7 @@ where
             reference_id: queryable_content_fields.reference_id,
             sequence_id: None,
             originator_id: None,
+            expire_at_ns: None,
         };
         group_message.store(provider.db())?;
 
@@ -1188,7 +1208,7 @@ where
     }
 
     fn min_protocol_version_from_extensions(
-        mutable_metadata: GroupMutableMetadata,
+        mutable_metadata: &GroupMutableMetadata,
     ) -> Option<String> {
         mutable_metadata
             .attributes
@@ -1381,7 +1401,7 @@ where
         Ok(paused_for_version)
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     async fn ensure_not_paused(&self) -> Result<(), GroupError> {
         let provider = self.context().mls_provider();
         if let Some(min_version) = provider.db().get_group_paused_version(&self.group_id)? {
@@ -1394,11 +1414,12 @@ where
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        Self::conversation_message_disappearing_settings_from_extensions(self.mutable_metadata()?)
+        let metadata = self.mutable_metadata()?;
+        Self::conversation_message_disappearing_settings_from_extensions(&metadata)
     }
 
     pub fn conversation_message_disappearing_settings_from_extensions(
-        mutable_metadata: GroupMutableMetadata,
+        mutable_metadata: &GroupMutableMetadata,
     ) -> Result<MessageDisappearingSettings, GroupError> {
         let disappear_from_ns = mutable_metadata
             .attributes
@@ -1513,7 +1534,7 @@ where
         Ok(conn.insert_or_replace_consent_records(&[consent_record.clone()])?)
     }
 
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let new_records: Vec<PreferenceUpdate> = self
             .quietly_update_consent_state(state)?
@@ -1592,7 +1613,7 @@ where
     /// Checks if the current user is active in the group.
     ///
     /// If the current user has been kicked out of the group, `is_active` will return `false`
-    #[tracing::instrument(skip_all, level = "debug")]
+    #[tracing::instrument(skip_all, level = "trace")]
     pub fn is_active(&self) -> Result<bool, GroupError> {
         // Restored groups that are not yet added are inactive
         let provider = self.mls_provider();
@@ -1627,8 +1648,9 @@ where
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         let provider = self.mls_provider();
         self.load_mls_group_with_lock(provider, |mls_group| {
-            Ok(GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)?)
+            GroupMutableMetadata::try_from(&mls_group)
+                .map_err(MetadataPermissionsError::from)
+                .map_err(GroupError::from)
         })
     }
 

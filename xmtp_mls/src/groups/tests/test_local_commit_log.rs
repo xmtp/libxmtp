@@ -53,32 +53,20 @@ async fn test_successful_commit_log_types() {
     let a = a_client
         .create_group_with_inbox_ids(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    assert_eq!(a.local_commit_log().await?.len(), 2);
     assert_eq!(
-        a.local_commit_log().await?[0].commit_type,
-        Some(CommitType::GroupCreation.to_string())
-    );
-    assert_eq!(
-        last_commit_log(&a).await.commit_type,
-        Some(CommitType::UpdateGroupMembership.to_string())
+        get_type(&a.local_commit_log().await?),
+        &[
+            &Some(CommitType::GroupCreation.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+        ]
     );
 
     let b = b_client.sync_welcomes().await?.first()?.to_owned();
     b.sync().await?;
-    assert_eq!(b.local_commit_log().await?.len(), 2);
     assert_eq!(
         b.local_commit_log().await?[0].commit_type,
         Some(CommitType::Welcome.to_string())
     );
-    assert_eq!(
-        b.local_commit_log().await?[0].sender_inbox_id,
-        Some(a_client.inbox_id().to_string())
-    );
-    assert_eq!(
-        b.local_commit_log().await?[0].sender_installation_id,
-        Some(a_client.installation_public_key().to_vec())
-    );
-    assert_eq!(last_commit_log(&b).await.commit_type, None);
 
     a.key_update().await?;
     b.sync().await?;
@@ -112,7 +100,49 @@ async fn test_successful_commit_log_types() {
     assert!(last_commit_type_matches(&a, &b, CommitType::UpdatePermission).await);
 
     assert_eq!(a.local_commit_log().await?.len(), 8);
-    assert_eq!(b.local_commit_log().await?.len(), 8);
+    assert_eq!(b.local_commit_log().await?.len(), 7);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_welcome_commit_log() {
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+
+    let a = alix
+        .create_group_with_inbox_ids(&[caro.inbox_id()], None, None)
+        .await?;
+    a.add_members_by_inbox_id(&[bo.inbox_id()]).await?;
+    a.update_group_name("foo".to_string()).await?;
+    assert_eq!(
+        get_type(&a.local_commit_log().await?),
+        &[
+            &Some(CommitType::GroupCreation.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::UpdateGroupMembership.to_string()),
+            &Some(CommitType::MetadataUpdate.to_string()),
+        ]
+    );
+
+    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    b.sync().await?;
+    // Commits before the welcome should not be logged
+    assert_eq!(
+        get_type(&b.local_commit_log().await?),
+        &[
+            &Some(CommitType::Welcome.to_string()),
+            &Some(CommitType::MetadataUpdate.to_string()),
+        ]
+    );
+    // Welcome metadata should be set correctly
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_inbox_id,
+        Some(alix.inbox_id().to_string())
+    );
+    assert_eq!(
+        b.local_commit_log().await?[0].sender_installation_id,
+        Some(alix.installation_public_key().to_vec())
+    );
 }
 
 // TODO(rich): Fix intent publishing on bad network conditions
@@ -131,14 +161,16 @@ async fn test_commit_log_retriable_error() {
         .await?;
     let b = b_client.sync_welcomes().await?.first()?.to_owned();
     b.sync().await?;
-    assert_eq!(a.local_commit_log().await?.len(), 1);
-    assert_eq!(b.local_commit_log().await?.len(), 1);
+    assert_eq!(a.local_commit_log().await?.len(), 2); // GroupCreation + UpdateGroupMembership
+    assert_eq!(b.local_commit_log().await?.len(), 1); // Welcome
 
     proxy.disable().await?;
     // Queues up a KeyUpdate intent followed by a SendMessage intent
     b.send_message(b"foo").await.unwrap_err();
     a.sync().await?;
-    assert_eq!(a.local_commit_log().await?.len(), 1);
+    // A doesn't receive anything because the payloads failed to send
+    assert_eq!(a.local_commit_log().await?.len(), 2);
+    // B should not log any errors because they are retriable
     assert_eq!(b.local_commit_log().await?.len(), 1);
 
     proxy.enable().await?;
@@ -146,72 +178,82 @@ async fn test_commit_log_retriable_error() {
     // despite not being published. We need to fix the intent publishing flow for this test to work.
     b.sync_until_last_intent_resolved().await?;
     a.sync().await?;
-    assert_eq!(a.local_commit_log().await?.len(), 2);
+    // KeyUpdate should have been added to the commit log (SendMessage is not logged because it is not a commit)
+    assert_eq!(a.local_commit_log().await?.len(), 3);
     assert_eq!(b.local_commit_log().await?.len(), 2);
     assert!(last_commit_type_matches(&a, &b, CommitType::KeyUpdate).await);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_out_of_epoch() {
+async fn test_commit_log_non_retriable_error() {
     tester!(alix);
     tester!(bo);
-    tester!(caro);
 
-    let alix_g = alix
+    let a_client: &FullXmtpClient = &alix;
+    let b_client: &FullXmtpClient = &bo;
+
+    let a = a_client
         .create_group_with_inbox_ids(&[bo.inbox_id()], None, None)
         .await?;
-
-    bo.sync_welcomes().await?;
-    let bo_g = bo.group(&alix_g.group_id)?;
-
-    for _ in 0..5 {
-        alix_g.update_group_name("foo".to_string()).await?;
-    }
-
-    bo_g.add_members_by_inbox_id(&[caro.inbox_id()]).await?;
-
-    let alix_logs = alix.provider.db().get_group_logs(&alix_g.group_id)?;
-    let bo_logs = bo.provider.db().get_group_logs(&bo_g.group_id)?;
-
+    let b = b_client.sync_welcomes().await?.first()?.to_owned();
     assert_eq!(
-        get_type(&bo_logs),
+        get_type(&a.local_commit_log().await?),
         &[
-            &Some("Welcome".to_string()),
-            &None,
-            &Some("MetadataUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
+            &Some("GroupCreation".to_string()),
             &Some("UpdateGroupMembership".to_string()),
         ]
     );
     assert_eq!(
-        get_result(&bo_logs),
-        &[
-            &CommitResult::Success,
-            &CommitResult::WrongEpoch,
-            &CommitResult::Success,
-            &CommitResult::Success,
-            &CommitResult::Success,
-            &CommitResult::Success,
-            &CommitResult::Success,
-            &CommitResult::Success
-        ]
+        get_type(&b.local_commit_log().await?),
+        &[&Some("Welcome".to_string())]
     );
+
+    // Should successfully publish a MetadataUpdate commit
+    a.update_group_name("foo".to_string()).await?;
+    // B has not synced, so will publish a commit one epoch behind
+    // When syncing, the commit should be marked as failed with a non-retriable epoch error
+    // Then the commit should be re-published in the correct epoch
+    b.update_group_name("bar".to_string()).await?;
+    a.sync().await?;
+    b.sync().await?;
     assert_eq!(
-        get_type(&alix_logs),
+        get_type(&a.local_commit_log().await?),
         &[
             &Some("GroupCreation".to_string()),
             &Some("UpdateGroupMembership".to_string()),
             &Some("MetadataUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
-            &Some("KeyUpdate".to_string()),
+            &None,
+            &Some("MetadataUpdate".to_string()),
         ]
     );
-    assert_eq!(get_result(&alix_logs), &[&CommitResult::Success; 7]);
+    assert_eq!(
+        get_result(&a.local_commit_log().await?),
+        &[
+            &CommitResult::Success,
+            &CommitResult::Success,
+            &CommitResult::Success,
+            &CommitResult::WrongEpoch,
+            &CommitResult::Success
+        ]
+    );
+    assert_eq!(
+        get_type(&b.local_commit_log().await?),
+        &[
+            &Some("Welcome".to_string()),
+            &Some("MetadataUpdate".to_string()),
+            &None,
+            &Some("MetadataUpdate".to_string()),
+        ]
+    );
+    assert_eq!(
+        get_result(&b.local_commit_log().await?),
+        &[
+            &CommitResult::Success,
+            &CommitResult::Success,
+            &CommitResult::WrongEpoch,
+            &CommitResult::Success
+        ]
+    )
 }
 
 fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {

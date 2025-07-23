@@ -11,6 +11,13 @@ mod send_group_messages;
 pub use send_group_messages::*;
 
 mod send_welcome_messages;
-mod upload_key_package;
 pub use send_welcome_messages::*;
+
+mod upload_key_package;
 pub use upload_key_package::*;
+
+mod publish_commit_log;
+pub use publish_commit_log::*;
+
+mod query_commit_log;
+pub use query_commit_log::*;

@@ -122,7 +122,7 @@ where
         Ok(intent)
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     fn maybe_insert_key_update_intent(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,

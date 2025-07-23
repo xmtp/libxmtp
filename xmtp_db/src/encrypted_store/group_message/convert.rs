@@ -27,6 +27,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             reference_id: value.reference_id,
             sequence_id: value.sequence_id,
             originator_id: value.originator_id,
+            expire_at_ns: None,
         })
     }
 }

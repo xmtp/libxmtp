@@ -18,6 +18,7 @@ use xmtp_proto::{
         },
         mls::api::v1::{
             group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
             FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage,
             QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
             QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
@@ -143,6 +144,8 @@ mod not_wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
+            async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
+            async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
             fn stats(&self) -> ApiStats;
         }
 
@@ -203,6 +206,8 @@ mod wasm {
             async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), MockError>;
             async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, MockError>;
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, MockError>;
+            async fn publish_commit_log(&self, request: BatchPublishCommitLogRequest) -> Result<(), MockError>;
+            async fn query_commit_log(&self, request: BatchQueryCommitLogRequest) -> Result<BatchQueryCommitLogResponse, MockError>;
             fn stats(&self) -> ApiStats;
         }
 

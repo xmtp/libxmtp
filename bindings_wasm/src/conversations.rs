@@ -109,6 +109,7 @@ impl From<ListConversationsOptions> for GroupQueryArgs {
       conversation_type: opts.conversation_type.map(Into::into),
       include_sync_groups: false,
       activity_after_ns: None,
+      should_publish_commit_log: None,
     }
   }
 }
@@ -564,6 +565,7 @@ impl Conversations {
     callback: StreamCallback,
     conversation_type: Option<ConversationType>,
   ) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_conversations_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
@@ -571,7 +573,7 @@ impl Conversations {
         Ok(item) => callback.on_conversation(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || on_close_cb.on_close(),
     );
 
     Ok(StreamCloser::new(stream_closer))
@@ -587,6 +589,7 @@ impl Conversations {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
       self.inner_client.clone(),
       conversation_type.map(Into::into),
@@ -595,13 +598,14 @@ impl Conversations {
         Ok(m) => callback.on_message(m.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || on_close_cb.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }
 
   #[wasm_bindgen(js_name = "streamConsent")]
   pub fn stream_consent(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_consent_with_callback(
       self.inner_client.clone(),
       move |message| match message {
@@ -612,13 +616,14 @@ impl Conversations {
         }
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || on_close_cb.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }
 
   #[wasm_bindgen(js_name = "streamPreferences")]
   pub fn stream_preferences(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
+    let on_close_cb = callback.clone();
     let stream_closer = RustXmtpClient::stream_preferences_with_callback(
       self.inner_client.clone(),
       move |message| match message {
@@ -627,7 +632,7 @@ impl Conversations {
         }
         Err(e) => callback.on_error(JsError::from(e)),
       },
-      move || {},
+      move || on_close_cb.on_close(),
     );
     Ok(StreamCloser::new(stream_closer))
   }

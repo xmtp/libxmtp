@@ -4,7 +4,9 @@ mod test_key_updates;
 mod test_local_commit_log;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_network;
+mod test_remote_commit_log;
 mod test_welcomes;
+
 
 use prost::Message;
 use xmtp_db::refresh_state::EntityKind;

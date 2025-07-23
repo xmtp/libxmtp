@@ -1426,7 +1426,7 @@ impl FfiConversations {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_all_conversations(
         &self,
         consent_states: Option<Vec<FfiConsentState>>,
@@ -3066,6 +3066,7 @@ mod tests {
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
     use xmtp_mls::{
+        configuration::MAX_INSTALLATIONS_PER_INBOX,
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
@@ -8619,7 +8620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cannot_create_more_than_5_installations() {
+    async fn test_cannot_create_more_than_max_installations() {
         // Create a base tester
         let alix_wallet = PrivateKeySigner::random();
         let bo = Tester::new().await;
@@ -8627,35 +8628,33 @@ mod tests {
             .await
             .unwrap();
 
-        // Create 4 additional installations (total 5)
-        let _alix2 = new_test_client_no_panic(alix_wallet.clone(), None)
-            .await
-            .unwrap();
-        let alix3 = new_test_client_no_panic(alix_wallet.clone(), None)
-            .await
-            .unwrap();
-        let _alix4 = new_test_client_no_panic(alix_wallet.clone(), None)
-            .await
-            .unwrap();
-        let alix5 = new_test_client_no_panic(alix_wallet.clone(), None)
-            .await
-            .unwrap();
+        // Create (MAX_INSTALLATIONS_PER_INBOX - 1) additional installations (total MAX_INSTALLATIONS_PER_INBOX)
+        let mut installations = vec![];
+        for _ in 0..(MAX_INSTALLATIONS_PER_INBOX - 1) {
+            let new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None)
+                .await
+                .unwrap();
+            installations.push(new_client_installation);
+        }
 
-        // Verify we have 5 installations
+        // Verify we have MAX_INSTALLATIONS_PER_INBOX installations
         let state = alix.inbox_state(true).await.unwrap();
-        assert_eq!(state.installations.len(), 5);
+        assert_eq!(state.installations.len(), MAX_INSTALLATIONS_PER_INBOX);
 
-        // Attempt to create a 6th installation, expect failure
-        let alix6_result = new_test_client_no_panic(alix_wallet.clone(), None).await;
+        // Attempt to create an additional installation, expect failure
+        let alix_max_plus_one_result = new_test_client_no_panic(alix_wallet.clone(), None).await;
         assert!(
-            alix6_result.is_err(),
-            "Expected failure when creating 6th installation, but got Ok"
+            alix_max_plus_one_result.is_err(),
+            "Expected failure when creating MAX_INSTALLATIONS_PER_INBOX + 1 installation, but got Ok"
         );
 
         // Create a group with one of the valid installations
         let bo_group = bo
             .conversations()
-            .create_group_with_inbox_ids(vec![alix3.inbox_id()], FfiCreateGroupOptions::default())
+            .create_group_with_inbox_ids(
+                vec![installations[2].inbox_id()],
+                FfiCreateGroupOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -8665,11 +8664,14 @@ mod tests {
             .iter()
             .find(|m| m.inbox_id == alix.inbox_id())
             .expect("Alix should be a group member");
-        assert_eq!(alix_member.installation_ids.len(), 5);
+        assert_eq!(
+            alix_member.installation_ids.len(),
+            MAX_INSTALLATIONS_PER_INBOX
+        );
 
-        // Revoke one of Alix's installations (e.g. alix5)
+        // Revoke one of Alix's installations (e.g. installations[4])
         let signature_request = alix
-            .revoke_installations(vec![alix5.installation_id()])
+            .revoke_installations(vec![installations[4].installation_id()])
             .await
             .unwrap();
 
@@ -8679,12 +8681,18 @@ mod tests {
             .unwrap();
 
         let state_after_revoke = alix.inbox_state(true).await.unwrap();
-        assert_eq!(state_after_revoke.installations.len(), 4);
+        assert_eq!(
+            state_after_revoke.installations.len(),
+            MAX_INSTALLATIONS_PER_INBOX - 1
+        );
 
         // Now try building alix6 again – should succeed
-        let _alix6 = new_test_client_no_panic(alix_wallet.clone(), None).await;
+        let _new_client_installation = new_test_client_no_panic(alix_wallet.clone(), None).await;
         let updated_state = alix.inbox_state(true).await.unwrap();
-        assert_eq!(updated_state.installations.len(), 5);
+        assert_eq!(
+            updated_state.installations.len(),
+            MAX_INSTALLATIONS_PER_INBOX
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

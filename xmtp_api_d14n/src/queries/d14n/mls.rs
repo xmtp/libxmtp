@@ -31,7 +31,7 @@ where
 {
     type Error = ApiClientError<E>;
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn upload_key_package(
         &self,
         request: mls_v1::UploadKeyPackageRequest,
@@ -46,7 +46,7 @@ where
         Ok::<_, Self::Error>(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn fetch_key_packages(
         &self,
         request: mls_v1::FetchKeyPackagesRequest,
@@ -67,7 +67,7 @@ where
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn send_group_messages(
         &self,
         request: mls_v1::SendGroupMessagesRequest,
@@ -83,7 +83,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn send_welcome_messages(
         &self,
         request: mls_v1::SendWelcomeMessagesRequest,
@@ -99,7 +99,7 @@ where
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn query_group_messages(
         &self,
         request: mls_v1::QueryGroupMessagesRequest,
@@ -122,7 +122,7 @@ where
         })
     }
 
-    #[tracing::instrument(level = "debug", skip_all)]
+    #[tracing::instrument(level = "trace", skip_all)]
     async fn query_welcome_messages(
         &self,
         request: mls_v1::QueryWelcomeMessagesRequest,
@@ -145,6 +145,23 @@ where
             messages,
             paging_info: None,
         })
+    }
+
+    // TODO(cvoell): implement
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn publish_commit_log(
+        &self,
+        _request: mls_v1::BatchPublishCommitLogRequest,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    // TODO(cvoell): implement
+    async fn query_commit_log(
+        &self,
+        _request: mls_v1::BatchQueryCommitLogRequest,
+    ) -> Result<mls_v1::BatchQueryCommitLogResponse, Self::Error> {
+        Ok(mls_v1::BatchQueryCommitLogResponse { responses: vec![] })
     }
 
     fn stats(&self) -> ApiStats {

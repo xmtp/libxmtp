@@ -63,6 +63,7 @@ diesel::table! {
         reference_id -> Nullable<Binary>,
         sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
+        expire_at_ns -> Nullable<BigInt>,
     }
 }
 
@@ -85,6 +86,7 @@ diesel::table! {
         fork_details -> Text,
         sequence_id -> Nullable<BigInt>,
         originator_id -> Nullable<BigInt>,
+        should_publish_commit_log -> Bool,
     }
 }
 
