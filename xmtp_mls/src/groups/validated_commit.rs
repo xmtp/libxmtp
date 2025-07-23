@@ -17,12 +17,14 @@ use openmls::{
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
 };
+
 use prost::Message;
 use serde::Serialize;
 use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::{retry::RetryableError, retryable};
+use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::{StorageError, XmtpDb};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
@@ -292,6 +294,7 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub metadata_validation_info: MutableMetadataValidationInfo,
+    pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
 }
@@ -396,6 +399,9 @@ impl ValidatedCommit {
             removed_inboxes,
         } = expected_diff;
 
+        let installations_changed =
+            !added_installations.is_empty() || !removed_installations.is_empty();
+
         // Ensure that the expected diff matches the added/removed installations in the proposals
         expected_diff_matches_commit(
             &expected_installation_diff,
@@ -435,6 +441,7 @@ impl ValidatedCommit {
             added_inboxes,
             removed_inboxes,
             metadata_validation_info,
+            installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members,
         };
@@ -462,6 +469,30 @@ impl ValidatedCommit {
             }
         }
         Ok(verified_commit)
+    }
+
+    // Reuse intent kind here to represent the commit type, even if it's an external commit
+    // This is for debugging purposes only, so an approximation is fine
+    pub fn debug_commit_type(&self) -> CommitType {
+        let metadata_info = &self.metadata_validation_info;
+        if !self.added_inboxes.is_empty()
+            || !self.removed_inboxes.is_empty()
+            || self.installations_changed
+        {
+            CommitType::UpdateGroupMembership
+        } else if self.permissions_changed {
+            CommitType::UpdatePermission
+        } else if !metadata_info.admins_added.is_empty()
+            || !metadata_info.admins_removed.is_empty()
+            || !metadata_info.super_admins_added.is_empty()
+            || !metadata_info.super_admins_removed.is_empty()
+        {
+            CommitType::UpdateAdminList
+        } else if !metadata_info.metadata_field_changes.is_empty() {
+            CommitType::MetadataUpdate
+        } else {
+            CommitType::KeyUpdate
+        }
     }
 
     pub fn is_empty(&self) -> bool {

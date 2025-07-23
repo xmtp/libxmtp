@@ -348,10 +348,19 @@ impl<C: ConnectionExt> DbConnection<C> {
             }
 
             if let Some(msg) = oldest_group_updated {
-                grouped.push(msg); // GroupUpdated message at position 0
+                match args.direction.as_ref().unwrap_or(&SortDirection::Ascending) {
+                    SortDirection::Ascending => {
+                        grouped.push(msg); // Add GroupUpdated at start
+                        grouped.extend(non_group_msgs);
+                    }
+                    SortDirection::Descending => {
+                        grouped.extend(non_group_msgs);
+                        grouped.push(msg); // Add GroupUpdated at end
+                    }
+                }
+            } else {
+                grouped = non_group_msgs;
             }
-
-            grouped.extend(non_group_msgs); // Preserve original order for other messages
 
             grouped
         } else {

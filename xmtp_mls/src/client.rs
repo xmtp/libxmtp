@@ -929,6 +929,7 @@ pub(crate) mod tests {
     use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref, XmtpApi};
     use diesel::RunQueryDsl;
     use futures::stream::StreamExt;
+    use futures::TryStreamExt;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1278,6 +1279,65 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 3);
     }
 
+    #[xmtp_common::test]
+    async fn test_sync_100_allowed_groups_performance() {
+        tester!(alix);
+        tester!(bo, passkey);
+
+        let group_count = 100;
+        let mut groups = Vec::with_capacity(group_count);
+
+        for _ in 0..group_count {
+            let group = alix.create_group(None, None).unwrap();
+            group
+                .add_members_by_inbox_id(&[bo.inbox_id()])
+                .await
+                .unwrap();
+            groups.push(group);
+        }
+
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+
+        let start = xmtp_common::time::Instant::now();
+        let _synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        let elapsed = start.elapsed();
+
+        let test_group = groups.first().unwrap();
+        let bo_group = bo.group(&test_group.group_id).unwrap();
+        assert_eq!(
+            bo_group
+                .find_messages(&MsgQueryArgs::default())
+                .unwrap()
+                .len(),
+            1,
+            "Expected 1 welcome message synced"
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
+
+        let start = xmtp_common::time::Instant::now();
+        let synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            synced_count, group_count,
+            "Expected {} groups synced, got {}",
+            group_count, synced_count
+        );
+
+        println!(
+            "Synced {} groups in {:?} (avg per group: {:?})",
+            group_count,
+            elapsed,
+            elapsed / group_count as u32
+        );
+    }
+
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_add_remove_then_add_again() {
@@ -1575,5 +1635,51 @@ pub(crate) mod tests {
         assert_eq!(item[0].entity_type, ConsentType::InboxId);
         assert_eq!(item[0].entity, bo.inbox_id());
         assert_eq!(item[0].state, ConsentState::Allowed);
+    }
+
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    // Set to 40 seconds to safely account for the 16 second keepalive interval and 10 second timeout
+    #[timeout(Duration::from_secs(40))]
+    #[cfg_attr(any(target_arch = "wasm32", feature = "http-api"), ignore)]
+    async fn should_reconnect() {
+        let alix = Tester::builder().proxy().build().await;
+        let bo = Tester::builder().build().await;
+
+        let start_new_convo = || async {
+            bo.create_group_with_inbox_ids(&[alix.inbox_id().to_string()], None, None)
+                .await
+                .unwrap()
+        };
+
+        let proxy = alix.proxy.as_ref().unwrap();
+
+        let stream = alix.client.stream_conversations(None).await.unwrap();
+        futures::pin_mut!(stream);
+
+        start_new_convo().await;
+
+        let success_res = stream.try_next().await;
+        assert!(success_res.is_ok());
+
+        // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
+        proxy.with_timeout("downstream".into(), 60_000, 1.0).await;
+
+        start_new_convo().await;
+
+        let should_fail = stream.try_next().await;
+        assert!(should_fail.is_err());
+
+        start_new_convo().await;
+
+        proxy.delete_all_toxics().await.unwrap();
+
+        // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
+        futures_test::assert_stream_done!(stream);
+        xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut new_stream = alix.client.stream_conversations(None).await.unwrap();
+        let new_res = new_stream.try_next().await;
+        assert!(new_res.is_ok());
+        assert!(new_res.unwrap().is_some());
     }
 }

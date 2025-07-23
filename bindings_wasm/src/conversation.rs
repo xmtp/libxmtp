@@ -512,6 +512,7 @@ impl Conversation {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
       },
+      move || {},
     );
 
     Ok(StreamCloser::new(stream_closer))
@@ -684,6 +685,8 @@ impl Conversation {
       epoch: debug_info.epoch,
       maybe_forked: debug_info.maybe_forked,
       fork_details: debug_info.fork_details,
+      local_commit_log: debug_info.local_commit_log,
+      cursor: debug_info.cursor,
     })?)
   }
 

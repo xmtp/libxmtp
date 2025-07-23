@@ -1,13 +1,12 @@
-use std::pin::Pin;
-use std::time::Duration;
-
-use futures::{Stream, StreamExt};
+use crate::streams::{EscapableTonicStream, XmtpTonicStream};
+use crate::{
+    apply_channel_options, create_tls_channel, GrpcBuilderError, GrpcError, GRPC_PAYLOAD_LIMIT,
+};
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
-use xmtp_proto::traits::ApiClientError;
-
-use crate::{create_tls_channel, GrpcBuilderError, GrpcError};
+use tower::ServiceExt;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::{ApiBuilder, ApiStats, IdentityStats, XmtpMlsStreams};
+use xmtp_proto::traits::ApiClientError;
 use xmtp_proto::traits::HasStats;
 use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, WelcomeMessage};
 use xmtp_proto::{
@@ -22,6 +21,7 @@ use xmtp_proto::{
     },
     ApiEndpoint,
 };
+
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) mls_client: ProtoMlsApiClient<Channel>,
@@ -30,6 +30,7 @@ pub struct Client {
     pub(crate) libxmtp_version: MetadataValue<tonic::metadata::Ascii>,
     pub(crate) stats: ApiStats,
     pub(crate) identity_stats: IdentityStats,
+    pub(crate) channel: Channel,
 }
 
 impl Client {
@@ -56,6 +57,10 @@ impl Client {
 
     pub fn builder() -> ClientBuilder {
         ClientBuilder::default()
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        self.channel.clone().ready().await.is_ok()
     }
 }
 
@@ -103,15 +108,18 @@ impl ApiBuilder for ClientBuilder {
         let channel = match self.tls_channel {
             true => create_tls_channel(host, self.limit.unwrap_or(1900)).await?,
             false => {
-                Channel::from_shared(host)?
-                    .rate_limit(self.limit.unwrap_or(1900), Duration::from_secs(60))
+                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(1900))
                     .connect()
                     .await?
             }
         };
 
-        let mls_client = ProtoMlsApiClient::new(channel.clone());
-        let identity_client = ProtoIdentityApiClient::new(channel);
+        let mls_client = ProtoMlsApiClient::new(channel.clone())
+            .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
+            .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
+        let identity_client = ProtoIdentityApiClient::new(channel.clone())
+            .max_decoding_message_size(GRPC_PAYLOAD_LIMIT)
+            .max_encoding_message_size(GRPC_PAYLOAD_LIMIT);
 
         Ok(Client {
             mls_client,
@@ -125,6 +133,7 @@ impl ApiBuilder for ClientBuilder {
 
             stats: ApiStats::default(),
             identity_stats: IdentityStats::default(),
+            channel,
         })
     }
 }
@@ -225,61 +234,11 @@ impl XmtpMlsClient for Client {
     }
 }
 
-pub struct GroupMessageStream {
-    inner: tonic::codec::Streaming<GroupMessage>,
-}
-
-impl From<tonic::codec::Streaming<GroupMessage>> for GroupMessageStream {
-    fn from(inner: tonic::codec::Streaming<GroupMessage>) -> Self {
-        GroupMessageStream { inner }
-    }
-}
-
-impl Stream for GroupMessageStream {
-    type Item = Result<GroupMessage, ApiClientError<crate::GrpcError>>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx).map(|data| {
-            data.map(|v| {
-                v.map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))
-            })
-        })
-    }
-}
-
-pub struct WelcomeMessageStream {
-    inner: tonic::codec::Streaming<WelcomeMessage>,
-}
-
-impl From<tonic::codec::Streaming<WelcomeMessage>> for WelcomeMessageStream {
-    fn from(inner: tonic::codec::Streaming<WelcomeMessage>) -> Self {
-        WelcomeMessageStream { inner }
-    }
-}
-
-impl Stream for WelcomeMessageStream {
-    type Item = Result<WelcomeMessage, ApiClientError<crate::GrpcError>>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx).map(|data| {
-            data.map(|v| {
-                v.map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))
-            })
-        })
-    }
-}
-
 #[async_trait::async_trait]
 impl XmtpMlsStreams for Client {
     type Error = ApiClientError<crate::GrpcError>;
-    type GroupMessageStream = GroupMessageStream;
-    type WelcomeMessageStream = WelcomeMessageStream;
+    type GroupMessageStream = XmtpTonicStream<EscapableTonicStream<GroupMessage>>;
+    type WelcomeMessageStream = XmtpTonicStream<EscapableTonicStream<WelcomeMessage>>;
 
     async fn subscribe_group_messages(
         &self,
@@ -293,7 +252,10 @@ impl XmtpMlsStreams for Client {
             .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeGroupMessages, e.into()))?;
 
         let stream = res.into_inner();
-        Ok(stream.into())
+        Ok(XmtpTonicStream::new(
+            stream.into(),
+            ApiEndpoint::SubscribeGroupMessages,
+        ))
     }
 
     async fn subscribe_welcome_messages(
@@ -308,8 +270,10 @@ impl XmtpMlsStreams for Client {
             .map_err(|e| ApiClientError::new(ApiEndpoint::SubscribeWelcomes, e.into()))?;
 
         let stream = res.into_inner();
-
-        Ok(stream.into())
+        Ok(XmtpTonicStream::new(
+            stream.into(),
+            ApiEndpoint::SubscribeWelcomes,
+        ))
     }
 }
 

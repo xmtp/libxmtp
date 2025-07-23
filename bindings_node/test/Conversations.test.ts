@@ -7,6 +7,7 @@ import { v4 } from 'uuid'
 import { describe, expect, it } from 'vitest'
 import {
   createRegisteredClient,
+  createToxicRegisteredClient,
   createUser,
   encodeTextMessage,
 } from '@test/helpers'
@@ -23,7 +24,8 @@ import {
 } from '../dist'
 
 const SLEEP_MS = 100
-const sleep = () => new Promise((resolve) => setTimeout(resolve, SLEEP_MS))
+const sleep = (timeout: number = SLEEP_MS) =>
+  new Promise((resolve) => setTimeout(resolve, timeout))
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -462,9 +464,14 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    })
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('closed')
+      }
+    )
     const group1 = await client1.conversations().createGroup([
       {
         identifier: user3.account.address,
@@ -489,6 +496,45 @@ describe('Conversations', () => {
     expect(groups).toEqual([group1, group2, group3])
   })
 
+  it('should error when connection dies', { timeout: 45_000 }, async () => {
+    const long_sleep = () =>
+      new Promise((resolve) => setTimeout(resolve, 30_000))
+    const user1 = createUser()
+    const user2 = createUser()
+    const client2 = await createRegisteredClient(user2)
+    const client1 = await createToxicRegisteredClient(user1)
+    let groups: Conversation[] = []
+
+    const startNewConvo = async () => {
+      await client2.conversations().createGroup([
+        {
+          identifier: user1.account.address,
+          identifierKind: IdentifierKind.Ethereum,
+        },
+      ])
+    }
+
+    let closed = false
+    const stream = client1.client.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        closed = true
+      },
+      ConversationType.Group
+    )
+
+    await startNewConvo()
+    await sleep()
+    expect(groups.length).toBe(1)
+    await client1.withTimeout('downstream', 60000, 1.0)
+    await startNewConvo()
+    await long_sleep() // the stream should end and call on_close
+    expect(groups.length).toBe(2)
+    expect(closed).toBe(true)
+  })
+
   it('should only stream group chats', async () => {
     const user1 = createUser()
     const user2 = createUser()
@@ -499,9 +545,15 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    }, ConversationType.Group)
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Group
+    )
     const group3 = await client4.conversations().createDm({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
@@ -536,9 +588,15 @@ describe('Conversations', () => {
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
     let groups: Conversation[] = []
-    const stream = client3.conversations().stream((err, convo) => {
-      groups.push(convo!)
-    }, ConversationType.Dm)
+    const stream = client3.conversations().stream(
+      (err, convo) => {
+        groups.push(convo!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
+    )
     const group1 = await client1.conversations().createGroup([
       {
         identifier: user3.account.address,
@@ -594,6 +652,9 @@ describe('Conversations', () => {
       (err, message) => {
         messages.push(message!)
       },
+      () => {
+        console.log('closed')
+      },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
     )
@@ -602,6 +663,9 @@ describe('Conversations', () => {
     const stream2 = client2.conversations().streamAllMessages(
       (err, message) => {
         messages2.push(message!)
+      },
+      () => {
+        console.log('closed')
       },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
@@ -612,6 +676,9 @@ describe('Conversations', () => {
       (err, message) => {
         messages3.push(message!)
       },
+      () => {
+        console.log('closed')
+      },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
     )
@@ -620,6 +687,9 @@ describe('Conversations', () => {
     const stream4 = client4.conversations().streamAllMessages(
       (err, message) => {
         messages4.push(message!)
+      },
+      () => {
+        console.log('closed')
       },
       undefined,
       [ConsentState.Allowed, ConsentState.Unknown]
@@ -647,7 +717,7 @@ describe('Conversations', () => {
       encodeTextMessage('gm3!')
     )
 
-    await sleep()
+    await sleep(1000)
 
     stream.end()
     stream2.end()
@@ -690,9 +760,15 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages((err, message) => {
-      messages.push(message!)
-    }, ConversationType.Group)
+    const stream = client1.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Group
+    )
 
     const groups2 = client2.conversations()
     await groups2.sync()
@@ -748,9 +824,15 @@ describe('Conversations', () => {
     })
 
     let messages: Message[] = []
-    const stream = client1.conversations().streamAllMessages((err, message) => {
-      messages.push(message!)
-    }, ConversationType.Dm)
+    const stream = client1.conversations().streamAllMessages(
+      (err, message) => {
+        messages.push(message!)
+      },
+      () => {
+        console.log('closed')
+      },
+      ConversationType.Dm
+    )
 
     const groups2 = client2.conversations()
     await groups2.sync()

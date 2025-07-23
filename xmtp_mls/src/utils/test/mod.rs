@@ -71,6 +71,7 @@ impl ClientBuilder<TestClient> {
             .await
             .unwrap()
     }
+
     pub async fn new_localhost_api_client() -> TestClient {
         <TestClient as XmtpTestClient>::create_local()
             .build()

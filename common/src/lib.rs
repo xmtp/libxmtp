@@ -24,6 +24,7 @@ pub mod stream_handles;
 pub use stream_handles::*;
 
 pub mod fmt;
+pub mod snippet;
 pub mod time;
 pub mod types;
 

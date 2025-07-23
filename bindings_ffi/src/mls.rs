@@ -116,9 +116,15 @@ pub async fn connect_to_backend(
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
+    api.0.is_connected().await
+}
+
 /**
  * Static Get the inbox state for each `inbox_id`.
  */
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn inbox_state_from_inbox_ids(
     api: Arc<XmtpApiClient>,
     inbox_ids: Vec<String>,
@@ -1511,6 +1517,7 @@ impl FfiConversations {
         callback: Arc<dyn FfiConversationCallback>,
     ) -> FfiStreamCloser {
         let client = self.inner_client.clone();
+        let close_cb = callback.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Group),
@@ -1518,6 +1525,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || close_cb.on_close(),
         );
 
         FfiStreamCloser::new(handle)
@@ -1525,6 +1533,7 @@ impl FfiConversations {
 
     pub async fn stream_dms(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
+        let close_cb = callback.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             Some(ConversationType::Dm),
@@ -1532,6 +1541,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || close_cb.on_close(),
         );
 
         FfiStreamCloser::new(handle)
@@ -1539,6 +1549,7 @@ impl FfiConversations {
 
     pub async fn stream(&self, callback: Arc<dyn FfiConversationCallback>) -> FfiStreamCloser {
         let client = self.inner_client.clone();
+        let close_cb = callback.clone();
         let handle = RustXmtpClient::stream_conversations_with_callback(
             client.clone(),
             None,
@@ -1546,6 +1557,7 @@ impl FfiConversations {
                 Ok(c) => callback.on_conversation(Arc::new(c.into())),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || close_cb.on_close(),
         );
 
         FfiStreamCloser::new(handle)
@@ -1594,6 +1606,7 @@ impl FfiConversations {
     ) -> FfiStreamCloser {
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
+        let close_cb = message_callback.clone();
         let handle = RustXmtpClient::stream_all_messages_with_callback(
             self.inner_client.clone(),
             conversation_type.map(Into::into),
@@ -1602,6 +1615,7 @@ impl FfiConversations {
                 Ok(m) => message_callback.on_message(m.into()),
                 Err(e) => message_callback.on_error(e.into()),
             },
+            move || close_cb.on_close(),
         );
 
         FfiStreamCloser::new(handle)
@@ -1610,13 +1624,15 @@ impl FfiConversations {
     /// Get notified when there is a new consent update either locally or is synced from another device
     /// allowing the user to re-render the new state appropriately
     pub async fn stream_consent(&self, callback: Arc<dyn FfiConsentCallback>) -> FfiStreamCloser {
-        let handle =
-            RustXmtpClient::stream_consent_with_callback(self.inner_client.clone(), move |msg| {
-                match msg {
-                    Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
-                    Err(e) => callback.on_error(e.into()),
-                }
-            });
+        let close_cb = callback.clone();
+        let handle = RustXmtpClient::stream_consent_with_callback(
+            self.inner_client.clone(),
+            move |msg| match msg {
+                Ok(m) => callback.on_consent_update(m.into_iter().map(Into::into).collect()),
+                Err(e) => callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -1627,6 +1643,7 @@ impl FfiConversations {
         &self,
         callback: Arc<dyn FfiPreferenceCallback>,
     ) -> FfiStreamCloser {
+        let close_cb = callback.clone();
         let handle = RustXmtpClient::stream_preferences_with_callback(
             self.inner_client.clone(),
             move |msg| match msg {
@@ -1635,6 +1652,7 @@ impl FfiConversations {
                 ),
                 Err(e) => callback.on_error(e.into()),
             },
+            move || close_cb.on_close(),
         );
 
         FfiStreamCloser::new(handle)
@@ -1777,21 +1795,37 @@ pub struct FfiConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: bool,
     pub fork_details: String,
+    pub local_commit_log: String,
+    pub cursor: i64,
 }
 
 impl FfiConversationDebugInfo {
-    fn new(epoch: u64, maybe_forked: bool, fork_details: String) -> Self {
+    fn new(
+        epoch: u64,
+        maybe_forked: bool,
+        fork_details: String,
+        local_commit_log: String,
+        cursor: i64,
+    ) -> Self {
         Self {
             epoch,
             maybe_forked,
             fork_details,
+            local_commit_log,
+            cursor,
         }
     }
 }
 
 impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
     fn from(value: ConversationDebugInfo) -> Self {
-        FfiConversationDebugInfo::new(value.epoch, value.maybe_forked, value.fork_details)
+        FfiConversationDebugInfo::new(
+            value.epoch,
+            value.maybe_forked,
+            value.fork_details,
+            value.local_commit_log,
+            value.cursor,
+        )
     }
 }
 
@@ -2317,13 +2351,16 @@ impl FfiConversation {
     }
 
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let handle =
-            MlsGroup::stream_with_callback(self.inner.context.clone(), self.id(), move |message| {
-                match message {
-                    Ok(m) => message_callback.on_message(m.into()),
-                    Err(e) => message_callback.on_error(e.into()),
-                }
-            });
+        let close_cb = message_callback.clone();
+        let handle = MlsGroup::stream_with_callback(
+            self.inner.context.clone(),
+            self.id(),
+            move |message| match message {
+                Ok(m) => message_callback.on_message(m.into()),
+                Err(e) => message_callback.on_error(e.into()),
+            },
+            move || close_cb.on_close(),
+        );
 
         FfiStreamCloser::new(handle)
     }
@@ -2884,24 +2921,28 @@ impl FfiStreamCloser {
 pub trait FfiMessageCallback: Send + Sync {
     fn on_message(&self, message: FfiMessage);
     fn on_error(&self, error: FfiSubscribeError);
+    fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiConversation>);
     fn on_error(&self, error: FfiSubscribeError);
+    fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiConsentCallback: Send + Sync {
     fn on_consent_update(&self, consent: Vec<FfiConsent>);
     fn on_error(&self, error: FfiSubscribeError);
+    fn on_close(&self);
 }
 
 #[uniffi::export(with_foreign)]
 pub trait FfiPreferenceCallback: Send + Sync {
     fn on_preference_update(&self, preference: Vec<FfiPreferenceUpdate>);
     fn on_error(&self, error: FfiSubscribeError);
+    fn on_close(&self);
 }
 
 #[derive(uniffi::Enum, Debug)]
@@ -2982,7 +3023,7 @@ mod tests {
         get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
-        inbox_state_from_inbox_ids,
+        inbox_state_from_inbox_ids, is_connected,
         mls::test_utils::{LocalBuilder, LocalTester},
         revoke_installations,
         worker::FfiSyncWorkerMode,
@@ -3134,6 +3175,10 @@ mod tests {
         fn on_error(&self, error: FfiSubscribeError) {
             log::error!("{}", error)
         }
+
+        fn on_close(&self) {
+            log::error!("closed");
+        }
     }
 
     impl FfiConversationCallback for RustStreamCallback {
@@ -3152,6 +3197,10 @@ mod tests {
         fn on_error(&self, error: FfiSubscribeError) {
             log::error!("{}", error)
         }
+
+        fn on_close(&self) {
+            log::error!("closed");
+        }
     }
 
     impl FfiConsentCallback for RustStreamCallback {
@@ -3169,6 +3218,10 @@ mod tests {
         fn on_error(&self, error: FfiSubscribeError) {
             log::error!("{}", error)
         }
+
+        fn on_close(&self) {
+            log::error!("closed");
+        }
     }
 
     impl FfiPreferenceCallback for RustStreamCallback {
@@ -3184,6 +3237,10 @@ mod tests {
 
         fn on_error(&self, error: FfiSubscribeError) {
             log::error!("{}", error)
+        }
+
+        fn on_close(&self) {
+            log::error!("closed");
         }
     }
 
@@ -8846,5 +8903,19 @@ mod tests {
             ffi_identities, expected_order,
             "FFI identifiers are not ordered by creation timestamp"
         );
+    }
+
+    #[tokio::test]
+    async fn test_is_connected_after_connect() {
+        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .expect("should connect to local grpc server");
+
+        let connected = is_connected(api_backend).await;
+
+        assert!(connected, "Expected API client to report as connected");
+
+        let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false).await;
+        assert!(result.is_err(), "Expected connection to fail");
     }
 }
