@@ -167,14 +167,6 @@ impl Conversation {
   }
 
   #[napi]
-  pub async fn receive(&self, limit: Option<u32>) -> Result<()> {
-    let group = self.create_mls_group();
-    group.receive(limit).await.map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  #[napi]
   pub async fn find_messages(&self, opts: Option<ListMessagesOptions>) -> Result<Vec<Message>> {
     let opts = opts.unwrap_or_default();
     let group = self.create_mls_group();
