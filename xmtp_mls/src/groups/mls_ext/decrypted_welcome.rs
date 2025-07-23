@@ -5,7 +5,9 @@ use openmls::{
     },
 };
 use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+use prost::Message;
 use tls_codec::{Deserialize, Serialize};
+use xmtp_proto::mls_v1::WelcomeMetadata;
 
 use crate::{
     client::ClientError,
@@ -25,6 +27,7 @@ pub(crate) struct DecryptedWelcome {
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
     pub(crate) added_by_installation_id: Vec<u8>,
+    pub(crate) welcome_metadata: Option<WelcomeMetadata>,
 }
 
 impl DecryptedWelcome {
@@ -36,15 +39,33 @@ impl DecryptedWelcome {
         provider: &XmtpOpenMlsProvider<C>,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
+        encrypted_welcome_metadata_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
     ) -> Result<DecryptedWelcome, GroupError> {
         tracing::info!("Trying to decrypt welcome");
         let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
         let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
-        let welcome_bytes =
-            unwrap_welcome(encrypted_welcome_bytes, &private_key, wrapper_ciphersuite)?;
 
+        let mut welcome_metadata = None;
+
+        let welcome_bytes = unwrap_welcome(
+            encrypted_welcome_bytes,
+            &private_key,
+            wrapper_ciphersuite.clone(),
+        )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
+
+        if !encrypted_welcome_metadata_bytes.is_empty() {
+            let metadata_bytes = unwrap_welcome(
+                encrypted_welcome_metadata_bytes,
+                &private_key,
+                wrapper_ciphersuite,
+            )?;
+            welcome_metadata = Some(deserialize_welcome_metadata(&metadata_bytes)?);
+        } else {
+            tracing::warn!(
+                "Welcome Metadata is empty; proceeding without metadata.");
+        }
 
         let join_config = build_group_join_config();
 
@@ -68,6 +89,7 @@ impl DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
             added_by_installation_id,
+            welcome_metadata,
         })
     }
 }
@@ -130,4 +152,10 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
             "unexpected message type in welcome".to_string(),
         )),
     }
+}
+
+fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, ClientError> {
+    let metadata = WelcomeMetadata::decode(metadata_bytes)
+        .map_err(|_| ClientError::Generic("unexpected message type in welcome".to_string()))?;
+    Ok(metadata)
 }
