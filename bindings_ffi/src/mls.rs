@@ -3067,7 +3067,10 @@ mod tests {
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::prelude::*;
     use xmtp_db::EncryptionKey;
+    use xmtp_db::MlsProviderExt;
+    use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_id::associations::{
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
@@ -8915,7 +8918,7 @@ mod tests {
         let association_state = client
             .inner_client
             .identity_updates()
-            .get_latest_association_state(&client.inner_client.store().db(), &inbox_id)
+            .get_latest_association_state(&client.inner_client.context.store().db(), &inbox_id)
             .await
             .expect("Failed to fetch association state");
 

@@ -133,6 +133,7 @@ mod tests {
 
     #[rstest]
     #[xmtp_common::test]
+    #[allow(clippy::readonly_write_lock, clippy::await_holding_lock)]
     async fn applies_group_membership_intent(mut context: NewMockContext) {
         let mut credentials = HashMap::new();
         let installation_key = XmtpInstallationCredential::new();
@@ -153,8 +154,6 @@ mod tests {
         };
         let config = generate_config("alice", &["bob", "caro", "eve"]).unwrap();
         let id = client.create_group(config, CIPHERSUITE).unwrap();
-        let mut groups = client.groups.write().unwrap();
-        let g = groups.get_mut(&id).unwrap();
         let installation = XmtpInstallationCredential::new();
 
         let db_calls = || {
@@ -166,9 +165,11 @@ mod tests {
         };
         context.store.expect_db().returning(db_calls);
 
+        let mut groups = client.groups.write().unwrap();
+        let g = groups.get_mut(&id).unwrap();
+
         // once context is in an arc, can no longer set expectations
         let context = Arc::new(context);
-
         let intent = apply_update_group_membership_intent(
             context.as_ref(),
             g,
@@ -181,7 +182,6 @@ mod tests {
         )
         .await
         .unwrap();
-
         assert!(intent.is_none());
     }
 }

@@ -21,7 +21,7 @@ impl Default for MemoryStorage {
 
 impl MemoryStorage {
     pub fn new() -> Self {
-        let mut conn = diesel::SqliteConnection::establish(":memory").unwrap();
+        let mut conn = diesel::SqliteConnection::establish(":memory:").unwrap();
         conn.run_pending_migrations(MIGRATIONS).unwrap();
         Self {
             inner: Arc::new(Mutex::new(conn)),

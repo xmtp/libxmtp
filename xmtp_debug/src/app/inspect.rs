@@ -34,7 +34,7 @@ impl Inspect {
         }
         let client =
             app::client_from_identity(&identity.expect("checked for none"), &network).await?;
-        let conn = client.store().db();
+        let conn = client.context.store().db();
         match kind {
             Associations => {
                 let state = client

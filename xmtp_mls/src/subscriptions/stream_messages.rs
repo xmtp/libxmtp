@@ -243,6 +243,7 @@ where
     /// - Querying the database for the last cursor fails
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
+    #[allow(clippy::type_complexity)]
     async fn subscribe(
         context: Cow<'a, C>,
         filters: Vec<GroupFilter>,

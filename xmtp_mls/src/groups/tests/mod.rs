@@ -1742,10 +1742,8 @@ async fn test_group_admin_list_update() {
     bola_group.sync().await.unwrap();
 
     // Verify Amal is the only admin and super admin
-    let provider = amal_group.context.mls_provider();
     let admin_list = amal_group.admin_list().unwrap();
     let super_admin_list = amal_group.super_admin_list().unwrap();
-    drop(provider); // allow connection to be cleaned
     assert_eq!(admin_list.len(), 0);
     assert_eq!(super_admin_list.len(), 1);
     assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
@@ -1840,10 +1838,8 @@ async fn test_group_super_admin_list_update() {
     bola_group.sync().await.unwrap();
 
     // Verify Amal is the only super admin
-    let provider = amal_group.context.mls_provider();
     let admin_list = amal_group.admin_list().unwrap();
     let super_admin_list = amal_group.super_admin_list().unwrap();
-    drop(provider); // allow connection to be re-added to pool
     assert_eq!(admin_list.len(), 0);
     assert_eq!(super_admin_list.len(), 1);
     assert!(super_admin_list.contains(&amal.inbox_id().to_string()));
@@ -1867,13 +1863,11 @@ async fn test_group_super_admin_list_update() {
         .unwrap();
     amal_group.sync().await.unwrap();
     bola_group.sync().await.unwrap();
-    let provider = bola_group.context.mls_provider();
     assert_eq!(bola_group.super_admin_list().unwrap().len(), 2);
     assert!(bola_group
         .super_admin_list()
         .unwrap()
         .contains(&bola.inbox_id().to_string()));
-    drop(provider); // allow connection to be re-added to pool
 
     // Verify that bola can now add caro as an admin
     bola_group
@@ -1881,13 +1875,11 @@ async fn test_group_super_admin_list_update() {
         .await
         .unwrap();
     bola_group.sync().await.unwrap();
-    let provider = bola_group.context.mls_provider();
     assert_eq!(bola_group.admin_list().unwrap().len(), 1);
     assert!(bola_group
         .admin_list()
         .unwrap()
         .contains(&caro.inbox_id().to_string()));
-    drop(provider); // allow connection to be re-added to pool
 
     // Verify that no one can remove a super admin from a group
     amal_group
@@ -1904,13 +1896,11 @@ async fn test_group_super_admin_list_update() {
         .await
         .unwrap();
     bola_group.sync().await.unwrap();
-    let provider = bola_group.context.mls_provider();
     assert_eq!(bola_group.super_admin_list().unwrap().len(), 1);
     assert!(!bola_group
         .super_admin_list()
         .unwrap()
         .contains(&bola.inbox_id().to_string()));
-    drop(provider); // allow connection to be re-added to pool
 
     // Verify that amal can NOT remove themself as a super admin because they are the only remaining
     amal_group

@@ -412,12 +412,12 @@ where
             // check the StoredGroup.
             OpenMlsGroup::from_backup_stub_logged(
                 &provider,
-                &context.identity(),
+                context.identity(),
                 &group_config,
                 GroupId::from_slice(existing_group_id),
             )?
         } else {
-            OpenMlsGroup::from_creation_logged(&provider, &context.identity(), &group_config)?
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
         };
 
         let group_id = mls_group.group_id().to_vec();
@@ -470,7 +470,7 @@ where
         )?;
 
         let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, &context.identity(), &group_config)?;
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
@@ -828,7 +828,7 @@ where
             mutable_permissions,
         )?;
         let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, &context.identity(), &group_config)?;
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
 
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::create_sync_group(
@@ -1705,7 +1705,7 @@ where
         )?;
 
         let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, &context.identity(), &group_config)?;
+            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::builder()
             .id(group_id.clone())
