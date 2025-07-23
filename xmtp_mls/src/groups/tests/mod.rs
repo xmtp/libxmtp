@@ -623,6 +623,93 @@ async fn test_create_group_with_member_all_malformed_installations() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
+async fn test_installation_rotation_and_rejoin_group() {
+    // STEP 1: Create wallet and three installations
+
+    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    let wallet = generate_local_wallet();
+    let inst1 = ClientBuilder::new_test_client(&wallet).await;
+    let inst2 = ClientBuilder::new_test_client(&wallet).await;
+    let inst3 = ClientBuilder::new_test_client(&wallet).await;
+
+    let inst_ids = vec![
+        inst1.installation_id().to_vec(),
+        inst2.installation_id().to_vec(),
+        inst3.installation_id().to_vec(),
+    ];
+
+    // Mark all as malformed
+    set_test_mode_upload_malformed_keypackage(true, Some(inst_ids.clone()));
+
+    // Create creator client
+    let creator = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+    // STEP 2: Creator tries to add the 3-installation wallet to a group (should fail)
+    let group_result = creator
+        .create_group_with_members(&[wallet.identifier()], None, None)
+        .await;
+
+    assert!(group_result.is_err(), "Group creation should fail with all malformed KPs");
+
+    // STEP 3: Simulate rotation for inst1 only
+    let inst_ids_2 = vec![
+        inst2.installation_id().to_vec(),
+        inst3.installation_id().to_vec(),
+    ];
+    set_test_mode_upload_malformed_keypackage(false, None); // allow new KP uploads
+    set_test_mode_upload_malformed_keypackage(true, Some(inst_ids_2.clone())); // allow new KP uploads
+    // inst1.rotate_and_upload_key_package().await.unwrap();
+
+    // STEP 4: Try again, this time group creation should succeed
+    let group = creator
+        .create_group_with_members(&[wallet.identifier()], None, None)
+        .await
+        .expect("Group creation should succeed with 1 valid KP");
+
+    // Sync welcomes
+    inst1.sync_welcomes().await.unwrap();
+    inst2.sync_welcomes().await.unwrap();
+    inst3.sync_welcomes().await.unwrap();
+
+    let g1 = inst1.find_groups(GroupQueryArgs::default()).unwrap();
+    let g2 = inst2.find_groups(GroupQueryArgs::default()).unwrap();
+    let g3 = inst3.find_groups(GroupQueryArgs::default()).unwrap();
+
+    assert_eq!(g1.len(), 1, "Valid installation should see group");
+    assert_eq!(g2.len(), 0, "Malformed installation should not see group");
+    assert_eq!(g3.len(), 0, "Malformed installation should not see group");
+
+    // STEP 5: Simulate fresh installation (deleting local DB)
+    let new_inst = ClientBuilder::new_test_client(&wallet).await;
+    group.send_message(b"hello from creator").await.unwrap();
+    // STEP 6: Send a message from creator to group
+
+    // STEP 7: Sync new installation
+    new_inst.sync_welcomes().await.unwrap();
+    let new_groups = new_inst.find_groups(GroupQueryArgs::default()).unwrap();
+
+    group.send_message(b"hello from creator").await.unwrap();
+
+    assert_eq!(
+        new_groups.len(),
+        1,
+        "New installation should be added to the existing group"
+    );
+
+    new_groups[0].sync().await.unwrap();
+
+    // Check that it received the message
+    let messages = new_groups[0].find_messages(&MsgQueryArgs::default()).unwrap();
+
+    assert_eq!(
+        messages.len(),
+        2,
+        "New installation should be added to the existing group and have 2 messages"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test(flavor = "current_thread")]
 async fn test_dm_creation_with_user_two_installations_one_malformed() {
     use crate::utils::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
