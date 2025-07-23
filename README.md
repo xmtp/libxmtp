@@ -14,7 +14,7 @@ To learn how to use the XMTP iOS SDK and get answers to frequently asked questio
 
 ## SDK reference
 
-Coming soon
+Access the [iOS client SDK reference documentation](https://xmtp.github.io/xmtp-ios/).
 
 ## Example app built with `xmtp-ios`
 
