@@ -674,9 +674,7 @@ impl Conversations {
     Ok(StreamCloser::new(stream_closer))
   }
 
-  #[napi(
-    ts_args_type = "callback: (err: null | Error, result: any[] | undefined) => void, onClose: () => void"
-  )]
+  #[napi(ts_args_type = "callback: (err: null | Error, result: any) => void, onClose: () => void")]
   pub fn stream_preferences(
     &self,
     callback: JsFunction,
