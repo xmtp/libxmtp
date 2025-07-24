@@ -8,7 +8,6 @@ use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
     local_commit_log::{CommitType, NewLocalCommitLog},
-    prelude::*,
     remote_commit_log::CommitResult,
     Store, XmtpMlsStorageProvider,
 };

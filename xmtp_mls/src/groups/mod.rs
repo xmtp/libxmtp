@@ -70,7 +70,6 @@ use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
-use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
 use xmtp_db::XmtpMlsStorageProvider;
@@ -402,7 +401,7 @@ where
         )?;
 
         let provider = context.mls_provider();
-        let mls_group = if let Some(group_id) = group_id {
+        let mls_group = if let Some(existing_group_id) = existing_group_id {
             // TODO: For groups restored from backup, in order to support queries on metadata such as
             // the group title and description, a stubbed OpenMLS group is created, and later overwritten
             // when a welcome is received.
@@ -413,7 +412,7 @@ where
                 &provider,
                 context.identity(),
                 &group_config,
-                GroupId::from_slice(group_id),
+                GroupId::from_slice(existing_group_id),
             )?
         } else {
             OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
@@ -1542,7 +1541,6 @@ where
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let epoch = self.epoch().await?;
         let cursor = self.cursor().await?;
-        let commit_log = self.local_commit_log().await?;
         let db = self.context.db();
 
         let stored_group = match db.find_group(&self.group_id)? {
@@ -1558,7 +1556,7 @@ where
             epoch,
             maybe_forked: stored_group.maybe_forked,
             fork_details: stored_group.fork_details,
-            local_commit_log: format!("{:?}", commit_log),
+            local_commit_log: "empty".to_string(),
             cursor,
         })
     }

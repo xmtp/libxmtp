@@ -3,8 +3,6 @@ use std::collections::HashSet;
 use super::{stream_conversations::ConversationStreamError, Result};
 use crate::context::XmtpSharedContext;
 use crate::groups::welcome_sync::WelcomeService;
-use std::sync::Arc;
-use xmtp_api::XmtpApi;
 use crate::groups::GroupError;
 use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};

@@ -1,4 +1,3 @@
-use crate::local_commit_log::LocalCommitLog;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -350,7 +349,6 @@ mock! {
             msg_id: &MessageId,
             timestamp: u64,
             sequence_id: i64,
-            message_expire_at_ns: Option<i64>
         ) -> Result<usize, crate::ConnectionError>;
 
         #[mockall::concretize]
