@@ -1,7 +1,7 @@
 use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
 use crate::{
     client::ClientError,
-    context::XmtpMlsLocalContext,
+    context::XmtpSharedContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
@@ -20,22 +20,19 @@ use xmtp_db::{
     consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
     NotFound, StorageError,
 };
-use xmtp_db::{DbConnection, XmtpDb};
+use xmtp_db::{prelude::*, XmtpDb};
 use xmtp_id::{associations::DeserializationError, InboxIdRef};
-use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
-    xmtp::{
-        device_sync::{
-            content::{
-                device_sync_content::Content as ContentProto,
-                DeviceSyncContent as DeviceSyncContentProto,
-            },
-            BackupElementSelection, BackupOptions,
+use xmtp_proto::xmtp::{
+    device_sync::{
+        content::{
+            device_sync_content::Content as ContentProto,
+            DeviceSyncContent as DeviceSyncContentProto,
         },
-        mls::message_contents::{
-            plaintext_envelope::{Content, V1},
-            ContentTypeId, EncodedContent, PlaintextEnvelope,
-        },
+        BackupElementSelection, BackupOptions,
+    },
+    mls::message_contents::{
+        plaintext_envelope::{Content, V1},
+        ContentTypeId, EncodedContent, PlaintextEnvelope,
     },
 };
 
@@ -132,41 +129,37 @@ impl From<NotFound> for DeviceSyncError {
 }
 
 #[derive(Clone)]
-pub struct DeviceSyncClient<ApiClient, Db> {
-    pub(crate) context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    pub(crate) welcome_service: WelcomeService<ApiClient, Db>,
-    pub(crate) mls_store: MlsStore<ApiClient, Db>,
+pub struct DeviceSyncClient<Context> {
+    pub(crate) context: Context,
+    pub(crate) welcome_service: WelcomeService<Context>,
+    pub(crate) mls_store: MlsStore<Context>,
     pub(crate) metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db> {
-    pub fn new(
-        context: &Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-        metrics: Arc<WorkerMetrics<SyncMetric>>,
-    ) -> Self {
+impl<Context: XmtpSharedContext> DeviceSyncClient<Context> {
+    pub fn new(context: Context, metrics: Arc<WorkerMetrics<SyncMetric>>) -> Self {
         Self {
             context: context.clone(),
             welcome_service: WelcomeService::new(context.clone()),
-            mls_store: MlsStore::new(context.clone()),
+            mls_store: MlsStore::new(context),
             metrics,
         }
     }
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub fn inbox_id(&self) -> InboxIdRef<'_> {
-        self.context.identity.inbox_id()
+        self.context.identity().inbox_id()
     }
 
     pub fn installation_id(&self) -> InstallationId {
         self.context.installation_id()
     }
 
-    pub fn db(&self) -> DbConnection<<Db as XmtpDb>::Connection> {
+    pub fn db(&self) -> <Context::Db as XmtpDb>::DbQuery {
         self.context.db()
     }
 
@@ -224,14 +217,14 @@ where
         // Notify our own worker of our own message so it can process it.
         let _ = self
             .context
-            .worker_events
+            .worker_events()
             .send(SyncWorkerEvent::NewSyncGroupMsg);
 
         Ok(message_id)
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn get_sync_group(&self) -> Result<MlsGroup<ApiClient, Db>, GroupError> {
+    pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
         let db = self.context.db();
         let sync_group = match db.primary_sync_group()? {
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,

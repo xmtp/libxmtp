@@ -42,7 +42,7 @@ impl GenerateIdentity {
         n: usize,
         client: &crate::DbgClient,
     ) -> Result<Vec<Identity>> {
-        let connection = client.store().db();
+        let connection = client.context.store().db();
         if let Some(mut identities) = self.load_identities()? {
             let first = identities.next().ok_or(eyre::eyre!("Does not exist"))??;
 
@@ -130,7 +130,7 @@ impl GenerateIdentity {
         let mut set: tokio::task::JoinSet<Result<_, eyre::Error>> = tokio::task::JoinSet::new();
         // ensure all the identities are registered
         let tmp = Arc::new(app::temp_client(network, None).await?);
-        let conn = Arc::new(tmp.store().db());
+        let conn = Arc::new(tmp.context.store().db());
         let bar_ref = bar.clone();
         let future = |inbox_id: [u8; 32]| async move {
             let id = hex::encode(inbox_id);

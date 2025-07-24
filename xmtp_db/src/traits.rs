@@ -1,4 +1,15 @@
+use crate::ConnectionExt;
 use crate::StorageError;
+use crate::prelude::*;
+
+/// Get an MLS Key store
+pub trait MlsKeyStore {
+    type Store<'a>: XmtpMlsStorageProvider
+    where
+        Self: 'a;
+
+    fn key_store<'a>(&'a mut self) -> Self::Store<'a>;
+}
 
 /// Inserts a model to the underlying data store, erroring if it already exists
 pub trait Store<StorageConnection> {
@@ -39,3 +50,54 @@ pub trait Delete<Model> {
     type Key;
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
+
+pub trait IntoConnection {
+    type Connection: ConnectionExt;
+    fn into_connection(self) -> Self::Connection;
+}
+
+pub trait DbQuery<C: crate::ConnectionExt>:
+    ReadOnly<C>
+    + QueryConsentRecord<C>
+    + QueryConversationList<C>
+    + QueryDms<C>
+    + QueryGroup<C>
+    + QueryGroupVersion<C>
+    + QueryGroupIntent<C>
+    + QueryGroupMessage<C>
+    + QueryIdentity<C>
+    + QueryIdentityCache<C>
+    + QueryKeyPackageHistory<C>
+    + QueryKeyStoreEntry<C>
+    + QueryDeviceSyncMessages<C>
+    + QueryRefreshState<C>
+    + QueryIdentityUpdates<C>
+    + QueryLocalCommitLog<C>
+    + crate::ConnectionExt
+    + IntoConnection<Connection = C>
+{
+}
+
+impl<C: crate::ConnectionExt, T: ?Sized> DbQuery<C> for T where
+    T: ReadOnly<C>
+        + QueryConsentRecord<C>
+        + QueryConversationList<C>
+        + QueryDms<C>
+        + QueryGroup<C>
+        + QueryGroupVersion<C>
+        + QueryGroupIntent<C>
+        + QueryGroupMessage<C>
+        + QueryIdentity<C>
+        + QueryIdentityCache<C>
+        + QueryKeyPackageHistory<C>
+        + QueryKeyStoreEntry<C>
+        + QueryDeviceSyncMessages<C>
+        + QueryRefreshState<C>
+        + QueryIdentityUpdates<C>
+        + QueryLocalCommitLog<C>
+        + crate::ConnectionExt
+        + IntoConnection<Connection = C>
+{
+}
+
+pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

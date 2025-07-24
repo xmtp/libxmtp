@@ -7,7 +7,7 @@ use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::{ConnectionExt, XmtpOpenMlsProvider};
+use xmtp_db::{ConnectionExt, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };
@@ -40,14 +40,17 @@ pub(super) enum Stage {
 
 impl ArchiveExporter {
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_to_file<C: 'static + Send + Sync + ConnectionExt>(
+    pub async fn export_to_file<C, D>(
         options: BackupOptions,
-        provider: XmtpOpenMlsProvider<C>,
+        db: D,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
-    ) -> Result<(), crate::ArchiveError> {
-        let provider = Arc::new(provider);
-        let mut exporter = Self::new(options, provider, key);
+    ) -> Result<(), crate::ArchiveError>
+    where
+        C: ConnectionExt + Send + Sync + 'static,
+        D: DbQuery<C> + Send + Sync + 'static,
+    {
+        let mut exporter = Self::new(options, db, key);
         exporter.write_to_file(path).await?;
 
         Ok(())
@@ -87,9 +90,10 @@ impl ArchiveExporter {
         Ok(response.text().await?)
     }
 
-    pub fn new<C>(options: BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>, key: &[u8]) -> Self
+    pub fn new<C, D>(options: BackupOptions, db: D, key: &[u8]) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,
+        D: DbQuery<C> + Send + Sync + 'static,
     {
         let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
@@ -98,7 +102,7 @@ impl ArchiveExporter {
         Self {
             position: 0,
             stage: Stage::default(),
-            iterator: BatchExportStream::new(&options, provider),
+            iterator: BatchExportStream::new(&options, Arc::new(db)),
             metadata: BackupMetadataSave::from_options(options),
             zstd_encoder: ZstdEncoder::new(Vec::new()),
             encoder_finished: false,

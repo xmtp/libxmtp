@@ -43,6 +43,7 @@ tokio = { workspace = true, optional = true, features = [
 ] }
 toml = { version = "0.8.4", optional = true }
 
+
 # TODO: possibly separate these crates
 xmtp_content_types.workspace = true
 

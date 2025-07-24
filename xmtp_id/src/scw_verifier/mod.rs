@@ -36,26 +36,7 @@ pub enum VerifierError {
     NoVerifier,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-pub trait SmartContractSignatureVerifier: Send + Sync {
-    /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.
-    ///
-    /// # Arguments
-    ///
-    /// * `signer` - can be the smart wallet address or EOA address.
-    /// * `hash` - Message digest for the signature.
-    /// * `signature` - Could be encoded smart wallet signature or raw ECDSA signature.
-    async fn is_valid_signature(
-        &self,
-        account_id: AccountId,
-        hash: [u8; 32],
-        signature: Bytes,
-        block_number: Option<BlockNumber>,
-    ) -> Result<ValidationResponse, VerifierError>;
-}
-
-#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait SmartContractSignatureVerifier: Send + Sync {
     /// Verifies an ERC-6492<https://eips.ethereum.org/EIPS/eip-6492> signature.

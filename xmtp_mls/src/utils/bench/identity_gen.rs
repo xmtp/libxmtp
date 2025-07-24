@@ -52,9 +52,21 @@ async fn create_identity(is_dev_network: bool) -> Identity {
     let wallet = generate_local_wallet();
     let ident = wallet.identifier();
     let client = if is_dev_network {
-        ClientBuilder::new_dev_client(&wallet).await
+        ClientBuilder::new_test_builder(&wallet)
+            .await
+            .dev()
+            .await
+            .build()
+            .await
+            .unwrap()
     } else {
-        ClientBuilder::new_local_client(&wallet).await
+        ClientBuilder::new_test_builder(&wallet)
+            .await
+            .local()
+            .await
+            .build()
+            .await
+            .unwrap()
     };
     Identity::new(client.inbox_id().to_string(), ident)
 }

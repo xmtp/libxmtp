@@ -1,13 +1,10 @@
 use super::{process_welcome::ProcessWelcomeResult, LocalEvents, Result, SubscribeError};
+use crate::subscriptions::stream_utils::{multiplexed, MultiplexedStream};
 use crate::{
-    context::XmtpMlsLocalContext,
-    groups::MlsGroup,
-    subscriptions::{
-        process_welcome::ProcessWelcomeFuture,
-        stream_utils::{multiplexed, MultiplexedStream},
-    },
+    context::XmtpSharedContext, groups::MlsGroup,
+    subscriptions::process_welcome::ProcessWelcomeFuture,
 };
-use xmtp_db::{group::ConversationType, refresh_state::EntityKind, XmtpDb};
+use xmtp_db::{group::ConversationType, refresh_state::EntityKind};
 
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -16,15 +13,12 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    sync::Arc,
-    task::{ready, Context, Poll},
+    task::{ready, Poll},
 };
 use tokio_stream::wrappers::BroadcastStream;
 use xmtp_common::FutureWrapper;
-use xmtp_proto::{
-    api_client::{trait_impls::XmtpApi, XmtpMlsStreams},
-    xmtp::mls::api::v1::WelcomeMessage,
-};
+use xmtp_db::prelude::*;
+use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationStreamError {
@@ -73,7 +67,10 @@ impl BroadcastGroupStream {
 impl Stream for BroadcastGroupStream {
     type Item = Result<WelcomeOrGroup>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let mut this = self.project();
         // loop until the inner stream returns:
@@ -120,7 +117,10 @@ where
 {
     type Item = Result<WelcomeOrGroup>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         use std::task::Poll::*;
         let this = self.project();
 
@@ -150,15 +150,15 @@ pin_project! {
     /// * `cx` - The task context for polling
     ///
     /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<ApiClient, Db>>>>` - The polling result:
+    /// * `Poll<Option<Result<MlsGroup<Context>>>>` - The polling result:
     ///   - `Ready(Some(Ok(group)))` when a group is successfully processed
     ///   - `Ready(Some(Err(e)))` when an error occurs
     ///   - `Pending` when waiting for more data or for future completion
     ///   - `Ready(None)` when the stream has ended
-    pub struct StreamConversations<'a, ApiClient, Db, Subscription> {
+    pub struct StreamConversations<'a, Context: Clone, Subscription> {
         #[pin] inner: Subscription,
-        #[pin] state: ProcessState<'a, ApiClient, Db>,
-        context: Cow<'a, Arc<XmtpMlsLocalContext<ApiClient, Db>>>,
+        #[pin] state: ProcessState<'a, Context>,
+        context: Cow<'a, Context>,
         conversation_type: Option<ConversationType>,
         known_welcome_ids: HashSet<i64>,
     }
@@ -167,14 +167,14 @@ pin_project! {
 pin_project! {
     #[project = ProcessProject]
     #[derive(Default)]
-    enum ProcessState<'a, ApiClient, Db> {
+    enum ProcessState<'a, Context> {
         /// State that indicates the stream is waiting on the next message from the network
         #[default]
         Waiting,
         /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
         /// before moving on to the next one
         Processing {
-            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<ApiClient, Db>>>
+            #[pin] future: FutureWrapper<'a, Result<ProcessWelcomeResult<Context>>>
         }
     }
 }
@@ -187,10 +187,10 @@ pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
     BroadcastGroupStream,
 >;
 
-impl<'a, A, D> StreamConversations<'a, A, D, WelcomesApiSubscription<'a, A>>
+impl<'a, C> StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>>
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'a,
-    D: XmtpDb + Send + 'a,
+    C: XmtpSharedContext + 'a,
+    C::ApiClient: XmtpMlsStreams + 'a,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -221,23 +221,17 @@ where
     /// ```
     /// let stream = StreamConversations::new(&client, Some(ConversationType::Dm)).await?;
     /// ```
-    pub async fn new(
-        context: &'a Arc<XmtpMlsLocalContext<A, D>>,
-        conversation_type: Option<ConversationType>,
-    ) -> Result<Self> {
+    pub async fn new(context: &'a C, conversation_type: Option<ConversationType>) -> Result<Self> {
         Self::from_cow(Cow::Borrowed(context), conversation_type).await
     }
 
     pub async fn from_cow(
-        context: Cow<'a, Arc<XmtpMlsLocalContext<A, D>>>,
+        context: Cow<'a, C>,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
-        let provider = context.mls_provider();
-        let conn = provider.db();
-        let installation_key = context.installation_public_key();
-        let id_cursor = provider
-            .db()
-            .get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
+        let conn = context.db();
+        let installation_key = context.installation_id();
+        let id_cursor = conn.get_last_cursor_for_id(installation_key, EntityKind::Welcome)?;
         tracing::debug!(
             cursor = id_cursor,
             inbox_id = context.inbox_id(),
@@ -246,11 +240,10 @@ where
         );
 
         let events =
-            BroadcastGroupStream::new(BroadcastStream::new(context.local_events.subscribe()));
+            BroadcastGroupStream::new(BroadcastStream::new(context.local_events().subscribe()));
 
         let subscription = context
-            .as_ref()
-            .api_client
+            .api()
             .subscribe_welcome_messages(installation_key.as_ref(), Some(id_cursor as u64))
             .await?;
         let subscription = SubscriptionStream::new(subscription);
@@ -268,27 +261,25 @@ where
     }
 }
 
-impl<A, D> StreamConversations<'static, A, D, WelcomesApiSubscription<'static, A>>
+impl<C> StreamConversations<'static, C, WelcomesApiSubscription<'static, C::ApiClient>>
 where
-    A: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    D: XmtpDb + Send + 'static,
+    C: XmtpSharedContext + 'static,
+    C::ApiClient: XmtpMlsStreams + 'static,
 {
     pub async fn new_owned(
-        context: Arc<XmtpMlsLocalContext<A, D>>,
+        context: C,
         conversation_type: Option<ConversationType>,
     ) -> Result<Self> {
         Self::from_cow(Cow::Owned(context), conversation_type).await
     }
 }
 
-impl<'a, ApiClient, Db, Subscription> Stream
-    for StreamConversations<'a, ApiClient, Db, Subscription>
+impl<'a, C, Subscription> Stream for StreamConversations<'a, C, Subscription>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    C: XmtpSharedContext + 'a,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
-    type Item = Result<MlsGroup<ApiClient, Db>>;
+    type Item = Result<MlsGroup<C>>;
 
     #[tracing::instrument(skip_all, name = "poll_next_stream_conversations" level = "trace")]
     fn poll_next(
@@ -338,10 +329,9 @@ where
     }
 }
 
-impl<'a, ApiClient, Db, Subscription> StreamConversations<'a, ApiClient, Db, Subscription>
+impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
 where
-    ApiClient: XmtpApi + 'a,
-    Db: XmtpDb + 'a,
+    C: XmtpSharedContext + 'a,
     Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'a,
 {
     /// Processes the result of a welcome future.
@@ -360,7 +350,7 @@ where
     /// * `cx` - The task context for polling
     ///
     /// # Returns
-    /// * `Poll<Option<Result<MlsGroup<ApiClient, Db>>>>` - The polling result based on
+    /// * `Poll<Option<Result<MlsGroup<C>>>>` - The polling result based on
     ///   the welcome processing outcome
     ///
     /// # Note
@@ -368,8 +358,8 @@ where
     /// ensuring proper handling of all possible processing outcomes.
     fn try_process(
         mut self: Pin<&mut Self>,
-        poll: Poll<Result<ProcessWelcomeResult<ApiClient, Db>>>,
-        cx: &mut Context<'_>,
+        poll: Poll<Result<ProcessWelcomeResult<C>>>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<<Self as Stream>::Item>> {
         use Poll::*;
         let mut this = self.as_mut().project();
