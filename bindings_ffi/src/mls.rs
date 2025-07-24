@@ -6713,6 +6713,8 @@ mod tests {
             .conversations()
             .stream_groups(stream_callback.clone())
             .await;
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -6723,15 +6725,15 @@ mod tests {
             .unwrap();
 
         stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 2);
 
-        assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM");
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
@@ -6739,13 +6741,14 @@ mod tests {
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
-
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
         caro.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         alix.conversations()
             .create_group(
@@ -6757,7 +6760,7 @@ mod tests {
 
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());

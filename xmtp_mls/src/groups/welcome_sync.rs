@@ -29,11 +29,13 @@ where
     /// Internal API to process a unread welcome message and convert to a group.
     /// In a database transaction, increments the cursor for a given installation and
     /// applies the update after the welcome processed successfully.
-    async fn process_new_welcome(
+    pub(crate) async fn process_new_welcome(
         &self,
         welcome: &welcome_message::V1,
+        cursor_increment: bool,
     ) -> Result<MlsGroup<Context>, GroupError> {
-        let result = MlsGroup::create_from_welcome(self.context.clone(), welcome).await;
+        let result =
+            MlsGroup::create_from_welcome(self.context.clone(), welcome, cursor_increment).await;
 
         match result {
             Ok(mls_group) => Ok(mls_group),
@@ -82,7 +84,7 @@ where
                 };
                 retry_async!(
                     Retry::default(),
-                    (async { self.process_new_welcome(&welcome_v1).await })
+                    (async { self.process_new_welcome(&welcome_v1, true).await })
                 )
                 .ok()
             })

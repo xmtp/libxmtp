@@ -31,7 +31,7 @@ fi
 
 WASM_TARGET="wasm32-unknown-unknown"
 
-if ! rustup target list --installed | grep -q "^$WASM_TARGET$"; then
+if ! ls "$(rustc --print sysroot)/lib/rustlib" | grep -q "^$WASM_TARGET$"; then
     echo "✗ $WASM_TARGET is not installed"
     echo "Installing $WASM_TARGET..."
 

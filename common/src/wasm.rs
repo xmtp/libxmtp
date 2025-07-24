@@ -4,6 +4,9 @@ use futures::{
     stream::StreamExt,
 };
 use std::{pin::Pin, task::Poll};
+mod tokio;
+
+pub use tokio::*;
 
 /// Global Marker trait for WebAssembly
 #[cfg(target_arch = "wasm32")]
@@ -97,16 +100,4 @@ impl<'a, O> FutureWrapper<'a, O> {
             inner: future.boxed_local(),
         }
     }
-}
-
-/// Yield back control to the async runtime
-#[cfg(not(target_arch = "wasm32"))]
-pub async fn yield_() {
-    tokio::task::yield_now().await
-}
-
-/// Yield back control to the async runtime
-#[cfg(target_arch = "wasm32")]
-pub async fn yield_() {
-    crate::time::sleep(crate::time::Duration::from_millis(100)).await;
 }
