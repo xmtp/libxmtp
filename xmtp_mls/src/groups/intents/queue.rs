@@ -1,3 +1,6 @@
+use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+use std::collections::HashSet;
+
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use crate::track;
@@ -8,7 +11,10 @@ use xmtp_db::{
     ConnectionExt, DbQuery,
 };
 
-#[derive(Builder, Debug)]
+#[derive(Builder, Clone, Debug)]
+pub struct BatchQueueIntents {}
+
+#[derive(Builder, Clone, Debug)]
 #[builder(setter(strip_option), build_fn(error = "GroupError", private))]
 pub struct QueueIntent {
     #[builder(setter(into))]
@@ -26,7 +32,54 @@ impl QueueIntentBuilder {
         C: XmtpSharedContext,
     {
         let intent = self.build()?;
-        intent.queue(group)
+        group.context.mls_storage().transaction(move |conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
+            intent.queue_with_conn(&db, group)
+        })
+    }
+
+    /// Queue this intent for each group
+    /// Accepts a hashset to ensure each group is unique
+    /// Accepts a closure that returns the intent data for a group
+    pub async fn queue_for_each<C, F, E>(
+        &mut self,
+        groups: &HashSet<MlsGroup<C>>,
+        data: F,
+    ) -> Result<Vec<StoredGroupIntent>, GroupError>
+    where
+        C: XmtpSharedContext,
+        F: AsyncFn(&MlsGroup<C>) -> Result<Vec<u8>, E>,
+        GroupError: From<E>,
+    {
+        if groups.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // get the intent data for each group
+        let groups: Vec<(&MlsGroup<C>, Vec<u8>)> = stream::iter(groups)
+            .map(|group| data(&group).map_ok(move |d| (group, d)))
+            .buffered(10)
+            .try_collect()
+            .await?;
+
+        let intents: Vec<StoredGroupIntent> = {
+            let first_group = groups
+                .first()
+                .expect("checked for existence of at least one group");
+            let context = &first_group.0.context;
+
+            context.mls_storage().transaction(move |conn| {
+                let storage = conn.key_store();
+                let db = storage.db();
+
+                groups
+                    .into_iter()
+                    .map(|(group, data)| self.clone().data(data).queue_with_conn(&db, group))
+                    .collect::<Result<Vec<_>, _>>()
+            })?
+        };
+        Ok(intents)
     }
 
     /// private api to queue an intent w/o starting a transaction
@@ -83,17 +136,6 @@ impl QueueIntentBuilder {
 impl QueueIntent {
     pub fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
-    }
-
-    fn queue<C>(self, group: &MlsGroup<C>) -> Result<StoredGroupIntent, GroupError>
-    where
-        C: XmtpSharedContext,
-    {
-        group.context.mls_storage().transaction(move |conn| {
-            let storage = conn.key_store();
-            let db = storage.db();
-            self.queue_with_conn(&db, group)
-        })
     }
 
     fn queue_with_conn<Ctx, C>(
@@ -155,5 +197,48 @@ impl QueueIntent {
                 .queue_with_conn(conn, &group)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use xmtp_db::group::{GroupMembershipState, StoredGroup};
+
+    use crate::test::mock::{context, NewMockContext};
+
+    use super::*;
+    use rstest::*;
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn can_queue_intent_for_each_group(mut context: NewMockContext) {
+        let db = context.mls_storage().db();
+
+        StoredGroup::builder()
+            .id(vec![0])
+            .created_at_ns(1)
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id("bob")
+            .should_publish_commit_log(false)
+            .build()
+            .unwrap()
+            .store(&db);
+
+        let group = MlsGroup::<NewMockContext> {
+            group_id: vec![0],
+            dm_id: None,
+            created_at_ns: 1,
+            context: context,
+            mls_commit_lock: Arc::new(Default::default()),
+            mutex: Arc::new(Mutex::new(())),
+        };
+
+        QueueIntent::builder()
+            .update_group_membership()
+            .data(vec![0, 1, 2])
+            .queue(&group)
+            .unwrap();
     }
 }

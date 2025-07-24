@@ -60,6 +60,7 @@ diesel = { workspace = true, features = [
 ] }
 dyn-clone.workspace = true
 
+
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",
