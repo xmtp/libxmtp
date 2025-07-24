@@ -608,13 +608,10 @@ where
                 "calling update cursor for welcome {}",
                 welcome.id
             );
-            // TODO: We update the cursor if this welcome decrypts successfully, but if previous welcomes
-            // failed due to retriable errors, this will permanently skip them.
-            let requires_processing = db.update_cursor(
-                context.installation_id(),
-                EntityKind::Welcome,
-                welcome.id as i64,
-            )?;
+            let requires_processing = {
+                let current_cursor = db.get_last_cursor_for_id(context.installation_id(), EntityKind::Welcome)?;
+                welcome.id > current_cursor as u64
+            };
             if !requires_processing {
                 tracing::error!("Skipping already processed welcome {}", welcome.id);
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.id).into());
