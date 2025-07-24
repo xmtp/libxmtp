@@ -10,7 +10,7 @@ To keep up with the latest SDK developments, see the [Issues tab](https://github
 
 ## Documentation
 
-To learn how to use the XMTP Android SDK and get answers to frequently asked questions, see the [XMTP documentation](https://docs.xmtp.org/).
+To learn how to use the XMTP Android SDK, see [Get started with the XMTP Android SDK](https://docs.xmtp.org/sdks/android).
 
 ## SDK reference
 
