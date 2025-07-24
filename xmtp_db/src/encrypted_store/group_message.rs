@@ -318,7 +318,6 @@ pub trait QueryGroupMessage<C: ConnectionExt> {
         msg_id: &MessageId,
         timestamp: u64,
         sequence_id: i64,
-        message_expire_at_ns: Option<i64>,
     ) -> Result<usize, crate::ConnectionError>;
 
     fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(

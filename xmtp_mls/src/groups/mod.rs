@@ -381,16 +381,8 @@ where
     }
 
     pub(crate) fn insert(
-<<<<<<< HEAD
-        context: &XmtpMlsLocalContext<ApiClient, Db>,
-        group_id: Option<&[u8]>,
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-        context: &XmtpMlsLocalContext<ApiClient, Db>,
-        existing_group_id: Option<&[u8]>,
-=======
         context: &Context,
         existing_group_id: Option<&[u8]>,
->>>>>>> e1ce4577 (intent unit tests (#2115))
         membership_state: GroupMembershipState,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
@@ -1619,23 +1611,10 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-<<<<<<< HEAD
-        let provider = self.mls_provider();
-        self.load_mls_group_with_lock(provider, |mls_group| {
-            Ok(GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)?)
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-        let provider = self.mls_provider();
-        self.load_mls_group_with_lock(provider, |mls_group| {
-            GroupMutableMetadata::try_from(&mls_group)
-                .map_err(MetadataPermissionsError::from)
-                .map_err(GroupError::from)
-=======
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
             GroupMutableMetadata::try_from(&mls_group)
                 .map_err(MetadataPermissionsError::from)
                 .map_err(GroupError::from)
->>>>>>> e1ce4577 (intent unit tests (#2115))
         })
     }
 

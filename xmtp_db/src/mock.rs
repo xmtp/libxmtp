@@ -224,7 +224,6 @@ mock! {
         fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
-        fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
     }
 
     impl<C: ConnectionExt + 'static> QueryGroupVersion<C> for DbQuery<C> {
@@ -482,31 +481,6 @@ mock! {
             &'a self,
             inbox_ids: &'a [&'a str],
         ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
-    }
-
-    impl<C: ConnectionExt + 'static> QueryLocalCommitLog<C> for DbQuery<C> {
-        fn get_group_logs(
-            &self,
-            group_id: &[u8],
-        ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
-
-        // Local commit log entries are returned sorted in ascending order of `rowid`
-        // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-        fn get_group_logs_for_publishing(
-            &self,
-            group_id: &[u8],
-            after_cursor: i64,
-        ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
-
-        fn get_latest_log_for_group(
-            &self,
-            group_id: &[u8],
-        ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
-
-        fn get_local_commit_log_cursor(
-            &self,
-            group_id: &[u8],
-        ) -> Result<Option<i32>, crate::ConnectionError>;
     }
 }
 

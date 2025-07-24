@@ -45,7 +45,6 @@ pub mod prelude {
     pub use super::identity_update::QueryIdentityUpdates;
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
-    pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::traits::*;

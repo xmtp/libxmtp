@@ -214,9 +214,6 @@ pub trait QueryGroup<C: ConnectionExt> {
     fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
 
     fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
-
-    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
-    fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {

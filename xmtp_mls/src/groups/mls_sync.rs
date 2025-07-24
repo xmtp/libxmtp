@@ -53,22 +53,10 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-<<<<<<< HEAD
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore, XmtpDb,
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore, XmtpDb,
-=======
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
->>>>>>> e1ce4577 (intent unit tests (#2115))
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, Store, StoreOrIgnore,
 };
-<<<<<<< HEAD
-use xmtp_mls_common::group_mutable_metadata::MetadataField;
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-use xmtp_mls_common::group_mutable_metadata::{extract_group_mutable_metadata, MetadataField};
-=======
 use xmtp_db::{prelude::*, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
 use xmtp_mls_common::group_mutable_metadata::{extract_group_mutable_metadata, MetadataField};
->>>>>>> e1ce4577 (intent unit tests (#2115))
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
@@ -787,39 +775,11 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
-<<<<<<< HEAD
         conn.set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,
             })?;
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
-        conn.set_delivery_status_to_published(
-            &id,
-            envelope_timestamp_ns,
-            envelope.id as i64,
-            message_expire_at_ns,
-        )
-        .map_err(|err| IntentResolutionError {
-            processing_error: GroupMessageProcessingError::Db(err),
-            next_intent_state: IntentState::Error,
-        })?;
-=======
-        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
-        storage
-            .db()
-            .set_delivery_status_to_published(
-                &id,
-                envelope_timestamp_ns,
-                envelope.id as i64,
-                message_expire_at_ns,
-            )
-            .map_err(|err| IntentResolutionError {
-                processing_error: GroupMessageProcessingError::Db(err),
-                next_intent_state: IntentState::Error,
-            })?;
->>>>>>> e1ce4577 (intent unit tests (#2115))
         Ok(Some(id))
     }
 
@@ -1269,37 +1229,6 @@ where
         envelope: &GroupMessageV1,
         trust_message_order: bool,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-<<<<<<< HEAD
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
-        let message_entity_kind = match mls_message_in.wire_format() {
-            WireFormat::Welcome => EntityKind::Welcome,
-            _ => EntityKind::Group,
-        };
-
-        if trust_message_order {
-            let provider = self.mls_provider();
-            let last_cursor = provider
-                .db()
-                .get_last_cursor_for_id(&self.group_id, message_entity_kind)?;
-            if last_cursor > envelope.id as i64 {
-                tracing::info!(
-                    inbox_id = self.context.inbox_id(),
-                    installation_id = %self.context.installation_id(),
-                    group_id = hex::encode(&self.group_id),
-                    "Message already processed: skipped cursor:[{}] entity kind:[{:?}] last cursor in db: [{}]",
-                    envelope.id,
-                    message_entity_kind,
-                    last_cursor
-                );
-                // early return if the message is already procesed
-                // _NOTE_: Not early returning and re-processing a message that
-                // has already been processed, has the potential to result in forks.
-                return MessageIdentifierBuilder::from(envelope).build();
-            }
-        }
-
-=======
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
         let message_entity_kind = match mls_message_in.wire_format() {
             WireFormat::Welcome => EntityKind::Welcome,
@@ -1328,7 +1257,6 @@ where
             }
         }
 
->>>>>>> e1ce4577 (intent unit tests (#2115))
         self.load_mls_group_with_lock_async(|mut mls_group| async move {
             let mut result = self
                 .process_message_inner(&mut mls_group, envelope, trust_message_order)
@@ -1458,18 +1386,6 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
-<<<<<<< HEAD
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-                            // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(provider, cursor, message.epoch(), &err.processing_error) {
-                                tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
-                            }
-=======
-                            // TODO(rich): Add log_err! macro/trait for swallowing errors
-                            if let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor, message.epoch(), &err.processing_error) {
-                                tracing::error!("Error inserting commit entry for failed self commit: {}", accounting_error);
-                            }
->>>>>>> e1ce4577 (intent unit tests (#2115))
                             (err.next_intent_state, None)
                         },
                         Ok(internal_message_id) => (IntentState::Committed, internal_message_id)
@@ -1640,15 +1556,7 @@ where
         process_result: Result<MessageIdentifier, GroupMessageProcessingError>,
         msgv1: &GroupMessageV1,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
-<<<<<<< HEAD
-        let provider = self.mls_provider();
-        track_err!("Process message", &process_result, group: &msgv1.group_id);
-||||||| parent of e1ce4577 (intent unit tests (#2115))
-        let provider = self.mls_provider();
         track_err!("Process message", &process_result, group: &self.group_id);
-=======
-        track_err!("Process message", &process_result, group: &self.group_id);
->>>>>>> e1ce4577 (intent unit tests (#2115))
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
