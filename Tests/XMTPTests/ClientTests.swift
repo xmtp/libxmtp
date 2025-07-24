@@ -1014,7 +1014,7 @@ class ClientTests: XCTestCase {
 
 		var clients: [Client] = []
 
-		for i in 0..<5 {
+		for i in 0..<10 {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
@@ -1027,7 +1027,7 @@ class ClientTests: XCTestCase {
 		}
 
 		let state = try await clients[0].inboxState(refreshFromNetwork: true)
-		XCTAssertEqual(state.installations.count, 5)
+		XCTAssertEqual(state.installations.count, 10)
 
 		// Attempt to create a 6th installation, should throw
 		await assertThrowsAsyncError(
@@ -1036,7 +1036,7 @@ class ClientTests: XCTestCase {
 				options: ClientOptions(
 					api: .init(env: .local, isSecure: false),
 					dbEncryptionKey: key,
-					dbDirectory: "xmtp_db_5"
+					dbDirectory: "xmtp_db_10"
 				)
 			)
 		)
@@ -1062,7 +1062,7 @@ class ClientTests: XCTestCase {
 			refreshFromNetwork: true,
 			inboxIds: [alixMember!.inboxId]
 		)
-		XCTAssertEqual(inboxState.first?.installations.count, 5)
+		XCTAssertEqual(inboxState.first?.installations.count, 10)
 
 		try await clients[0].revokeInstallations(
 			signingKey: wallet,
@@ -1071,20 +1071,21 @@ class ClientTests: XCTestCase {
 
 		let stateAfterRevoke = try await clients[0].inboxState(
 			refreshFromNetwork: true)
-		XCTAssertEqual(stateAfterRevoke.installations.count, 4)
+		XCTAssertEqual(stateAfterRevoke.installations.count, 9)
 
 		let sixthClient = try await Client.create(
 			account: wallet,
 			options: ClientOptions(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key,
-				dbDirectory: "xmtp_db_6"
+				dbDirectory: "xmtp_db_11"
 			)
 		)
 
 		let finalState = try await clients[0].inboxState(
 			refreshFromNetwork: true)
-		XCTAssertEqual(finalState.installations.count, 5)
+
+		XCTAssertEqual(finalState.installations.count, 10)
 		try boClient.deleteLocalDatabase()
 	}
 
