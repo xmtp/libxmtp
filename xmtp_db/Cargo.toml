@@ -15,6 +15,7 @@ required-features = ["update-schema"]
 
 
 [dependencies]
+arc-swap.workspace = true
 bincode.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
@@ -48,7 +49,7 @@ toml = { version = "0.8.4", optional = true }
 xmtp_content_types.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-libsqlite3-sys = { version = "0.32", features = [
+libsqlite3-sys = { version = "0.35", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
 diesel = { workspace = true, features = [
@@ -78,6 +79,7 @@ wasm-bindgen = { workspace = true }
 [dev-dependencies]
 futures-timer.workspace = true
 mockall = { workspace = true }
+rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
 

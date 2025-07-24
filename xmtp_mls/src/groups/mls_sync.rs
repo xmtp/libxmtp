@@ -46,7 +46,7 @@ use crate::{
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    Fetch, MlsProviderExt, StorageError,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
@@ -55,6 +55,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
+    StoreOrIgnore,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
@@ -1053,6 +1054,7 @@ where
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
                         if sender_inbox_id == self.context.inbox_id() {
+                            tracing::info!(installation_id = hex::encode(self.context.installation_id()), "new sync group message event");
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
@@ -1401,7 +1403,7 @@ where
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.update_cursor_if_needed(&provider, &envelope.group_id, cursor)?
+                        self.update_cursor_if_needed(&db, &envelope.group_id, cursor)?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1625,10 +1627,10 @@ where
                 if !e.is_retryable() && mls_group.is_active() {
                     if let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
                         let storage = conn.key_store();
-                        let provider = XmtpOpenMlsProvider::new(storage);
+                        let provider = XmtpOpenMlsProviderRef::new(&storage);
                         // TODO(rich): Add log_err! macro/trait for swallowing errors
                         if let Err(update_cursor_error) =
-                            self.update_cursor_if_needed(&provider, &self.group_id, message_cursor)
+                            self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor)
                         {
                             // We don't need to propagate the error if the cursor fails to update - the worst case is
                             // that the non-retriable error is processed again
@@ -1748,7 +1750,7 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     fn update_cursor_if_needed(
         &self,
-        provider: &impl MlsProviderExt,
+        db: &impl DbQuery,
         group_id: &[u8],
         cursor: u64,
     ) -> Result<bool, StorageError> {
@@ -1757,11 +1759,7 @@ where
             hex::encode(group_id),
             cursor
         );
-        let updated =
-            provider
-                .key_store()
-                .db()
-                .update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        let updated = db.update_cursor(group_id, EntityKind::Group, cursor as i64)?;
         if updated {
             tracing::debug!("cursor updated to [{}]", cursor as i64);
         } else {

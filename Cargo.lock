@@ -806,6 +806,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "arc-swap"
+version = "1.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
+
+[[package]]
 name = "ark-ff"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2146,23 +2152,22 @@ dependencies = [
 [[package]]
 name = "diesel"
 version = "2.2.4"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "diesel_derives",
  "downcast-rs",
  "libsqlite3-sys",
  "r2d2",
  "serde_json",
- "sqlite-wasm-rs",
+ "sqlite-wasm-rs 0.4.2",
  "time",
 ]
 
 [[package]]
 name = "diesel_derives"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
- "darling",
  "diesel_table_macro_syntax",
  "dsl_auto_type",
  "proc-macro2",
@@ -2173,7 +2178,7 @@ dependencies = [
 [[package]]
 name = "diesel_migrations"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "diesel",
  "migrations_internals",
@@ -2183,7 +2188,7 @@ dependencies = [
 [[package]]
 name = "diesel_table_macro_syntax"
 version = "0.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "syn 2.0.102",
 ]
@@ -2256,7 +2261,7 @@ checksum = "ea8a8b81cacc08888170eef4d13b775126db426d0b348bee9d18c2c1eaf123cf"
 [[package]]
 name = "dsl_auto_type"
 version = "0.1.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "darling",
  "either",
@@ -3202,7 +3207,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3306,7 +3311,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2",
+ "socket2 0.5.10",
  "system-configuration 0.6.1",
  "tokio",
  "tower-service",
@@ -3576,6 +3581,17 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
+dependencies = [
+ "bitflags 2.9.1",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -4049,9 +4065,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.32.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbb8270bb4060bd76c6e96f20c52d80620f1d82a3470885694e41e0f81ef6fe7"
+checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
 dependencies = [
  "cc",
  "openssl-sys",
@@ -4219,16 +4235,16 @@ dependencies = [
 [[package]]
 name = "migrations_internals"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "serde",
- "toml 0.8.23",
+ "toml 0.9.2",
 ]
 
 [[package]]
 name = "migrations_macros"
 version = "2.2.0"
-source = "git+https://github.com/diesel-rs/diesel?branch=master#7629365ffbad24019ab3d126433d4c26c7c13c79"
+source = "git+https://github.com/diesel-rs/diesel?branch=master#ec1db69ffe30021d5b93370376a3f9eeaaf6bb88"
 dependencies = [
  "migrations_internals",
  "proc-macro2",
@@ -6315,6 +6331,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40734c41988f7306bb04f0ecf60ec0f3f1caa34290e4e8ea471dcd3346483b83"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6495,6 +6520,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "socket2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "speedy"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6549,6 +6584,24 @@ dependencies = [
  "cc",
  "fragile",
  "indexed_db_futures",
+ "js-sys",
+ "once_cell",
+ "parking_lot 0.12.4",
+ "thiserror 2.0.12",
+ "tokio",
+ "wasm-array-cp",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "sqlite-wasm-rs"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e2e56f9a1fce250ea2dea7b034b624ef7e22fe14870fc55b3b3b1c25d4eef79"
+dependencies = [
+ "fragile",
  "js-sys",
  "once_cell",
  "parking_lot 0.12.4",
@@ -6934,21 +6987,23 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.45.1"
+version = "1.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75ef51a33ef1da925cea3e4eb122833cb377c61439ca401b770f54902b806779"
+checksum = "43864ed400b6043a4757a25c7a64a8efde741aed79a056a2fb348a406701bb35"
 dependencies = [
  "backtrace",
  "bytes",
+ "io-uring",
  "libc",
  "mio",
  "parking_lot 0.12.4",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2",
+ "slab",
+ "socket2 0.6.0",
  "tokio-macros",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7060,9 +7115,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
  "serde",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 0.6.9",
+ "toml_datetime 0.6.11",
  "toml_edit",
+]
+
+[[package]]
+name = "toml"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed0aee96c12fa71097902e0bb061a5e1ebd766a6636bb605ba401c45c1650eac"
+dependencies = [
+ "serde",
+ "serde_spanned 1.0.0",
+ "toml_datetime 0.7.0",
+ "toml_parser",
+ "winnow",
 ]
 
 [[package]]
@@ -7075,6 +7143,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bade1c3e902f58d73d3f294cd7f20391c1cb2fbcb643b73566bc773971df91e3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7082,9 +7159,18 @@ checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
  "indexmap 2.9.0",
  "serde",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 0.6.9",
+ "toml_datetime 0.6.11",
  "toml_write",
+ "winnow",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97200572db069e74c512a14117b296ba0a80a30123fbbb5aa1f4a348f639ca30"
+dependencies = [
  "winnow",
 ]
 
@@ -7117,7 +7203,7 @@ dependencies = [
  "prost",
  "rustls-native-certs",
  "rustls-pemfile 2.2.0",
- "socket2",
+ "socket2 0.5.10",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -8744,6 +8830,7 @@ dependencies = [
 name = "xmtp_db"
 version = "1.4.0-dev"
 dependencies = [
+ "arc-swap",
  "bincode",
  "const-hex",
  "ctor 0.4.2",
@@ -8761,9 +8848,10 @@ dependencies = [
  "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
+ "rstest 0.25.0",
  "serde",
  "serde_json",
- "sqlite-wasm-rs",
+ "sqlite-wasm-rs 0.3.8",
  "thiserror 2.0.12",
  "tokio",
  "toml 0.8.23",
@@ -8830,6 +8918,7 @@ dependencies = [
 name = "xmtp_macro"
 version = "1.4.0-dev"
 dependencies = [
+ "num_cpus",
  "proc-macro2",
  "quote",
  "syn 2.0.102",
