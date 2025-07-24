@@ -37,10 +37,15 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: impl ToString, is_secure: bool) -> Result<Self, GrpcBuilderError> {
+    pub async fn create(
+        host: impl ToString,
+        is_secure: bool,
+        app_version: Option<impl ToString>,
+    ) -> Result<Self, GrpcBuilderError> {
         let mut b = Self::builder();
         b.set_tls(is_secure);
         b.set_host(host.to_string());
+        b.set_app_version(app_version.map_or("0.0.0".to_string(), |v| v.to_string()))?;
         b.build().await
     }
 

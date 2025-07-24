@@ -278,16 +278,23 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let payer = payer.build().await?;
             Arc::new(D14nClient::new(message, payer))
         }
-        (false, Env::Local) => Arc::new(ClientV3::create("http://localhost:5556", false).await?),
-        (false, Env::Dev) => {
-            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
+        (false, Env::Local) => {
+            Arc::new(ClientV3::create("http://localhost:5556", false, None::<String>).await?)
         }
-        (false, Env::Staging) => {
-            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true).await?)
-        }
-        (false, Env::Production) => {
-            Arc::new(ClientV3::create("https://grpc.production.xmtp.network:443", true).await?)
-        }
+        (false, Env::Dev) => Arc::new(
+            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
+        ),
+        (false, Env::Staging) => Arc::new(
+            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
+        ),
+        (false, Env::Production) => Arc::new(
+            ClientV3::create(
+                "https://grpc.production.xmtp.network:443",
+                true,
+                None::<String>,
+            )
+            .await?,
+        ),
     };
 
     if let Commands::Register { seed_phrase } = &cli.command {

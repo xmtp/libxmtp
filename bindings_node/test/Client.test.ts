@@ -24,6 +24,15 @@ describe('Client', () => {
     const user = createUser()
     const client = await createClient(user)
     expect(client.isRegistered()).toBe(false)
+    expect(client.appVersion).toBe(null)
+  })
+
+  it('should return client versions', async () => {
+    const user = createUser()
+    const customVersion = 'test'
+    const client = await createClient(user, customVersion)
+    expect(client.appVersion).toBe(customVersion)
+    expect(client.libxmtpVersion()).toBeDefined()
   })
 
   it('should be registered after registration', async () => {

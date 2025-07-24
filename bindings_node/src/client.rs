@@ -36,6 +36,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   pub account_identifier: Identifier,
+  pub app_version: Option<String>,
 }
 
 impl Client {
@@ -149,11 +150,12 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
+  app_version: Option<String>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
 
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(&host, is_secure)
+  let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
@@ -226,6 +228,7 @@ pub async fn create_client(
   Ok(Client {
     inner_client: Arc::new(xmtp_client),
     account_identifier: root_identifier,
+    app_version,
   })
 }
 
@@ -249,6 +252,16 @@ impl Client {
   #[napi]
   pub fn installation_id_bytes(&self) -> Uint8Array {
     self.inner_client.installation_public_key().into()
+  }
+
+  #[napi]
+  pub fn app_version(&self) -> String {
+    self.app_version.clone().unwrap_or_default()
+  }
+
+  #[napi]
+  pub fn libxmtp_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
   }
 
   #[napi]
