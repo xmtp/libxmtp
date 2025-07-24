@@ -2,9 +2,11 @@ use std::collections::HashSet;
 
 use super::{stream_conversations::ConversationStreamError, Result};
 use crate::groups::welcome_sync::WelcomeService;
-use crate::{context::XmtpMlsLocalContext, groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::sync::Arc;
 use xmtp_api::XmtpApi;
+use crate::groups::GroupError;
+use crate::intents::ProcessIntentError;
+use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::XmtpDb;
 use xmtp_db::{group::ConversationType, NotFound};
@@ -280,17 +282,31 @@ where
         } = welcome;
         let id = *id as i64;
 
-        let Self { ref context, .. } = self;
-
         tracing::info!(
             installation_id = hex::encode(installation_key),
             welcome_id = &id,
             "Trying to process streamed welcome"
         );
-        let welcomes = WelcomeService::new(context.clone());
-        retry_async!(Retry::default(), (async { welcomes.sync_welcomes().await }))?;
+        self.process_welcome(welcome).await
+    }
 
-        self.load_from_store(id)
+    async fn process_welcome(
+        &self,
+        welcome: &welcome_message::V1,
+    ) -> Result<(MlsGroup<Context>, i64)> {
+        let welcomes = WelcomeService::new(self.context.clone());
+        let res = retry_async!(
+            Retry::default(),
+            (async { welcomes.process_new_welcome(welcome, false).await })
+        );
+
+        if let Ok(_)
+        | Err(GroupError::ProcessIntent(ProcessIntentError::WelcomeAlreadyProcessed(_))) = res
+        {
+            self.load_from_store(welcome.id as i64)
+        } else {
+            Err(res.expect_err("Checked for Ok value").into())
+        }
     }
 
     /// Load a group from disk by its welcome_id
