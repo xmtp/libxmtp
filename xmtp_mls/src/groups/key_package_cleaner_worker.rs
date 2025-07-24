@@ -1,6 +1,4 @@
 use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-use crate::context::XmtpContextProvider;
-use crate::context::XmtpMlsLocalContext;
 use crate::context::XmtpSharedContext;
 use crate::identity::pq_key_package_references_key;
 use crate::identity::IdentityError;
@@ -11,28 +9,25 @@ use crate::worker::{Worker, WorkerFactory, WorkerKind};
 use futures::StreamExt;
 use futures::TryFutureExt;
 use openmls_traits::storage::StorageProvider;
-use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::OnceCell;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-    MlsProviderExt, StorageError, XmtpDb,
+    MlsProviderExt, StorageError,
 };
-use xmtp_proto::api_client::trait_impls::XmtpApi;
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
-pub struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::KeyPackageCleaner
@@ -77,10 +72,9 @@ impl NeedsDbReconnect for KeyPackagesCleanerError {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for KeyPackagesCleanerWorker<ApiClient, Db>
+impl<Context> Worker for KeyPackagesCleanerWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static + Send,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::KeyPackageCleaner
@@ -93,38 +87,28 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: Send + Sync + XmtpSharedContext + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 }
 
-pub struct KeyPackagesCleanerWorker<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    #[allow(dead_code)]
-    init: OnceCell<()>,
+pub struct KeyPackagesCleanerWorker<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db>
+impl<Context> KeyPackagesCleanerWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        Self {
-            context,
-            init: OnceCell::new(),
-        }
+    pub fn new(context: Context) -> Self {
+        Self { context }
     }
 }
 
-impl<ApiClient, Db> KeyPackagesCleanerWorker<ApiClient, Db>
+impl<Context> KeyPackagesCleanerWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), KeyPackagesCleanerError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
@@ -148,14 +132,11 @@ where
         key_store.delete_key_package(&openmls_hash_ref)?;
 
         if let Some(pq_pub_key) = pq_pub_key {
-            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
+            key_store.delete(
                 KEY_PACKAGE_REFERENCES,
                 pq_key_package_references_key(&pq_pub_key)?.as_slice(),
             )?;
-            key_store.delete::<{ openmls_traits::storage::CURRENT_VERSION }>(
-                KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-                &hash_ref,
-            )?;
+            key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
         }
 
         Ok(())
@@ -163,8 +144,7 @@ where
 
     /// Delete all the expired keys
     fn delete_expired_key_packages(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
+        let conn = self.context.db();
 
         match conn.get_expired_key_packages() {
             Ok(expired_kps) if !expired_kps.is_empty() => {
@@ -208,8 +188,7 @@ where
 
     /// Check if we need to rotate the keys and upload new keypackage if the las one rotate in has passed
     async fn rotate_last_key_package_if_needed(&mut self) -> Result<(), KeyPackagesCleanerError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
+        let conn = self.context.db();
 
         if conn
             .is_identity_needs_rotation()
@@ -219,8 +198,8 @@ where
             self.context
                 .identity()
                 .rotate_and_upload_key_package(
-                    &provider,
                     self.context.api(),
+                    self.context.mls_storage(),
                     CREATE_PQ_KEY_PACKAGE_EXTENSION,
                 )
                 .await

@@ -81,9 +81,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "alloy"
-version = "1.0.17"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e0d1aecf3cab3d0e7383064ce488616434b4ade10d8904dff422e74203c712f"
+checksum = "0093d23bf026b580c1f66ed3a053d8209c104a446c5264d3ad99587f6edef24e"
 dependencies = [
  "alloy-consensus",
  "alloy-contract",
@@ -533,7 +533,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -739,6 +739,15 @@ name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
+
+[[package]]
+name = "ansi_term"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
+dependencies = [
+ "winapi",
+]
 
 [[package]]
 name = "anstream"
@@ -1196,7 +1205,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_node"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "chrono",
  "const-hex",
@@ -1223,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "bindings_wasm"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "alloy",
  "chrono",
@@ -1677,7 +1686,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4340,7 +4349,7 @@ dependencies = [
  "openmls_rust_crypto",
  "parking_lot 0.12.4",
  "rand 0.8.5",
- "rstest",
+ "rstest 0.25.0",
  "thiserror 2.0.12",
  "tokio",
  "tonic",
@@ -4672,14 +4681,24 @@ name = "openmls"
 version = "0.6.1"
 source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
+ "backtrace",
  "fluvio-wasm-timer",
  "getrandom 0.2.16",
+ "itertools 0.14.0",
  "log",
+ "once_cell",
+ "openmls_basic_credential",
+ "openmls_memory_storage",
+ "openmls_rust_crypto",
+ "openmls_test",
  "openmls_traits",
+ "rand 0.8.5",
  "rayon",
  "serde",
+ "serde_json",
  "thiserror 2.0.12",
  "tls_codec",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -4719,6 +4738,7 @@ name = "openmls_memory_storage"
 version = "0.3.0"
 source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
 dependencies = [
+ "hex",
  "log",
  "openmls_traits",
  "serde",
@@ -4748,6 +4768,21 @@ dependencies = [
  "sha2",
  "thiserror 2.0.12",
  "tls_codec",
+]
+
+[[package]]
+name = "openmls_test"
+version = "0.1.0"
+source = "git+https://github.com/xmtp/openmls?rev=b18f5ca4cfc15a390fa914980267cc5028fc6b60#b18f5ca4cfc15a390fa914980267cc5028fc6b60"
+dependencies = [
+ "ansi_term",
+ "openmls_rust_crypto",
+ "openmls_traits",
+ "proc-macro2",
+ "quote",
+ "rstest 0.24.0",
+ "rstest_reuse",
+ "syn 2.0.102",
 ]
 
 [[package]]
@@ -5413,8 +5448,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.13.0",
+ "heck 0.5.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -5434,7 +5469,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.102",
@@ -5826,14 +5861,44 @@ dependencies = [
 
 [[package]]
 name = "rstest"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e905296805ab93e13c1ec3a03f4b6c4f35e9498a3d5fa96dc626d22c03cd89"
+dependencies = [
+ "futures-timer",
+ "futures-util",
+ "rstest_macros 0.24.0",
+ "rustc_version 0.4.1",
+]
+
+[[package]]
+name = "rstest"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros",
+ "rstest_macros 0.25.0",
  "rustc_version 0.4.1",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef0053bbffce09062bee4bcc499b0fbe7a57b879f1efe088d6d8d4c7adcdef9b"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version 0.4.1",
+ "syn 2.0.102",
+ "unicode-ident",
 ]
 
 [[package]]
@@ -7000,6 +7065,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio_with_wasm"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dfba9b946459940fb564dcf576631074cdfb0bfe4c962acd4c31f0dca7897e6"
+dependencies = [
+ "js-sys",
+ "tokio",
+ "tokio_with_wasm_proc",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "tokio_with_wasm_proc"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37e04c1865c281139e5ccf633cb9f76ffdaabeebfe53b703984cf82878e2aabb"
+dependencies = [
+ "quote",
+ "syn 2.0.102",
+]
+
+[[package]]
 name = "toml"
 version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7151,7 +7240,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 [[package]]
 name = "toxiproxy_rust"
 version = "0.1.6"
-source = "git+https://github.com/ephemeraHQ/toxiproxy_rust.git#7620d968f41052c979cf228fa661ce6a4fa2c7fc"
+source = "git+https://github.com/ephemeraHQ/toxiproxy_rust.git#b82f61cbc44a2ddcca0bcfd31f0406df7fc16af8"
 dependencies = [
  "http 0.2.12",
  "lazy_static",
@@ -8064,7 +8153,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8469,7 +8558,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -8490,7 +8579,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -8517,7 +8606,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "futures",
@@ -8538,7 +8627,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_http"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8562,7 +8651,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -8589,7 +8678,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cli"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "alloy",
  "chrono",
@@ -8622,7 +8711,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8642,6 +8731,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
+ "tokio_with_wasm",
  "tracing",
  "tracing-flame",
  "tracing-forest",
@@ -8657,7 +8747,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "prost",
  "serde",
@@ -8672,13 +8762,14 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "alloy",
  "bincode",
  "const-hex",
  "ed25519-dalek",
  "getrandom 0.3.3",
+ "openmls",
  "openmls_basic_credential",
  "openmls_traits",
  "rand 0.8.5",
@@ -8694,7 +8785,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "bincode",
  "const-hex",
@@ -8732,7 +8823,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db_test"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "derive_builder",
  "diesel",
@@ -8745,7 +8836,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "alloy",
  "async-trait",
@@ -8762,7 +8853,7 @@ dependencies = [
  "p256",
  "prost",
  "regex",
- "rstest",
+ "rstest 0.25.0",
  "serde",
  "serde_json",
  "sha2",
@@ -8780,7 +8871,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8791,7 +8882,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -8832,7 +8923,7 @@ dependencies = [
  "public-suffix",
  "rand 0.8.5",
  "reqwest 0.12.19",
- "rstest",
+ "rstest 0.25.0",
  "rstest_reuse",
  "serde",
  "serde_json",
@@ -8868,7 +8959,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "openmls",
  "prost",
@@ -8883,7 +8974,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -8907,7 +8998,7 @@ dependencies = [
 
 [[package]]
 name = "xmtpv3"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "alloy",
  "async-trait",

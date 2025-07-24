@@ -1,23 +1,24 @@
 //! Higher level queries against the local database
 //! These queries return their mls-typed equivalents after converting
 //! from the data in DB/Api
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
-use xmtp_api::{ApiError, XmtpApi};
+use xmtp_api::ApiError;
 use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
-    DbConnection, Fetch, NotFound, XmtpDb, XmtpOpenMlsProvider,
+    Fetch, NotFound, XmtpDb, XmtpOpenMlsProvider,
 };
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext},
+    context::XmtpSharedContext,
     groups::MlsGroup,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use thiserror::Error;
+use xmtp_db::prelude::*;
 
 #[derive(Error, Debug)]
 pub enum MlsStoreError {
@@ -43,26 +44,25 @@ impl RetryableError for MlsStoreError {
 }
 
 #[derive(Clone)]
-pub struct MlsStore<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct MlsStore<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> MlsStore<ApiClient, Db> {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
+impl<Context> MlsStore<Context> {
+    pub fn new(context: Context) -> Self {
         Self { context }
     }
 }
 
-impl<ApiClient, Db> MlsStore<ApiClient, Db>
+impl<Context> MlsStore<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Query for welcome messages that have a `sequence_id` > than the highest cursor
     /// found in the local database
     pub(crate) async fn query_welcome_messages(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
         let id_cursor = conn.get_last_cursor_for_id(installation_id, EntityKind::Welcome)?;
@@ -81,7 +81,7 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &[u8],
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
@@ -109,7 +109,7 @@ where
             .fetch_key_packages(installation_ids.clone())
             .await?;
 
-        let crypto_provider = XmtpOpenMlsProvider::new_crypto();
+        let crypto_provider = XmtpOpenMlsProvider::<()>::new_crypto();
 
         let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
             key_package_results
@@ -135,7 +135,7 @@ where
     pub fn find_groups(
         &self,
         args: GroupQueryArgs,
-    ) -> Result<Vec<MlsGroup<ApiClient, Db>>, MlsStoreError> {
+    ) -> Result<Vec<MlsGroup<Context>>, MlsStoreError> {
         Ok(self
             .context
             .db()
@@ -156,7 +156,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<ApiClient, Db>, MlsStoreError> {
+    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, MlsStoreError> {
         let conn = self.context.db();
         let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group

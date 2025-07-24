@@ -38,9 +38,19 @@ impl StoredIdentity {
         }
     }
 }
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+pub trait QueryIdentity<C: ConnectionExt> {
+    fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
+    fn reset_key_package_rotation_queue(
+        &self,
+        rotation_interval_ns: i64,
+    ) -> Result<(), StorageError>;
+    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
+}
+
+impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
+    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
                 .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
@@ -53,7 +63,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn reset_key_package_rotation_queue(
+    fn reset_key_package_rotation_queue(
         &self,
         rotation_interval_ns: i64,
     ) -> Result<(), StorageError> {
@@ -75,7 +85,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(())
     }
 
-    pub fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
         use crate::schema::identity::dsl;
 
         let next_rotation_opt: Option<i64> = self.raw_query_read(|conn| {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use xmtp_api::GetIdentityUpdatesV2Filter;
 use xmtp_id::associations::unverified::UnverifiedAction;
 use xmtp_id::InboxUpdate;
-use xmtp_mls::context::XmtpContextProvider;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::verified_key_package_v2::VerifiedKeyPackageV2;
 use xmtp_proto::xmtp::mls::api::v1::group_message::Version as GroupMessageVersion;
 use xmtp_proto::xmtp::mls::api::v1::welcome_message::Version as WelcomeMessageVersion;
@@ -36,7 +36,7 @@ fn format_timestamp(timestamp_ns: u64) -> String {
 }
 
 pub async fn debug_group_messages(client: &crate::Client, group_id: Vec<u8>) -> Result<(), String> {
-    let api_client = client.api();
+    let api_client = client.context.api();
     let envelopes = api_client
         .query_group_messages(group_id, None)
         .await
@@ -67,7 +67,7 @@ pub async fn debug_welcome_messages(
     client: &crate::Client,
     installation_id: Vec<u8>,
 ) -> Result<(), String> {
-    let api_client = client.api();
+    let api_client = client.context.api();
     let envelopes = api_client
         .query_welcome_messages(&installation_id, None)
         .await
@@ -98,14 +98,14 @@ pub async fn debug_key_packages(
     client: &crate::Client,
     installation_id: Vec<u8>,
 ) -> Result<(), String> {
-    let api_client = client.api();
+    let api_client = client.context.api();
 
     let key_package_results = api_client
         .fetch_key_packages(vec![installation_id])
         .await
         .unwrap();
 
-    let mls_provider = client.mls_provider();
+    let mls_provider = client.context.mls_provider();
 
     let envelopes: Result<Vec<VerifiedKeyPackageV2>, _> = key_package_results
         .values()
@@ -125,7 +125,7 @@ pub async fn debug_identity_updates(
     client: &crate::Client,
     inbox_id: Vec<u8>,
 ) -> Result<(), String> {
-    let api_client = client.api();
+    let api_client = client.context.api();
 
     let filters = vec![GetIdentityUpdatesV2Filter {
         sequence_id: None,

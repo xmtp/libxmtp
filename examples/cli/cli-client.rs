@@ -48,7 +48,8 @@ use xmtp_db::{
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
 use xmtp_mls::configuration::DeviceSyncUrls;
-use xmtp_mls::context::XmtpContextProvider;
+use xmtp_mls::context::XmtpMlsLocalContext;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;
 use xmtp_mls::groups::GroupError;
 use xmtp_mls::XmtpApi;
@@ -60,9 +61,11 @@ use xmtp_proto::traits::ApiClientError;
 #[macro_use]
 extern crate tracing;
 
-type Client = xmtp_mls::client::Client<XmtpApiClient>;
+pub type MlsContext =
+    Arc<XmtpMlsLocalContext<XmtpApiClient, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>;
+type Client = xmtp_mls::client::Client<MlsContext>;
 type XmtpApiClient = std::sync::Arc<dyn BoxableXmtpApi<ApiClientError<GrpcError>>>;
-type RustMlsGroup = xmtp_mls::groups::MlsGroup<XmtpApiClient, xmtp_db::DefaultStore>;
+type RustMlsGroup = xmtp_mls::groups::MlsGroup<MlsContext>;
 
 #[derive(clap::ValueEnum, Clone, Default, Debug, serde::Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -307,7 +310,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
             let (recovery, ids, addrs) = pretty_association_state(&client.inbox_state(true).await?);
             info!(
                 command_output = true,
-                inbox_id = client.inbox_id(),
+                inbox_id = client.context.inbox_id(),
                 recovery_address = format!("{recovery:?}"),
                 installation_ids = &ids.as_value(),
                 addressess = &addrs.as_value(),
@@ -347,7 +350,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                 message = msg,
                 "Sending message to group"
             );
-            info!("Inbox ID is: {}", client.inbox_id());
+            info!("Inbox ID is: {}", client.context.inbox_id());
             let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
                 .await
                 .expect("failed to get group");
@@ -379,7 +382,7 @@ async fn main() -> color_eyre::eyre::Result<()> {
                     "messages",
                 );
             } else {
-                let messages = format_messages(messages, client.inbox_id().to_string())
+                let messages = format_messages(messages, client.context.inbox_id().to_string())
                     .expect("failed to get messages");
                 info!(
                     "====== Group {} ======\n{}",
@@ -501,7 +504,11 @@ async fn main() -> color_eyre::eyre::Result<()> {
         Commands::GetInboxId { account_address } => {
             let ident = address_to_identity(&[account_address]).pop().unwrap();
             let api_ident: ApiIdentifier = ident.into();
-            let mapping = client.api().get_inbox_ids(vec![api_ident.clone()]).await?;
+            let mapping = client
+                .context
+                .api()
+                .get_inbox_ids(vec![api_ident.clone()])
+                .await?;
             let inbox_id = mapping.get(&api_ident).unwrap();
             info!("Inbox_id {inbox_id}");
         }
@@ -514,7 +521,12 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
     cli: &Cli,
     account: IdentityStrategy,
     grpc: C,
-) -> Result<xmtp_mls::client::Client<C>, CliError> {
+) -> Result<
+    xmtp_mls::client::Client<
+        Arc<XmtpMlsLocalContext<C, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>,
+    >,
+    CliError,
+> {
     let msg_store = get_encrypted_store(&cli.db).await?;
     let builder = xmtp_mls::Client::builder(account).store(msg_store);
     let mut builder = builder.api_client(grpc);
@@ -527,6 +539,7 @@ async fn create_client<C: XmtpApi + Clone + 'static>(
 
     let client = builder
         .with_remote_verifier()?
+        .default_mls_store()?
         .build()
         .await
         .map_err(CliError::ClientBuilder)?;
@@ -574,7 +587,7 @@ where
         panic!("Could not init");
     };
     info!(
-        account_address = client.inbox_id(),
+        account_address = client.context.inbox_id(),
         installation_id = hex::encode(client.installation_public_key()),
         command_output = true,
         "Registered identity"

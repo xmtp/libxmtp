@@ -6,31 +6,31 @@ pub mod tester_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
 
+use crate::XmtpApi;
 use crate::{
     builder::{ClientBuilder, SyncWorkerMode},
-    context::XmtpContextProvider,
+    context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
-    Client, InboxOwner, XmtpApi,
+    Client, InboxOwner,
 };
 use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::Expired;
-use xmtp_db::XmtpDb;
+use xmtp_db::{sql_key_store::SqlKeyStore, XmtpMlsStorageProvider};
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
-use xmtp_id::{
-    associations::{test_utils::MockSmartContractSignatureVerifier, Identifier},
-    scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-};
+use xmtp_id::associations::{test_utils::MockSmartContractSignatureVerifier, Identifier};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tester_utils::*;
 
-pub type FullXmtpClient = Client<TestClient>;
-
-pub type ConcreteMlsGroup = crate::groups::MlsGroup<TestClient, xmtp_db::DefaultStore>;
+pub type TestMlsStorage = SqlKeyStore<xmtp_db::DefaultDbConnection>;
+pub type TestXmtpMlsContext =
+    Arc<XmtpMlsLocalContext<TestClient, xmtp_db::DefaultStore, TestMlsStorage>>;
+pub type FullXmtpClient = Client<TestXmtpMlsContext>;
+pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
@@ -54,13 +54,40 @@ pub type TestClient = XmtpHttpApiClient;
 #[cfg(feature = "d14n")]
 pub type TestClient = xmtp_api_d14n::TestD14nClient;
 
-impl<A> ClientBuilder<A> {
+impl<A, S> ClientBuilder<A, S> {
     pub async fn temp_store(self) -> Self {
         self.store(xmtp_db::TestDb::create_persistent_store(None).await)
     }
+
+    pub async fn dev(self) -> ClientBuilder<TestClient, S> {
+        let api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
+        self.api_client(api_client)
+    }
+
+    pub async fn local(self) -> ClientBuilder<TestClient, S> {
+        let api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+        self.api_client(api_client)
+    }
 }
 
-impl ClientBuilder<TestClient> {
+impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
+where
+    Api: XmtpApi + 'static + Send + Sync,
+    Storage: XmtpMlsStorageProvider + 'static + Send + Sync,
+    Db: xmtp_db::XmtpDb + 'static + Send + Sync,
+{
+    pub async fn build_unchecked(self) -> Client<Arc<XmtpMlsLocalContext<Api, Db, Storage>>> {
+        self.build().await.unwrap()
+    }
+}
+
+impl ClientBuilder<TestClient, TestMlsStorage> {
     pub fn local_port() -> &'static str {
         <TestClient as XmtpTestClient>::local_port()
     }
@@ -72,63 +99,62 @@ impl ClientBuilder<TestClient> {
             .unwrap()
     }
 
-    pub async fn new_localhost_api_client() -> TestClient {
-        <TestClient as XmtpTestClient>::create_local()
-            .build()
+    pub async fn new_test_builder(owner: &impl InboxOwner) -> ClientBuilder<(), TestMlsStorage> {
+        let strategy = identity_setup(owner);
+        Client::builder(strategy)
+            .temp_store()
             .await
+            .with_disable_events(None)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .device_sync_server_url(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS)
+            .enable_sqlite_triggers()
+            .default_mls_store()
             .unwrap()
     }
 
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = Self::new_localhost_api_client().await;
-
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            Some(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS),
-            None,
-            None,
-            None,
-        )
-        .await
+        let client = Self::new_test_builder(owner)
+            .await
+            .local()
+            .await
+            .build()
+            .await
+            .unwrap();
+        register_client(&client, owner).await;
+        client
     }
 
     /// Test client without anything extra
     pub async fn new_test_client_vanilla(owner: &impl InboxOwner) -> FullXmtpClient {
-        let api_client = Self::new_localhost_api_client().await;
-
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            None,
-            Some(SyncWorkerMode::Disabled),
-            None,
-            None,
-        )
-        .await
+        let client = Self::new_test_builder(owner)
+            .await
+            .local()
+            .await
+            .with_disable_events(Some(true))
+            .device_sync_worker_mode(SyncWorkerMode::Disabled)
+            .build()
+            .await
+            .unwrap();
+        register_client(&client, owner).await;
+        client
     }
 
     pub async fn new_test_client_with_version(
         owner: &impl InboxOwner,
         version: VersionInfo,
     ) -> FullXmtpClient {
-        let api_client = <TestClient as XmtpTestClient>::create_local()
+        let client = Self::new_test_builder(owner)
+            .await
+            .local()
+            .await
+            .device_sync_worker_mode(SyncWorkerMode::Disabled)
+            .version(version)
             .build()
             .await
             .unwrap();
 
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            None,
-            Some(SyncWorkerMode::Disabled),
-            Some(version),
-            None,
-        )
-        .await
+        register_client(&client, owner).await;
+        client
     }
 
     pub async fn new_test_client_dev(owner: &impl InboxOwner) -> FullXmtpClient {
@@ -137,16 +163,15 @@ impl ClientBuilder<TestClient> {
             .await
             .unwrap();
 
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        let client = Self::new_test_builder(owner)
+            .await
+            .api_client(api_client)
+            .build()
+            .await
+            .unwrap();
+
+        register_client(&client, owner).await;
+        client
     }
 
     pub async fn new_test_client_with_history(
@@ -158,35 +183,16 @@ impl ClientBuilder<TestClient> {
             .await
             .unwrap();
 
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            Some(history_sync_url),
-            None,
-            None,
-            None,
-        )
-        .await
-    }
-
-    /// A client pointed at the dev network with a Mock verifier (never fail to verify)
-    pub async fn new_mock_dev_client(owner: impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev()
+        let client = Self::new_test_builder(owner)
+            .await
+            .api_client(api_client)
+            .device_sync_server_url(history_sync_url)
             .build()
             .await
             .unwrap();
 
-        build_with_verifier(
-            owner,
-            api_client,
-            MockSmartContractSignatureVerifier::new(true),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        register_client(&client, owner).await;
+        client
     }
 }
 
@@ -210,96 +216,11 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 }
 
-impl ClientBuilder<TestClient, RemoteSignatureVerifier<TestClient>> {
-    /// Create a client pointed at the local container with the default remote verifier
-    pub async fn new_local_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_local()
-            .build()
-            .await
-            .unwrap();
-        inner_build(owner, api_client).await
-    }
-
-    pub async fn new_dev_client(owner: &impl InboxOwner) -> Client<TestClient> {
-        let api_client = <TestClient as XmtpTestClient>::create_dev()
-            .build()
-            .await
-            .unwrap();
-        inner_build(owner, api_client).await
-    }
-}
-
-async fn inner_build<A>(owner: impl InboxOwner, api_client: A) -> Client<A>
-where
-    A: XmtpApi + 'static + Send + Sync + Clone,
-{
+fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
     let nonce = 1;
     let ident = owner.get_identifier().unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
-
-    let client = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None));
-
-    let client = client
-        .temp_store()
-        .await
-        .api_client(api_client)
-        .with_remote_verifier()
-        .unwrap()
-        .build()
-        .await
-        .unwrap();
-    let conn = client.context.db();
-    conn.register_triggers();
-    conn.disable_memory_security();
-    register_client(&client, owner).await;
-
-    client
-}
-
-async fn build_with_verifier<A, V>(
-    owner: impl InboxOwner,
-    api_client: A,
-    scw_verifier: V,
-    sync_server_url: Option<&str>,
-    sync_worker_mode: Option<SyncWorkerMode>,
-    version: Option<VersionInfo>,
-    disable_events: Option<bool>,
-) -> Client<A>
-where
-    A: XmtpApi + Send + Sync + 'static,
-    V: SmartContractSignatureVerifier + Send + Sync + 'static,
-{
-    let nonce = 1;
-    let ident = owner.get_identifier().unwrap();
-    let inbox_id = ident.inbox_id(nonce).unwrap();
-
-    let mut builder = Client::builder(IdentityStrategy::new(inbox_id, ident, nonce, None))
-        .temp_store()
-        .await
-        .api_client(api_client)
-        // Anything that tests events should use the tester! macro.
-        .with_disable_events(disable_events)
-        .with_scw_verifier(scw_verifier);
-
-    if let Some(v) = version {
-        builder = builder.version(v);
-    }
-
-    if let Some(sync_server_url) = sync_server_url {
-        builder = builder.device_sync_server_url(sync_server_url);
-    }
-
-    if let Some(sync_worker_mode) = sync_worker_mode {
-        builder = builder.device_sync_worker_mode(sync_worker_mode);
-    }
-
-    let client = builder.build().await.unwrap();
-    let conn = client.context.db();
-    conn.register_triggers();
-    conn.disable_memory_security();
-    register_client(&client, owner).await;
-
-    client
+    IdentityStrategy::new(inbox_id, ident, nonce, None)
 }
 
 /// wrapper over a `Notify` with a 60-scond timeout for waiting
@@ -327,14 +248,14 @@ impl Delivery {
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub async fn is_registered(&self, identifier: &Identifier) -> bool {
         let identifier: ApiIdentifier = identifier.into();
         let ids = self
+            .context
             .api()
             .get_inbox_ids(vec![identifier.clone()])
             .await
@@ -343,7 +264,10 @@ where
     }
 }
 
-pub async fn register_client<T: XmtpApi, D: XmtpDb>(client: &Client<T, D>, owner: impl InboxOwner) {
+pub async fn register_client<Context: XmtpSharedContext>(
+    client: &Client<Context>,
+    owner: impl InboxOwner,
+) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
@@ -365,7 +289,7 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
     let mut published = conn.intents_published() as usize;
     xmtp_common::time::timeout(Duration::from_secs(5), async {
         while published < n {
-            xmtp_common::yield_().await;
+            xmtp_common::task::yield_now().await;
             published = conn.intents_published() as usize;
         }
     })

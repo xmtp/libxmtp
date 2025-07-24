@@ -3,6 +3,7 @@
 use super::device_sync::preference_sync::PreferenceUpdate;
 use super::device_sync::worker::SyncMetric;
 use super::device_sync::{DeviceSyncClient, DeviceSyncError};
+use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
 use crate::{subscriptions::LocalEvents, Client};
@@ -20,10 +21,11 @@ use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
+use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::StoredUserPreferences;
 use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
-use xmtp_proto::api_client::trait_impls::XmtpApi;
+use xmtp_proto::api_client::XmtpApi;
 use xmtp_proto::xmtp::device_sync::{
     content::{
         device_sync_key_type::Key as EncKeyProto, DeviceSyncKeyType as DeviceSyncKeyTypeProto,
@@ -57,10 +59,9 @@ pub(super) enum Syncable {
     ConsentRecord(StoredConsentRecord),
 }
 
-impl<ApiClient, Db> DeviceSyncClient<ApiClient, Db>
+impl<Context> DeviceSyncClient<Context>
 where
-    ApiClient: XmtpApi,
-    Db: xmtp_db::XmtpDb,
+    Context: XmtpSharedContext,
 {
     pub(super) async fn v1_send_sync_request(
         &self,
@@ -206,7 +207,6 @@ where
     #[cfg(test)]
     async fn v1_get_latest_sync_reply(
         &self,
-        provider: &XmtpOpenMlsProvider,
         kind: BackupElementSelection,
     ) -> Result<Option<(StoredGroupMessage, DeviceSyncReplyProto)>, DeviceSyncError> {
         let sync_group = self.get_sync_group().await?;
@@ -283,13 +283,13 @@ where
         let (payload, enc_key) = encrypt_syncables(syncables)?;
 
         // upload the payload
-        let Some(url) = &self.context.device_sync.server_url else {
+        let Some(url) = &self.context.device_sync().server_url else {
             return Err(DeviceSyncError::MissingSyncServerUrl);
         };
         let upload_url = format!("{url}/upload");
         tracing::info!(
             inbox_id = self.inbox_id(),
-            installation_id = hex::encode(self.context.installation_public_key()),
+            installation_id = hex::encode(self.context.installation_id()),
             "Using upload url {upload_url}",
         );
 
@@ -302,7 +302,7 @@ where
         if !response.status().is_success() {
             tracing::error!(
                 inbox_id = self.inbox_id(),
-                installation_id = hex::encode(self.context.installation_public_key()),
+                installation_id = hex::encode(self.context.installation_id()),
                 "Failed to upload file. Status code: {} Response: {response:?}",
                 response.status()
             );
@@ -611,6 +611,7 @@ mod tests {
         alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
 
         alix2
+            .context
             .device_sync_client()
             .get_sync_group()
             .await?
@@ -622,6 +623,7 @@ mod tests {
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
@@ -635,6 +637,7 @@ mod tests {
             .await?;
 
         alix2
+            .context
             .device_sync_client()
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;

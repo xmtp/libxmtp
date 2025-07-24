@@ -5,38 +5,39 @@ use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
+use xmtp_db::MlsProviderExt;
 use xmtp_db::{
     local_commit_log::{CommitType, NewLocalCommitLog},
     remote_commit_log::CommitResult,
-    ConnectionExt, Store, XmtpOpenMlsProvider,
+    Store, XmtpMlsStorageProvider,
 };
 
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
-    fn from_creation_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_creation_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
     ) -> Result<Self, GroupError>;
 
-    fn from_backup_stub_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_backup_stub_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
     ) -> Result<Self, GroupError>;
 
-    fn from_welcome_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_welcome_logged(
+        provider: &impl MlsProviderExt,
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
     ) -> Result<Self, GroupError>;
 
-    fn merge_staged_commit_logged<Db: ConnectionExt>(
+    fn merge_staged_commit_logged(
         &mut self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
@@ -44,8 +45,8 @@ pub trait CommitLogStorer: std::marker::Sized {
 }
 
 impl CommitLogStorer for MlsGroup {
-    fn from_creation_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_creation_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
     ) -> Result<Self, GroupError> {
@@ -72,14 +73,14 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::GroupCreation)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn from_backup_stub_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_backup_stub_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
@@ -110,14 +111,14 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::BackupRestore)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn from_welcome_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_welcome_logged(
+        provider: &impl MlsProviderExt,
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
@@ -138,21 +139,21 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::Welcome)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn merge_staged_commit_logged<Db: ConnectionExt>(
+    fn merge_staged_commit_logged(
         &mut self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
-        self.merge_staged_commit(&provider, staged_commit)?;
+        self.merge_staged_commit(provider, staged_commit)?;
 
         if crate::configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -167,7 +168,7 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(())

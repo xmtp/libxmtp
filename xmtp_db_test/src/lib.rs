@@ -3,8 +3,6 @@ use xmtp_db::{ConnectionError, DbConnection, DefaultDatabase, StorageOption, Xmt
 
 pub mod chaos;
 
-pub type ChaosConnection = chaos::ChaosConnection<xmtp_db::DefaultConnection>;
-
 #[derive(Clone)]
 pub struct ChaosDb<Db = DefaultDatabase>
 where
@@ -29,6 +27,7 @@ where
     <Db as XmtpDb>::Connection: Send + Sync,
 {
     type Connection = Arc<chaos::ChaosConnection<Db::Connection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
@@ -46,7 +45,7 @@ where
         todo!()
     }
 
-    fn db(&self) -> xmtp_db::DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 }

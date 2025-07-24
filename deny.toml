@@ -3,6 +3,7 @@ ignore = [
   { id = "RUSTSEC-2024-0384", reason = "need to upgrade openmls" },
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is a dependency of libcrux" },
+  { id = "RUSTSEC-2021-0139", reason = "ansi_term is only used in tests" },
 ]
 
 # This rustsec can be added to ignore list if using mls `test_utils` for tests

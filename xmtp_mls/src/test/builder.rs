@@ -3,15 +3,15 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 use std::sync::atomic::AtomicBool;
 
 use crate::builder::ClientBuilderError;
+use crate::context::XmtpSharedContext;
 use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::test::TestClient;
-use crate::XmtpApi;
 use xmtp_api::test_utils::*;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::{rand_vec, tmp_path, ExponentialBackoff, Retry};
 use xmtp_db::events::Events;
-use xmtp_db::XmtpDb;
+use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::XmtpTestDb;
 use xmtp_db::{identity::StoredIdentity, Store};
 
@@ -50,7 +50,7 @@ use xmtp_proto::xmtp::identity::associations::{
 use crate::{builder::ClientBuilder, identity::IdentityStrategy};
 use crate::{Client, InboxOwner};
 
-async fn register_client<C: XmtpApi, Db: XmtpDb>(client: &Client<C, Db>, owner: &impl InboxOwner) {
+async fn register_client<C: XmtpSharedContext>(client: &Client<C>, owner: &impl InboxOwner) {
     let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
@@ -215,6 +215,8 @@ async fn test_client_creation() {
                     .await
                     .unwrap(),
             )
+            .default_mls_store()
+            .unwrap()
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .build()
             .await;
@@ -255,13 +257,14 @@ async fn test_turn_local_telemetry_off() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .with_disable_events(Some(true))
         .build()
         .await?;
 
-    let provider = client.mls_provider();
-    let events = Events::all_events(provider.db())?;
+    let events = Events::all_events(&client.context.db())?;
 
     // No events should be logged if telemetry is turned off.
     assert!(events.is_empty());
@@ -293,6 +296,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -307,6 +312,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -328,6 +335,8 @@ async fn test_2nd_time_client_creation() {
             .await
             .unwrap(),
     )
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -345,6 +354,8 @@ async fn test_2nd_time_client_creation() {
                 .await
                 .unwrap(),
         )
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await
@@ -385,7 +396,7 @@ async fn api_identity_mismatch() {
     let identity = IdentityStrategy::new("other_inbox_id".to_string(), ident, nonce, None);
     assert!(matches!(
         identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+            .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
             .await
             .unwrap_err(),
         IdentityError::NewIdentity(msg) if msg == "Inbox ID mismatch"
@@ -477,7 +488,7 @@ async fn api_identity_happy_path() {
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(dbg!(
         identity
-            .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+            .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
             .await
     )
     .is_ok());
@@ -510,7 +521,7 @@ async fn stored_identity_happy_path() {
     let wrapper = ApiClientWrapper::new(mock_api, retry());
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     assert!(identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+        .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
         .await
         .is_ok());
 }
@@ -544,7 +555,7 @@ async fn stored_identity_mismatch() {
     let inbox_id = "inbox_id".to_string();
     let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
     let err = identity
-        .initialize_identity(&wrapper, &store.mls_provider(), &scw_verifier)
+        .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
         .await
         .unwrap_err();
 
@@ -578,6 +589,8 @@ async fn identity_persistence_test() {
             .unwrap(),
     )
     .store(store_a)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true));
     let client_a = client_a.build().await.unwrap();
 
@@ -603,6 +616,8 @@ async fn identity_persistence_test() {
             .unwrap(),
     )
     .store(store_b)
+    .default_mls_store()
+    .unwrap()
     .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     .build()
     .await
@@ -639,6 +654,8 @@ async fn identity_persistence_test() {
                 .unwrap(),
         )
         .store(store_d)
+        .default_mls_store()
+        .unwrap()
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .build()
         .await

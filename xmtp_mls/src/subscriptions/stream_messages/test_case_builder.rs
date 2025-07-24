@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
-use crate::test::mock::{MockContext, MockProcessFutureFactory};
+use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
 use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
@@ -207,7 +207,7 @@ pub struct StreamSequenceBuilder {
     session_counter: usize,
     sessions: HashMap<usize, StreamSession>,
     factory: MockProcessFutureFactory,
-    context: MockContext,
+    context: NewMockContext,
     case_state: Arc<Mutex<CaseState>>,
     process_sequence: Sequence,
 }
@@ -226,7 +226,7 @@ impl Default for StreamSequenceBuilder {
 }
 
 pub struct FinishedSequence {
-    pub context: Arc<MockContext>,
+    pub context: MockContext,
     // dont want to drop them
     #[allow(unused)]
     pub case_state: Arc<Mutex<CaseState>>,
