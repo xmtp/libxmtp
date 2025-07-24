@@ -222,7 +222,10 @@ pub trait QueryGroup<C: ConnectionExt> {
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
     fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
-    fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
@@ -665,8 +668,13 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
     }
 
-    fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError> {
-        let query = dsl::groups.filter(dsl::id.eq(group_id)).select(dsl::conversation_type);
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::id.eq(group_id))
+            .select(dsl::conversation_type);
         let conversation_type = self.raw_query_read(|conn| query.first(conn))?;
         Ok(conversation_type)
     }

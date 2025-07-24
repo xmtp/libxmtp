@@ -1,9 +1,9 @@
+use crate::group::ConversationType;
 use crate::local_commit_log::LocalCommitLog;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use crate::group::ConversationType;
 
 use diesel::prelude::SqliteConnection;
 use mockall::mock;
