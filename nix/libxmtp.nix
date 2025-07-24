@@ -11,8 +11,8 @@
 , gnuplot
 , flamegraph
 , cargo-flamegraph
-, cargo-udeps
 , cargo-nextest
+, cargo-deny
 , inferno
 , openssl
 , sqlcipher
@@ -81,7 +81,7 @@ mkShell ({
       # tokio-console
       gnuplot
       flamegraph
-      cargo-udeps
+      cargo-deny
       cargo-flamegraph
       cargo-nextest
       inferno
