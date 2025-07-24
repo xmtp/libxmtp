@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DbConnection, TransactionGuard};
+use crate::DbConnection;
 use diesel::connection::LoadConnection;
 use diesel::migration::MigrationConnection;
 use diesel::sqlite::Sqlite;
@@ -37,12 +37,6 @@ where
 {
     type Connection = C;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        Err(crate::ConnectionError::Database(
-            diesel::result::Error::AlreadyInTransaction,
-        ))
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -59,10 +53,6 @@ where
     {
         let mut conn = self.conn.borrow_mut();
         fun(&mut conn).map_err(crate::ConnectionError::from)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        true
     }
 
     // this should cause a transaction rollback. since reconnect/disconnect is retryable
@@ -94,7 +84,6 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     {
         let conn = &self.conn;
 
-        let _guard = self.conn.start_transaction(); // still needed so any reads use tx
         // one call to raw_query_write = mutex only locked once for entire transaciton
         conn.raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
     }

@@ -10,13 +10,12 @@ use diesel::prelude::SqliteConnection;
 use mockall::mock;
 use parking_lot::Mutex;
 
-use crate::{ConnectionError, ConnectionExt, TransactionGuard};
+use crate::{ConnectionError, ConnectionExt};
 pub type MockDb = MockDbQuery<MockConnection>;
 
 #[derive(Clone)]
 pub struct MockConnection {
     inner: Arc<Mutex<SqliteConnection>>,
-    in_transaction: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for MockConnection {
@@ -35,14 +34,6 @@ impl AsRef<MockConnection> for MockConnection {
 impl ConnectionExt for MockConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -59,10 +50,6 @@ impl ConnectionExt for MockConnection {
     {
         let mut conn = self.inner.lock();
         fun(&mut conn).map_err(ConnectionError::from)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -526,10 +513,6 @@ mock! {
 impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        panic!("start tx");
-    }
-
     fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -543,10 +526,6 @@ impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        todo!()
-    }
-
-    fn is_in_transaction(&self) -> bool {
         todo!()
     }
 
