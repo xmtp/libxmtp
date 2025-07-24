@@ -1,8 +1,7 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
-use crate::TransactionalKeyStore;
 use crate::sql_key_store::SqlKeyStoreError;
-// use crate::sql_key_store::XmtpMlsTransactionProvider;
+use crate::TransactionalKeyStore;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
@@ -20,11 +19,11 @@ pub trait XmtpMlsStorageProvider:
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;
 
+    type TxQuery: TransactionalKeyStore;
+
     type DbQuery<'a>: crate::DbQuery
     where
         Self::Connection: 'a;
-
-    type TxQuery: TransactionalKeyStore;
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
