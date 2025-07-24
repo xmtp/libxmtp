@@ -276,7 +276,7 @@ impl BackendOpts {
         } else {
             trace!(url = %network, is_secure, "create grpc");
             Ok(Arc::new(
-                crate::GrpcClient::create(network.as_str().to_string(), is_secure).await?,
+                crate::GrpcClient::create(network.as_str().to_string(), is_secure, None).await?,
             ))
         }
     }
