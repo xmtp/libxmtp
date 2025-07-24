@@ -57,7 +57,9 @@ impl ValidatedConnection for UnencryptedConnection {}
 
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnection {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
-        conn.batch_execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")
+        conn.batch_execute("PRAGMA query_only = OFF; PRAGMA busy_timeout = 5000;")
+            .map_err(r2d2::Error::QueryError)?;
+        conn.batch_execute("PRAGMA journal_mode = WAL;")
             .map_err(r2d2::Error::QueryError)?;
         Ok(())
     }
@@ -290,8 +292,7 @@ impl ConnectionExt for EphemeralDbConnection {
 }
 
 pub struct NativeDbConnection {
-    pub(super) read: Arc<RwLock<Option<Pool>>>,
-    pub(super) write: Arc<Mutex<SqliteConnection>>,
+    pub(super) pool: Arc<RwLock<Option<Pool>>>,
     in_transaction: Arc<AtomicBool>,
     path: String,
     customizer: Box<dyn XmtpConnection>,
@@ -310,21 +311,13 @@ impl std::fmt::Debug for NativeDbConnection {
 
 impl NativeDbConnection {
     fn new(path: &str, customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
-        let read = Pool::builder()
+        let pool = Pool::builder()
             .connection_customizer(customizer.clone())
             .max_size(crate::configuration::MAX_DB_POOL_SIZE)
             .build(ConnectionManager::new(path))?;
 
-        let mut write = SqliteConnection::establish(path)?;
-        customizer.on_acquire(&mut write)?;
-        write.batch_execute("PRAGMA query_only = OFF;")?;
-        write.batch_execute("PRAGMA journal_mode = WAL;")?;
-        let write = Arc::new(Mutex::new(write));
-
         Ok(Self {
-            read: Arc::new(RwLock::new(Some(read))),
-            write,
-            in_transaction: Arc::new(AtomicBool::new(false)),
+            pool: Arc::new(RwLock::new(Some(pool))),
             path: path.to_string(),
             customizer,
         })
@@ -362,34 +355,19 @@ impl NativeDbConnection {
 impl ConnectionExt for NativeDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
-        if self.in_transaction.load(Ordering::SeqCst) {
-            tracing::warn!("already in transaction, acquiring lock..");
-        }
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
-
     #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        if self.in_transaction.load(Ordering::SeqCst) {
-            let mut conn = self.write.lock();
-            fun(&mut conn).map_err(ConnectionError::from)
-        } else if let Some(pool) = &*self.read.read() {
-            tracing::trace!(
-                "pulling connection from pool, idle={}, total={}",
-                pool.state().idle_connections,
-                pool.state().connections
-            );
-            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
-
+        tracing::trace!(
+            "pulling connection from pool, idle={}, total={}",
+            pool.state().idle_connections,
+            pool.state().connections
+        );
+        if let Some(pool) = self.pool.read() {
+            let conn = pool.get().map_err(PlatformStorageError::from)?;
             fun(&mut conn).map_err(ConnectionError::from)
         } else {
             Err(ConnectionError::from(
