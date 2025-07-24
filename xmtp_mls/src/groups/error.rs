@@ -173,6 +173,8 @@ pub enum GroupError {
     UninitializedResult,
     #[error(transparent)]
     Diesel(#[from] xmtp_db::diesel::result::Error),
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl From<SyncSummary> for GroupError {
@@ -283,6 +285,7 @@ impl RetryableError for GroupError {
             | Self::GroupInactive
             | Self::FailedToVerifyInstallations
             | Self::NoWelcomesToSend
+            | Self::UninitializedField(_)
             | Self::UninitializedResult => false,
         }
     }
