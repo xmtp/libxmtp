@@ -279,16 +279,21 @@ async fn main() -> color_eyre::eyre::Result<()> {
             Arc::new(D14nClient::new(message, payer))
         }
         (false, Env::Local) => {
-            Arc::new(ClientV3::create("http://localhost:5556", false, None).await?)
+            Arc::new(ClientV3::create("http://localhost:5556", false, None::<String>).await?)
         }
-        (false, Env::Dev) => {
-            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true, None).await?)
-        }
-        (false, Env::Staging) => {
-            Arc::new(ClientV3::create("https://grpc.dev.xmtp.network:443", true, None).await?)
-        }
+        (false, Env::Dev) => Arc::new(
+            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
+        ),
+        (false, Env::Staging) => Arc::new(
+            ClientV3::create("https://grpc.dev.xmtp.network:443", true, None::<String>).await?,
+        ),
         (false, Env::Production) => Arc::new(
-            ClientV3::create("https://grpc.production.xmtp.network:443", true, None).await?,
+            ClientV3::create(
+                "https://grpc.production.xmtp.network:443",
+                true,
+                None::<String>,
+            )
+            .await?,
         ),
     };
 
