@@ -148,7 +148,7 @@ where
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
     let client = create_client(
-        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
             .await
             .unwrap(),
         Some(tmp_path()),

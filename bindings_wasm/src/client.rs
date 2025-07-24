@@ -37,6 +37,7 @@ pub type RustMlsGroup = MlsGroup<MlsContext>;
 pub struct Client {
   account_identifier: Identifier,
   inner_client: Arc<RustXmtpClient>,
+  app_version: Option<String>,
 }
 
 impl Client {
@@ -155,9 +156,11 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
+  app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
+  let api_client =
+    XmtpHttpApiClient::new(host.clone(), app_version.unwrap_or("0.0.0".to_string())).await?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -222,6 +225,7 @@ pub async fn create_client(
     account_identifier,
     #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
+    app_version,
   })
 }
 
@@ -250,6 +254,16 @@ impl Client {
   #[wasm_bindgen(getter, js_name = installationIdBytes)]
   pub fn installation_id_bytes(&self) -> Uint8Array {
     Uint8Array::from(self.inner_client.installation_public_key().as_slice())
+  }
+
+  #[wasm_bindgen(getter, js_name = appVersion)]
+  pub fn app_version(&self) -> String {
+    self.app_version.clone().unwrap_or("0.0.0".to_string())
+  }
+
+  #[wasm_bindgen(getter, js_name = libxmtpVersion)]
+  pub fn libxmtp_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
   }
 
   #[wasm_bindgen(js_name = canMessage)]

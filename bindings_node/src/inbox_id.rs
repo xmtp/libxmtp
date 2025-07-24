@@ -9,7 +9,6 @@ use xmtp_api::{strategies, ApiClientWrapper};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
-use xmtp_proto::api_client::ApiBuilder;
 
 #[napi]
 pub async fn get_inbox_id_for_identifier(
@@ -17,13 +16,9 @@ pub async fn get_inbox_id_for_identifier(
   is_secure: bool,
   identifier: Identifier,
 ) -> Result<Option<String>> {
-  let mut client = TonicApiClient::builder();
-  client.set_host(host);
-  client.set_tls(is_secure);
-  client
-    .set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
+  let client = TonicApiClient::create(&host, is_secure, None::<String>)
+    .await
     .map_err(ErrorWrapper::from)?;
-  let client = client.build().await.map_err(ErrorWrapper::from)?;
   // api rate limit cooldown period
   let api_client = ApiClientWrapper::new(client, strategies::exponential_cooldown());
 
@@ -78,7 +73,7 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let api_client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(host, true, None::<String>)
     .await
     .map_err(ErrorWrapper::from)?;
   let api_client = ApiClientWrapper::new(Arc::new(api_client), strategies::exponential_cooldown());

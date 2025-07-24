@@ -91,7 +91,7 @@ pub async fn inbox_state_from_inbox_ids(
   host: String,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>> {
-  let api_client = TonicApiClient::create(host, true)
+  let api_client = TonicApiClient::create(&host, true, None::<String>)
     .await
     .map_err(ErrorWrapper::from)?;
 
