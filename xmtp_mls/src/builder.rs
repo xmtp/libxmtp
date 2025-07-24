@@ -11,7 +11,7 @@ use crate::{
     track,
     utils::{events::EventWorker, VersionInfo},
     worker::WorkerRunner,
-    GroupCommitLock, StorageError, XmtpApi, XmtpOpenMlsProvider,
+    GroupCommitLock, StorageError, XmtpApi,
 };
 use std::sync::{atomic::Ordering, Arc};
 use thiserror::Error;
@@ -20,9 +20,16 @@ use tracing::debug;
 use xmtp_api::{ApiClientWrapper, ApiDebugWrapper};
 use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::events::{Events, EVENTS_ENABLED};
+use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::{
+    events::{Events, EVENTS_ENABLED},
+    sql_key_store::SqlKeyStore,
+    XmtpDb,
+};
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+
+type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -56,7 +63,7 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
     }
 }
 
-pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
+pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     api_client: Option<ApiClientWrapper<ApiClient>>,
     identity: Option<Identity>,
     store: Option<Db>,
@@ -67,6 +74,7 @@ pub struct ClientBuilder<ApiClient, Db = xmtp_db::DefaultStore> {
     version_info: VersionInfo,
     allow_offline: bool,
     disable_events: bool,
+    mls_storage: Option<S>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,12 +85,12 @@ pub enum SyncWorkerMode {
 
 impl Client<()> {
     /// Get the builder for this [`Client`]
-    pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<()> {
-        ClientBuilder::<()>::new(strategy)
+    pub fn builder(strategy: IdentityStrategy) -> ClientBuilder<(), ()> {
+        ClientBuilder::<(), ()>::new(strategy)
     }
 }
 
-impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
+impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(identity_strategy: IdentityStrategy) -> Self {
         Self {
@@ -99,17 +107,21 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             disable_events: false,
             #[cfg(test)]
             disable_events: true,
+            mls_storage: None,
         }
     }
 }
 
 #[cfg(test)]
-impl<ApiClient, Db> ClientBuilder<ApiClient, Db>
+impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db>
 where
     ApiClient: Clone,
     Db: Clone,
+    S: Clone,
 {
-    pub fn from_client(client: Client<ApiClient, Db>) -> ClientBuilder<ApiClient, Db> {
+    pub fn from_client(
+        client: Client<ContextParts<ApiClient, S, Db>>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
         let cloned_api = client.context.api_client.clone();
         ClientBuilder {
             api_client: Some(cloned_api),
@@ -125,15 +137,17 @@ where
             disable_events: true,
             #[cfg(not(test))]
             disable_events: false,
+            mls_storage: Some(client.context.mls_storage.clone()),
         }
     }
 }
 
-impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
-    pub async fn build(self) -> Result<Client<ApiClient, Db>, ClientBuilderError>
+impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
+    pub async fn build(self) -> Result<Client<ContextParts<ApiClient, S, Db>>, ClientBuilderError>
     where
         ApiClient: XmtpApi + 'static + Send + Sync,
         Db: xmtp_db::XmtpDb + 'static + Send + Sync,
+        S: XmtpMlsStorageProvider + 'static + Send + Sync,
     {
         let ClientBuilder {
             mut api_client,
@@ -147,6 +161,8 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info,
             allow_offline,
             disable_events,
+            mut mls_storage,
+            ..
         } = self;
 
         let api_client = api_client
@@ -165,13 +181,18 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
 
-        let conn = store.conn();
-        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_storage = mls_storage
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "mls_storage",
+            })?;
+
+        let conn = store.db();
         let identity = if let Some(identity) = identity {
             identity
         } else {
             identity_strategy
-                .initialize_identity(&api_client, &provider, &scw_verifier)
+                .initialize_identity(&api_client, &mls_storage, &scw_verifier)
                 .await?
         };
 
@@ -184,7 +205,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             // get sequence_id from identity updates and loaded into the DB
             load_identity_updates(
                 &api_client,
-                provider.db(),
+                &conn,
                 vec![identity.inbox_id.as_str()].as_slice(),
             )
             .await?;
@@ -195,6 +216,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
+            mls_storage,
             store,
             api_client,
             version_info,
@@ -212,14 +234,23 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
 
         // register workers
         if context.device_sync_worker_enabled() {
-            workers.register_new_worker::<SyncWorker<ApiClient, Db>, _>(&context);
+            workers.register_new_worker::<SyncWorker<ContextParts<ApiClient, S, Db>>, _>(
+                context.clone(),
+            );
         }
         if !disable_events {
             EVENTS_ENABLED.store(true, Ordering::SeqCst);
-            workers.register_new_worker::<EventWorker<ApiClient, Db>, _>(&context);
+            workers.register_new_worker::<EventWorker<ContextParts<ApiClient, S, Db>>, _>(
+                context.clone(),
+            );
         }
-        workers.register_new_worker::<KeyPackagesCleanerWorker<ApiClient, Db>, _>(&context);
-        workers.register_new_worker::<DisappearingMessagesWorker<ApiClient, Db>, _>(&context);
+        workers.register_new_worker::<KeyPackagesCleanerWorker<ContextParts<ApiClient, S, Db>>, _>(
+            context.clone(),
+        );
+        workers
+            .register_new_worker::<DisappearingMessagesWorker<ContextParts<ApiClient, S, Db>>, _>(
+                context.clone(),
+            );
         workers.spawn();
         let client = Client {
             context,
@@ -243,7 +274,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    pub fn store<NewDb>(self, db: NewDb) -> ClientBuilder<ApiClient, NewDb> {
+    pub fn store<NewDb>(self, db: NewDb) -> ClientBuilder<ApiClient, S, NewDb> {
         ClientBuilder {
             store: Some(db),
             api_client: self.api_client,
@@ -255,12 +286,75 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
+        }
+    }
+
+    /// Use the default SQlite MLS Key-Value Store
+    pub fn default_mls_store(
+        self,
+    ) -> Result<
+        ClientBuilder<ApiClient, SqlKeyStore<<Db as XmtpDb>::DbQuery>, Db>,
+        ClientBuilderError,
+    >
+    where
+        Db: XmtpDb,
+    {
+        Ok(ClientBuilder {
+            api_client: self.api_client,
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
+            scw_verifier: self.scw_verifier,
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
+            allow_offline: self.allow_offline,
+            disable_events: self.disable_events,
+            mls_storage: Some(SqlKeyStore::new(
+                self.store
+                    .as_ref()
+                    .ok_or(ClientBuilderError::MissingParameter {
+                        parameter: "encrypted store",
+                    })?
+                    .db(),
+            )),
+            store: self.store,
+        })
+    }
+
+    pub fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {
+        ClientBuilder {
+            store: self.store,
+            api_client: self.api_client,
+            identity: self.identity,
+            identity_strategy: self.identity_strategy,
+            scw_verifier: self.scw_verifier,
+            device_sync_server_url: self.device_sync_server_url,
+            device_sync_worker_mode: self.device_sync_worker_mode,
+            version_info: self.version_info,
+            allow_offline: self.allow_offline,
+            disable_events: self.disable_events,
+            mls_storage: Some(mls_storage),
+        }
+    }
+
+    pub fn with_device_sync_server_url(self, url: Option<String>) -> Self {
+        Self {
+            device_sync_server_url: url,
+            ..self
         }
     }
 
     pub fn device_sync_server_url(self, url: &str) -> Self {
         Self {
             device_sync_server_url: Some(url.into()),
+            ..self
+        }
+    }
+
+    pub fn with_device_sync_worker_mode(self, mode: Option<SyncWorkerMode>) -> Self {
+        Self {
+            device_sync_worker_mode: mode.unwrap_or(SyncWorkerMode::Enabled),
             ..self
         }
     }
@@ -272,7 +366,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
         }
     }
 
-    pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, Db> {
+    pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
         let api_retry = Retry::builder().build();
         let api_client = ApiClientWrapper::new(api_client, api_retry);
         ClientBuilder {
@@ -286,10 +380,21 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         }
     }
 
-    pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, Db> {
+    pub fn maybe_version(
+        mut self,
+        version: Option<VersionInfo>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
+        if let Some(v) = version {
+            self.version_info = v;
+        }
+        self
+    }
+
+    pub fn version(self, version_info: VersionInfo) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             version_info,
             ..self
@@ -297,7 +402,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 
     /// Skip network calls when building a client
-    pub fn with_allow_offline(self, allow_offline: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+    pub fn with_allow_offline(
+        self,
+        allow_offline: Option<bool>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             allow_offline: allow_offline.unwrap_or(false),
             ..self
@@ -305,7 +413,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 
     #[cfg(not(test))]
-    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+    pub fn with_disable_events(
+        self,
+        disable_events: Option<bool>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             disable_events: disable_events.unwrap_or(false),
             ..self
@@ -313,7 +424,10 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    pub fn with_disable_events(self, disable_events: Option<bool>) -> ClientBuilder<ApiClient, Db> {
+    pub fn with_disable_events(
+        self,
+        disable_events: Option<bool>,
+    ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             disable_events: disable_events.unwrap_or(true),
             ..self
@@ -324,18 +438,30 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub fn with_disable_events(
         self,
         _disable_events: Option<bool>,
-    ) -> ClientBuilder<ApiClient, Db> {
+    ) -> ClientBuilder<ApiClient, S, Db> {
         Self {
             disable_events: true,
             ..self
         }
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn enable_sqlite_triggers(self) -> Self
+    where
+        Db: XmtpDb,
+    {
+        let db = self.store.as_ref().expect("unwrapping in test env").conn();
+        let db = xmtp_db::DbConnection::new(db);
+        db.register_triggers();
+        db.disable_memory_security();
+        self
+    }
+
     /// Wrap the Api Client in a Debug Adapter which prints api stats on error.
     /// Requires the api client to be set in the builder.
     pub fn enable_api_debug_wrapper(
         self,
-    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, Db>, ClientBuilderError> {
+    ) -> Result<ClientBuilder<ApiDebugWrapper<ApiClient>, S, Db>, ClientBuilderError> {
         if self.api_client.is_none() {
             return Err(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
@@ -358,13 +484,14 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         })
     }
 
     pub fn with_scw_verifier(
         self,
         verifier: impl SmartContractSignatureVerifier + 'static,
-    ) -> ClientBuilder<ApiClient, Db> {
+    ) -> ClientBuilder<ApiClient, S, Db> {
         ClientBuilder {
             api_client: self.api_client,
             identity: self.identity,
@@ -377,12 +504,13 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         }
     }
 
     /// Build the client with a default remote verifier
     /// requires the 'api' to be set.
-    pub fn with_remote_verifier(self) -> Result<ClientBuilder<ApiClient, Db>, ClientBuilderError>
+    pub fn with_remote_verifier(self) -> Result<ClientBuilder<ApiClient, S, Db>, ClientBuilderError>
     where
         ApiClient: Clone + XmtpApi + Send + Sync + 'static,
     {
@@ -407,6 +535,7 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_events: self.disable_events,
+            mls_storage: self.mls_storage,
         })
     }
 }

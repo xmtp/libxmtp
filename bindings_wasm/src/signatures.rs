@@ -338,7 +338,7 @@ impl Client {
   ) -> Result<Uint8Array, JsError> {
     let result = self
       .inner_client()
-      .context()
+      .context
       .sign_with_public_context(signature_text)
       .map_err(|e| JsError::new(format!("{}", e).as_str()))?;
 

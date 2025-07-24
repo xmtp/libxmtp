@@ -84,8 +84,33 @@ impl std::fmt::Debug for LocalCommitLog {
     }
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn get_group_logs(
+pub trait QueryLocalCommitLog<C: ConnectionExt> {
+    fn get_group_logs(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+
+    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
+    fn get_group_logs_for_publishing(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
+
+    fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError>;
+
+    fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryLocalCommitLog<C> for DbConnection<C> {
+    fn get_group_logs(
         &self,
         group_id: &[u8],
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {

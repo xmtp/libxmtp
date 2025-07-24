@@ -1,5 +1,6 @@
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod native;
+
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native::*;
 
@@ -42,7 +43,7 @@ where
 {
     type Connection = P::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         match self {
             Self::Persistent(p) => p.start_transaction(),
             Self::Mem(m) => m.start_transaction(),

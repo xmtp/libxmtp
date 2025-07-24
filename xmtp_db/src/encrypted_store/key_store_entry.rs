@@ -24,8 +24,16 @@ impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
     }
 }
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn insert_or_update_key_store_entry(
+pub trait QueryKeyStoreEntry<C: ConnectionExt> {
+    fn insert_or_update_key_store_entry(
+        &self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StorageError>;
+}
+
+impl<C: ConnectionExt> QueryKeyStoreEntry<C> for DbConnection<C> {
+    fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,
         value: Vec<u8>,

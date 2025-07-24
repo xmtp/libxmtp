@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, sync::Arc};
-use xmtp_db::{ConnectionExt, StorageError, XmtpOpenMlsProvider};
+use xmtp_db::{ConnectionExt, StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,
@@ -19,28 +19,29 @@ pub(super) struct BatchExportStream {
 }
 
 impl BatchExportStream {
-    pub(super) fn new<C>(opts: &BackupOptions, provider: Arc<XmtpOpenMlsProvider<C>>) -> Self
+    pub(super) fn new<C, D>(opts: &BackupOptions, db: Arc<D>) -> Self
     where
         C: ConnectionExt + Send + Sync + 'static,
+        D: DbQuery<C> + Send + Sync + 'static,
     {
         let input_streams = opts
             .elements()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave, C>::new_stream(
-                        provider.clone(),
+                    vec![BackupRecordStreamer::<ConsentSave, D, C>::new_stream(
+                        db.clone(),
                         opts,
                     )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put messages before groups.
-                    BackupRecordStreamer::<GroupSave, C>::new_stream(provider.clone(), opts),
-                    BackupRecordStreamer::<GroupMessageSave, C>::new_stream(provider.clone(), opts),
+                    BackupRecordStreamer::<GroupSave, D, C>::new_stream(db.clone(), opts),
+                    BackupRecordStreamer::<GroupMessageSave, D, C>::new_stream(db.clone(), opts),
                 ],
                 BackupElementSelection::Event => {
                     vec![
-                        BackupRecordStreamer::<GroupSave, C>::new_stream(provider.clone(), opts),
-                        BackupRecordStreamer::<EventSave, C>::new_stream(provider.clone(), opts),
+                        BackupRecordStreamer::<GroupSave, D, C>::new_stream(db.clone(), opts),
+                        BackupRecordStreamer::<EventSave, D, C>::new_stream(db.clone(), opts),
                     ]
                 }
                 BackupElementSelection::Unspecified => vec![],
@@ -92,37 +93,36 @@ impl Iterator for BatchExportStream {
 
 pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
-    fn backup_records<C>(
-        provider: &XmtpOpenMlsProvider<C>,
+    fn backup_records<D, C>(
+        db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
         cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
-        C: ConnectionExt;
+        C: ConnectionExt,
+        D: DbQuery<C> + 'static;
 }
 
-pub(crate) struct BackupRecordStreamer<R, C> {
+pub(crate) struct BackupRecordStreamer<R, D, C> {
     cursor: i64,
-    provider: Arc<XmtpOpenMlsProvider<C>>,
+    db: Arc<D>,
     start_ns: Option<i64>,
     end_ns: Option<i64>,
-    _phantom: PhantomData<R>,
+    _phantom: PhantomData<(R, C)>,
 }
 
-impl<R, C> BackupRecordStreamer<R, C>
+impl<R, D, C> BackupRecordStreamer<R, D, C>
 where
     R: BackupRecordProvider + 'static,
     C: ConnectionExt + Send + Sync + 'static,
+    D: DbQuery<C> + Send + Sync + 'static,
 {
-    pub(super) fn new_stream(
-        provider: Arc<XmtpOpenMlsProvider<C>>,
-        opts: &BackupOptions,
-    ) -> BackupInputStream {
+    pub(super) fn new_stream(db: Arc<D>, opts: &BackupOptions) -> BackupInputStream {
         Box::new(Self {
             cursor: 0,
-            provider,
+            db,
             start_ns: opts.start_ns,
             end_ns: opts.end_ns,
             _phantom: PhantomData,
@@ -130,14 +130,15 @@ where
     }
 }
 
-impl<R, C> Iterator for BackupRecordStreamer<R, C>
+impl<R, D, C> Iterator for BackupRecordStreamer<R, D, C>
 where
     R: BackupRecordProvider + Send,
     C: ConnectionExt,
+    D: DbQuery<C> + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn next(&mut self) -> Option<Self::Item> {
-        let batch = R::backup_records(&self.provider, self.start_ns, self.end_ns, self.cursor);
+        let batch = R::backup_records(self.db.clone(), self.start_ns, self.end_ns, self.cursor);
 
         if let Ok(batch) = &batch {
             if batch.is_empty() {

@@ -326,7 +326,7 @@ impl Client {
   pub fn sign_with_installation_key(&self, signature_text: String) -> Result<Uint8Array> {
     let result = self
       .inner_client()
-      .context()
+      .context
       .sign_with_public_context(signature_text)
       .map_err(ErrorWrapper::from)?;
 

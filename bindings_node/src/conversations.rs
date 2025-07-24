@@ -583,7 +583,7 @@ impl Conversations {
     });
 
     let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
-      self.inner_client.clone(),
+      self.inner_client.context.clone(),
       conversation_type.map(Into::into),
       consents,
       move |message| {

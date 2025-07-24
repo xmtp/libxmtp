@@ -3,11 +3,8 @@
 use crate::DbConnection;
 use crate::PersistentOrMem;
 use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
-use diesel::{connection::TransactionManager, prelude::SqliteConnection};
-use diesel::{
-    connection::{AnsiTransactionManager, SimpleConnection},
-    prelude::*,
-};
+use diesel::prelude::SqliteConnection;
+use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
 use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
 use std::sync::Arc;
@@ -141,7 +138,6 @@ impl WasmDb {
 
 pub struct WasmDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
-    transaction_lock: Arc<Mutex<()>>,
     in_transaction: Arc<AtomicBool>,
     path: String,
 }
@@ -151,7 +147,6 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            transaction_lock: Arc::new(Mutex::new(())),
             in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_string(),
@@ -165,7 +160,6 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            transaction_lock: Arc::new(Mutex::new(())),
             in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -180,14 +174,10 @@ impl WasmDbConnection {
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
-        let guard = self.transaction_lock.lock();
-        let mut c = self.conn.lock();
-        AnsiTransactionManager::begin_transaction(&mut *c)?;
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         self.in_transaction.store(true, Ordering::SeqCst);
 
         Ok(TransactionGuard {
-            _mutex_guard: guard,
             in_transaction: self.in_transaction.clone(),
         })
     }
@@ -225,12 +215,13 @@ impl ConnectionExt for WasmDbConnection {
 
 impl XmtpDb for WasmDb {
     type Connection = Arc<PersistentOrMem<WasmDbConnection, WasmDbConnection>>;
+    type DbQuery = DbConnection<Self::Connection>;
 
     fn conn(&self) -> Self::Connection {
         self.conn.clone()
     }
 
-    fn db(&self) -> DbConnection<Self::Connection> {
+    fn db(&self) -> Self::DbQuery {
         DbConnection::new(self.conn.clone())
     }
 
@@ -261,7 +252,7 @@ mod tests {
 
     pub async fn with_opfs<'a, F, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(DbConnection<<crate::DefaultStore as XmtpDb>::Connection>) -> R,
+        F: FnOnce(crate::DefaultDbConnection) -> R,
     {
         let util = init_opfs().await;
         let o: Option<&'a str> = path.into();
@@ -283,7 +274,7 @@ mod tests {
     #[allow(unused)]
     pub async fn with_opfs_async<'a, F, T, R>(path: impl Into<Option<&'a str>>, f: F) -> R
     where
-        F: FnOnce(DbConnection<<crate::DefaultStore as XmtpDb>::Connection>) -> T,
+        F: FnOnce(crate::DefaultDbConnection) -> T,
         T: Future<Output = R>,
     {
         let util = init_opfs().await;

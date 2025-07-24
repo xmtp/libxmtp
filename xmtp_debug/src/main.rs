@@ -6,11 +6,15 @@ mod logger;
 use clap::Parser;
 use color_eyre::eyre::Result;
 
+use std::sync::Arc;
 use xmtp_api_grpc::{GrpcError, grpc_api_helper::Client as GrpcClient};
+use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_proto::traits::ApiClientError;
 
+pub type MlsContext =
+    Arc<XmtpMlsLocalContext<DbgClientApi, xmtp_db::DefaultStore, xmtp_db::DefaultMlsStore>>;
 type DbgClientApi = xmtp_proto::api_client::ArcedXmtpApi<ApiClientError<GrpcError>>;
-type DbgClient = xmtp_mls::client::Client<DbgClientApi>;
+type DbgClient = xmtp_mls::client::Client<MlsContext>;
 
 #[macro_use]
 extern crate tracing;

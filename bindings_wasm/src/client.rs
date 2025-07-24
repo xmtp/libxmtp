@@ -12,6 +12,7 @@ use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
@@ -22,8 +23,15 @@ use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
-pub type RustXmtpClient = MlsClient<ApiDebugWrapper<XmtpHttpApiClient>>;
-pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<XmtpHttpApiClient>, xmtp_db::DefaultStore>;
+pub type MlsContext = Arc<
+  XmtpMlsLocalContext<
+    ApiDebugWrapper<XmtpHttpApiClient>,
+    xmtp_db::DefaultStore,
+    xmtp_db::DefaultMlsStore,
+  >,
+>;
+pub type RustXmtpClient = MlsClient<MlsContext>;
+pub type RustMlsGroup = MlsGroup<MlsContext>;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -204,6 +212,8 @@ pub async fn create_client(
   }
 
   let xmtp_client = builder
+    .default_mls_store()
+    .map_err(|e| JsError::new(&e.to_string()))?
     .build()
     .await
     .map_err(|e| JsError::new(&e.to_string()))?;
@@ -286,7 +296,7 @@ impl Client {
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>, JsError> {
-    let conn = self.inner_client.store().db();
+    let conn = self.inner_client.context.store().db();
     let inbox_id = self
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
@@ -359,9 +369,9 @@ impl Client {
 
   #[wasm_bindgen(js_name = uploadDebugArchive)]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
-    let provider = Arc::new(self.inner_client().mls_provider());
+    let db = self.inner_client().context.db();
 
-    upload_debug_archive(&provider, Some(server_url))
+    upload_debug_archive(db, Some(server_url))
       .await
       .map_err(|e| JsError::new(&format!("{e}")))
   }

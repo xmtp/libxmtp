@@ -85,6 +85,7 @@ async fn new_client_inner(
         None,
     ))
     .api_client(api)
+    .default_mls_store()?
     .with_remote_verifier()?
     .store(EncryptedMessageStore::new(db)?)
     .build()
@@ -96,7 +97,7 @@ async fn new_client_inner(
 }
 
 pub async fn register_client(client: &crate::DbgClient, owner: impl InboxOwner) -> Result<()> {
-    let signature_request = client.context().signature_request();
+    let signature_request = client.context.signature_request();
     let ident = owner.get_identifier()?;
 
     trace!(
@@ -139,6 +140,7 @@ async fn existing_client_inner(
         .api_client(api)
         .with_remote_verifier()?
         .store(store?)
+        .default_mls_store()?
         .build()
         .await?;
 
