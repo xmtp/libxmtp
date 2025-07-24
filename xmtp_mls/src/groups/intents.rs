@@ -42,6 +42,9 @@ use xmtp_proto::xmtp::mls::database::{
     UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
 };
 
+mod queue;
+pub use queue::*;
+
 #[derive(Debug, Error)]
 pub enum IntentError {
     #[error("decode error: {0}")]
