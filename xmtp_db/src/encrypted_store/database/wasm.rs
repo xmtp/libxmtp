@@ -2,13 +2,12 @@
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
 use crate::DbConnection;
 use crate::PersistentOrMem;
-use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
+use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
 use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 
@@ -138,7 +137,6 @@ impl WasmDb {
 
 pub struct WasmDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
-    in_transaction: Arc<AtomicBool>,
     path: String,
 }
 
@@ -147,7 +145,6 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_string(),
         })
@@ -160,7 +157,6 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path,
         })
@@ -173,14 +169,6 @@ impl WasmDbConnection {
 
 impl ConnectionExt for WasmDbConnection {
     type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
 
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -198,10 +186,6 @@ impl ConnectionExt for WasmDbConnection {
     {
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
