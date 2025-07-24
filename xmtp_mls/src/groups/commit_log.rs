@@ -117,6 +117,34 @@ where
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct PublishCommitLogsResult {
+    pub conversation_id: Vec<u8>,
+    pub num_entries_published: usize,
+    pub last_entry_published_sequence_id: i64,
+    pub last_entry_published_rowid: i64,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SaveRemoteCommitLogResult {
+    pub conversation_id: Vec<u8>,
+    pub num_entries_saved: usize,
+    pub last_entry_saved_commit_sequence_id: i64,
+    pub last_entry_saved_remote_log_sequence_id: i64,
+}
+
+pub struct UpdateCursorsResult {
+    pub conversation_id: Vec<u8>,
+    pub last_entry_saved_commit_sequence_id: i64,
+    pub last_entry_saved_remote_log_sequence_id: i64,
+}
+
+#[cfg(test)]
+pub struct TestResult {
+    pub save_remote_commit_log_results: Option<Vec<SaveRemoteCommitLogResult>>,
+    pub publish_commit_log_results: Option<Vec<PublishCommitLogsResult>>,
+}
+
 impl<ApiClient, Db> CommitLogWorker<ApiClient, Db>
 where
     ApiClient: XmtpApi + 'static,
@@ -139,48 +167,58 @@ where
         &mut self,
         commit_log_test_function: CommitLogTestFunction,
         iterations: Option<usize>,
-    ) -> Result<(), CommitLogError> {
+    ) -> Result<Vec<TestResult>, CommitLogError> {
+        let mut test_results = Vec::new();
         match iterations {
             Some(n) => {
                 // Run exactly n times
                 for _ in 0..n {
-                    self.test_helper(&commit_log_test_function).await?;
+                    let test_result = self.test_helper(&commit_log_test_function).await?;
+                    test_results.push(test_result);
                 }
             }
-
             None => {
-                self.test_helper(&commit_log_test_function).await?;
+                let test_result = self.test_helper(&commit_log_test_function).await?;
+                test_results.push(test_result);
             }
         }
-        Ok(())
+        Ok(test_results)
     }
 
     #[cfg(test)]
     async fn test_helper(
         &mut self,
         commit_log_test_function: &CommitLogTestFunction,
-    ) -> Result<(), CommitLogError> {
+    ) -> Result<TestResult, CommitLogError> {
         let provider = self.context.mls_provider();
         let conn = provider.db();
+        let mut test_result = TestResult {
+            save_remote_commit_log_results: None,
+            publish_commit_log_results: None,
+        };
         match commit_log_test_function {
             CommitLogTestFunction::PublishCommitLogsToRemote => {
-                self.publish_commit_logs_to_remote(conn).await?;
+                let publish_commit_log_results = self.publish_commit_logs_to_remote(conn).await?;
+                test_result.publish_commit_log_results = Some(publish_commit_log_results);
             }
             CommitLogTestFunction::SaveRemoteCommitLog => {
-                self.save_remote_commit_log(conn).await?;
+                let save_remote_commit_log_results = self.save_remote_commit_log(conn).await?;
+                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
             }
             CommitLogTestFunction::All => {
-                self.publish_commit_logs_to_remote(conn).await?;
-                self.save_remote_commit_log(conn).await?;
+                let publish_commit_log_results = self.publish_commit_logs_to_remote(conn).await?;
+                test_result.publish_commit_log_results = Some(publish_commit_log_results);
+                let save_remote_commit_log_results = self.save_remote_commit_log(conn).await?;
+                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
             }
         }
-        Ok(())
+        Ok(test_result)
     }
 
     async fn publish_commit_logs_to_remote(
         &mut self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
-    ) -> Result<(), CommitLogError> {
+    ) -> Result<Vec<PublishCommitLogsResult>, CommitLogError> {
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
         let conversation_ids_for_remote_log_publish =
             conn.get_conversation_ids_for_remote_log_publish()?;
@@ -191,15 +229,27 @@ where
 
         // Step 3 is to publish any new local commit logs and to update relevant cursors
         let api = self.context.api();
+        let mut commit_log_results = Vec::new();
         for (conversation_id, published_commit_log_cursor) in conversation_cursor_map {
             if let Some(published_commit_log_cursor) = published_commit_log_cursor {
                 // Local commit log entries are returned sorted in ascending order of `commit_sequence_id`
                 // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
-                let plaintext_commit_log_entries: Vec<PlaintextCommitLogEntry> = conn
+                let (plaintext_commit_log_entries, rowids): (
+                    Vec<PlaintextCommitLogEntry>,
+                    Vec<i32>,
+                ) = conn
                     .get_group_logs_for_publishing(&conversation_id, published_commit_log_cursor)?
                     .iter()
-                    .map(PlaintextCommitLogEntry::from)
-                    .collect();
+                    .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
+                    .unzip();
+
+                let max_rowid = rowids.into_iter().max().unwrap_or_else(|| {
+                    tracing::warn!(
+                        "No rowids found for conversation {:?}, using 0 as cursor",
+                        conversation_id
+                    );
+                    0
+                });
                 // Publish commit log entries to the API
                 match api.publish_commit_log(&plaintext_commit_log_entries).await {
                     Ok(_) => {
@@ -208,8 +258,15 @@ where
                             conn.update_cursor(
                                 &conversation_id,
                                 xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-                                last_entry.commit_sequence_id as i64,
+                                max_rowid as i64,
                             )?;
+                            commit_log_results.push(PublishCommitLogsResult {
+                                conversation_id,
+                                num_entries_published: plaintext_commit_log_entries.len(),
+                                last_entry_published_sequence_id: last_entry.commit_sequence_id
+                                    as i64,
+                                last_entry_published_rowid: max_rowid as i64,
+                            });
                         } else {
                             tracing::error!(
                                 "No last entry found for conversation id: {:?}",
@@ -224,7 +281,7 @@ where
                 }
             }
         }
-        Ok(())
+        Ok(commit_log_results)
     }
 
     // Check if for each `conversation_id` whether its `PublishedCommitLog` cursor is lower than the local commit log sequence id.
@@ -261,7 +318,7 @@ where
     async fn save_remote_commit_log(
         &mut self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
-    ) -> Result<(), CommitLogError> {
+    ) -> Result<Vec<SaveRemoteCommitLogResult>, CommitLogError> {
         // This should be all groups we are in, and all dms are in except sync groups
         let conversation_ids_for_remote_log_download =
             conn.get_conversation_ids_for_remote_log_download()?;
@@ -286,20 +343,33 @@ where
         let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
 
         // Step 3 save the remote commit log entries to the local commit log
+        let mut save_remote_commit_log_results = Vec::new();
         for response in query_commit_log_responses {
-            self.save_remote_commit_log_entries_and_update_cursors(conn, response)?;
+            let num_entries = response.commit_log_entries.len();
+            let group_id = response.group_id.clone();
+            let update_cursors_result =
+                self.save_remote_commit_log_entries_and_update_cursors(conn, response)?;
+            save_remote_commit_log_results.push(SaveRemoteCommitLogResult {
+                conversation_id: group_id,
+                num_entries_saved: num_entries,
+                last_entry_saved_commit_sequence_id: update_cursors_result
+                    .last_entry_saved_commit_sequence_id,
+                last_entry_saved_remote_log_sequence_id: update_cursors_result
+                    .last_entry_saved_remote_log_sequence_id,
+            });
         }
 
-        Ok(())
+        Ok(save_remote_commit_log_results)
     }
 
     fn save_remote_commit_log_entries_and_update_cursors(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
         commit_log_response: QueryCommitLogResponse,
-    ) -> Result<(), CommitLogError> {
+    ) -> Result<UpdateCursorsResult, CommitLogError> {
         let group_id = commit_log_response.group_id;
         let mut latest_download_cursor = 0;
+        let mut latest_sequence_id = 0;
         for entry in commit_log_response.commit_log_entries {
             let log_entry =
                 PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
@@ -318,13 +388,20 @@ where
             if entry.sequence_id > latest_download_cursor {
                 latest_download_cursor = entry.sequence_id;
             }
+            if log_entry.commit_sequence_id > latest_sequence_id {
+                latest_sequence_id = log_entry.commit_sequence_id;
+            }
         }
         conn.update_cursor(
             &group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogDownload,
             latest_download_cursor as i64,
         )?;
-        Ok(())
+        Ok(UpdateCursorsResult {
+            conversation_id: group_id,
+            last_entry_saved_commit_sequence_id: latest_sequence_id as i64,
+            last_entry_saved_remote_log_sequence_id: latest_download_cursor as i64,
+        })
     }
 }
 
