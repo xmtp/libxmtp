@@ -15,6 +15,7 @@ required-features = ["update-schema"]
 
 
 [dependencies]
+arc-swap.workspace = true
 bincode.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true

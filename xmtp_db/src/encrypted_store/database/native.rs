@@ -3,13 +3,14 @@ mod sqlcipher_connection;
 use crate::StorageError;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
+use arc_swap::ArcSwapOption;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     Connection,
     connection::SimpleConnection,
     r2d2::{self, CustomizeConnection, PooledConnection},
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
 use xmtp_common::{RetryableError, retryable};
@@ -52,11 +53,25 @@ pub(crate) trait ValidatedConnection {
 pub struct UnencryptedConnection;
 impl ValidatedConnection for UnencryptedConnection {}
 
+/// Pragmas to execute on acquiring a new SQLite connection
+fn connection_pragmas() -> &'static str {
+    "
+        PRAGMA query_only = OFF;              -- Enable writing with the connection
+        PRAGMA journal_mode = WAL;            -- Better write concurrency
+        PRAGMA journal_size_limit = 67108864; -- maximum size of the WAL file, corresponds to 64MB
+        PRAGMA synchronous = NORMAL;          -- fsync only in critical moments
+        PRAGMA wal_autocheckpoint = 1000;     -- write WAL changes back every 1000 pages, for an in average 1MB WAL file. May affect readers if number is increased
+        PRAGMA wal_checkpoint(TRUNCATE);      -- free some space by truncating possibly massive WAL files from the last run.
+        PRAGMA mmap_size = 134217728;         -- maximum size of the internal mmap pool. Corresponds to 128MB
+        PRAGMA cache_size = 2000;             -- maximum number of database disk pages that will be hold in memory. Corresponds to ~8MB
+        PRAGMA foreign_keys = ON;             -- enforce foreign keys
+        PRAGMA busy_timeout = 15000;          -- sleep for 5s if the database is busy
+    "
+}
+
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnection {
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
-        conn.batch_execute("PRAGMA query_only = OFF; PRAGMA busy_timeout = 5000;")
-            .map_err(r2d2::Error::QueryError)?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
+        conn.batch_execute(connection_pragmas())
             .map_err(r2d2::Error::QueryError)?;
         Ok(())
     }
@@ -275,7 +290,7 @@ impl ConnectionExt for EphemeralDbConnection {
 }
 
 pub struct NativeDbConnection {
-    pub(super) pool: Arc<RwLock<Option<Pool>>>,
+    pub(super) pool: ArcSwapOption<Pool>,
     path: String,
     customizer: Box<dyn XmtpConnection>,
 }
@@ -284,10 +299,9 @@ impl std::fmt::Debug for NativeDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "NativeDbConnection {{ path: {}, is_locked={}, is_locked_exclusive={} }}",
+            "NativeDbConnection {{ path: {}, state={:?} }}",
             &self.path,
-            self.pool.is_locked(),
-            self.pool.is_locked_exclusive()
+            self.pool.load().as_ref().map(|s| s.state()),
         )
     }
 }
@@ -300,7 +314,7 @@ impl NativeDbConnection {
             .build(ConnectionManager::new(path))?;
 
         Ok(Self {
-            pool: Arc::new(RwLock::new(Some(pool))),
+            pool: ArcSwapOption::new(Some(Arc::new(pool))),
             path: path.to_string(),
             customizer,
         })
@@ -308,8 +322,7 @@ impl NativeDbConnection {
 
     fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::warn!("released sqlite database connection");
-        let mut pool_guard = self.pool.write();
-        pool_guard.take();
+        self.pool.store(None);
         Ok(())
     }
 
@@ -317,12 +330,10 @@ impl NativeDbConnection {
         tracing::info!("reconnecting sqlite database connection");
         let builder = Pool::builder().connection_customizer(self.customizer.clone());
 
-        let mut pool = self.pool.write();
-        *pool = Some(
-            builder
-                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-                .build(ConnectionManager::new(self.path.clone()))?,
-        );
+        let new_pool = builder
+            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+            .build(ConnectionManager::new(self.path.clone()))?;
+        self.pool.store(Some(Arc::new(new_pool)));
         Ok(())
     }
 }
@@ -336,7 +347,7 @@ impl ConnectionExt for NativeDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        if let Some(pool) = &*self.pool.read() {
+        if let Some(pool) = &*self.pool.load() {
             tracing::trace!(
                 "pulling connection from pool, idle={}, total={}",
                 pool.state().idle_connections,
@@ -357,7 +368,7 @@ impl ConnectionExt for NativeDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        if let Some(pool) = &*self.pool.write() {
+        if let Some(pool) = &*self.pool.load() {
             tracing::trace!(
                 "pulling connection from pool for write, idle={}, total={}",
                 pool.state().idle_connections,
@@ -407,7 +418,7 @@ mod tests {
 
             store.release_connection().unwrap();
             if let PersistentOrMem::Persistent(p) = &*store.db.conn() {
-                assert!(p.pool.read().is_none())
+                assert!(p.pool.load().is_none())
             } else {
                 panic!("conn expected")
             }
