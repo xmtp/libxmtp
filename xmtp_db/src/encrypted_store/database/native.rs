@@ -1,9 +1,8 @@
 mod sqlcipher_connection;
 
+use crate::StorageError;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
-use crate::{StorageError, TransactionGuard};
-use diesel::r2d2::R2D2Connection;
 use diesel::sqlite::SqliteConnection;
 use diesel::{
     Connection,
@@ -12,8 +11,6 @@ use diesel::{
 };
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use thiserror::Error;
 use xmtp_common::{RetryableError, retryable};
 
@@ -216,15 +213,14 @@ impl XmtpDb for NativeDb {
 
 pub struct EphemeralDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
-    in_transaction: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for EphemeralDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "EphemeralConnection {{ in_transaction: {} }}",
-            self.in_transaction.load(Ordering::Relaxed)
+            "EphemeralConnection {{ is_locked={} }}",
+            self.conn.is_locked()
         )
     }
 }
@@ -233,7 +229,6 @@ impl EphemeralDbConnection {
     pub fn new() -> Result<Self, PlatformStorageError> {
         Ok(Self {
             conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
-            in_transaction: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -251,14 +246,6 @@ impl EphemeralDbConnection {
 
 impl ConnectionExt for EphemeralDbConnection {
     type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
 
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -278,10 +265,6 @@ impl ConnectionExt for EphemeralDbConnection {
         fun(&mut conn).map_err(ConnectionError::from)
     }
 
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
-    }
-
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
         Ok(self.db_disconnect()?)
     }
@@ -293,7 +276,6 @@ impl ConnectionExt for EphemeralDbConnection {
 
 pub struct NativeDbConnection {
     pub(super) pool: Arc<RwLock<Option<Pool>>>,
-    in_transaction: Arc<AtomicBool>,
     path: String,
     customizer: Box<dyn XmtpConnection>,
 }
@@ -302,9 +284,10 @@ impl std::fmt::Debug for NativeDbConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "NativeDbConnection {{ path: {}, in_transaction: {} }}",
+            "NativeDbConnection {{ path: {}, is_locked={}, is_locked_exclusive={} }}",
             &self.path,
-            self.in_transaction.load(Ordering::Relaxed)
+            self.pool.is_locked(),
+            self.pool.is_locked_exclusive()
         )
     }
 }
@@ -325,7 +308,7 @@ impl NativeDbConnection {
 
     fn db_disconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::warn!("released sqlite database connection");
-        let mut pool_guard = self.read.write();
+        let mut pool_guard = self.pool.write();
         pool_guard.take();
         Ok(())
     }
@@ -334,20 +317,12 @@ impl NativeDbConnection {
         tracing::info!("reconnecting sqlite database connection");
         let builder = Pool::builder().connection_customizer(self.customizer.clone());
 
-        let mut pool = self.read.write();
+        let mut pool = self.pool.write();
         *pool = Some(
             builder
                 .max_size(crate::configuration::MAX_DB_POOL_SIZE)
                 .build(ConnectionManager::new(self.path.clone()))?,
         );
-
-        let mut write = self.write.lock();
-        if write.is_broken() {
-            let mut new = SqliteConnection::establish(&self.path)?;
-            self.customizer.on_acquire(&mut new)?;
-            new.batch_execute("PRAGMA query_only = OFF;")?;
-            *write = new;
-        }
         Ok(())
     }
 }
@@ -361,13 +336,13 @@ impl ConnectionExt for NativeDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        tracing::trace!(
-            "pulling connection from pool, idle={}, total={}",
-            pool.state().idle_connections,
-            pool.state().connections
-        );
-        if let Some(pool) = self.pool.read() {
-            let conn = pool.get().map_err(PlatformStorageError::from)?;
+        if let Some(pool) = &*self.pool.read() {
+            tracing::trace!(
+                "pulling connection from pool, idle={}, total={}",
+                pool.state().idle_connections,
+                pool.state().connections
+            );
+            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
             fun(&mut conn).map_err(ConnectionError::from)
         } else {
             Err(ConnectionError::from(
@@ -382,12 +357,19 @@ impl ConnectionExt for NativeDbConnection {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut locked = self.write.lock();
-        fun(&mut locked).map_err(ConnectionError::from)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
+        if let Some(pool) = &*self.pool.write() {
+            tracing::trace!(
+                "pulling connection from pool for write, idle={}, total={}",
+                pool.state().idle_connections,
+                pool.state().connections
+            );
+            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
+            fun(&mut conn).map_err(ConnectionError::from)
+        } else {
+            Err(ConnectionError::from(
+                PlatformStorageError::PoolNeedsConnection,
+            ))
+        }
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -425,7 +407,7 @@ mod tests {
 
             store.release_connection().unwrap();
             if let PersistentOrMem::Persistent(p) = &*store.db.conn() {
-                assert!(p.read.read().is_none())
+                assert!(p.pool.read().is_none())
             } else {
                 panic!("conn expected")
             }

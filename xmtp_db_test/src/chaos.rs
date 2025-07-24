@@ -244,15 +244,6 @@ where
 {
     type Connection = C::Connection;
 
-    #[tracing::instrument(skip_all)]
-    fn start_transaction(&self) -> Result<xmtp_db::TransactionGuard, crate::ConnectionError> {
-        self.maybe_random_error::<xmtp_db::ConnectionError>()?;
-        let result = self.db.start_transaction()?;
-        self.run_static_hooks(STATIC_TRANSACTION_START_HOOK)?;
-        self.run_hook(TRANSACTION_START_HOOK)?;
-        Ok(result)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -282,10 +273,6 @@ where
         self.run_hook(POST_WRITE_HOOK)?;
         self.run_static_hooks(STATIC_POST_WRITE_HOOK)?;
         Ok(result)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.db.is_in_transaction()
     }
 
     fn disconnect(&self) -> Result<(), xmtp_db::ConnectionError> {

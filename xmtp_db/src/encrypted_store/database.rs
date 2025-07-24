@@ -15,7 +15,7 @@ pub use wasm_exports::*;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use native_exports::*;
 
-use super::{ConnectionExt, TransactionGuard};
+use super::ConnectionExt;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub mod wasm_exports {
@@ -43,13 +43,6 @@ where
 {
     type Connection = P::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        match self {
-            Self::Persistent(p) => p.start_transaction(),
-            Self::Mem(m) => m.start_transaction(),
-        }
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -69,13 +62,6 @@ where
         match self {
             Self::Persistent(p) => p.raw_query_write(fun),
             Self::Mem(m) => m.raw_query_write(fun),
-        }
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        match self {
-            Self::Persistent(p) => p.is_in_transaction(),
-            Self::Mem(m) => m.is_in_transaction(),
         }
     }
 

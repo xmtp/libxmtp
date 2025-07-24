@@ -308,7 +308,7 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
         conn.batch_execute(&format!(
             "{}
-            PRAGMA query_only = ON;
+            PRAGMA query_only = OFF;
             PRAGMA busy_timeout = 5000;
             PRAGMA journal_mode = WAL;",
             self.pragmas()
