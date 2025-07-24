@@ -159,8 +159,11 @@ pub async fn create_client(
   app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client =
-    XmtpHttpApiClient::new(host.clone(), app_version.unwrap_or("0.0.0".to_string())).await?;
+  let api_client = XmtpHttpApiClient::new(
+    host.clone(),
+    app_version.as_ref().unwrap_or(&"0.0.0".to_string()),
+  )
+  .await?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
