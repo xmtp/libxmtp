@@ -117,7 +117,7 @@ impl std::fmt::Debug for StoredGroupIntent {
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
 
-impl Delete<StoredGroupIntent> for DbConnection {
+impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
         Ok(self.raw_query_write(|raw_conn| {
@@ -433,7 +433,7 @@ pub(crate) mod tests {
     };
     use xmtp_common::rand_vec;
 
-    fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
+    fn insert_group<C: ConnectionExt>(conn: &DbConnection<C>, group_id: Vec<u8>) {
         StoredGroup::builder()
             .id(group_id)
             .created_at_ns(100)
@@ -464,7 +464,10 @@ pub(crate) mod tests {
         }
     }
 
-    fn find_first_intent(conn: &DbConnection, group_id: group::ID) -> StoredGroupIntent {
+    fn find_first_intent<C: ConnectionExt>(
+        conn: &DbConnection<C>,
+        group_id: group::ID,
+    ) -> StoredGroupIntent {
         conn.raw_query_read(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))

@@ -128,6 +128,9 @@ pub trait ConnectionExt {
         Self: Sized;
 
     fn is_in_transaction(&self) -> bool;
+
+    fn disconnect(&self) -> Result<(), ConnectionError>;
+    fn reconnect(&self) -> Result<(), ConnectionError>;
 }
 
 impl<C> ConnectionExt for &C
@@ -159,6 +162,14 @@ where
     fn is_in_transaction(&self) -> bool {
         <C as ConnectionExt>::is_in_transaction(self)
     }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
+    }
 }
 
 impl<C> ConnectionExt for Arc<C>
@@ -189,6 +200,14 @@ where
 
     fn is_in_transaction(&self) -> bool {
         <C as ConnectionExt>::is_in_transaction(self)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
     }
 }
 
@@ -332,12 +351,12 @@ macro_rules! impl_store_or_ignore {
     };
 }
 
-impl<T> Store<DbConnection> for Vec<T>
+impl<T, C> Store<DbConnection<C>> for Vec<T>
 where
-    T: Store<DbConnection>,
+    T: Store<DbConnection<C>>,
 {
     type Output = ();
-    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
+    fn store(&self, into: &DbConnection<C>) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }

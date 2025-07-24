@@ -5,7 +5,7 @@ use diesel::connection::TransactionManager;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-pub struct XmtpOpenMlsProvider<C = crate::DefaultConnection> {
+pub struct XmtpOpenMlsProvider<C> {
     crypto: RustCrypto,
     key_store: SqlKeyStore<C>,
 }
@@ -15,6 +15,13 @@ impl<C> XmtpOpenMlsProvider<C> {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
+        }
+    }
+
+    pub fn with_connection(conn: DbConnection<C>) -> Self {
+        Self {
+            crypto: RustCrypto::default(),
+            key_store: SqlKeyStore::with_connection(conn),
         }
     }
 }
@@ -67,7 +74,7 @@ where
     }
 }
 
-impl XmtpOpenMlsProvider {
+impl<C> XmtpOpenMlsProvider<C> {
     pub fn new_crypto() -> RustCrypto {
         RustCrypto::default()
     }
