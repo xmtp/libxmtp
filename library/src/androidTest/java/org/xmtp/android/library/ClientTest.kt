@@ -1079,14 +1079,14 @@ class ClientTest {
     }
 
     @Test
-    fun testCannotCreateMoreThan5Installations() {
+    fun testCannotCreateMoreThan10Installations() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val encryptionKey = SecureRandom().generateSeed(32)
         val wallet = PrivateKeyBuilder()
 
         val clients = mutableListOf<Client>()
 
-        repeat(5) { i ->
+        repeat(10) { i ->
             val client = runBlocking {
                 Client.create(
                     account = wallet,
@@ -1102,11 +1102,11 @@ class ClientTest {
         }
 
         val state = runBlocking { clients.first().inboxState(true) }
-        assertEquals(5, state.installations.size)
+        assertEquals(10, state.installations.size)
 
         // Attempt to create a 6th installation, should fail
         assertThrows(
-            "Error creating V3 client: Client builder error: Cannot register a new installation because the InboxID ${clients[0].inboxId} has already registered 5/5 installations. Please revoke existing installations first.",
+            "Error creating V3 client: Client builder error: Cannot register a new installation because the InboxID ${clients[0].inboxId} has already registered 10/10 installations. Please revoke existing installations first.",
             XMTPException::class.java
         ) {
             runBlocking {
@@ -1116,7 +1116,7 @@ class ClientTest {
                         ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                         appContext = context,
                         dbEncryptionKey = encryptionKey,
-                        dbDirectory = File(context.filesDir, "xmtp_db_5").absolutePath
+                        dbDirectory = File(context.filesDir, "xmtp_db_10").absolutePath
                     )
                 )
             }
@@ -1144,14 +1144,14 @@ class ClientTest {
         assertNotNull(alixMember)
         val inboxState =
             runBlocking { boClient.inboxStatesForInboxIds(true, listOf(alixMember!!.inboxId)) }
-        assertEquals(5, inboxState.first().installations.size)
+        assertEquals(10, inboxState.first().installations.size)
 
         runBlocking {
-            clients.first().revokeInstallations(wallet, listOf(clients[4].installationId))
+            clients.first().revokeInstallations(wallet, listOf(clients[9].installationId))
         }
 
         val stateAfterRevoke = runBlocking { clients.first().inboxState(true) }
-        assertEquals(4, stateAfterRevoke.installations.size)
+        assertEquals(9, stateAfterRevoke.installations.size)
 
         runBlocking {
             Client.create(
@@ -1160,12 +1160,12 @@ class ClientTest {
                     ClientOptions.Api(XMTPEnvironment.LOCAL, false),
                     appContext = context,
                     dbEncryptionKey = encryptionKey,
-                    dbDirectory = File(context.filesDir, "xmtp_db_6").absolutePath
+                    dbDirectory = File(context.filesDir, "xmtp_db_11").absolutePath
                 )
             )
         }
         val updatedState = runBlocking { clients.first().inboxState(true) }
-        assertEquals(5, updatedState.installations.size)
+        assertEquals(10, updatedState.installations.size)
     }
 
     @Test

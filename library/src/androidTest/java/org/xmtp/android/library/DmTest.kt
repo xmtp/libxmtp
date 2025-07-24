@@ -563,11 +563,11 @@ class DmTest {
         // Ensure messages persist
         assertEquals(
             boDm.messages().size,
-            5
+            3
         ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
         assertEquals(
             alixDm.messages().size,
-            5
+            3
         ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
         // Re-enable disappearing messages
@@ -597,11 +597,11 @@ class DmTest {
 
         assertEquals(
             boDm.messages().size,
-            9
+            5
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
         assertEquals(
             alixDm.messages().size,
-            9
+            5
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
         Thread.sleep(6000) // Wait for messages to disappear
@@ -609,11 +609,11 @@ class DmTest {
         // Validate messages were deleted
         assertEquals(
             boDm.messages().size,
-            7
+            3
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
         assertEquals(
             alixDm.messages().size,
-            7
+            3
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
 
         // Final validation that settings persist

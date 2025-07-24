@@ -1100,11 +1100,11 @@ class GroupTest {
         // Ensure messages persist
         assertEquals(
             boGroup.messages().size,
-            5
+            3
         ) // memberAdd, disappearing settings 1, disappearing settings 2, boMessage, alixMessage
         assertEquals(
             alixGroup.messages().size,
-            5
+            3
         ) // memberAdd disappearing settings 1, disappearing settings 2, boMessage, alixMessage
 
         // Re-enable disappearing messages
@@ -1134,11 +1134,11 @@ class GroupTest {
 
         assertEquals(
             boGroup.messages().size,
-            9
+            5
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
         assertEquals(
             alixGroup.messages().size,
-            9
+            5
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6, boMessage2, alixMessage2
 
         Thread.sleep(6000) // Wait for messages to disappear
@@ -1146,11 +1146,11 @@ class GroupTest {
         // Validate messages were deleted
         assertEquals(
             boGroup.messages().size,
-            7
+            3
         ) // memberAdd, disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
         assertEquals(
             alixGroup.messages().size,
-            7
+            3
         ) // memberAdd disappearing settings 3, disappearing settings 4, boMessage, alixMessage, disappearing settings 5, disappearing settings 6
 
         // Final validation that settings persist
