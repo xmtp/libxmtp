@@ -595,11 +595,13 @@ impl<C: ConnectionExt> DbConnection<C> {
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
     }
 
+    // All dms and groups that are note sync groups or rejected
     pub fn get_conversation_ids_for_remote_log_download(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Rejected))
             .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
