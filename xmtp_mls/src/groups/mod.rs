@@ -1539,10 +1539,6 @@ where
         Ok(db.get_last_cursor_for_id(&self.group_id, EntityKind::Group)?)
     }
 
-    pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
-        Ok(self.context.db().get_group_logs(&self.group_id)?)
-    }
-
     pub async fn debug_info(&self) -> Result<ConversationDebugInfo, GroupError> {
         let epoch = self.epoch().await?;
         let cursor = self.cursor().await?;
