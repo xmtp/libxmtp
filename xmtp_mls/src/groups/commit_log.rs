@@ -371,7 +371,7 @@ where
         let mut latest_download_cursor = 0;
         let mut latest_sequence_id = 0;
         for entry in commit_log_response.commit_log_entries {
-            // TODO(cam): we will have to decrypt here 
+            // TODO(cam): we will have to decrypt here
             let log_entry =
                 PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
             RemoteCommitLog {
