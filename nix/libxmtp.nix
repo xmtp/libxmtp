@@ -65,6 +65,7 @@ mkShell {
       sqlite
       sqlcipher
       zstd
+      emscripten
 
       mktemp
       jdk21

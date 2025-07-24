@@ -53,7 +53,7 @@ use xmtp_db::{
     group_intent::{IntentKind, IntentState},
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     prelude::*,
-    MlsProviderExt, XmtpOpenMlsProviderRef,
+    XmtpOpenMlsProviderRef,
 };
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::associations::Identifier;
@@ -83,7 +83,7 @@ async fn force_add_member(
     new_member_client: &FullXmtpClient,
     sender_group: &TestMlsGroup,
     sender_mls_group: &mut openmls::prelude::MlsGroup,
-    sender_provider: &impl MlsProviderExt,
+    sender_provider: &impl xmtp_db::MlsProviderExt,
 ) {
     use crate::{
         configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION, groups::mls_ext::WrapperAlgorithm,

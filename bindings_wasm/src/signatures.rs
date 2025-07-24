@@ -4,6 +4,7 @@ use crate::{
 };
 use futures::lock::Mutex;
 use js_sys::Uint8Array;
+use std::sync::Arc;
 use wasm_bindgen::prelude::{wasm_bindgen, JsError};
 use xmtp_api::strategies;
 use xmtp_api::ApiClientWrapper;
