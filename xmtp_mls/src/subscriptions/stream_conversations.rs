@@ -191,7 +191,7 @@ impl<'a, C> StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>
 where
     C: XmtpSharedContext + 'a,
     C::ApiClient: XmtpMlsStreams + 'a,
-    C::Db: 'a
+    C::Db: 'a,
 {
     /// Creates a new welcome message and conversation stream.
     ///
@@ -266,7 +266,7 @@ impl<C> StreamConversations<'static, C, WelcomesApiSubscription<'static, C::ApiC
 where
     C: XmtpSharedContext + 'static,
     C::ApiClient: XmtpMlsStreams + 'static,
-    C::Db: 'static
+    C::Db: 'static,
 {
     pub async fn new_owned(
         context: C,
