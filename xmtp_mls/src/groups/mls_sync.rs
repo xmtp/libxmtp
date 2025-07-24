@@ -776,11 +776,7 @@ where
         tracing::debug!("setting message @cursor=[{}] to published", envelope.id);
         storage
             .db()
-            .set_delivery_status_to_published(
-                &id,
-                envelope_timestamp_ns,
-                envelope.id as i64,
-            )
+            .set_delivery_status_to_published(&id, envelope_timestamp_ns, envelope.id as i64)
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Db(err),
                 next_intent_state: IntentState::Error,

@@ -46,7 +46,7 @@ where
             .collect::<Vec<_>>();
 
         let mut association_states: Vec<AssociationState> =
-        StoredAssociationState::batch_read_from_cache(&db, requests.clone())?;
+            StoredAssociationState::batch_read_from_cache(&db, requests.clone())?;
         let mutable_metadata = self.mutable_metadata()?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
