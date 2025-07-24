@@ -1,11 +1,18 @@
 use futures::StreamExt;
+use prost::Message;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::OnceCell;
 use xmtp_api::ApiError;
-use xmtp_db::{DbConnection, StorageError, XmtpDb};
+use xmtp_db::{
+    remote_commit_log::{self, CommitResult, RemoteCommitLog},
+    DbConnection, StorageError, Store, XmtpDb,
+};
+use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi, xmtp::mls::message_contents::PlaintextCommitLogEntry,
+    api_client::trait_impls::XmtpApi,
+    mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
+    xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
 use crate::{
@@ -49,6 +56,8 @@ pub enum CommitLogError {
     Api(#[from] ApiError),
     #[error("connection error: {0}")]
     Connection(#[from] xmtp_db::ConnectionError),
+    #[error("prost decode error: {0}")]
+    Prost(#[from] prost::DecodeError),
 }
 
 impl NeedsDbReconnect for CommitLogError {
@@ -57,6 +66,7 @@ impl NeedsDbReconnect for CommitLogError {
             Self::Storage(s) => s.db_needs_connection(),
             Self::Api(_api_error) => false,
             Self::Connection(_connection_error) => true, // TODO(cam): verify this is correct
+            Self::Prost(_prost_error) => false,
         }
     }
 }
@@ -115,39 +125,69 @@ where
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            self.publish_commit_logs_to_remote().await?;
+            let provider = self.context.mls_provider();
+            let conn = provider.db();
+            self.publish_commit_logs_to_remote(conn).await?;
+            self.save_remote_commit_log(conn).await?;
         }
         Ok(())
     }
 
     /// Test-only version that runs without infinite loop
     #[cfg(test)]
-    pub async fn run_test(&mut self, iterations: Option<usize>) -> Result<(), CommitLogError> {
+    pub async fn run_test(
+        &mut self,
+        commit_log_test_function: CommitLogTestFunction,
+        iterations: Option<usize>,
+    ) -> Result<(), CommitLogError> {
         match iterations {
             Some(n) => {
                 // Run exactly n times
                 for _ in 0..n {
-                    self.publish_commit_logs_to_remote().await?;
+                    self.test_helper(&commit_log_test_function).await?;
                 }
             }
+
             None => {
-                // Run once
-                self.publish_commit_logs_to_remote().await?;
+                self.test_helper(&commit_log_test_function).await?;
             }
         }
         Ok(())
     }
 
-    async fn publish_commit_logs_to_remote(&mut self) -> Result<(), CommitLogError> {
+    #[cfg(test)]
+    async fn test_helper(
+        &mut self,
+        commit_log_test_function: &CommitLogTestFunction,
+    ) -> Result<(), CommitLogError> {
         let provider = self.context.mls_provider();
         let conn = provider.db();
+        match commit_log_test_function {
+            CommitLogTestFunction::PublishCommitLogsToRemote => {
+                self.publish_commit_logs_to_remote(conn).await?;
+            }
+            CommitLogTestFunction::SaveRemoteCommitLog => {
+                self.save_remote_commit_log(conn).await?;
+            }
+            CommitLogTestFunction::All => {
+                self.publish_commit_logs_to_remote(conn).await?;
+                self.save_remote_commit_log(conn).await?;
+            }
+        }
+        Ok(())
+    }
 
+    async fn publish_commit_logs_to_remote(
+        &mut self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+    ) -> Result<(), CommitLogError> {
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
-        let conversation_ids_for_remote_log = conn.get_conversation_ids_for_remote_log()?;
+        let conversation_ids_for_remote_log_publish =
+            conn.get_conversation_ids_for_remote_log_publish()?;
 
         // Step 2 is to map the cursor positions we should publish from, for each conversation
-        let conversation_cursor_map =
-            self.map_conversation_to_commit_log_cursor(conn, conversation_ids_for_remote_log);
+        let conversation_cursor_map = self
+            .map_conversation_to_commit_log_cursor(conn, &conversation_ids_for_remote_log_publish);
 
         // Step 3 is to publish any new local commit logs and to update relevant cursors
         let api = self.context.api();
@@ -167,7 +207,7 @@ where
                             // If publish is successful, update the cursor to the last entry's `commit_sequence_id`
                             conn.update_cursor(
                                 &conversation_id,
-                                xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+                                xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                                 last_entry.commit_sequence_id as i64,
                             )?;
                         } else {
@@ -192,29 +232,105 @@ where
     fn map_conversation_to_commit_log_cursor(
         &self,
         conn: &DbConnection<<Db as XmtpDb>::Connection>,
-        conversation_ids: Vec<Vec<u8>>,
+        conversation_ids: &[Vec<u8>],
     ) -> HashMap<Vec<u8>, Option<i64>> {
         let mut cursor_map: HashMap<Vec<u8>, Option<i64>> = HashMap::new();
         for conversation_id in conversation_ids {
             let local_commit_log_cursor = conn
-                .get_local_commit_log_cursor(&conversation_id)
+                .get_local_commit_log_cursor(conversation_id)
                 .ok()
                 .flatten()
                 .unwrap_or(0);
             let published_commit_log_cursor = conn
                 .get_last_cursor_for_id(
-                    &conversation_id,
-                    xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+                    conversation_id,
+                    xmtp_db::refresh_state::EntityKind::CommitLogUpload,
                 )
                 .unwrap_or(0);
 
             if local_commit_log_cursor as i64 > published_commit_log_cursor {
                 // We have new commits that have not been published to remote commit log yet
-                cursor_map.insert(conversation_id, Some(published_commit_log_cursor));
+                cursor_map.insert(conversation_id.to_vec(), Some(published_commit_log_cursor));
             } else {
-                cursor_map.insert(conversation_id, None); // Remote log is up to date with local commit log
+                cursor_map.insert(conversation_id.to_vec(), None); // Remote log is up to date with local commit log
             }
         }
         cursor_map
     }
+
+    async fn save_remote_commit_log(
+        &mut self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+    ) -> Result<(), CommitLogError> {
+        // This should be all groups we are in, and all dms are in except sync groups
+        let conversation_ids_for_remote_log_download =
+            conn.get_conversation_ids_for_remote_log_download()?;
+
+        // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
+        let remote_log_cursors =
+            conn.get_remote_log_cursors(conversation_ids_for_remote_log_download.as_slice())?;
+        let query_log_requests: Vec<QueryCommitLogRequest> = remote_log_cursors
+            .iter()
+            .map(|(conversation_id, cursor)| QueryCommitLogRequest {
+                group_id: conversation_id.clone(),
+                paging_info: Some(PagingInfo {
+                    direction: SortDirection::Ascending as i32,
+                    id_cursor: *cursor as u64,
+                    limit: remote_commit_log::MAX_PAGE_SIZE,
+                }),
+            })
+            .collect();
+
+        // Step 2 execute the api call to query remote commit log entries
+        let api = self.context.api();
+        let query_commit_log_responses = api.query_commit_log(query_log_requests).await?;
+
+        // Step 3 save the remote commit log entries to the local commit log
+        for response in query_commit_log_responses {
+            self.save_remote_commit_log_entries_and_update_cursors(conn, response)?;
+        }
+
+        Ok(())
+    }
+
+    fn save_remote_commit_log_entries_and_update_cursors(
+        &self,
+        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        commit_log_response: QueryCommitLogResponse,
+    ) -> Result<(), CommitLogError> {
+        let group_id = commit_log_response.group_id;
+        let mut latest_download_cursor = 0;
+        for entry in commit_log_response.commit_log_entries {
+            let log_entry =
+                PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
+            RemoteCommitLog {
+                log_sequence_id: entry.sequence_id as i64,
+                group_id: log_entry.group_id,
+                commit_sequence_id: log_entry.commit_sequence_id as i64,
+                commit_result: CommitResult::from(
+                    ProtoCommitResult::try_from(log_entry.commit_result)
+                        .unwrap_or(ProtoCommitResult::Unspecified),
+                ),
+                applied_epoch_number: Some(log_entry.applied_epoch_number as i64),
+                applied_epoch_authenticator: Some(log_entry.applied_epoch_authenticator),
+            }
+            .store(conn)?;
+            if entry.sequence_id > latest_download_cursor {
+                latest_download_cursor = entry.sequence_id;
+            }
+        }
+        conn.update_cursor(
+            &group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogDownload,
+            latest_download_cursor as i64,
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub enum CommitLogTestFunction {
+    PublishCommitLogsToRemote,
+    SaveRemoteCommitLog,
+    All,
 }

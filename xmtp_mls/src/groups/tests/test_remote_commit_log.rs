@@ -1,4 +1,4 @@
-use crate::groups::commit_log::CommitLogWorker;
+use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::{context::XmtpContextProvider, tester};
 use prost::Message;
 use rand::Rng;
@@ -137,14 +137,16 @@ async fn test_publish_commit_log_to_remote() {
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
         )
         .unwrap();
     assert_eq!(published_commit_log_cursor, 0);
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
-    let result = commit_log_worker.run_test(Some(1)).await;
+    let result = commit_log_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
+        .await;
     assert!(result.is_ok());
 
     let published_commit_log_cursor = alix
@@ -152,7 +154,7 @@ async fn test_publish_commit_log_to_remote() {
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
         )
         .unwrap();
     assert!(published_commit_log_cursor > 0);

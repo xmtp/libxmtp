@@ -38,6 +38,7 @@ pub mod remote_commit_log;
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls_traits::OpenMlsProvider;
+use prost::DecodeError;
 use xmtp_common::{RetryableError, retryable};
 
 use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
@@ -89,6 +90,8 @@ pub enum ConnectionError {
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
     Platform(#[from] PlatformStorageError),
+    #[error(transparent)]
+    DecodeError(#[from] DecodeError),
 }
 
 impl RetryableError for ConnectionError {
@@ -96,6 +99,7 @@ impl RetryableError for ConnectionError {
         match self {
             Self::Database(d) => retryable!(d),
             Self::Platform(n) => retryable!(n),
+            Self::DecodeError(_) => false,
         }
     }
 }

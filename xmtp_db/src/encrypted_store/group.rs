@@ -575,8 +575,9 @@ impl<C: ConnectionExt> DbConnection<C> {
         })
     }
 
-    /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
-    pub fn get_conversation_ids_for_remote_log(
+    /// Get conversation IDs for all conversations that require a remote commit log publish
+    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    pub fn get_conversation_ids_for_remote_log_publish(
         &self,
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
@@ -587,8 +588,19 @@ impl<C: ConnectionExt> DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
+            .filter(dsl::membership_state.ne(GroupMembershipState::Rejected))
             .select(dsl::id)
             .order(dsl::created_at_ns.asc());
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    pub fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
     }
