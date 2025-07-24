@@ -23,6 +23,7 @@ class ConversationTests: XCTestCase {
 
 		XCTAssertEqual(group.id, sameGroup?.id)
 		XCTAssertEqual(dm.id, sameDm?.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListConversations() async throws {
@@ -50,6 +51,7 @@ class ConversationTests: XCTestCase {
 			.listGroups().count
 		XCTAssertEqual(convoCount2, 2)
 		XCTAssertEqual(groupCount2, 1)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListConversationsFiltered() async throws {
@@ -81,6 +83,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
 		XCTAssertEqual(convoCountCombined, 2)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanSyncAllConversationsFiltered() async throws {
@@ -112,6 +115,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(convoCountAllowed, 2)
 		XCTAssertEqual(convoCountDenied, 2)
 		XCTAssertEqual(convoCountCombined, 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListConversationsOrder() async throws {
@@ -134,6 +138,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(conversations.count, 3)
 		XCTAssertEqual(
 			conversations.map { $0.id }, [group2.id, dm.id, group1.id])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamConversations() async throws {
@@ -158,6 +163,7 @@ class ConversationTests: XCTestCase {
 			with: fixtures.alixClient.inboxID)
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamAllMessages() async throws {
@@ -187,6 +193,7 @@ class ConversationTests: XCTestCase {
 		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testReturnsAllHMACKeys() async throws {
@@ -216,6 +223,7 @@ class ConversationTests: XCTestCase {
 		conversations.forEach { conversation in
 			XCTAssertTrue(topics.contains(conversation.topic))
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testStreamsAndMessages() async throws {
@@ -329,6 +337,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(boMessagesCount, 41)
 		XCTAssertEqual(alixMessagesCount, 41)
 		XCTAssertEqual(caroMessagesCountAfterSync, 41)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateOptimisticGroup() async throws {
@@ -354,6 +363,7 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(messagesUpdated.count, 2)
 		XCTAssertEqual(members.count, 2)
 		XCTAssertEqual(name, "Testing")
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamAllMessagesFilterConsent() async throws {
@@ -412,6 +422,7 @@ class ConversationTests: XCTestCase {
 		
 		// Verify we only received messages from allowed conversations
 		XCTAssertEqual(allMessages.count, 2)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testReturnsAllTopics() async throws {
@@ -480,5 +491,6 @@ class ConversationTests: XCTestCase {
 		for topic in dmTopics {
 			XCTAssertTrue(dmHmacTopics.contains(topic))
 		}
+		try fixtures.cleanUpDatabases()
 	}
 }

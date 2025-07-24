@@ -1,4 +1,5 @@
 name: iOS Integration Tests
+
 on:
   push:
     branches:
@@ -8,73 +9,42 @@ on:
 env:
   GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GPR_USER: ${{ secrets.GITHUB_ACTOR }}
-  
-jobs:  
+
+jobs:
   ios-tests:
-    name: iOS Tests
-    # macos-14 currently breaks Colima
     runs-on: macos-13
-    
+
     steps:
+      - uses: actions/checkout@v3
+
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '15.2'
-      
-      - name: Checkout project sources
-        uses: actions/checkout@v3
 
-        # This step and the Install Colima step have been modified to address a
-        # Python error started 3.11.2024, emitting the following error:
-        #
-        # Error: The `brew link` step did not complete successfully
-        # The formula built, but is not symlinked into /usr/local
-        # Could not symlink bin/2to3
-        #
-        # Others reported: https://github.com/Cockatrice/Cockatrice/issues/5007
-        #
-        # Once the fix enters the Homebrew pipeline, it is safe to remove this.
-        #
-        # Note: Upgrading to a macos-14 runner fixes this, but Colima still
-        # can't install on macos-14 due to virtualization issues.
-      - name: Homebrew Workaround - Temporary
-        #run: brew update && brew upgrade && brew cleanup
+      - name: Setup working Python for Colima
         run: |
-         brew update
-         rm '/usr/local/bin/2to3'
-         rm '/usr/local/bin/2to3-3.12'
-         rm '/usr/local/bin/idle3'
-         rm '/usr/local/bin/idle3.12'
-         rm '/usr/local/bin/pydoc3'
-         rm '/usr/local/bin/pydoc3.12'
-         rm '/usr/local/bin/python3'
-         rm '/usr/local/bin/python3-config'
-         rm '/usr/local/bin/python3.12'
-         rm '/usr/local/bin/python3.12-config'
-         rm '/usr/local/share/man/man1/python3.1'
-         rm '/usr/local/lib/pkgconfig/python3-embed.pc'
-         rm '/usr/local/lib/pkgconfig/python3.pc'
-         rm '/usr/local/Frameworks/Python.framework/Headers'
-         rm '/usr/local/Frameworks/Python.framework/Python'
-         rm '/usr/local/Frameworks/Python.framework/Resources'
-         rm '/usr/local/Frameworks/Python.framework/Versions/Current'
-        
-      - name: Install colima
+          brew uninstall --ignore-dependencies python@3.12 || true
+
+          # Remove conflicting files
+          rm -f /usr/local/bin/2to3-3.11
+          rm -f /usr/local/bin/idle3.11
+          rm -f /usr/local/bin/pydoc3.11
+          rm -f /usr/local/bin/python3.11
+          rm -f /usr/local/bin/python3.11-config
+
+          brew install python@3.11
+          brew link --overwrite --force python@3.11
+
+      - name: Install Colima + Docker
         run: |
-         brew install colima || true
-         brew link --overwrite python@3.11 
-         
-      - name: Install docker
-        run: brew install docker docker-compose
-        
-      - name: Start colima
-        run: colima start
-        
-      - name: Start Docker containers
+          brew install colima docker docker-compose
+          colima start --cpu 2 --memory 4 --disk 20
+
+      - name: Start containers
         run: dev/up
-        
-        # retries are added due to test failures with dependencies
-      - name: Run tests
+
+      - name: Run iOS tests
         run: script/run_tests.sh
-        
-      - name: Stop local test server
+
+      - name: Teardown
         run: docker-compose -p xmtp-ios -f dev/local/docker-compose.yml down

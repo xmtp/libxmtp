@@ -20,6 +20,7 @@ class DmTests: XCTestCase {
 
 		XCTAssertNil(alixDm)
 		XCTAssertEqual(caroDm?.id, dm.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanFindDmByAddress() async throws {
@@ -35,6 +36,7 @@ class DmTests: XCTestCase {
 
 		XCTAssertNil(alixDm)
 		XCTAssertEqual(caroDm?.id, dm.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateADm() async throws {
@@ -46,6 +48,7 @@ class DmTests: XCTestCase {
 		let sameConvo1 = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
 		XCTAssertEqual(convo1.id, sameConvo1.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateADmWithIdentity() async throws {
@@ -58,6 +61,7 @@ class DmTests: XCTestCase {
 		let sameConvo1 = try await fixtures.alixClient.conversations
 			.newConversationWithIdentity(with: fixtures.bo.identity)
 		XCTAssertEqual(convo1.id, sameConvo1.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListDmMembers() async throws {
@@ -70,6 +74,7 @@ class DmTests: XCTestCase {
 
 		let peer = try dm.peerInboxId
 		XCTAssertEqual(peer, fixtures.alixClient.inboxID)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCannotStartDmWithSelf() async throws {
@@ -79,6 +84,7 @@ class DmTests: XCTestCase {
 			try await fixtures.alixClient.conversations.findOrCreateDm(
 				with: fixtures.alixClient.inboxID)
 		)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCannotStartDmWithAddressWhenExpectingInboxId() async throws {
@@ -97,6 +103,7 @@ class DmTests: XCTestCase {
 				XCTFail("Did not throw correct error")
 			}
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCannotStartDmWithNonRegisteredIdentity() async throws {
@@ -123,6 +130,7 @@ class DmTests: XCTestCase {
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(dmState, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListDmsFiltered() async throws {
@@ -156,6 +164,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
 		XCTAssertEqual(convoCountCombined, 2)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListConversationsOrder() async throws {
@@ -177,6 +186,7 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(conversations.count, 2)
 		XCTAssertEqual(
 			try conversations.map { try $0.id }, [dm2.id, dm.id])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanSendMessageToDm() async throws {
@@ -202,6 +212,7 @@ class DmTests: XCTestCase {
 		let sameMessages = try await sameDm.messages()
 		XCTAssertEqual(sameMessages.count, 3)
 		XCTAssertEqual(try sameMessages.first!.body, "gm")
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamDmMessages() async throws {
@@ -223,6 +234,7 @@ class DmTests: XCTestCase {
 		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamDms() async throws {
@@ -246,6 +258,7 @@ class DmTests: XCTestCase {
 			with: fixtures.alixClient.inboxID)
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamAllDmMessages() async throws {
@@ -272,6 +285,7 @@ class DmTests: XCTestCase {
 		_ = try await caroDm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testDmConsent() async throws {
@@ -301,6 +315,7 @@ class DmTests: XCTestCase {
 			.conversationState(conversationId: dm.id)
 		XCTAssertEqual(isAllowed, .allowed)
 		XCTAssertEqual(try dm.consentState(), .allowed)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testDmDisappearingMessages() async throws {
@@ -366,8 +381,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesPersist = try await alixDm?.messages().count
 
 		// Ensure messages persist
-		XCTAssertEqual(boGroupMessagesPersist, 5)  // memberAdd settings 1, settings 2, boMessage, alixMessage
-		XCTAssertEqual(alixGroupMessagesPersist, 5)  // memberAdd settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(boGroupMessagesPersist, 3)  // memberAdd settings 1, settings 2, boMessage, alixMessage
+		XCTAssertEqual(alixGroupMessagesPersist, 3)  // memberAdd settings 1, settings 2, boMessage, alixMessage
 
 		// Re-enable disappearing messages
 		let updatedSettings = await DisappearingMessageSettings(
@@ -399,8 +414,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesAfterNewSend = try await alixDm?.messages()
 			.count
 
-		XCTAssertEqual(boGroupMessagesAfterNewSend, 9)
-		XCTAssertEqual(alixGroupMessagesAfterNewSend, 9)
+		XCTAssertEqual(boGroupMessagesAfterNewSend, 5)
+		XCTAssertEqual(alixGroupMessagesAfterNewSend, 5)
 
 		try await Task.sleep(nanoseconds: 6_000_000_000)  // Sleep for 6 seconds to let messages disappear
 
@@ -408,8 +423,8 @@ class DmTests: XCTestCase {
 		let alixGroupMessagesFinal = try await alixDm?.messages().count
 
 		// Validate messages were deleted
-		XCTAssertEqual(boGroupMessagesFinal, 7)
-		XCTAssertEqual(alixGroupMessagesFinal, 7)
+		XCTAssertEqual(boGroupMessagesFinal, 3)
+		XCTAssertEqual(alixGroupMessagesFinal, 3)
 
 		let boGroupFinalSettings = boDm.disappearingMessageSettings
 		let alixGroupFinalSettings = alixDm?.disappearingMessageSettings
@@ -422,6 +437,7 @@ class DmTests: XCTestCase {
 			updatedSettings.retentionDurationInNs)
 		XCTAssert(try boDm.isDisappearingMessagesEnabled())
 		XCTAssert(try alixDm!.isDisappearingMessagesEnabled())
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanSuccessfullyThreadDms() async throws {
@@ -495,6 +511,7 @@ class DmTests: XCTestCase {
 
 		XCTAssertEqual(sameConvoBoMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
 		XCTAssertEqual(sameConvoAlixMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
+		try fixtures.cleanUpDatabases()
 	}
 
 }

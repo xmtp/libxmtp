@@ -29,5 +29,6 @@ class AttachmentsTests: XCTestCase {
 		let attachment: Attachment = try message.content()
 		XCTAssertEqual("icon.png", attachment.filename)
 		XCTAssertEqual("image/png", attachment.mimeType)
+		try fixtures.cleanUpDatabases()
 	}
 }

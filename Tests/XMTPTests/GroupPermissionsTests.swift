@@ -53,6 +53,7 @@ class GroupPermissionTests: XCTestCase {
 		XCTAssertFalse(adminList.contains(fixtures.boClient.inboxID))
 		XCTAssertEqual(superAdminList.count, 1)
 		XCTAssertTrue(superAdminList.contains(fixtures.boClient.inboxID))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testGroupCanUpdateAdminList() async throws {
@@ -131,6 +132,7 @@ class GroupPermissionTests: XCTestCase {
 			try await alixGroup.updateName(
 				name: "alix group name 2")
 		)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testGroupCanUpdateSuperAdminList() async throws {
@@ -169,6 +171,7 @@ class GroupPermissionTests: XCTestCase {
 		let superAdminList = try boGroup.listSuperAdmins()
 		XCTAssertFalse(superAdminList.contains(fixtures.boClient.inboxID))
 		XCTAssertTrue(superAdminList.contains(fixtures.alixClient.inboxID))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testGroupMembersAndPermissionLevel() async throws {
@@ -231,6 +234,7 @@ class GroupPermissionTests: XCTestCase {
 		XCTAssertEqual(admins.count, 1)
 		XCTAssertEqual(superAdmins.count, 2)
 		XCTAssertTrue(regularMembers.isEmpty)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCommitAfterInvalidPermissionsCommit() async throws {
@@ -260,6 +264,7 @@ class GroupPermissionTests: XCTestCase {
 
 		XCTAssertEqual(try boGroup.name(), "alix group name")
 		XCTAssertEqual(try alixGroup.name(), "alix group name")
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanUpdatePermissions() async throws {
@@ -303,6 +308,7 @@ class GroupPermissionTests: XCTestCase {
 			try boGroup.description(), "alix group description")
 		XCTAssertEqual(
 			try alixGroup.description(), "alix group description")
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateGroupWithCustomPermissions() async throws {
@@ -343,6 +349,7 @@ class GroupPermissionTests: XCTestCase {
 				== PermissionOption.allow)
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateGroupWithInboxIdCustomPermissions() async throws {
@@ -381,6 +388,7 @@ class GroupPermissionTests: XCTestCase {
 				== PermissionOption.allow)
 		XCTAssert(
 			alixPermissionSet.updateGroupImagePolicy == PermissionOption.admin)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCreateGroupWithInvalidPermissionsFails() async throws {
@@ -406,5 +414,6 @@ class GroupPermissionTests: XCTestCase {
 					permissionPolicySet: permissionPolicySetInvalid
 				)
 		)
+		try fixtures.cleanUpDatabases()
 	}
 }

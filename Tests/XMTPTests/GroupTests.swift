@@ -83,6 +83,7 @@ class GroupTests: XCTestCase {
 			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssert(
 			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateAGroupWithIdentityDefaultPermissions() async throws {
@@ -144,6 +145,7 @@ class GroupTests: XCTestCase {
 			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssert(
 			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanCreateAGroupWithAdminPermissions() async throws {
@@ -216,6 +218,7 @@ class GroupTests: XCTestCase {
 			try alixGroup.isSuperAdmin(inboxId: fixtures.boClient.inboxID))
 		XCTAssert(
 			try !alixGroup.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroups() async throws {
@@ -238,6 +241,7 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(1, alixGroupCount)
 		XCTAssertEqual(1, boGroupCount)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroupsFiltered() async throws {
@@ -272,6 +276,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(convoCountAllowed, 1)
 		XCTAssertEqual(convoCountDenied, 1)
 		XCTAssertEqual(convoCountCombined, 2)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroupsOrder() async throws {
@@ -294,6 +299,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(conversations.count, 2)
 		XCTAssertEqual(
 			conversations.map { $0.id }, [group2.id, group1.id])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroupMembers() async throws {
@@ -309,6 +315,7 @@ class GroupTests: XCTestCase {
 			[fixtures.boClient.inboxID, fixtures.alixClient.inboxID].sorted(),
 			members)
 		XCTAssertEqual([fixtures.boClient.inboxID].sorted(), peerMembers)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanAddGroupMembers() async throws {
@@ -336,6 +343,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(
 			groupChangedMessage.addedInboxes.map(\.inboxID),
 			[fixtures.caroClient.inboxID])
+		try fixtures.cleanUpDatabases()
 	}
 	
 	func testCannotStartGroupOrAddMembersWithAddressWhenExpectingInboxId() async throws {
@@ -375,6 +383,7 @@ class GroupTests: XCTestCase {
 				XCTFail("Did not throw correct error")
 			}
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanAddGroupMembersByIdentity() async throws {
@@ -405,6 +414,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(
 			groupChangedMessage.addedInboxes.map(\.inboxID),
 			[fixtures.caroClient.inboxID])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanRemoveMembers() async throws {
@@ -439,6 +449,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(
 			groupChangedMessage.removedInboxes.map(\.inboxID),
 			[fixtures.caroClient.inboxID])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanRemoveMembersByIdentity() async throws {
@@ -473,6 +484,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(
 			groupChangedMessage.removedInboxes.map(\.inboxID),
 			[fixtures.caroClient.inboxID])
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanMessage() async throws {
@@ -489,6 +501,7 @@ class GroupTests: XCTestCase {
 		XCTAssert(canMessage)
 		XCTAssert(
 			!(cannotMessage[notOnNetwork.walletAddress.lowercased()] ?? true))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testIsActive() async throws {
@@ -535,6 +548,7 @@ class GroupTests: XCTestCase {
 
 		XCTAssert(isalixActive)
 		XCTAssert(!iscaroActive)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testAddedByAddress() async throws {
@@ -558,6 +572,7 @@ class GroupTests: XCTestCase {
 
 		// Verify the welcome host_credential is equal to Amal's
 		XCTAssertEqual(alixAddress, whoAddedbo)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStartEmptyGroup() async throws {
@@ -565,6 +580,7 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.alixClient.conversations.newGroup(
 			with: [])
 		XCTAssert(!group.id.isEmpty)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCannotStartGroupWithNonRegisteredIdentity() async throws {
@@ -582,6 +598,7 @@ class GroupTests: XCTestCase {
 
 			XCTFail("did not throw error")
 		} catch {}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testGroupStartsWithAllowedState() async throws {
@@ -595,6 +612,7 @@ class GroupTests: XCTestCase {
 
 		let groupStateResult = try boGroup.consentState()
 		XCTAssertEqual(groupStateResult, ConsentState.allowed)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanSendMessagesToGroup() async throws {
@@ -628,6 +646,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(messageId, alixMessage.id)
 		XCTAssertEqual(.published, alixMessage.deliveryStatus)
 		XCTAssertEqual("sup gang", try boMessage.content())
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListGroupMessages() async throws {
@@ -672,6 +691,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(3, boMessagesCount)
 		XCTAssertEqual(0, boMessagesUnpublishedCount)
 		XCTAssertEqual(3, boMessagesPublishedCount)
+		try fixtures.cleanUpDatabases()
 
 	}
 
@@ -697,6 +717,7 @@ class GroupTests: XCTestCase {
 			options: SendOptions(contentType: ContentTypeGroupUpdated))
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamGroups() async throws {
@@ -720,6 +741,7 @@ class GroupTests: XCTestCase {
 			with: fixtures.alixClient.inboxID)
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testStreamGroupsAndAllMessages() async throws {
@@ -750,6 +772,7 @@ class GroupTests: XCTestCase {
 		_ = try await group.send(content: "hello")
 
 		await fulfillment(of: [expectation1, expectation2], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamAndUpdateNameWithoutForkingGroup() async throws {
@@ -814,6 +837,7 @@ class GroupTests: XCTestCase {
 		)
 
 		await fulfillment(of: [expectation], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanStreamAllGroupMessages() async throws {
@@ -839,6 +863,7 @@ class GroupTests: XCTestCase {
 		_ = try await dm.send(content: "hi")
 
 		await fulfillment(of: [expectation1], timeout: 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanUpdateGroupMetadata() async throws {
@@ -874,6 +899,7 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual(groupImageUrlSquare, "newurl.com")
 		XCTAssertEqual(groupName, "Test Group Name 1")
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testGroupConsent() async throws {
@@ -891,6 +917,7 @@ class GroupTests: XCTestCase {
 
 		try await group.updateConsentState(state: .allowed)
 		XCTAssertEqual(try group.consentState(), .allowed)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanAllowAndDenyInboxId() async throws {
@@ -933,6 +960,7 @@ class GroupTests: XCTestCase {
 			.inboxIdState(
 				inboxId: fixtures.alixClient.inboxID)
 		XCTAssertEqual(inboxState3, .denied)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanFetchGroupById() async throws {
@@ -945,6 +973,7 @@ class GroupTests: XCTestCase {
 			groupId: boGroup.id)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanFetchMessageById() async throws {
@@ -962,6 +991,7 @@ class GroupTests: XCTestCase {
 			messageId: boMessageId)
 
 		XCTAssertEqual(alixGroup?.id, boGroup.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testUnpublishedMessages() async throws {
@@ -1009,6 +1039,7 @@ class GroupTests: XCTestCase {
 		let messages = try await alixGroup.messages()
 
 		XCTAssertEqual(preparedMessageId, messages.first!.id)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanSyncManyGroupsInUnderASecond() async throws {
@@ -1061,6 +1092,7 @@ class GroupTests: XCTestCase {
 		numGroupsSynced = try await fixtures.boClient.conversations
 			.syncAllConversations()
 		XCTAssertEqual(numGroupsSynced, 1)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanListManyMembersInParallelInUnderASecond() async throws {
@@ -1082,6 +1114,7 @@ class GroupTests: XCTestCase {
 			print("Failed to list groups members: \(error)")
 			throw error  // Rethrow the error to fail the test if group creation fails
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func listMembersInParallel(groups: [Group]) async throws {
@@ -1214,6 +1247,7 @@ class GroupTests: XCTestCase {
 			updatedSettings.retentionDurationInNs)
 		XCTAssert(try boGroup.isDisappearingMessagesEnabled())
 		XCTAssert(try alixGroup!.isDisappearingMessagesEnabled())
+		try fixtures.cleanUpDatabases()
 	}
     
     func testGroupPausedForVersionReturnsNone() async throws {
@@ -1230,6 +1264,7 @@ class GroupTests: XCTestCase {
         let boDm = try await fixtures.boClient.conversations.newConversation(with: fixtures.alixClient.inboxID)
         let pausedForVersionDm = try await boDm.pausedForVersion()
         XCTAssert(pausedForVersionDm == nil)
+		try fixtures.cleanUpDatabases()
     }
     
 }

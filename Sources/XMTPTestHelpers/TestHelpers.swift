@@ -65,6 +65,12 @@
 			davonClient = try await Client.create(
 				account: davon, options: clientOptions)
 		}
+		
+		public func cleanUpDatabases() throws {
+			for client in [alixClient, boClient, caroClient, davonClient] {
+				try client?.deleteLocalDatabase()
+			}
+		}
 	}
 
 	extension XCTestCase {

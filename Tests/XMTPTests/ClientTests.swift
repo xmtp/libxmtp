@@ -15,20 +15,22 @@ class ClientTests: XCTestCase {
 			dbEncryptionKey: key
 		)
 		let fakeWallet = try PrivateKey.generate()
-		_ = try await Client.create(account: fakeWallet, options: clientOptions)
+		let client = try await Client.create(account: fakeWallet, options: clientOptions)
+		try client.deleteLocalDatabase()
 	}
 
 	func testPassingEncryptionKey() async throws {
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
 
-		_ = try await Client.create(
+		let client = try await Client.create(
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				dbEncryptionKey: key
 			)
 		)
+		try client.deleteLocalDatabase()
 	}
 
 	func testStaticCanMessage() async throws {
@@ -55,6 +57,7 @@ class ClientTests: XCTestCase {
 				canMessageList[address.lowercased()], expected,
 				"Failed for address: \(address)")
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testStaticInboxState() async throws {
@@ -76,6 +79,8 @@ class ClientTests: XCTestCase {
 			inboxStates.last!.recoveryIdentity.identifier,
 			fixtures.bo.walletAddress.lowercased()
 		)
+		try fixtures.cleanUpDatabases()
+		sleep(10)
 	}
 
 	func testCanDeleteDatabase() async throws {
@@ -157,6 +162,8 @@ class ClientTests: XCTestCase {
 
 		groupCount = try await boClient.conversations.listGroups().count
 		XCTAssertEqual(groupCount, 1)
+		try alixClient.deleteLocalDatabase()
+		try boClient.deleteLocalDatabase()
 	}
 
 	func testCanMessage() async throws {
@@ -169,6 +176,8 @@ class ClientTests: XCTestCase {
 			identity: notOnNetwork.identity)
 		XCTAssertTrue(canMessage)
 		XCTAssertFalse(cannotMessage)
+		try fixtures.cleanUpDatabases()
+		sleep(10)
 	}
 
 	func testPreAuthenticateToInboxCallback() async throws {
@@ -231,6 +240,7 @@ class ClientTests: XCTestCase {
 				)
 			)
 		)
+		try client.deleteLocalDatabase()
 	}
 
 	func testEncryptionKeyCanDecryptCorrectly() async throws {
@@ -271,6 +281,8 @@ class ClientTests: XCTestCase {
 				)
 			)
 		)
+		try alixClient.deleteLocalDatabase()
+		try boClient.deleteLocalDatabase()
 	}
 
 	func testCanGetAnInboxIdFromAddress() async throws {
@@ -295,6 +307,8 @@ class ClientTests: XCTestCase {
 		let boInboxId = try await alixClient.inboxIdFromIdentity(
 			identity: bo.identity)
 		XCTAssertEqual(boClient.inboxID, boInboxId)
+		try alixClient.deleteLocalDatabase()
+		try boClient.deleteLocalDatabase()
 	}
 
 	func testCreatesAClient() async throws {
@@ -323,6 +337,7 @@ class ClientTests: XCTestCase {
 			alixClient2.publicIdentity.identifier,
 			alixClient.publicIdentity.identifier)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
+		try alixClient.deleteLocalDatabase()
 	}
 
 	func testRevokeInstallations() async throws {
@@ -364,6 +379,9 @@ class ClientTests: XCTestCase {
 		let newState = try await alixClient3.inboxState(
 			refreshFromNetwork: true)
 		XCTAssertEqual(newState.installations.count, 2)
+		try alixClient.deleteLocalDatabase()
+		try alixClient2.deleteLocalDatabase()
+		try alixClient3.deleteLocalDatabase()
 	}
 
 	func testRevokesAllOtherInstallations() async throws {
@@ -405,6 +423,9 @@ class ClientTests: XCTestCase {
 		let newState = try await alixClient3.inboxState(
 			refreshFromNetwork: true)
 		XCTAssertEqual(newState.installations.count, 1)
+		try alixClient.deleteLocalDatabase()
+		try alixClient2.deleteLocalDatabase()
+		try alixClient3.deleteLocalDatabase()
 	}
 
 	func testsCanFindOthersInboxStates() async throws {
@@ -419,6 +440,7 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(
 			states.last!.recoveryIdentity.identifier,
 			fixtures.caro.walletAddress.lowercased())
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testAddAccounts() async throws {
@@ -444,6 +466,7 @@ class ClientTests: XCTestCase {
 				fixtures.alix.walletAddress.lowercased(),
 			].sorted()
 		)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testAddAccountsWithExistingInboxIds() async throws {
@@ -463,6 +486,7 @@ class ClientTests: XCTestCase {
 		let inboxId = try await fixtures.alixClient.inboxIdFromIdentity(
 			identity: fixtures.bo.identity)
 		XCTAssertEqual(inboxId, fixtures.alixClient.inboxID)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testRemovingAccounts() async throws {
@@ -506,6 +530,7 @@ class ClientTests: XCTestCase {
 				recoveryAccount: alix3Wallet,
 				identityToRemove: fixtures.alix.identity
 			))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testSignatures() async throws {
@@ -573,6 +598,7 @@ class ClientTests: XCTestCase {
 				signature: signature,
 				installationId: alixInstallationId
 			))
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCreatesAClientManually() async throws {
@@ -639,6 +665,7 @@ class ClientTests: XCTestCase {
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.identities.count, 1)
+		try alix.deleteLocalDatabase()
 	}
 
 	func testCanManageRevokeManually() async throws {
@@ -712,6 +739,9 @@ class ClientTests: XCTestCase {
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.installations.count, 1)
+		try alix.deleteLocalDatabase()
+		try alix2.deleteLocalDatabase()
+		try alix3.deleteLocalDatabase()
 	}
 
 	func testPersistentLogging() async throws {
@@ -803,6 +833,7 @@ class ClientTests: XCTestCase {
 			customLogDirectory: logDirectory)
 		XCTAssertEqual(
 			logFilesAfterClear.count, 0, "Logs were not cleared properly")
+		try client.deleteLocalDatabase()
 	}
 
 	func testNetworkDebugInformation() async throws {
@@ -848,6 +879,7 @@ class ClientTests: XCTestCase {
 
 		// Cancel the streaming task
 		streamTask.cancel()
+		try alix.deleteLocalDatabase()
 	}
 
 	func testUploadArchiveDebugInformation() async throws {
@@ -863,6 +895,7 @@ class ClientTests: XCTestCase {
 
 		let uploadKey = try await alix.debugInformation.uploadDebugInformation()
 		XCTAssertFalse(uploadKey.isEmpty)
+		try alix.deleteLocalDatabase()
 	}
 
 	func testCanSeeKeyPackageStatus() async throws {
@@ -926,6 +959,7 @@ class ClientTests: XCTestCase {
 				XCTAssertEqual(notAfter - notBefore, expectedDuration)
 			}
 		}
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCanBeBuiltOffline() async throws {
@@ -971,6 +1005,7 @@ class ClientTests: XCTestCase {
 		let convos = try await builtClient.conversations.list()
 
 		XCTAssertEqual(convos.count, 3)
+		try fixtures.cleanUpDatabases()
 	}
 
 	func testCannotCreateMoreThan5Installations() async throws {
@@ -1050,6 +1085,7 @@ class ClientTests: XCTestCase {
 		let finalState = try await clients[0].inboxState(
 			refreshFromNetwork: true)
 		XCTAssertEqual(finalState.installations.count, 5)
+		try boClient.deleteLocalDatabase()
 	}
 
 	func testStaticRevokeOneOfFiveInstallations() async throws {
@@ -1199,5 +1235,8 @@ class ClientTests: XCTestCase {
 
 		inboxState = try await alix.inboxState(refreshFromNetwork: true)
 		XCTAssertEqual(inboxState.installations.count, 2)
+		try alix.deleteLocalDatabase()
+		try alix2.deleteLocalDatabase()
+		try alix3.deleteLocalDatabase()
 	}
 }
