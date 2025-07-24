@@ -1,4 +1,9 @@
-use crate::schema::remote_commit_log;
+use diesel::RunQueryDsl;
+use std::collections::HashMap;
+
+use crate::{
+    ConnectionExt, DbConnection, impl_store, refresh_state::EntityKind, schema::remote_commit_log,
+};
 use diesel::{
     Insertable, Queryable,
     backend::Backend,
@@ -9,18 +14,28 @@ use diesel::{
     sqlite::Sqlite,
 };
 use serde::{Deserialize, Serialize};
+use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
 #[diesel(primary_key(sequence_id))]
 pub struct RemoteCommitLog {
+    // The sequence ID of the log entry on the server
     pub log_sequence_id: i64,
+    // The group ID of the conversation
     pub group_id: Vec<u8>,
+    // The sequence ID of the commit being referenced
     pub commit_sequence_id: i64,
+    // Whether the commit was successfully applied or not
+    // 1 = Applied, all other values are failures matching the protobuf enum
     pub commit_result: CommitResult,
+    // The epoch number after the commit was applied, or the existing number otherwise
     pub applied_epoch_number: Option<i64>,
+    // The state after the commit was applied, or the existing state otherwise
     pub applied_epoch_authenticator: Option<Vec<u8>>,
 }
+
+impl_store!(RemoteCommitLog, remote_commit_log);
 
 #[repr(i32)]
 #[derive(Copy, Clone, Serialize, Deserialize, Eq, PartialEq, AsExpression, FromSqlRow)]
@@ -69,5 +84,36 @@ where
             4 => Ok(Self::Invalid),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
+    }
+}
+
+impl From<ProtoCommitResult> for CommitResult {
+    fn from(value: ProtoCommitResult) -> Self {
+        match value {
+            ProtoCommitResult::Applied => Self::Success,
+            ProtoCommitResult::WrongEpoch => Self::WrongEpoch,
+            ProtoCommitResult::Undecryptable => Self::Undecryptable,
+            ProtoCommitResult::Invalid => Self::Invalid,
+            ProtoCommitResult::Unspecified => Self::Unknown,
+        }
+    }
+}
+
+// the max page size for queries
+pub const MAX_PAGE_SIZE: u32 = 100;
+
+impl<C: ConnectionExt> DbConnection<C> {
+    pub fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        let mut cursor_map: HashMap<Vec<u8>, i64> = HashMap::new();
+        for conversation_id in conversation_ids {
+            let cursor = self
+                .get_last_cursor_for_id(conversation_id, EntityKind::CommitLogDownload)
+                .unwrap_or(0);
+            cursor_map.insert(conversation_id.clone(), cursor);
+        }
+        Ok(cursor_map)
     }
 }

@@ -18,7 +18,8 @@ use crate::{
 pub enum EntityKind {
     Welcome = 1,
     Group = 2,
-    PublishedCommitLog = 3,
+    CommitLogUpload = 3, // Last local entry we uploaded to the remote commit log
+    CommitLogDownload = 4, // Last remote entry we downloaded from the remote commit log
 }
 
 impl std::fmt::Display for EntityKind {
@@ -27,7 +28,8 @@ impl std::fmt::Display for EntityKind {
         match self {
             Welcome => write!(f, "welcome"),
             Group => write!(f, "group"),
-            PublishedCommitLog => write!(f, "commit_log"),
+            CommitLogUpload => write!(f, "commit_log_upload"),
+            CommitLogDownload => write!(f, "commit_log_download"),
         }
     }
 }
@@ -50,7 +52,8 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(EntityKind::Welcome),
             2 => Ok(EntityKind::Group),
-            3 => Ok(EntityKind::PublishedCommitLog),
+            3 => Ok(EntityKind::CommitLogUpload),
+            4 => Ok(EntityKind::CommitLogDownload),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
