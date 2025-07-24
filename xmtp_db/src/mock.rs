@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+use crate::group::ConversationType;
 
 use diesel::prelude::SqliteConnection;
 use mockall::mock;
@@ -225,6 +226,7 @@ mock! {
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
         fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+        fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
     }
 
     impl<C: ConnectionExt + 'static> QueryGroupVersion<C> for DbQuery<C> {

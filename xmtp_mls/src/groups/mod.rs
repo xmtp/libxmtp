@@ -1454,8 +1454,8 @@ where
 
     /// Retrieves the conversation type of the group from the group's metadata extension.
     pub async fn conversation_type(&self) -> Result<ConversationType, GroupError> {
-        let metadata = self.metadata().await?;
-        Ok(metadata.conversation_type)
+        let conversation_type = self.context.db().get_conversation_type(&self.group_id)?;
+        Ok(conversation_type)
     }
 
     /// Updates the admin list of the group and syncs the changes to the network.
