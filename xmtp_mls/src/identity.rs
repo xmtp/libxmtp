@@ -611,19 +611,34 @@ impl Identity {
             Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
-        let kp = KeyPackage::builder()
+
+        let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions)
-            .build(
-                CIPHERSUITE,
-                provider,
-                &self.installation_keys,
-                CredentialWithKey {
-                    credential: self.credential(),
-                    signature_key: self.installation_keys.public_slice().into(),
-                },
-            )?;
+            .key_package_extensions(key_package_extensions);
+
+        let kp_builder = {
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
+                let life_time = maybe_mock_package_lifetime();
+                kp_builder.key_package_lifetime(life_time)
+            }
+            #[cfg(not(any(test, feature = "test-utils")))]
+            {
+                kp_builder
+            }
+        };
+
+        let kp = kp_builder.build(
+            CIPHERSUITE,
+            provider,
+            &self.installation_keys,
+            CredentialWithKey {
+                credential: self.credential(),
+                signature_key: self.installation_keys.public_slice().into(),
+            },
+        )?;
 
         store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(NewKeyPackageResult {
