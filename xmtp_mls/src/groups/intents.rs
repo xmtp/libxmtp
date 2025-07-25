@@ -2,12 +2,9 @@ use super::{
     group_membership::GroupMembership,
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
-    GroupError, MlsGroup,
 };
 use crate::{
     configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    context::XmtpSharedContext,
-    track,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
 use openmls::prelude::{
@@ -18,11 +15,6 @@ use prost::{bytes::Bytes, DecodeError, Message};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
-use xmtp_db::{
-    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
-    MlsProviderExt,
-};
-use xmtp_db::{prelude::*, ConnectionExt};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
@@ -71,76 +63,6 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
-}
-
-impl<Context> MlsGroup<Context>
-where
-    Context: XmtpSharedContext,
-{
-    pub fn queue_intent(
-        &self,
-        intent_kind: IntentKind,
-        intent_data: Vec<u8>,
-        should_push: bool,
-    ) -> Result<StoredGroupIntent, GroupError> {
-        let provider = self.context.mls_provider();
-        let res = provider.key_store().transaction(|conn| {
-            let storage = conn.key_store();
-            let db = storage.db();
-            self.queue_intent_with_conn(&db, intent_kind, intent_data, should_push)
-        });
-
-        res
-    }
-
-    fn queue_intent_with_conn<C>(
-        &self,
-        conn: &impl DbQuery<C>,
-        intent_kind: IntentKind,
-        intent_data: Vec<u8>,
-        should_push: bool,
-    ) -> Result<StoredGroupIntent, GroupError>
-    where
-        C: ConnectionExt,
-    {
-        if intent_kind == IntentKind::SendMessage {
-            self.maybe_insert_key_update_intent(conn)?;
-        }
-
-        let intent = conn.insert_group_intent(NewGroupIntent::new(
-            intent_kind,
-            self.group_id.clone(),
-            intent_data,
-            should_push,
-        ))?;
-
-        if intent_kind != IntentKind::SendMessage {
-            conn.update_rotated_at_ns(self.group_id.clone())?;
-
-            track!(
-                "Queue Intent",
-                { "intent_kind": intent_kind },
-                group: &self.group_id
-            );
-        }
-        tracing::debug!(inbox_id = self.context.inbox_id(), intent_kind = %intent_kind, "queued intent");
-
-        Ok(intent)
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    fn maybe_insert_key_update_intent<C>(&self, conn: &impl DbQuery<C>) -> Result<(), GroupError>
-    where
-        C: ConnectionExt,
-    {
-        let last_rotated_at_ns = conn.get_rotated_at_ns(self.group_id.clone())?;
-        let now_ns = xmtp_common::time::now_ns();
-        let elapsed_ns = now_ns - last_rotated_at_ns;
-        if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            self.queue_intent_with_conn(conn, IntentKind::KeyUpdate, vec![], false)?;
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -823,6 +745,7 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
 pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    use crate::context::XmtpSharedContext;
     use openmls::prelude::{MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent};
     use tls_codec::Deserialize;
     use xmtp_cryptography::utils::generate_local_wallet;
