@@ -438,6 +438,7 @@ where
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
+            ConversationType::Group,
             permissions_policy_set.unwrap_or_default(),
             opts.unwrap_or_default(),
         )?;
@@ -550,6 +551,7 @@ where
                 self.context.clone(),
                 group.id,
                 group.dm_id,
+                group.conversation_type,
                 group.created_at_ns,
             ));
         }
@@ -574,7 +576,15 @@ where
         let conn = self.context.db();
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .ok_or(NotFound::GroupById(group_id.to_vec()))
             .map_err(Into::into)
     }
@@ -621,6 +631,7 @@ where
             self.context.clone(),
             group.id,
             group.dm_id,
+            group.conversation_type,
             group.created_at_ns,
         ))
     }
@@ -686,6 +697,7 @@ where
                         self.context.clone(),
                         conversation_item.id,
                         conversation_item.dm_id,
+                        conversation_item.conversation_type,
                         conversation_item.created_at_ns,
                     ),
                     last_message: message,
@@ -787,7 +799,15 @@ where
             .db()
             .all_sync_groups()?
             .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .collect();
         let active_groups_count = self.sync_all_groups(groups).await?;
 

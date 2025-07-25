@@ -214,6 +214,10 @@ pub trait QueryGroup<C: ConnectionExt> {
     fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
 
     fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
@@ -634,6 +638,17 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
                 Ok(false)
             }
         })
+    }
+
+    fn get_conversation_type(
+        &self,
+        group_id: &[u8],
+    ) -> Result<ConversationType, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::id.eq(group_id))
+            .select(dsl::conversation_type);
+        let conversation_type = self.raw_query_read(|conn| query.first(conn))?;
+        Ok(conversation_type)
     }
 }
 
