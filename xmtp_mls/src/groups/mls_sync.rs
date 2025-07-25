@@ -267,6 +267,7 @@ where
                 self.context.clone(),
                 other_dm.id,
                 other_dm.dm_id.clone(),
+                other_dm.conversation_type,
                 other_dm.created_at_ns,
             );
             other_dm.sync_with_conn().await?;
@@ -467,7 +468,7 @@ where
         max_past_epochs: usize,
     ) -> Result<(), GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
-        utils::maybe_mock_future_epoch_for_tests()?;
+        utils::test_mocks_helpers::maybe_mock_future_epoch_for_tests()?;
 
         if message_epoch.as_u64() + max_past_epochs as u64 <= group_epoch.as_u64() {
             tracing::warn!(
@@ -794,7 +795,7 @@ where
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
-            use crate::utils::maybe_mock_wrong_epoch_for_tests;
+            use crate::utils::test_mocks_helpers::maybe_mock_wrong_epoch_for_tests;
             maybe_mock_wrong_epoch_for_tests()?;
         }
 
@@ -2530,7 +2531,7 @@ async fn get_keypackages_for_installation_ids(
     failed_installations: &mut Vec<Vec<u8>>,
 ) -> Result<HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>, ClientError>
 {
-    use crate::utils::{
+    use crate::utils::test_mocks_helpers::{
         get_test_mode_malformed_installations, is_test_mode_upload_malformed_keypackage,
     };
 

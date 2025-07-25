@@ -1,3 +1,4 @@
+use crate::group::ConversationType;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -223,6 +224,7 @@ mock! {
         fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
+        fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
     }
 
     impl<C: ConnectionExt + 'static> QueryGroupVersion<C> for DbQuery<C> {
@@ -363,7 +365,7 @@ mock! {
     impl<C: ConnectionExt + 'static> QueryIdentity<C> for DbQuery<C> {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
 
-        fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
+        fn clear_key_package_rotation_queue(&self) -> Result<(), StorageError>;
 
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
     }

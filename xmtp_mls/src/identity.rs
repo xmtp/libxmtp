@@ -1,6 +1,5 @@
 use crate::configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS,
-    MAX_INSTALLATIONS_PER_INBOX,
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, MAX_INSTALLATIONS_PER_INBOX,
 };
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
@@ -28,7 +27,6 @@ use tls_codec::SecretVLBytes;
 use tracing::debug;
 use tracing::info;
 use xmtp_api::ApiClientWrapper;
-use xmtp_common::time::now_ns;
 use xmtp_common::types::InstallationId;
 use xmtp_common::{retryable, RetryableError};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
@@ -303,7 +301,6 @@ impl TryFrom<&Identity> for StoredIdentity {
             .inbox_id(identity.inbox_id.clone())
             .installation_keys(xmtp_db::db_serialize(&identity.installation_keys)?)
             .credential_bytes(xmtp_db::db_serialize(&identity.credential())?)
-            .next_key_package_rotation_ns(now_ns() + KEY_PACKAGE_ROTATION_INTERVAL_NS)
             .build()
     }
 }
@@ -611,19 +608,34 @@ impl Identity {
             Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
-        let kp = KeyPackage::builder()
+
+        let kp_builder = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions)
-            .build(
-                CIPHERSUITE,
-                provider,
-                &self.installation_keys,
-                CredentialWithKey {
-                    credential: self.credential(),
-                    signature_key: self.installation_keys.public_slice().into(),
-                },
-            )?;
+            .key_package_extensions(key_package_extensions);
+
+        let kp_builder = {
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
+                let life_time = maybe_mock_package_lifetime();
+                kp_builder.key_package_lifetime(life_time)
+            }
+            #[cfg(not(any(test, feature = "test-utils")))]
+            {
+                kp_builder
+            }
+        };
+
+        let kp = kp_builder.build(
+            CIPHERSUITE,
+            provider,
+            &self.installation_keys,
+            CredentialWithKey {
+                credential: self.credential(),
+                signature_key: self.installation_keys.public_slice().into(),
+            },
+        )?;
 
         store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
         Ok(NewKeyPackageResult {
@@ -698,9 +710,7 @@ impl Identity {
                         .mark_key_package_before_id_to_be_deleted(history_id)?;
                     Ok::<(), StorageError>(())
                 })?;
-                mls_storage
-                    .db()
-                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                mls_storage.db().clear_key_package_rotation_queue()?;
                 Ok(())
             }
             Err(err) => {

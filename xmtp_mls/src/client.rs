@@ -438,6 +438,7 @@ where
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
+            ConversationType::Group,
             permissions_policy_set.unwrap_or_default(),
             opts.unwrap_or_default(),
         )?;
@@ -550,6 +551,7 @@ where
                 self.context.clone(),
                 group.id,
                 group.dm_id,
+                group.conversation_type,
                 group.created_at_ns,
             ));
         }
@@ -574,7 +576,15 @@ where
         let conn = self.context.db();
         let stored_group = conn.fetch_stitched(group_id)?;
         stored_group
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .ok_or(NotFound::GroupById(group_id.to_vec()))
             .map_err(Into::into)
     }
@@ -621,6 +631,7 @@ where
             self.context.clone(),
             group.id,
             group.dm_id,
+            group.conversation_type,
             group.created_at_ns,
         ))
     }
@@ -686,6 +697,7 @@ where
                         self.context.clone(),
                         conversation_item.id,
                         conversation_item.dm_id,
+                        conversation_item.conversation_type,
                         conversation_item.created_at_ns,
                     ),
                     last_message: message,
@@ -787,7 +799,15 @@ where
             .db()
             .all_sync_groups()?
             .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .collect();
         let active_groups_count = self.sync_all_groups(groups).await?;
 
@@ -869,7 +889,6 @@ pub(crate) mod tests {
     use futures::TryStreamExt;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
-    use xmtp_common::NS_IN_SEC;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::identity::StoredIdentity;
@@ -953,7 +972,7 @@ pub(crate) mod tests {
         let binding = kp1[&installation_public_key].clone().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
+        assert!(fetched_identity.next_key_package_rotation_ns.is_none());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
@@ -1071,6 +1090,70 @@ pub(crate) mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(flavor = "multi_thread")]
+    async fn test_sync_welcomes_when_kp_life_time_ended() {
+        use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
+
+        // Create a client with default KP lifetime
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a client with a KP that expires in 5 seconds
+        set_test_mode_limit_key_package_lifetime(true, 5);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a client with default KP lifetime
+        set_test_mode_limit_key_package_lifetime(false, 0);
+        let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Alice creates a group and invites Bob with short living KP
+        let alice_bob_group = alice.create_group(None, None).unwrap();
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id(), cat.inbox_id()])
+            .await
+            .unwrap();
+
+        // Since Bob's KP is still valid, Bob should successfully process the Welcome
+        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+
+        // Wait for Bob's KP and their leafnode's lifetime to expire
+        xmtp_common::time::sleep(Duration::from_secs(7)).await;
+
+        //cat receives welcomes after Bob's KP is expired, Cat should be able to process the welcome successfully
+        let cat_received_groups = cat.sync_welcomes().await.unwrap();
+
+        assert_eq!(bob_received_groups.len(), 1);
+        assert_eq!(cat_received_groups.len(), 1);
+        assert_eq!(
+            bob_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+        assert_eq!(
+            cat_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+
+        let bob_duplicate_received_groups = bob.sync_welcomes().await.unwrap();
+        let cat_duplicate_received_groups = cat.sync_welcomes().await.unwrap();
+        assert_eq!(bob_duplicate_received_groups.len(), 0);
+        assert_eq!(cat_duplicate_received_groups.len(), 0);
+
+        set_test_mode_limit_key_package_lifetime(false, 0);
+        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        alice_bob_group
+            .add_members_by_inbox_id(&[dave.inbox_id()])
+            .await
+            .unwrap();
+        let dave_received_groups = dave.sync_welcomes().await.unwrap();
+        assert_eq!(dave_received_groups.len(), 1);
+        assert_eq!(
+            dave_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+        let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
+        assert_eq!(dave_duplicate_received_groups.len(), 0);
     }
 
     #[rstest::rstest]
@@ -1380,10 +1463,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let alix_fetched_identity: StoredIdentity = alix.context.db().fetch(&()).unwrap().unwrap();
-        assert!(alix_fetched_identity.next_key_package_rotation_ns.is_some());
-        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
         // Bo's original key should be deleted
         let bo_original_from_db = bo
             .db()
@@ -1398,12 +1477,9 @@ pub(crate) mod tests {
 
         bo.sync_welcomes().await.unwrap();
 
-        //check the rotation value has been set and less than Queue rotation interval
+        //check the rotation value has been set
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
-        assert!(
-            bo_fetched_identity.next_key_package_rotation_ns.unwrap() - now_ns() < 5 * NS_IN_SEC
-        );
 
         //check original keys must not be marked to be deleted
         let bo_keys = bo
@@ -1411,14 +1487,15 @@ pub(crate) mod tests {
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_keys.unwrap().delete_at_ns.is_none());
-        //wait for worker to rotate the keypackage
+
         xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
+
         //check the rotation queue must be cleared
         let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
         assert!(!bo_keys_queued_for_rotation);
 
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.unwrap() > 0);
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_none());
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
             .await
