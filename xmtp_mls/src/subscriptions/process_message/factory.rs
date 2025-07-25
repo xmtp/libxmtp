@@ -108,7 +108,7 @@ where
             self.0.clone(),
             msg.group_id.clone(),
             None,
-            ConversationType::Sync,
+            ConversationType::Group,
             msg.created_ns as i64,
         );
         match group.sync_with_conn().await {
