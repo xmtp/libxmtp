@@ -152,7 +152,7 @@ impl QueueIntent {
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
             QueueIntent::builder()
                 .key_update()
-                .queue_with_conn(conn, &group)?;
+                .queue_with_conn(conn, group)?;
         }
         Ok(())
     }
