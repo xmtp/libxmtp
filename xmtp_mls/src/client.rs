@@ -1074,6 +1074,7 @@ pub(crate) mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_welcomes_when_kp_life_time_ended() {
         use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;

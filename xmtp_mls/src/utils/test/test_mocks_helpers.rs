@@ -22,6 +22,7 @@ impl EnvFlag {
         env::var(self.0).ok().as_deref() == Some("true")
     }
 
+    #[allow(dead_code)]
     #[inline]
     fn clear(self) {
         env::remove_var(self.0);
