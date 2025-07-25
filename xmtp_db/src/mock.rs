@@ -173,9 +173,9 @@ mock! {
             welcome_id: i64,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+        fn get_rotated_at_ns(&self, group_id: &[u8]) -> Result<i64, StorageError>;
 
-        fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+        fn update_rotated_at_ns(&self, group_id: &[u8]) -> Result<(), StorageError>;
 
         fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
 
@@ -222,14 +222,15 @@ mock! {
     }
 
     impl<C: ConnectionExt + 'static> QueryGroupIntent<C> for DbQuery<C> {
+        #[mockall::concretize]
         fn insert_group_intent(
             &self,
-            to_save: crate::group_intent::NewGroupIntent,
+            to_save: crate::group_intent::NewGroupIntent<'_>,
         ) -> Result<crate::group_intent::StoredGroupIntent, crate::ConnectionError>;
 
         fn find_group_intents(
             &self,
-            group_id: Vec<u8>,
+            group_id: &[u8],
             allowed_states: Option<Vec<crate::group_intent::IntentState>>,
             allowed_kinds: Option<Vec<crate::group_intent::IntentKind>>,
         ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, crate::ConnectionError>;

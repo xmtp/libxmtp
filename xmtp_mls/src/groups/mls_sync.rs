@@ -396,7 +396,7 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
         let intents = self.context.db().find_group_intents(
-            self.group_id.clone(),
+            &self.group_id,
             Some(vec![IntentState::ToPublish, IntentState::Published]),
             None,
         )?;
@@ -1895,7 +1895,7 @@ where
         let db = self.context.db();
         self.load_mls_group_with_lock_async(|mut mls_group| async move {
             let intents = db.find_group_intents(
-                self.group_id.clone(),
+                &self.group_id,
                 Some(vec![IntentState::ToPublish]),
                 None,
             )?;
@@ -2181,11 +2181,8 @@ where
     #[tracing::instrument(skip_all)]
     pub(crate) async fn post_commit(&self) -> Result<(), GroupError> {
         let db = self.context.db();
-        let intents = db.find_group_intents(
-            self.group_id.clone(),
-            Some(vec![IntentState::Committed]),
-            None,
-        )?;
+        let intents =
+            db.find_group_intents(&self.group_id, Some(vec![IntentState::Committed]), None)?;
 
         for intent in intents {
             if let Some(post_commit_data) = intent.post_commit_data {

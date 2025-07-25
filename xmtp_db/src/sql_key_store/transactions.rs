@@ -160,8 +160,8 @@ mod tests {
                     let storage = conn.key_store();
                     storage.db().insert_group_intent(NewGroupIntent {
                         kind: IntentKind::SendMessage,
-                        group_id: vec![],
-                        data: vec![],
+                        group_id: &[],
+                        data: &[],
                         should_push: false,
                         state: IntentState::ToPublish,
                     })

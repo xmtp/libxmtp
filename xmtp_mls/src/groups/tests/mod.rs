@@ -304,7 +304,7 @@ async fn test_add_member_conflict() {
 
     let amal_uncommitted_intents = amal_db
         .find_group_intents(
-            amal_group.group_id.clone(),
+            &amal_group.group_id,
             Some(vec![
                 IntentState::ToPublish,
                 IntentState::Published,
@@ -316,11 +316,7 @@ async fn test_add_member_conflict() {
     assert_eq!(amal_uncommitted_intents.len(), 0);
 
     let bola_failed_intents = bola_db
-        .find_group_intents(
-            bola_group.group_id.clone(),
-            Some(vec![IntentState::Error]),
-            None,
-        )
+        .find_group_intents(&bola_group.group_id, Some(vec![IntentState::Error]), None)
         .unwrap();
     // Bola's attempted add should be deleted, since it will have been a no-op on the second try
     assert_eq!(bola_failed_intents.len(), 0);
@@ -2441,11 +2437,7 @@ async fn skip_already_processed_intents() {
     let intent = bo_client
         .context
         .db()
-        .find_group_intents(
-            bo_group.clone().group_id,
-            Some(vec![IntentState::Processed]),
-            None,
-        )
+        .find_group_intents(&bo_group.group_id, Some(vec![IntentState::Processed]), None)
         .unwrap();
     assert_eq!(intent.len(), 2); //key_update and send_message
 
