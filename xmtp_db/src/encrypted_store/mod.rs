@@ -50,10 +50,7 @@ pub use store::*;
 use diesel::connection::SimpleConnection;
 use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub type EncryptionKey = [u8; 32];
@@ -70,17 +67,6 @@ pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
-}
-
-#[derive(Clone)]
-pub struct TransactionGuard {
-    pub(crate) in_transaction: Arc<AtomicBool>,
-}
-
-impl Drop for TransactionGuard {
-    fn drop(&mut self) {
-        self.in_transaction.store(false, Ordering::SeqCst);
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -115,10 +101,7 @@ pub trait ConnectionExt {
         + MlsKeyStore
         + Send;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
-
     /// Run a scoped read-only query
-    /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -126,14 +109,11 @@ pub trait ConnectionExt {
         Self: Sized;
 
     /// Run a scoped write-only query
-    /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized;
-
-    fn is_in_transaction(&self) -> bool;
 
     fn disconnect(&self) -> Result<(), ConnectionError>;
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -144,10 +124,6 @@ where
     C: ConnectionExt,
 {
     type Connection = <C as ConnectionExt>::Connection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
 
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
@@ -163,10 +139,6 @@ where
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -184,10 +156,6 @@ where
 {
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -202,10 +170,6 @@ where
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -223,10 +187,6 @@ where
 {
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
@@ -241,10 +201,6 @@ where
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
