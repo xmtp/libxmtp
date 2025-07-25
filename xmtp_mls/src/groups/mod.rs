@@ -116,6 +116,10 @@ const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
+/// An LibXMTP MlsGroup
+/// _NOTE:_ The Eq implementation compares GroupId, so a dm group with the same identity will be
+/// different.
+/// the Hash implementation hashes the GroupID
 pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
@@ -124,6 +128,20 @@ pub struct MlsGroup<Context> {
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
+
+impl<C> std::hash::Hash for MlsGroup<C> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.group_id.hash(state);
+    }
+}
+
+impl<C> PartialEq for MlsGroup<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.group_id == other.group_id
+    }
+}
+
+impl<C> Eq for MlsGroup<C> {}
 
 impl<Context> std::fmt::Debug for MlsGroup<Context>
 where

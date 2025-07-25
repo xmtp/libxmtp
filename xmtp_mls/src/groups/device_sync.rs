@@ -2,13 +2,17 @@ use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsG
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
+    groups::intents::QueueIntent,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
 use futures::future::join_all;
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -251,20 +255,13 @@ where
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;
-
-        // Add the new installation to groups in batches
-        for chunk in groups.chunks(10) {
-            let mut add_futs = vec![];
-            for group in chunk {
-                add_futs.push(group.add_missing_installations());
-            }
-            let results = join_all(add_futs).await;
-            for result in results {
-                if let Err(err) = result {
-                    tracing::warn!("Unable to add new installation to group. {err:?}");
-                }
-            }
-        }
+        let groups = HashSet::from_iter(groups);
+        QueueIntent::builder()
+            .update_group_membership()
+            .queue_for_each(&groups, async |group| {
+                Ok::<_, GroupError>(group.get_membership_update_intent(&[], &[]).await?.into())
+            })
+            .await?;
         Ok(())
     }
 }
