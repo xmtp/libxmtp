@@ -1142,7 +1142,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_installation_with_malformed_keypackage() {
-        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
@@ -1178,7 +1178,7 @@ pub(crate) mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn revoke_good_installation_with_other_malformed_keypackage() {
-        use crate::utils::set_test_mode_upload_malformed_keypackage;
+        use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;

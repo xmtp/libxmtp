@@ -5,6 +5,7 @@ pub mod tester_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod fixtures;
+pub mod test_mocks_helpers;
 
 use crate::XmtpApi;
 use crate::{
@@ -13,7 +14,6 @@ use crate::{
     identity::IdentityStrategy,
     Client, InboxOwner,
 };
-use openmls::group::{ProcessMessageError, ValidationError::WrongEpoch};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
@@ -35,8 +35,6 @@ pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 #[cfg(not(any(feature = "http-api", target_arch = "wasm32")))]
 pub type TestClient = xmtp_api_grpc::grpc_api_helper::Client;
 
-use crate::groups::mls_sync::GroupMessageProcessingError;
-use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 #[cfg(all(
     any(feature = "http-api", target_arch = "wasm32"),
     not(feature = "d14n")
@@ -294,94 +292,4 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
         }
     })
     .await
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-/// Checks if test mode is enabled.
-pub fn is_test_mode_upload_malformed_keypackage() -> bool {
-    use std::env;
-    env::var("TEST_MODE_UPLOAD_MALFORMED_KP").unwrap_or_else(|_| "false".to_string()) == "true"
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-#[warn(dead_code)]
-/// Sets test mode and specifies malformed installations dynamically.
-/// If `enable` is `false`, it also clears `TEST_MODE_MALFORMED_INSTALLATIONS`.
-pub fn set_test_mode_upload_malformed_keypackage(
-    enable: bool,
-    installations: Option<Vec<Vec<u8>>>,
-) {
-    use std::env;
-    if enable {
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "true");
-        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
-
-        if let Some(installs) = installations {
-            let installations_str = installs
-                .iter()
-                .map(hex::encode)
-                .collect::<Vec<_>>()
-                .join(",");
-
-            env::set_var("TEST_MODE_MALFORMED_INSTALLATIONS", installations_str);
-        }
-    } else {
-        env::set_var("TEST_MODE_UPLOAD_MALFORMED_KP", "false");
-        env::remove_var("TEST_MODE_MALFORMED_INSTALLATIONS");
-    }
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-/// Retrieves and decodes malformed installations from the environment variable.
-/// Returns an empty list if test mode is not enabled.
-pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
-    use std::env;
-    if !is_test_mode_upload_malformed_keypackage() {
-        return Vec::new();
-    }
-
-    env::var("TEST_MODE_MALFORMED_INSTALLATIONS")
-        .unwrap_or_else(|_| "".to_string())
-        .split(',')
-        .filter_map(|s| {
-            if s.is_empty() {
-                None
-            } else {
-                Some(hex::decode(s).unwrap_or_else(|_| Vec::new()))
-            }
-        })
-        .collect()
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-/// Sets test mode to mimic future wrong epoch state.
-pub fn set_test_mode_future_wrong_epoch(enable: bool) {
-    use std::env;
-    if enable {
-        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "true");
-    } else {
-        env::set_var("TEST_MODE_FUTURE_WRONG_EPOCH", "false");
-    }
-}
-#[cfg(any(test, feature = "test-utils"))]
-/// Checks if test mode is enabled.
-pub fn is_test_mode_future_wrong_epoch() -> bool {
-    use std::env;
-    env::var("TEST_MODE_FUTURE_WRONG_EPOCH").unwrap_or_else(|_| "false".to_string()) == "true"
-}
-
-pub fn maybe_mock_wrong_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
-    if is_test_mode_future_wrong_epoch() {
-        return Err(OpenMlsProcessMessage(ProcessMessageError::ValidationError(
-            WrongEpoch,
-        )));
-    }
-    Ok(())
-}
-
-pub fn maybe_mock_future_epoch_for_tests() -> Result<(), GroupMessageProcessingError> {
-    if is_test_mode_future_wrong_epoch() {
-        return Err(GroupMessageProcessingError::FutureEpoch(10, 0));
-    }
-    Ok(())
 }

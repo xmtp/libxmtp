@@ -485,7 +485,7 @@ async fn test_add_inbox() {
 async fn test_create_group_with_member_two_installations_one_malformed_keypackage() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -583,7 +583,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
 async fn test_create_group_with_member_all_malformed_installations() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
@@ -633,7 +633,7 @@ async fn test_create_group_with_member_all_malformed_installations() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_dm_creation_with_user_two_installations_one_malformed() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -736,7 +736,7 @@ async fn test_dm_creation_with_user_two_installations_one_malformed() {
 async fn test_dm_creation_with_user_all_malformed_installations() {
     use xmtp_id::associations::test_utils::WalletTestExt;
 
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let bola_wallet = generate_local_wallet();
@@ -783,7 +783,7 @@ async fn test_dm_creation_with_user_all_malformed_installations() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_add_inbox_with_bad_installation_to_group() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
     let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -819,7 +819,7 @@ async fn test_add_inbox_with_bad_installation_to_group() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
     let bo_wallet = generate_local_wallet();
@@ -854,7 +854,7 @@ async fn test_add_inbox_with_good_installation_to_group_with_bad_installation() 
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_remove_inbox_with_good_installation_from_group_with_bad_installation() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
     let alix_wallet = generate_local_wallet();
@@ -900,7 +900,7 @@ async fn test_remove_inbox_with_good_installation_from_group_with_bad_installati
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "current_thread")]
 async fn test_remove_inbox_with_bad_installation_from_group() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
     use xmtp_id::associations::test_utils::WalletTestExt;
 
     let alix_wallet = generate_local_wallet();
@@ -3442,7 +3442,7 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
-    use crate::utils::set_test_mode_upload_malformed_keypackage;
+    use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 
     // 1) Prepare clients
     let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -3525,7 +3525,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
-    use crate::utils::set_test_mode_future_wrong_epoch;
+    use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
 
     let client_a = ClientBuilder::new_test_client(&generate_local_wallet()).await;
     let client_b = ClientBuilder::new_test_client(&generate_local_wallet()).await;
