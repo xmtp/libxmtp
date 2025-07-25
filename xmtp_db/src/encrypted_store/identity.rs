@@ -1,9 +1,9 @@
-use crate::configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 use crate::encrypted_store::schema::identity;
 use crate::schema::identity::dsl;
 use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
+use xmtp_common::NS_IN_SEC;
 use xmtp_common::time::now_ns;
 
 /// Identity of this installation
@@ -17,6 +17,7 @@ pub struct StoredIdentity {
     pub credential_bytes: Vec<u8>,
     #[builder(setter(skip))]
     rowid: Option<i32>,
+    #[builder(setter(skip))]
     pub next_key_package_rotation_ns: Option<i64>,
 }
 
@@ -38,24 +39,18 @@ impl StoredIdentity {
         }
     }
 }
-pub trait QueryIdentity<C: ConnectionExt> {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
-    fn reset_key_package_rotation_queue(
-        &self,
-        rotation_interval_ns: i64,
-    ) -> Result<(), StorageError>;
-    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
-}
-
-impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
-    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
+impl<C: ConnectionExt> DbConnection<C> {
+    pub fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+        let rotate_at_ns = now_ns() + 5 * NS_IN_SEC;
 
         self.raw_query_write(|conn| {
-            diesel::update(dsl::identity)
-                .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
-                .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
-                .execute(conn)?;
+            // Fetch the identity row (assuming a single row exists)
+            let identity = dsl::identity.first::<StoredIdentity>(conn)?;
+            if identity.next_key_package_rotation_ns.is_none() {
+                diesel::update(dsl::identity)
+                    .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
+                    .execute(conn)?;
+            }
 
             Ok(())
         })?;
@@ -63,21 +58,12 @@ impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
         Ok(())
     }
 
-    fn reset_key_package_rotation_queue(
-        &self,
-        rotation_interval_ns: i64,
-    ) -> Result<(), StorageError> {
+    pub fn clear_key_package_rotation_queue(&self) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
-        let queue_interval_ns = now_ns() - KEY_PACKAGE_QUEUE_INTERVAL_NS;
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
-                .filter(
-                    dsl::next_key_package_rotation_ns
-                        .is_null()
-                        .or(dsl::next_key_package_rotation_ns.gt(queue_interval_ns)),
-                )
-                .set(dsl::next_key_package_rotation_ns.eq(Some(now_ns() + rotation_interval_ns)))
+                .set(dsl::next_key_package_rotation_ns.eq::<Option<i64>>(None))
                 .execute(conn)?;
             Ok(())
         })?;
@@ -94,10 +80,7 @@ impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
                 .first::<Option<i64>>(conn)
         })?;
 
-        Ok(match next_rotation_opt {
-            Some(rotate_at) => now_ns() >= rotate_at,
-            None => true,
-        })
+        Ok(matches!(next_rotation_opt, Some(rotate_at) if now_ns() >= rotate_at))
     }
 }
 

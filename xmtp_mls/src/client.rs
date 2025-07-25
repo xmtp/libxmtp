@@ -869,7 +869,6 @@ pub(crate) mod tests {
     use futures::TryStreamExt;
     use std::time::Duration;
     use xmtp_common::time::now_ns;
-    use xmtp_common::NS_IN_SEC;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
     use xmtp_db::identity::StoredIdentity;
@@ -953,7 +952,7 @@ pub(crate) mod tests {
         let binding = kp1[&installation_public_key].clone().unwrap();
         let init1 = binding.inner.hpke_init_key();
         let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
+        assert!(fetched_identity.next_key_package_rotation_ns.is_none());
         // Rotate and fetch again.
         client.queue_key_rotation().await.unwrap();
         //check the rotation value has been set
@@ -1444,10 +1443,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let alix_fetched_identity: StoredIdentity = alix.context.db().fetch(&()).unwrap().unwrap();
-        assert!(alix_fetched_identity.next_key_package_rotation_ns.is_some());
-        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
         // Bo's original key should be deleted
         let bo_original_from_db = bo
             .db()
@@ -1462,12 +1457,9 @@ pub(crate) mod tests {
 
         bo.sync_welcomes().await.unwrap();
 
-        //check the rotation value has been set and less than Queue rotation interval
+        //check the rotation value has been set
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
         assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
-        assert!(
-            bo_fetched_identity.next_key_package_rotation_ns.unwrap() - now_ns() < 5 * NS_IN_SEC
-        );
 
         //check original keys must not be marked to be deleted
         let bo_keys = bo
@@ -1475,14 +1467,15 @@ pub(crate) mod tests {
             .db()
             .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
         assert!(bo_keys.unwrap().delete_at_ns.is_none());
-        //wait for worker to rotate the keypackage
+
         xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
+
         //check the rotation queue must be cleared
         let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
         assert!(!bo_keys_queued_for_rotation);
 
         let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.unwrap() > 0);
+        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_none());
 
         let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
             .await

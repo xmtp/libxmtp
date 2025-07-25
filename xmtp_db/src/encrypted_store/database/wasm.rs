@@ -304,7 +304,6 @@ mod tests {
                 .inbox_id("test")
                 .installation_keys(vec![0, 1, 1, 1])
                 .credential_bytes(vec![0, 0, 0, 0])
-                .next_key_package_rotation_ns(1)
                 .build()
                 .unwrap();
             intent.store(&c1).unwrap();

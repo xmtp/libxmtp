@@ -155,7 +155,7 @@ where
                         kp.key_package_hash_ref.clone(),
                         kp.post_quantum_public_key.clone(),
                     ) {
-                        tracing::info!(
+                        tracing::error!(
                             "Couldn't delete KeyPackage {:?}: {:?}",
                             hex::encode(&kp.key_package_hash_ref),
                             err
