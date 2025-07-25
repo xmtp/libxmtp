@@ -1,4 +1,3 @@
-//! helpers/test_mode.rs
 //! Compile only in unit‑tests or with the `test‑utils` feature.
 #![cfg(any(test, feature = "test-utils"))]
 
@@ -6,10 +5,9 @@ use crate::groups::mls_sync::GroupMessageProcessingError;
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use openmls::group::ProcessMessageError;
 use openmls::group::ValidationError::WrongEpoch;
+use openmls::prelude::Lifetime;
 use std::{env, fmt};
 
-/// Small convenience wrapper for boolean “on/off” flags stored in the
-/// environment.
 #[derive(Copy, Clone)]
 struct EnvFlag(&'static str);
 
@@ -36,8 +34,6 @@ impl fmt::Debug for EnvFlag {
     }
 }
 
-/* ---------- Central catalogue of env keys ---------- */
-
 const UPLOAD_MALFORMED_KP: EnvFlag = EnvFlag("TEST_MODE_UPLOAD_MALFORMED_KP");
 const MALFORMED_INSTALLATIONS_KEY: &str = "TEST_MODE_MALFORMED_INSTALLATIONS";
 
@@ -46,7 +42,7 @@ const FUTURE_WRONG_EPOCH: EnvFlag = EnvFlag("TEST_MODE_FUTURE_WRONG_EPOCH");
 const LIMIT_KP_LIFETIME: EnvFlag = EnvFlag("TEST_MODE_LIMIT_KP_LIFETIME");
 const LIMIT_KP_LIFETIME_VALUE: &str = "TEST_MODE_LIMIT_KP_LIFETIME_VALUE";
 
-/* ---------- Module 1: malformed KeyPackages ---------- */
+/* ---------- Malformed KeyPackages ---------- */
 
 /// Enable / disable *and* optionally inject a list of installations.
 pub fn set_test_mode_upload_malformed_keypackage(
@@ -86,7 +82,7 @@ pub fn get_test_mode_malformed_installations() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/* ---------- Module 2: wrong / future epoch helpers ---------- */
+/* ---------- wrong / future epoch helpers ---------- */
 
 /// Toggle wrong‑epoch test‑mode.
 #[inline]
@@ -117,7 +113,7 @@ pub fn maybe_mock_future_epoch_for_tests() -> Result<(), GroupMessageProcessingE
     Ok(())
 }
 
-/* ---------- Module 3: KeyPackage lifetime limiter ---------- */
+/* ---------- KeyPackage lifetime limiter ---------- */
 
 const DEFAULT_KP_LIFETIME: u64 = 2_592_000; // 30 days
 
@@ -144,4 +140,13 @@ pub fn get_test_mode_limit_key_package_lifetime() -> u64 {
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(DEFAULT_KP_LIFETIME)
+}
+
+/// If the flag is set, will return mocked lifetime
+pub fn maybe_mock_package_lifetime() -> Lifetime {
+    if is_test_mode_limit_key_package_lifetime() {
+        Lifetime::new(get_test_mode_limit_key_package_lifetime())
+    } else {
+        Lifetime::default()
+    }
 }
