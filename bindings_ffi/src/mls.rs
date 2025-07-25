@@ -7766,7 +7766,6 @@ mod tests {
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
             .find_messages_with_reactions(FfiListMessagesOptions::default())
-            .await
             .unwrap();
         assert_eq!(messages_with_reactions.len(), 2);
         let message_with_reactions = &messages_with_reactions[1];
