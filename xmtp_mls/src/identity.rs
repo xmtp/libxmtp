@@ -7,7 +7,7 @@ use crate::identity_updates::{get_association_state_with_verifier, load_identity
 use crate::worker::NeedsDbReconnect;
 use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
 use openmls::prelude::hash_ref::HashReference;
-use openmls::prelude::HpkeKeyPair;
+use openmls::prelude::{HpkeKeyPair, Lifetime};
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
     extensions::{
@@ -611,10 +611,22 @@ impl Identity {
             Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
+        
+        //todo: will be removed by the new mocking utils
+        use crate::utils::test_mocks_helpers::{
+            get_test_mode_limit_key_package_lifetime, is_test_mode_limit_key_package_lifetime,
+        };
+        let life_time = if is_test_mode_limit_key_package_lifetime() {
+            Lifetime::new(get_test_mode_limit_key_package_lifetime())
+        } else {
+            Lifetime::default()
+        };
+        
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
             .key_package_extensions(key_package_extensions)
+            .key_package_lifetime(life_time)
             .build(
                 CIPHERSUITE,
                 provider,

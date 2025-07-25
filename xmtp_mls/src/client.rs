@@ -1074,6 +1074,59 @@ pub(crate) mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
+    #[xmtp_common::test(flavor = "multi_thread")]
+    async fn test_sync_welcomes_when_kp_life_time_ended() {
+        use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
+
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        set_test_mode_limit_key_package_lifetime(true, 5);
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        set_test_mode_limit_key_package_lifetime(false, 0);
+        let cat = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alice_bob_group = alice.create_group(None, None).unwrap();
+        alice_bob_group
+            .add_members_by_inbox_id(&[bob.inbox_id(), cat.inbox_id()])
+            .await
+            .unwrap();
+        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+        xmtp_common::time::sleep(Duration::from_secs(7)).await;
+
+        //cat receives welcomes after Bob's KP is expired
+        let cat_received_groups = cat.sync_welcomes().await.unwrap();
+
+        assert_eq!(bob_received_groups.len(), 1);
+        assert_eq!(cat_received_groups.len(), 1);
+        assert_eq!(
+            bob_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+        assert_eq!(
+            cat_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+
+        let bob_duplicate_received_groups = bob.sync_welcomes().await.unwrap();
+        let cat_duplicate_received_groups = cat.sync_welcomes().await.unwrap();
+        assert_eq!(bob_duplicate_received_groups.len(), 0);
+        assert_eq!(cat_duplicate_received_groups.len(), 0);
+
+        set_test_mode_limit_key_package_lifetime(false, 0);
+        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        alice_bob_group
+            .add_members_by_inbox_id(&[dave.inbox_id()])
+            .await
+            .unwrap();
+        let dave_received_groups = dave.sync_welcomes().await.unwrap();
+        assert_eq!(dave_received_groups.len(), 1);
+        assert_eq!(
+            dave_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
+        let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
+        assert_eq!(dave_duplicate_received_groups.len(), 0);
+    }
+
     #[rstest::rstest]
     #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_all_groups() {
