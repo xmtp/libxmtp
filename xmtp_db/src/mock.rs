@@ -363,7 +363,7 @@ mock! {
     impl<C: ConnectionExt + 'static> QueryIdentity<C> for DbQuery<C> {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
 
-        fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
+        fn clear_key_package_rotation_queue(&self) -> Result<(), StorageError>;
 
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
     }
