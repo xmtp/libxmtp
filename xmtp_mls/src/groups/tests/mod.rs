@@ -51,7 +51,7 @@ use xmtp_db::schema::groups;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs},
-    group_intent::{IntentKind, IntentState},
+    group_intent::IntentState,
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     prelude::*,
     XmtpOpenMlsProviderRef,
