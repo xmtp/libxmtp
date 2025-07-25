@@ -253,6 +253,19 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
     }
 }
 
+impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
+    fn from(group: MlsGroup<&Context>) -> MlsGroup<Context> {
+        MlsGroup::<Context> {
+            context: group.context.clone(),
+            group_id: group.group_id,
+            dm_id: group.dm_id,
+            created_at_ns: group.created_at_ns,
+            mls_commit_lock: group.mls_commit_lock,
+            mutex: group.mutex,
+        }
+    }
+}
+
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
 /// This is a wrapper around OpenMLS's `MlsGroup` that handles our application-level configuration

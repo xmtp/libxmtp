@@ -182,10 +182,10 @@ pub trait QueryGroup<C: ConnectionExt> {
         welcome_id: i64,
     ) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
+    fn get_rotated_at_ns(&self, group_id: &[u8]) -> Result<i64, StorageError>;
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError>;
+    fn update_rotated_at_ns(&self, group_id: &[u8]) -> Result<(), StorageError>;
 
     fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError>;
 
@@ -460,7 +460,7 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         Ok(groups.into_iter().next())
     }
 
-    fn get_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+    fn get_rotated_at_ns(&self, group_id: &[u8]) -> Result<i64, StorageError> {
         let last_ts: Option<i64> = self.raw_query_read(|conn| {
             dsl::groups
                 .find(&group_id)
@@ -470,12 +470,12 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         })?;
 
         last_ts.ok_or(StorageError::NotFound(NotFound::InstallationTimeForGroup(
-            group_id,
+            group_id.to_vec(),
         )))
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    fn update_rotated_at_ns(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+    fn update_rotated_at_ns(&self, group_id: &[u8]) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             let now = xmtp_common::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))

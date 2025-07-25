@@ -7,7 +7,7 @@ use crate::{
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{metrics::WorkerMetrics, NeedsDbReconnect},
 };
-use futures::future::join_all;
+use futures::{stream, StreamExt, TryStreamExt};
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet},
@@ -255,13 +255,27 @@ where
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;
+
         let groups = HashSet::from_iter(groups);
-        QueueIntent::builder()
+        let intents = QueueIntent::builder()
             .update_group_membership()
-            .queue_for_each(&groups, async |group| {
-                Ok::<_, GroupError>(group.get_membership_update_intent(&[], &[]).await?.into())
+            .queue_for_each(groups, move |group| async move {
+                let intent = group.get_membership_update_intent(&[], &[]).await?;
+                let intent: Vec<u8> = intent.into();
+                Ok::<_, GroupError>(intent)
             })
             .await?;
+
+        let context = &self.context;
+        stream::iter(intents)
+            .map(Ok::<_, GroupError>)
+            .try_for_each_concurrent(10, |intent| async move {
+                let (group, _) = MlsGroup::new_cached(context, &intent.group_id)?;
+                group.sync_until_intent_resolved(intent.id).await?;
+                Ok(())
+            })
+            .await?;
+
         Ok(())
     }
 }

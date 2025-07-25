@@ -7,9 +7,9 @@ impl Instrumentation for InstrumentedSqliteConnection {
     fn on_connection_event(&mut self, event: InstrumentationEvent<'_>) {
         use InstrumentationEvent::*;
         match event {
-            // StartQuery { query, .. } => tracing::debug!("StartQuery {{ {} }}", query),
+            StartQuery { query, .. } => tracing::trace!("StartQuery {{ {} }}", query),
             FinishQuery { query, error, .. } => {
-                tracing::debug!("FinishQuery {{ {} {:?} }}", query, error)
+                tracing::trace!("FinishQuery {{ {} {:?} }}", query, error)
             }
             _ => (),
         }
