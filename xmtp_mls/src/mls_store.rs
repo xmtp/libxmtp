@@ -146,6 +146,7 @@ where
                     self.context.clone(),
                     stored_group.id,
                     stored_group.dm_id,
+                    stored_group.conversation_type,
                     stored_group.created_at_ns,
                 )
             })
@@ -160,7 +161,15 @@ where
         let conn = self.context.db();
         let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .ok_or(NotFound::GroupById(group_id.clone()))
             .map_err(Into::into)
     }

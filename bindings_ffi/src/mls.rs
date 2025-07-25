@@ -1719,6 +1719,7 @@ impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
 #[derive(uniffi::Object, Clone)]
 pub struct FfiConversation {
     inner: RustMlsGroup,
+    conversation_type: FfiConversationType,
 }
 
 #[derive(uniffi::Object)]
@@ -1833,7 +1834,13 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
 
 impl From<RustMlsGroup> for FfiConversation {
     fn from(mls_group: RustMlsGroup) -> FfiConversation {
-        FfiConversation { inner: mls_group }
+        FfiConversation {
+            conversation_type: match mls_group.dm_id {
+                Some(_) => FfiConversationType::Dm,
+                None => FfiConversationType::Group,
+            },
+            inner: mls_group,
+        }
     }
 }
 
@@ -2053,7 +2060,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2079,13 +2086,13 @@ impl FfiConversation {
         Ok(messages)
     }
 
-    pub async fn find_messages_with_reactions(
+    pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2437,11 +2444,6 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
-    pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
-        let conversation_type = self.inner.conversation_type().await?;
-        Ok(conversation_type.into())
-    }
-
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
@@ -2479,7 +2481,7 @@ impl From<GroupMessageKind> for FfiConversationMessageKind {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq, Debug)]
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
 pub enum FfiConversationType {
     Group,
     Dm,

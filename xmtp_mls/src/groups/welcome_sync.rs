@@ -150,7 +150,15 @@ where
         let groups = db
             .all_sync_groups()?
             .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .collect();
         let active_groups_count = self.sync_all_groups(groups).await?;
 
@@ -180,7 +188,15 @@ where
 
         let groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
-            .map(|c| MlsGroup::new(self.context.clone(), c.id, c.dm_id, c.created_at_ns))
+            .map(|c| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    c.id,
+                    c.dm_id,
+                    c.conversation_type,
+                    c.created_at_ns,
+                )
+            })
             .collect();
 
         let success_count = self.sync_groups_in_batches(groups, 10).await?;

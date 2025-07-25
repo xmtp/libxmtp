@@ -11,6 +11,7 @@ use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use crate::subscriptions::SubscribeError;
 use tracing::Instrument;
 use xmtp_common::{retry_async, Retry};
+use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
 use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
 use xmtp_proto::mls_v1::group_message;
@@ -107,6 +108,7 @@ where
             self.0.clone(),
             msg.group_id.clone(),
             None,
+            ConversationType::Sync,
             msg.created_ns as i64,
         );
         match group.sync_with_conn().await {

@@ -284,6 +284,7 @@ where
                 self.context.clone(),
                 other_dm.id,
                 other_dm.dm_id.clone(),
+                other_dm.conversation_type,
                 other_dm.created_at_ns,
             );
             other_dm.sync_with_conn().await?;

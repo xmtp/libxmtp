@@ -120,6 +120,7 @@ const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
+    pub conversation_type: ConversationType,
     pub created_at_ns: i64,
     pub context: Context,
     mls_commit_lock: Arc<GroupCommitLock>,
@@ -156,6 +157,7 @@ impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
         Self {
             group_id: self.group_id.clone(),
             dm_id: self.dm_id.clone(),
+            conversation_type: self.conversation_type,
             created_at_ns: self.created_at_ns,
             context: self.context.clone(),
             mutex: self.mutex.clone(),
@@ -247,9 +249,16 @@ where
         context: Context,
         group_id: Vec<u8>,
         dm_id: Option<String>,
+        conversation_type: ConversationType,
         created_at_ns: i64,
     ) -> Self {
-        Self::new_from_arc(context.clone(), group_id, dm_id, created_at_ns)
+        Self::new_from_arc(
+            context.clone(),
+            group_id,
+            dm_id,
+            conversation_type,
+            created_at_ns,
+        )
     }
 
     /// Creates a new group instance from the database. Validate that the group exists in the DB before constructing
@@ -269,6 +278,7 @@ where
                     context,
                     group_id.to_vec(),
                     group.dm_id.clone(),
+                    ConversationType::Group,
                     group.created_at_ns,
                 ),
                 group,
@@ -283,12 +293,14 @@ where
         context: Context,
         group_id: Vec<u8>,
         dm_id: Option<String>,
+        conversation_type: ConversationType,
         created_at_ns: i64,
     ) -> Self {
         let mut mutexes = context.mutexes().clone();
         Self {
             group_id: group_id.clone(),
             dm_id,
+            conversation_type,
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             context: context.clone(),
@@ -359,6 +371,7 @@ where
     pub(crate) fn create_and_insert(
         context: Context,
         membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
     ) -> Result<Self, GroupError> {
@@ -373,6 +386,7 @@ where
             context.clone(),
             stored_group.id,
             stored_group.dm_id,
+            conversation_type,
             stored_group.created_at_ns,
         );
 
@@ -498,6 +512,7 @@ where
             context.clone(),
             group_id.clone(),
             stored_group.dm_id,
+            ConversationType::Dm,
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
@@ -535,7 +550,13 @@ where
                 .ok_or(GroupError::NotFound(NotFound::GroupByWelcome(
                     welcome.id as i64,
                 )))?;
-            let group = Self::new(context, group.id, group.dm_id, group.created_at_ns);
+            let group = Self::new(
+                context,
+                group.id,
+                group.dm_id,
+                group.conversation_type,
+                group.created_at_ns,
+            );
 
             tracing::warn!("Skipping old welcome {}", welcome.id);
             return Ok(group);
@@ -791,6 +812,7 @@ where
                 context.clone(),
                 stored_group.id,
                 stored_group.dm_id,
+                stored_group.conversation_type,
                 stored_group.created_at_ns,
             );
 
@@ -846,7 +868,13 @@ where
             GroupMembershipState::Allowed,
         )?;
 
-        let group = Self::new_from_arc(context, stored_group.id, None, stored_group.created_at_ns);
+        let group = Self::new_from_arc(
+            context,
+            stored_group.id,
+            None,
+            ConversationType::Sync,
+            stored_group.created_at_ns,
+        );
 
         Ok(group)
     }
@@ -1666,7 +1694,15 @@ where
 
         let mls_groups = duplicates
             .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .collect();
 
         Ok(mls_groups)
@@ -1734,6 +1770,7 @@ where
             context,
             group_id,
             stored_group.dm_id.clone(),
+            ConversationType::Dm,
             stored_group.created_at_ns,
         ))
     }

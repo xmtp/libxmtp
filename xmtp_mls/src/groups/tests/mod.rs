@@ -1210,6 +1210,7 @@ async fn test_removed_members_cannot_send_message_to_others() {
         bola.context.clone(),
         amal_group.group_id.clone(),
         amal_group.dm_id.clone(),
+        amal_group.conversation_type,
         amal_group.created_at_ns,
     );
     bola_group
