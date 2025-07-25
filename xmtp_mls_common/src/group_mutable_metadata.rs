@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::group::{DMMetadataOptions, GroupMetadataOptions};
-use crate::config::{
+use xmtp_configuration::{
     DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_IMAGE_URL_SQUARE, DEFAULT_GROUP_NAME,
     MUTABLE_METADATA_EXTENSION_ID,
 };
