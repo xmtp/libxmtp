@@ -1719,7 +1719,7 @@ impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
 #[derive(uniffi::Object, Clone)]
 pub struct FfiConversation {
     inner: RustMlsGroup,
-    conversation_type: FfiConversationType,
+    pub conversation_type: FfiConversationType,
 }
 
 #[derive(uniffi::Object)]
