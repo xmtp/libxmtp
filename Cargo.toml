@@ -21,6 +21,7 @@ members = [
   "xmtp_db_test",
   "xmtp_archive",
   "xmtp_mls_common",
+  "xmtp_configuration",
 ]
 
 # Used when cargo commands in the workspace root, such as `cargo test`, are run without flags.
@@ -43,6 +44,7 @@ default-members = [
   "xmtp_api_d14n",
   "xmtp_macro",
   "xmtp_db",
+  "xmtp_configuration",
 ]
 
 # Make the feature resolver explicit.
@@ -159,6 +161,7 @@ xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
 xmtp_db_test = { path = "xmtp_db_test" }
+xmtp_configuration = { path = "xmtp_configuration" }
 bindings-wasm = { path = "bindings_wasm" }
 
 [profile.dbg]

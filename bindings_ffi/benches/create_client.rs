@@ -16,7 +16,7 @@ use xmtpv3::identity::FfiIdentifier;
 #[macro_use]
 extern crate tracing;
 
-const HISTORY_SYNC_URL: &str = xmtp_mls::configuration::DeviceSyncUrls::LOCAL_ADDRESS;
+const HISTORY_SYNC_URL: &str = xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS;
 
 fn setup() -> Runtime {
     Builder::new_multi_thread()

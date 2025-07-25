@@ -25,6 +25,7 @@ test-utils = [
   "xmtp_api/test-utils",
   "xmtp_api_http/test-utils",
   "xmtp_api_grpc/test-utils",
+  "xmtp_configuration/test-utils",
   "xmtp_common/test-utils",
   "dep:alloy",
   "dep:passkey",
@@ -85,6 +86,7 @@ tracing.workspace = true
 trait-variant.workspace = true
 xmtp_archive.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_mls_common.workspace = true
 
 # XMTP/Local
@@ -167,6 +169,7 @@ wasm-bindgen-test.workspace = true
 xmtp_api = { workspace = true, features = ["test-utils"] }
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_db_test.workspace = true
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }

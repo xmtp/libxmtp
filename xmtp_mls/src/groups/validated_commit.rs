@@ -799,7 +799,7 @@ pub fn extract_group_membership(
 ) -> Result<GroupMembership, CommitValidationError> {
     for extension in extensions.iter() {
         if let Extension::Unknown(
-            xmtp_mls_common::config::GROUP_MEMBERSHIP_EXTENSION_ID,
+            xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
             UnknownExtension(group_membership),
         ) = extension
         {
