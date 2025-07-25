@@ -1719,7 +1719,6 @@ impl TryFrom<PreferenceUpdate> for FfiPreferenceUpdate {
 #[derive(uniffi::Object, Clone)]
 pub struct FfiConversation {
     inner: RustMlsGroup,
-    pub conversation_type: FfiConversationType,
 }
 
 #[derive(uniffi::Object)]
@@ -1834,13 +1833,7 @@ impl From<ConversationDebugInfo> for FfiConversationDebugInfo {
 
 impl From<RustMlsGroup> for FfiConversation {
     fn from(mls_group: RustMlsGroup) -> FfiConversation {
-        FfiConversation {
-            conversation_type: match mls_group.dm_id {
-                Some(_) => FfiConversationType::Dm,
-                None => FfiConversationType::Group,
-            },
-            inner: mls_group,
-        }
+        FfiConversation { inner: mls_group }
     }
 }
 
@@ -2060,7 +2053,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2092,7 +2085,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2463,6 +2456,10 @@ impl FfiConversation {
 impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
         self.inner.group_id.clone()
+    }
+
+    pub fn conversation_type(&self) -> FfiConversationType {
+        self.inner.conversation_type.into()
     }
 }
 
@@ -7766,7 +7763,6 @@ mod tests {
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
             .find_messages_with_reactions(FfiListMessagesOptions::default())
-            .await
             .unwrap();
         assert_eq!(messages_with_reactions.len(), 2);
         let message_with_reactions = &messages_with_reactions[1];
