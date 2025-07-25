@@ -118,6 +118,7 @@ impl Conversation {
       self.inner_group.context.clone(),
       self.group_id.clone(),
       self.dm_id.clone(),
+      self.inner_group.conversation_type,
       self.created_at_ns,
     )
   }

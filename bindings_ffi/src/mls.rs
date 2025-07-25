@@ -2053,7 +2053,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2079,13 +2079,13 @@ impl FfiConversation {
         Ok(messages)
     }
 
-    pub async fn find_messages_with_reactions(
+    pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2437,11 +2437,6 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
-    pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
-        let conversation_type = self.inner.conversation_type().await?;
-        Ok(conversation_type.into())
-    }
-
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
@@ -2462,6 +2457,10 @@ impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
         self.inner.group_id.clone()
     }
+
+    pub fn conversation_type(&self) -> FfiConversationType {
+        self.inner.conversation_type.into()
+    }
 }
 
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
@@ -2479,7 +2478,7 @@ impl From<GroupMessageKind> for FfiConversationMessageKind {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq, Debug)]
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
 pub enum FfiConversationType {
     Group,
     Dm,
@@ -7764,7 +7763,6 @@ mod tests {
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
             .find_messages_with_reactions(FfiListMessagesOptions::default())
-            .await
             .unwrap();
         assert_eq!(messages_with_reactions.len(), 2);
         let message_with_reactions = &messages_with_reactions[1];

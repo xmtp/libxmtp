@@ -188,6 +188,8 @@ async fn it_can_stream_messages(#[case] mut cases: Vec<StreamSession>) {
 async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
     use std::borrow::Cow;
 
+    use xmtp_db::group::ConversationType;
+
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {
@@ -212,6 +214,7 @@ async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
                     finished.context.clone(),
                     group_id(group.group_id).to_vec(),
                     None,
+                    ConversationType::Group,
                     xmtp_common::time::now_ns(),
                 ))
             }
@@ -270,6 +273,8 @@ async fn test_adding_to_stream_works(#[case] cases: Vec<StreamSession>) {
 ])]
 #[xmtp_common::test]
 async fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) {
+    use xmtp_db::group::ConversationType;
+
     let group_list = group_list_from_session(&cases);
     let mut sequence = StreamSequenceBuilder::default();
     for case in cases.iter().cloned() {
@@ -302,6 +307,7 @@ async fn it_can_add_to_stream_while_busy(#[case] mut cases: Vec<StreamSession>) 
                     finished.context.clone(),
                     group_id(group.group_id).to_vec(),
                     None,
+                    ConversationType::Group,
                     xmtp_common::time::now_ns(),
                 ))
             }
