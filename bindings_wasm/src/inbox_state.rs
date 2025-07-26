@@ -170,7 +170,7 @@ impl Client {
 
   #[wasm_bindgen(js_name = getLatestInboxState)]
   pub async fn get_latest_inbox_state(&self, inbox_id: String) -> Result<InboxState, JsError> {
-    let conn = self.inner_client().store().db();
+    let conn = self.inner_client().context.store().db();
     let state = self
       .inner_client()
       .identity_updates()

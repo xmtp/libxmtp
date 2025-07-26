@@ -37,13 +37,13 @@ pub mod remote_commit_log;
 
 pub use self::db_connection::DbConnection;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
-use openmls_traits::OpenMlsProvider;
+use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
 use xmtp_common::{RetryableError, retryable};
 
-use super::{StorageError, xmtp_openmls_provider::XmtpOpenMlsProvider};
-use crate::Store;
-use crate::sql_key_store::SqlKeyStore;
+use super::StorageError;
+use crate::sql_key_store::SqlKeyStoreError;
+use crate::{MlsKeyStore, Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -73,12 +73,12 @@ pub enum StorageOption {
     Persistent(String),
 }
 
-pub struct TransactionGuard<'a> {
+#[derive(Clone)]
+pub struct TransactionGuard {
     pub(crate) in_transaction: Arc<AtomicBool>,
-    pub(crate) _mutex_guard: parking_lot::MutexGuard<'a, ()>,
 }
 
-impl Drop for TransactionGuard<'_> {
+impl Drop for TransactionGuard {
     fn drop(&mut self) {
         self.in_transaction.store(false, Ordering::SeqCst);
     }
@@ -92,6 +92,10 @@ pub enum ConnectionError {
     Platform(#[from] PlatformStorageError),
     #[error(transparent)]
     DecodeError(#[from] DecodeError),
+    #[error("disconnect not possible in transaction")]
+    DisconnectInTransaction,
+    #[error("reconnect not possible in transaction")]
+    ReconnectInTransaction,
 }
 
 impl RetryableError for ConnectionError {
@@ -100,20 +104,22 @@ impl RetryableError for ConnectionError {
             Self::Database(d) => retryable!(d),
             Self::Platform(n) => retryable!(n),
             Self::DecodeError(_) => false,
+            Self::DisconnectInTransaction => true,
+            Self::ReconnectInTransaction => true,
         }
     }
 }
 
-// #[cfg_attr(any(test, feature = "test-utils"), mockall::automock(type Connection = diesel::SqliteConnection;))]
 pub trait ConnectionExt {
     type Connection: diesel::Connection<Backend = Sqlite>
         + diesel::connection::SimpleConnection
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
+        + MlsKeyStore
         + Send;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError>;
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
 
     /// Run a scoped read-only query
     /// Implementors are expected to store an instance of 'TransactionGuard'
@@ -132,6 +138,9 @@ pub trait ConnectionExt {
         Self: Sized;
 
     fn is_in_transaction(&self) -> bool;
+
+    fn disconnect(&self) -> Result<(), ConnectionError>;
+    fn reconnect(&self) -> Result<(), ConnectionError>;
 }
 
 impl<C> ConnectionExt for &C
@@ -140,7 +149,7 @@ where
 {
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
 
@@ -162,6 +171,53 @@ where
 
     fn is_in_transaction(&self) -> bool {
         <C as ConnectionExt>::is_in_transaction(self)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
+    }
+}
+
+impl<C> ConnectionExt for &mut C
+where
+    C: ConnectionExt,
+{
+    type Connection = <C as ConnectionExt>::Connection;
+
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
+        <C as ConnectionExt>::start_transaction(self)
+    }
+
+    fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_read(self, fun)
+    }
+
+    fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
+    where
+        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        Self: Sized,
+    {
+        <C as ConnectionExt>::raw_query_write(self, fun)
+    }
+
+    fn is_in_transaction(&self) -> bool {
+        <C as ConnectionExt>::is_in_transaction(self)
+    }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
     }
 }
 
@@ -171,7 +227,7 @@ where
 {
     type Connection = <C as ConnectionExt>::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <C as ConnectionExt>::start_transaction(self)
     }
 
@@ -194,14 +250,29 @@ where
     fn is_in_transaction(&self) -> bool {
         <C as ConnectionExt>::is_in_transaction(self)
     }
+
+    fn disconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::disconnect(self)
+    }
+
+    fn reconnect(&self) -> Result<(), ConnectionError> {
+        <C as ConnectionExt>::reconnect(self)
+    }
 }
 
-pub type BoxedDatabase = Box<dyn XmtpDb<Connection = diesel::SqliteConnection>>;
+pub type BoxedDatabase = Box<
+    dyn XmtpDb<
+            Connection = diesel::SqliteConnection,
+            DbQuery = DbConnection<diesel::SqliteConnection>,
+        >,
+>;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery<crate::mock::MockConnection>;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;
+
+    type DbQuery: crate::DbQuery<Self::Connection> + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.validate(opts)?;
@@ -233,7 +304,7 @@ pub trait XmtpDb: Send + Sync {
 
     /// Returns a higher-level wrapeped DbConnection from which high-level queries may be
     /// accessed.
-    fn db(&self) -> DbConnection<Self::Connection>;
+    fn db(&self) -> Self::DbQuery;
 
     /// Reconnect to the database
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -336,12 +407,12 @@ macro_rules! impl_store_or_ignore {
     };
 }
 
-impl<T> Store<DbConnection> for Vec<T>
+impl<T, C> Store<DbConnection<C>> for Vec<T>
 where
-    T: Store<DbConnection>,
+    T: Store<DbConnection<C>>,
 {
     type Output = ();
-    fn store(&self, into: &DbConnection) -> Result<Self::Output, StorageError> {
+    fn store(&self, into: &DbConnection<C>) -> Result<Self::Output, StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -349,32 +420,10 @@ where
     }
 }
 
-pub trait MlsProviderExt: OpenMlsProvider {
-    type Connection: ConnectionExt;
+pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
+    type XmtpStorage: XmtpMlsStorageProvider;
 
-    /// Start a new database transaction with the OpenMLS Provider from XMTP
-    /// with the provided connection
-    /// # Arguments
-    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// provider.transaction(|provider| {
-    ///     // do some operations requiring provider
-    ///     // access the connection with .conn()
-    ///     provider.conn().db_operation()?;
-    /// })
-    /// ```
-    fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
-    where
-        F: FnOnce(&XmtpOpenMlsProvider<Self::Connection>) -> Result<T, E>,
-        E: std::error::Error + From<crate::ConnectionError>;
-
-    /// Get the underlying DbConnection this provider is using
-    fn db(&self) -> &DbConnection<Self::Connection>;
-
-    fn key_store(&self) -> &SqlKeyStore<Self::Connection>;
+    fn key_store(&self) -> &Self::XmtpStorage;
 }
 
 #[cfg(test)]

@@ -137,7 +137,7 @@ fn unwrap_welcome_inner(
 #[cfg(test)]
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::XmtpOpenMlsProvider;
+    use xmtp_db::MlsProviderExt;
 
     use crate::{
         builder::ClientBuilder,
@@ -148,7 +148,7 @@ mod tests {
     use super::*;
 
     fn find_key_package_private_key(
-        provider: &XmtpOpenMlsProvider,
+        provider: &impl MlsProviderExt,
         hpke_public_key: &[u8],
         wrapper_algorithm: WrapperAlgorithm,
     ) -> Vec<u8> {
@@ -159,7 +159,7 @@ mod tests {
     #[xmtp_common::test]
     async fn round_trip_curve25519() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider();
+        let provider = client.context.mls_provider();
 
         let NewKeyPackageResult { key_package, .. } =
             client.identity().new_key_package(&provider, false).unwrap();
@@ -188,7 +188,7 @@ mod tests {
     #[xmtp_common::test]
     async fn round_trip_xwing_mlkem512() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let provider = client.mls_provider();
+        let provider = client.context.mls_provider();
 
         let NewKeyPackageResult {
             pq_pub_key: maybe_pq_pub_key,

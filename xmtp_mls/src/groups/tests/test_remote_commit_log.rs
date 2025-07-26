@@ -1,8 +1,9 @@
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
-use crate::{context::XmtpContextProvider, tester};
+use crate::{context::XmtpSharedContext, tester};
 use prost::Message;
 use rand::Rng;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::prelude::*;
 use xmtp_proto::mls_v1::QueryCommitLogRequest;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
@@ -29,6 +30,7 @@ async fn test_commit_log_publish_and_query_apis() {
     };
 
     let result = alix
+        .context
         .api()
         .publish_commit_log(&[commit_log_entry.clone()])
         .await;
@@ -40,7 +42,7 @@ async fn test_commit_log_publish_and_query_apis() {
         ..Default::default()
     };
 
-    let query_result = alix.api().query_commit_log(vec![query]).await;
+    let query_result = alix.context.api().query_commit_log(vec![query]).await;
     assert!(query_result.is_ok());
 
     // Extract the entries from the response
@@ -125,7 +127,7 @@ async fn test_publish_commit_log_to_remote() {
 
     // Alix has two local commit log entry
     let commit_log_entries = alix
-        .provider
+        .context
         .db()
         .get_group_logs(&alix_group.group_id)
         .unwrap();
@@ -133,7 +135,7 @@ async fn test_publish_commit_log_to_remote() {
 
     // Since Alix has never written to the remote commit log, the last cursor should be 0
     let published_commit_log_cursor = alix
-        .provider
+        .context
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
@@ -150,7 +152,7 @@ async fn test_publish_commit_log_to_remote() {
     assert!(result.is_ok());
 
     let published_commit_log_cursor = alix
-        .provider
+        .context
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
@@ -171,7 +173,7 @@ async fn test_publish_commit_log_to_remote() {
         ..Default::default()
     };
 
-    let query_result = alix.api().query_commit_log(vec![query]).await;
+    let query_result = alix.context.api().query_commit_log(vec![query]).await;
     assert!(query_result.is_ok());
 
     // Extract the entries from the response
@@ -220,7 +222,7 @@ async fn test_download_commit_log_from_remote() {
 
     // Before Alix publishes commits upload commit cursor should be 0 for both groups:
     let alix_group_1_cursor = alix
-        .provider
+        .context
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
@@ -274,7 +276,7 @@ async fn test_download_commit_log_from_remote() {
 
     // After Alix publishes commits upload commit cursor should be equal to publish results last rowid for both groups:
     let alix_group_1_cursor = alix
-        .provider
+        .context
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,

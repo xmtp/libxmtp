@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
@@ -71,8 +73,34 @@ pub struct RefreshState {
 impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-impl<C: ConnectionExt> DbConnection<C> {
-    pub fn get_refresh_state<EntityId: AsRef<[u8]>>(
+pub trait QueryRefreshState<C: ConnectionExt> {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError>;
+
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        &self,
+        id: Id,
+        entity_kind: EntityKind,
+    ) -> Result<i64, StorageError>;
+
+    fn update_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError>;
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryRefreshState<C> for DbConnection<C> {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
         entity_kind: EntityKind,
@@ -88,7 +116,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         Ok(res)
     }
 
-    pub fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
         &self,
         id: Id,
         entity_kind: EntityKind,
@@ -108,7 +136,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         }
     }
 
-    pub fn update_cursor<Id: AsRef<[u8]>>(
+    fn update_cursor<Id: AsRef<[u8]>>(
         &self,
         entity_id: Id,
         entity_kind: EntityKind,
@@ -126,6 +154,20 @@ impl<C: ConnectionExt> DbConnection<C> {
                 .execute(conn)
         })?;
         Ok(num_updated == 1)
+    }
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        let mut cursor_map: HashMap<Vec<u8>, i64> = HashMap::new();
+        for conversation_id in conversation_ids {
+            let cursor = self
+                .get_last_cursor_for_id(conversation_id, EntityKind::CommitLogDownload)
+                .unwrap_or(0);
+            cursor_map.insert(conversation_id.clone(), cursor);
+        }
+        Ok(cursor_map)
     }
 }
 

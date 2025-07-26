@@ -41,7 +41,7 @@ async fn test_key_rotation_with_optimistic_send() {
         (async { g.test_can_talk_with(&bo_g).await })
     )?;
 
-    let key_updates = Events::key_updates(bo.provider.db())?;
+    let key_updates = Events::key_updates(&bo.context.db())?;
     assert_eq!(key_updates.len(), 1);
 }
 
@@ -82,7 +82,7 @@ async fn key_update_out_of_epoch() {
     bo_g.sync().await?;
     g.test_can_talk_with(&bo_g).await?;
 
-    let key_updates = Events::key_updates(bo.provider.db())?;
+    let key_updates = Events::key_updates(&bo.context.db())?;
 
     assert_eq!(key_updates.len(), 1);
 }

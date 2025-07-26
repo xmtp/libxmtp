@@ -1,7 +1,7 @@
 use super::*;
 use openmls::group::{GroupId, MlsGroup};
-use openmls_traits::OpenMlsProvider;
 use xmtp_db::group::{GroupQueryArgs, StoredGroup};
+use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::GroupMetadata, group_mutable_metadata::GroupMutableMetadata,
 };
@@ -14,35 +14,35 @@ use xmtp_proto::xmtp::device_sync::{
 
 impl BackupRecordProvider for GroupSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<C>(
-        streamer: &BackupRecordStreamer<Self, C>,
+    fn backup_records<D, C>(
+        db: Arc<D>,
+        start_ns: Option<i64>,
+        end_ns: Option<i64>,
+        cursor: i64,
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
         C: ConnectionExt,
+        D: DbQuery<C> + 'static,
     {
         let mut args = GroupQueryArgs::default();
 
-        if let Some(start_ns) = streamer.start_ns {
+        if let Some(start_ns) = start_ns {
             args.created_after_ns = Some(start_ns);
         }
-        if let Some(end_ns) = streamer.end_ns {
+        if let Some(end_ns) = end_ns {
             args.created_before_ns = Some(end_ns);
         }
 
         args.limit = Some(Self::BATCH_SIZE);
 
-        let batch = streamer
-            .provider
-            .db()
-            .find_groups_by_id_paged(args, streamer.cursor)?;
-
-        let storage = streamer.provider.storage();
+        let batch = db.find_groups_by_id_paged(args, cursor)?;
+        let storage = SqlKeyStore::new(db);
         let records = batch
             .into_iter()
             .filter_map(|record| {
                 let mls_group =
-                    MlsGroup::load(storage, &GroupId::from_slice(&record.id)).ok()??;
+                    MlsGroup::load(&storage, &GroupId::from_slice(&record.id)).ok()??;
                 let immutable = mls_group.extensions().immutable_metadata()?;
 
                 let immutable_metadata = GroupMetadata::try_from(immutable.metadata()).ok()?;

@@ -7,38 +7,40 @@ use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
 use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
+use xmtp_db::MlsProviderExt;
 use xmtp_db::{
     local_commit_log::{CommitType, NewLocalCommitLog},
+    prelude::*,
     remote_commit_log::CommitResult,
-    ConnectionExt, Store, XmtpOpenMlsProvider,
+    Store, XmtpMlsStorageProvider,
 };
 
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
 /// This helps with fork detection.
 pub trait CommitLogStorer: std::marker::Sized {
-    fn from_creation_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_creation_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
     ) -> Result<Self, GroupError>;
 
-    fn from_backup_stub_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_backup_stub_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
     ) -> Result<Self, GroupError>;
 
-    fn from_welcome_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_welcome_logged(
+        provider: &impl MlsProviderExt,
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
     ) -> Result<Self, GroupError>;
 
-    fn merge_staged_commit_logged<Db: ConnectionExt>(
+    fn merge_staged_commit_logged(
         &mut self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
@@ -48,9 +50,9 @@ pub trait CommitLogStorer: std::marker::Sized {
     /// Only call this when the status of the commit is final.
     /// Specifically, do not call this for retryable errors, or
     /// VersionTooLow/GroupPaused errors.
-    fn mark_failed_commit_logged<Db: ConnectionExt>(
+    fn mark_failed_commit_logged(
         &self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         commit_sequence_id: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
@@ -58,8 +60,8 @@ pub trait CommitLogStorer: std::marker::Sized {
 }
 
 impl CommitLogStorer for MlsGroup {
-    fn from_creation_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_creation_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
     ) -> Result<Self, GroupError> {
@@ -86,14 +88,14 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::GroupCreation)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn from_backup_stub_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_backup_stub_logged(
+        provider: &impl MlsProviderExt,
         identity: &Identity,
         group_config: &MlsGroupCreateConfig,
         group_id: GroupId,
@@ -124,14 +126,14 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::BackupRestore)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn from_welcome_logged<Db: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<Db>,
+    fn from_welcome_logged(
+        provider: &impl MlsProviderExt,
         welcome: StagedWelcome,
         sender_inbox_id: &str,
         sender_installation_id: &[u8],
@@ -153,21 +155,21 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", CommitType::Welcome)),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(mls_group)
     }
 
-    fn merge_staged_commit_logged<Db: ConnectionExt>(
+    fn merge_staged_commit_logged(
         &mut self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         staged_commit: StagedCommit,
         validated_commit: &ValidatedCommit,
         sequence_id: i64,
     ) -> Result<(), GroupMessageProcessingError> {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
-        self.merge_staged_commit(&provider, staged_commit)?;
+        self.merge_staged_commit(provider, staged_commit)?;
 
         if crate::configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
@@ -182,15 +184,15 @@ impl CommitLogStorer for MlsGroup {
                 commit_type: Some(format!("{}", validated_commit.debug_commit_type())),
                 error_message: None,
             }
-            .store(provider.db())?;
+            .store(&provider.key_store().db())?;
         }
 
         Ok(())
     }
 
-    fn mark_failed_commit_logged<Db: ConnectionExt>(
+    fn mark_failed_commit_logged(
         &self,
-        provider: &XmtpOpenMlsProvider<Db>,
+        provider: &impl MlsProviderExt,
         commit_sequence_id: u64,
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
@@ -201,7 +203,7 @@ impl CommitLogStorer for MlsGroup {
         let group_id = self.group_id().to_vec();
         let last_epoch_number = self.epoch();
         let last_epoch_authenticator = self.epoch_authenticator();
-        let conn = provider.db();
+        let conn = provider.key_store().db();
         let mut maybe_recently_welcomed = true;
         // Latest log may not exist if a client upgraded from a version without local commit logs
         if let Some(latest_log) = conn.get_latest_log_for_group(&group_id)? {
@@ -227,7 +229,7 @@ impl CommitLogStorer for MlsGroup {
             sender_installation_id: None,
             commit_type: None,
         }
-        .store(conn)?;
+        .store(&conn)?;
         Ok(())
     }
 }

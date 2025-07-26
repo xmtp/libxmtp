@@ -1,22 +1,21 @@
 use futures::StreamExt;
 use prost::Message;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
-use tokio::sync::OnceCell;
 use xmtp_api::ApiError;
 use xmtp_db::{
+    prelude::*,
     remote_commit_log::{self, CommitResult, RemoteCommitLog},
-    DbConnection, StorageError, Store, XmtpDb,
+    DbQuery, StorageError, Store, XmtpDb,
 };
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 use xmtp_proto::{
-    api_client::trait_impls::XmtpApi,
     mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
 };
 
 use crate::{
-    context::{XmtpContextProvider, XmtpMlsLocalContext, XmtpSharedContext},
+    context::XmtpSharedContext,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 
@@ -24,14 +23,13 @@ use crate::{
 pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
-pub struct Factory<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
+pub struct Factory<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> WorkerFactory for Factory<ApiClient, Db>
+impl<Context> WorkerFactory for Factory<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::CommitLog
@@ -73,10 +71,9 @@ impl NeedsDbReconnect for CommitLogError {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<ApiClient, Db> Worker for CommitLogWorker<ApiClient, Db>
+impl<Context> Worker for CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static + Send,
+    Context: XmtpSharedContext + 'static,
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::CommitLog
@@ -89,31 +86,22 @@ where
     fn factory<C>(context: C) -> impl WorkerFactory + 'static
     where
         Self: Sized,
-        C: XmtpSharedContext,
-        <C as XmtpSharedContext>::Db: 'static,
-        <C as XmtpSharedContext>::ApiClient: 'static,
+        C: XmtpSharedContext + Send + Sync + 'static,
     {
-        let context = context.context_ref().clone();
         Factory { context }
     }
 }
 
-pub struct CommitLogWorker<ApiClient, Db> {
-    context: Arc<XmtpMlsLocalContext<ApiClient, Db>>,
-    #[allow(dead_code)]
-    init: OnceCell<()>,
+pub struct CommitLogWorker<Context> {
+    context: Context,
 }
 
-impl<ApiClient, Db> CommitLogWorker<ApiClient, Db>
+impl<Context> CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Arc<XmtpMlsLocalContext<ApiClient, Db>>) -> Self {
-        Self {
-            context,
-            init: OnceCell::new(),
-        }
+    pub fn new(context: Context) -> Self {
+        Self { context }
     }
 }
 
@@ -145,18 +133,15 @@ pub struct TestResult {
     pub publish_commit_log_results: Option<Vec<PublishCommitLogsResult>>,
 }
 
-impl<ApiClient, Db> CommitLogWorker<ApiClient, Db>
+impl<Context> CommitLogWorker<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), CommitLogError> {
         let mut intervals = xmtp_common::time::interval_stream(INTERVAL_DURATION);
         while (intervals.next().await).is_some() {
-            let provider = self.context.mls_provider();
-            let conn = provider.db();
-            self.publish_commit_logs_to_remote(conn).await?;
-            self.save_remote_commit_log(conn).await?;
+            self.publish_commit_logs_to_remote().await?;
+            self.save_remote_commit_log().await?;
         }
         Ok(())
     }
@@ -190,25 +175,23 @@ where
         &mut self,
         commit_log_test_function: &CommitLogTestFunction,
     ) -> Result<TestResult, CommitLogError> {
-        let provider = self.context.mls_provider();
-        let conn = provider.db();
         let mut test_result = TestResult {
             save_remote_commit_log_results: None,
             publish_commit_log_results: None,
         };
         match commit_log_test_function {
             CommitLogTestFunction::PublishCommitLogsToRemote => {
-                let publish_commit_log_results = self.publish_commit_logs_to_remote(conn).await?;
+                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
                 test_result.publish_commit_log_results = Some(publish_commit_log_results);
             }
             CommitLogTestFunction::SaveRemoteCommitLog => {
-                let save_remote_commit_log_results = self.save_remote_commit_log(conn).await?;
+                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
             }
             CommitLogTestFunction::All => {
-                let publish_commit_log_results = self.publish_commit_logs_to_remote(conn).await?;
+                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
                 test_result.publish_commit_log_results = Some(publish_commit_log_results);
-                let save_remote_commit_log_results = self.save_remote_commit_log(conn).await?;
+                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
             }
         }
@@ -217,8 +200,8 @@ where
 
     async fn publish_commit_logs_to_remote(
         &mut self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
     ) -> Result<Vec<PublishCommitLogsResult>, CommitLogError> {
+        let conn = &self.context.db();
         // Step 1 is to get the list of all group_id for dms and for groups where we are a super admin
         let conversation_ids_for_remote_log_publish =
             conn.get_conversation_ids_for_remote_log_publish()?;
@@ -288,7 +271,7 @@ where
     //  If so - map to the `PublishedCommitLog` cursor in `cursor_map`, otherwise map to None
     fn map_conversation_to_commit_log_cursor(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         conversation_ids: &[Vec<u8>],
     ) -> HashMap<Vec<u8>, Option<i64>> {
         let mut cursor_map: HashMap<Vec<u8>, Option<i64>> = HashMap::new();
@@ -317,8 +300,8 @@ where
 
     async fn save_remote_commit_log(
         &mut self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
     ) -> Result<Vec<SaveRemoteCommitLogResult>, CommitLogError> {
+        let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
         let conversation_ids_for_remote_log_download =
             conn.get_conversation_ids_for_remote_log_download()?;
@@ -364,7 +347,7 @@ where
 
     fn save_remote_commit_log_entries_and_update_cursors(
         &self,
-        conn: &DbConnection<<Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         commit_log_response: QueryCommitLogResponse,
     ) -> Result<UpdateCursorsResult, CommitLogError> {
         let group_id = commit_log_response.group_id;

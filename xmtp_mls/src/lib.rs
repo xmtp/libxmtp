@@ -26,10 +26,10 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
-use xmtp_db::{xmtp_openmls_provider::XmtpOpenMlsProvider, DuplicateItem, StorageError};
+use xmtp_db::{DuplicateItem, StorageError};
 pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as common;
-pub use xmtp_proto::api_client::trait_impls::*;
+pub use xmtp_proto::api_client::*;
 
 /// A manager for group-specific semaphores
 #[derive(Debug)]

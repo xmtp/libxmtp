@@ -46,7 +46,7 @@ use xmtp_mls::common::group::GroupMetadataOptions;
 use xmtp_mls::common::group_metadata::GroupMetadata;
 use xmtp_mls::common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::common::group_mutable_metadata::MetadataField;
-use xmtp_mls::context::XmtpContextProvider;
+use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::device_sync::archive::exporter::ArchiveExporter;
 use xmtp_mls::groups::device_sync::archive::insert_importer;
 use xmtp_mls::groups::device_sync::archive::ArchiveImporter;
@@ -75,7 +75,6 @@ use xmtp_mls::{
     subscriptions::SubscribeError,
 };
 use xmtp_proto::api_client::AggregateStats;
-use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::ApiStats;
 use xmtp_proto::api_client::IdentityStats;
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
@@ -87,9 +86,15 @@ use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 #[cfg(test)]
 mod test_utils;
 
-pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
-
-pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
+pub type MlsContext = Arc<
+    XmtpMlsLocalContext<
+        ApiDebugWrapper<TonicApiClient>,
+        xmtp_db::DefaultStore,
+        xmtp_db::DefaultMlsStore,
+    >,
+>;
+pub type RustXmtpClient = MlsClient<MlsContext>;
+pub type RustMlsGroup = MlsGroup<MlsContext>;
 
 #[derive(uniffi::Object, Clone)]
 pub struct XmtpApiClient(TonicApiClient);
@@ -98,6 +103,7 @@ pub struct XmtpApiClient(TonicApiClient);
 pub async fn connect_to_backend(
     host: String,
     is_secure: bool,
+    app_version: Option<String>,
 ) -> Result<Arc<XmtpApiClient>, GenericError> {
     init_logger();
 
@@ -108,11 +114,7 @@ pub async fn connect_to_backend(
         host,
         is_secure
     );
-    let mut api_client = TonicApiClient::builder();
-    api_client.set_host(host);
-    api_client.set_tls(is_secure);
-    api_client.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())?;
-    let api_client = api_client.build().await?;
+    let api_client = TonicApiClient::create(&host, is_secure, app_version).await?;
     Ok(Arc::new(XmtpApiClient(api_client)))
 }
 
@@ -278,7 +280,7 @@ pub async fn create_client(
         builder = builder.device_sync_server_url(url);
     }
 
-    let xmtp_client = builder.build().await?;
+    let xmtp_client = builder.default_mls_store()?.build().await?;
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
@@ -507,7 +509,7 @@ impl FfiXmtpClient {
         identifier: FfiIdentifier,
     ) -> Result<Option<String>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conn = self.inner_client.context().db();
+        let conn = self.inner_client.context.db();
         let result = inner
             .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
             .await?;
@@ -585,7 +587,7 @@ impl FfiXmtpClient {
         let state = self
             .inner_client
             .identity_updates()
-            .get_latest_association_state(&self.inner_client.context().db(), &inbox_id)
+            .get_latest_association_state(&self.inner_client.context.db(), &inbox_id)
             .await?;
         Ok(state.into())
     }
@@ -613,7 +615,7 @@ impl FfiXmtpClient {
     /// A utility function to sign a piece of text with this installation's private key.
     pub fn sign_with_installation_key(&self, text: &str) -> Result<Vec<u8>, GenericError> {
         let inner = self.inner_client.as_ref();
-        Ok(inner.context().sign_with_public_context(text)?)
+        Ok(inner.context.sign_with_public_context(text)?)
     }
 
     /// A utility function to easily verify that a piece of text was signed by this installation.
@@ -829,9 +831,9 @@ impl FfiXmtpClient {
         opts: FfiArchiveOptions,
         key: Vec<u8>,
     ) -> Result<(), GenericError> {
-        let provider = self.inner_client.mls_provider();
+        let db = self.inner_client.context.db();
         let options: BackupOptions = opts.into();
-        ArchiveExporter::export_to_file(options, provider, path, &check_key(key)?)
+        ArchiveExporter::export_to_file(options, db, path, &check_key(key)?)
             .await
             .map_err(DeviceSyncError::Archive)?;
         Ok(())
@@ -862,8 +864,8 @@ impl FfiXmtpClient {
 
     /// Export an encrypted debug archive to a device sync server to inspect telemetry for debugging purposes.
     pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, GenericError> {
-        let provider = Arc::new(self.inner_client.mls_provider());
-        Ok(upload_debug_archive(&provider, Some(server_url)).await?)
+        let db = self.inner_client.context.db();
+        Ok(upload_debug_archive(db, Some(server_url)).await?)
     }
 }
 
@@ -1608,7 +1610,7 @@ impl FfiConversations {
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
         let close_cb = message_callback.clone();
         let handle = RustXmtpClient::stream_all_messages_with_callback(
-            self.inner_client.clone(),
+            self.inner_client.context.clone(),
             conversation_type.map(Into::into),
             consents,
             move |msg| match msg {
@@ -2051,7 +2053,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2077,13 +2079,13 @@ impl FfiConversation {
         Ok(messages)
     }
 
-    pub async fn find_messages_with_reactions(
+    pub fn find_messages_with_reactions(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessageWithReactions>, GenericError> {
         let delivery_status = opts.delivery_status.map(|status| status.into());
         let direction = opts.direction.map(|dir| dir.into());
-        let kind = match self.conversation_type().await? {
+        let kind = match self.conversation_type() {
             FfiConversationType::Group => None,
             FfiConversationType::Dm => None,
             FfiConversationType::Sync => None,
@@ -2435,11 +2437,6 @@ impl FfiConversation {
         Ok(hmac_map)
     }
 
-    pub async fn conversation_type(&self) -> Result<FfiConversationType, GenericError> {
-        let conversation_type = self.inner.conversation_type().await?;
-        Ok(conversation_type.into())
-    }
-
     pub async fn conversation_debug_info(&self) -> Result<FfiConversationDebugInfo, GenericError> {
         let debug_info = self.inner.debug_info().await?;
         Ok(debug_info.into())
@@ -2460,6 +2457,10 @@ impl FfiConversation {
     pub fn id(&self) -> Vec<u8> {
         self.inner.group_id.clone()
     }
+
+    pub fn conversation_type(&self) -> FfiConversationType {
+        self.inner.conversation_type.into()
+    }
 }
 
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
@@ -2477,7 +2478,7 @@ impl From<GroupMessageKind> for FfiConversationMessageKind {
     }
 }
 
-#[derive(uniffi::Enum, PartialEq, Debug)]
+#[derive(uniffi::Enum, PartialEq, Debug, Clone)]
 pub enum FfiConversationType {
     Group,
     Dm,
@@ -3061,7 +3062,10 @@ mod tests {
         transaction_reference::TransactionReferenceCodec, ContentCodec,
     };
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_db::prelude::*;
     use xmtp_db::EncryptionKey;
+    use xmtp_db::MlsProviderExt;
+    use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_id::associations::{
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
@@ -3296,7 +3300,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3313,7 +3317,7 @@ mod tests {
         .await
         .unwrap();
 
-        let conn = client.inner_client.context().db();
+        let conn = client.inner_client.context.db();
         conn.register_triggers();
 
         register_client_with_wallet(&ffi_inbox_owner, &client).await;
@@ -3331,7 +3335,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3347,7 +3351,7 @@ mod tests {
         )
         .await?;
 
-        let conn = client.inner_client.context().db();
+        let conn = client.inner_client.context.db();
         conn.register_triggers();
 
         register_client_with_wallet_no_panic(&ffi_inbox_owner, &client).await?;
@@ -3374,7 +3378,7 @@ mod tests {
         let ident = &client.account_identifier;
         let real_inbox_id = client.inbox_id();
 
-        let api = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+        let api = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
             .await
             .unwrap();
 
@@ -3399,7 +3403,7 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3429,7 +3433,7 @@ mod tests {
         let path = tmp_path();
 
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3451,7 +3455,7 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path),
@@ -3489,7 +3493,7 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3512,7 +3516,7 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path),
@@ -3559,9 +3563,10 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
 
-        let connection = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let connection =
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+                .await
+                .unwrap();
         let client = create_client(
             connection.clone(),
             Some(path.clone()),
@@ -3761,7 +3766,7 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3785,7 +3790,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().db();
+        let conn = client.inner_client.context.store().db();
         let state = client
             .inner_client
             .identity_updates()
@@ -3880,7 +3885,7 @@ mod tests {
         let key = static_enc_key().to_vec();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3904,7 +3909,7 @@ mod tests {
             .add_wallet_signature(&ffi_inbox_owner.wallet)
             .await;
 
-        let conn = client.inner_client.store().db();
+        let conn = client.inner_client.context.store().db();
         let state = client
             .inner_client
             .identity_updates()
@@ -3975,7 +3980,7 @@ mod tests {
         let path = tmp_path();
 
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4009,7 +4014,7 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4052,7 +4057,7 @@ mod tests {
         );
 
         let client_bola = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4363,8 +4368,8 @@ mod tests {
         bo_group.conversation.sync().await.unwrap();
 
         // alix published + processed group creation and name update
-        assert_eq!(alix.provider.db().intents_published(), 2);
-        assert_eq!(alix.provider.db().intents_processed(), 2);
+        assert_eq!(alix.client.inner_client.context.db().intents_published(), 2);
+        assert_eq!(alix.client.inner_client.context.db().intents_processed(), 2);
 
         bo_group
             .conversation
@@ -4372,11 +4377,11 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 1);
+        assert_eq!(bo.client.inner_client.context.db().intents_published(), 1);
 
         alix_group.send(b"Hello there".to_vec()).await.unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(alix.provider.db().intents_published(), 3);
+        assert_eq!(alix.client.inner_client.context.db().intents_published(), 3);
 
         let dm = bo
             .conversations()
@@ -4388,7 +4393,7 @@ mod tests {
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
         dm.send(b"Hello again".to_vec()).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 3);
+        assert_eq!(bo.client.inner_client.context.db().intents_published(), 3);
         message_callbacks.wait_for_delivery(None).await.unwrap();
 
         // Uncomment the following lines to add more group name updates
@@ -4398,7 +4403,7 @@ mod tests {
             .await
             .unwrap();
         message_callbacks.wait_for_delivery(None).await.unwrap();
-        assert_eq!(bo.provider.db().intents_published(), 4);
+        assert_eq!(bo.client.inner_client.context.db().intents_published(), 4);
 
         wait_for_eq(|| async { message_callbacks.message_count() }, 6)
             .await
@@ -6030,9 +6035,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_disappearing_messages_deletion() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider();
+        let alix_provider = alix.inner_client.context.mls_provider();
         let bola = new_test_client().await;
-        let bola_provider = bola.inner_client.mls_provider();
+        let bola_provider = bola.inner_client.context.mls_provider();
 
         // Step 1: Create a group
         let alix_group = alix
@@ -6069,7 +6074,12 @@ mod tests {
         alix_group.sync().await.unwrap();
 
         // Verify the settings were applied
-        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
+        let group_from_db = alix
+            .inner_client
+            .context
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -6091,7 +6101,11 @@ mod tests {
             .await
             .unwrap();
 
-        let bola_group_from_db = bola_provider.db().find_group(&alix_group.id()).unwrap();
+        let bola_group_from_db = bola_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
         assert_eq!(
             bola_group_from_db
                 .clone()
@@ -6132,7 +6146,11 @@ mod tests {
         alix_group.sync().await.unwrap();
 
         // Verify disappearing settings are disabled
-        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
+        let group_from_db = alix_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -6165,7 +6183,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_disappearing_messages_when_creating_group() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider();
+        let alix_provider = alix.inner_client.context.mls_provider();
         let bola = new_test_client().await;
         let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
         // Step 1: Create a group
@@ -6198,7 +6216,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(alix_messages.len(), 2);
-        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
+        let group_from_db = alix_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -6220,7 +6242,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_set_disappearing_messages_when_creating_dm() {
         let alix = new_test_client().await;
-        let alix_provider = alix.inner_client.mls_provider();
+        let alix_provider = alix.inner_client.context.mls_provider();
         let bola = new_test_client().await;
         let disappearing_settings = FfiMessageDisappearingSettings::new(now_ns(), 2_000_000_000);
         // Step 1: Create a group
@@ -6247,7 +6269,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(alix_messages.len(), 2);
-        let group_from_db = alix_provider.db().find_group(&alix_group.id()).unwrap();
+        let group_from_db = alix_provider
+            .key_store()
+            .db()
+            .find_group(&alix_group.id())
+            .unwrap();
         assert_eq!(
             group_from_db
                 .clone()
@@ -6683,6 +6709,8 @@ mod tests {
             .conversations()
             .stream_groups(stream_callback.clone())
             .await;
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
 
         alix.conversations()
             .create_group(
@@ -6693,15 +6721,15 @@ mod tests {
             .unwrap();
 
         stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 2);
 
-        assert_eq!(stream_callback.message_count(), 1);
         alix.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM");
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
@@ -6709,13 +6737,14 @@ mod tests {
         // Stream just dms
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo.conversations().stream_dms(stream_callback.clone()).await;
-
+        stream_callback.wait_for_delivery(None).await.unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
         caro.conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         alix.conversations()
             .create_group(
@@ -6727,7 +6756,7 @@ mod tests {
 
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a Group");
-        assert_eq!(stream_callback.message_count(), 1);
+        assert_eq!(stream_callback.message_count(), 2);
 
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
@@ -7301,7 +7330,7 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7343,7 +7372,7 @@ mod tests {
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7423,7 +7452,7 @@ mod tests {
         let client_b_inbox_id = wallet_b_ident.inbox_id(nonce).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b_new_result = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7461,7 +7490,7 @@ mod tests {
         let wallet_a_inbox_id = ident_a.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_a.identifier().into();
         let client_a = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7486,7 +7515,7 @@ mod tests {
         let wallet_b_inbox_id = ident_b.inbox_id(1).unwrap();
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b1 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7508,7 +7537,7 @@ mod tests {
         // Step 3: Wallet B creates a second client for inbox_id B
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7541,7 +7570,7 @@ mod tests {
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7734,7 +7763,6 @@ mod tests {
         // Test find_messages_with_reactions query
         let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
             .find_messages_with_reactions(FfiListMessagesOptions::default())
-            .await
             .unwrap();
         assert_eq!(messages_with_reactions.len(), 2);
         let message_with_reactions = &messages_with_reactions[1];
@@ -8066,10 +8094,10 @@ mod tests {
         let client_bo = new_test_client_with_wallet(wallet_bo).await;
         let client_alix = new_test_client_with_wallet(wallet_alix).await;
 
-        let bo_provider = client_bo.inner_client.mls_provider();
-        let bo_conn = bo_provider.db();
-        let alix_provider = client_alix.inner_client.mls_provider();
-        let alix_conn = alix_provider.db();
+        let bo_provider = client_bo.inner_client.context.mls_provider();
+        let bo_conn = bo_provider.key_store().db();
+        let alix_provider = client_alix.inner_client.context.mls_provider();
+        let alix_conn = alix_provider.key_store().db();
 
         // Find or create DM conversations
         let convo_bo = client_bo
@@ -8701,9 +8729,10 @@ mod tests {
 
         let ident = wallet.identifier();
         let ffi_ident: FfiIdentifier = ident.clone().into();
-        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let api_backend =
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+                .await
+                .unwrap();
 
         let client_1 = new_test_client_with_wallet(wallet.clone()).await;
         let client_2 = new_test_client_with_wallet(wallet.clone()).await;
@@ -8762,9 +8791,10 @@ mod tests {
         assert_eq!(client_a_state.installations.len(), 2);
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
-        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let api_backend =
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+                .await
+                .unwrap();
 
         let revoke_request = revoke_installations(
             api_backend.clone(),
@@ -8800,9 +8830,10 @@ mod tests {
             .await
             .unwrap();
 
-        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let api_backend =
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+                .await
+                .unwrap();
 
         let state = inbox_state_from_inbox_ids(api_backend, vec![alix.inbox_id()])
             .await
@@ -8820,7 +8851,7 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -8888,7 +8919,7 @@ mod tests {
         let association_state = client
             .inner_client
             .identity_updates()
-            .get_latest_association_state(&client.inner_client.store().db(), &inbox_id)
+            .get_latest_association_state(&client.inner_client.context.store().db(), &inbox_id)
             .await
             .expect("Failed to fetch association state");
 
@@ -8915,15 +8946,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_is_connected_after_connect() {
-        let api_backend = connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
-            .await
-            .expect("should connect to local grpc server");
+        let api_backend =
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+                .await
+                .expect("should connect to local grpc server");
 
         let connected = is_connected(api_backend).await;
 
         assert!(connected, "Expected API client to report as connected");
 
-        let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false).await;
+        let result = connect_to_backend("http://127.0.0.1:59999".to_string(), false, None).await;
         assert!(result.is_err(), "Expected connection to fail");
     }
 }

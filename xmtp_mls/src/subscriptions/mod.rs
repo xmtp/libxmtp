@@ -6,7 +6,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 
 use tracing::instrument;
-use xmtp_db::XmtpDb;
+use xmtp_db::prelude::*;
 use xmtp_proto::{api_client::XmtpMlsStreams, xmtp::mls::api::v1::WelcomeMessage};
 
 use process_welcome::ProcessWelcomeResult;
@@ -21,11 +21,12 @@ pub(crate) mod stream_messages;
 mod stream_utils;
 
 use crate::{
+    context::XmtpSharedContext,
     groups::{
         device_sync::preference_sync::PreferenceUpdate, mls_sync::GroupMessageProcessingError,
         GroupError, MlsGroup,
     },
-    Client, XmtpApi,
+    Client,
 };
 use thiserror::Error;
 use xmtp_common::{retryable, RetryableError, StreamHandle};
@@ -199,10 +200,9 @@ impl RetryableError for SubscribeError {
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
 {
     /// Async proxy for processing a streamed welcome message.
     /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
@@ -210,9 +210,8 @@ where
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
-    ) -> Result<MlsGroup<ApiClient, Db>> {
-        let provider = self.mls_provider();
-        let conn = provider.db();
+    ) -> Result<MlsGroup<Context>> {
+        let conn = self.context.db();
         let envelope =
             WelcomeMessage::decode(envelope_bytes.as_slice()).map_err(SubscribeError::from)?;
         let known_welcomes = HashSet::from_iter(conn.group_welcome_ids()?.into_iter());
@@ -235,9 +234,9 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + use<'_, ApiClient, Db>>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
     where
-        ApiClient: XmtpMlsStreams,
+        Context::ApiClient: XmtpMlsStreams,
     {
         StreamConversations::new(&self.context, conversation_type).await
     }
@@ -247,26 +246,27 @@ where
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
-    ) -> Result<impl Stream<Item = Result<MlsGroup<ApiClient, Db>>> + 'static>
+    ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static>
     where
-        ApiClient: XmtpMlsStreams,
+        Context::ApiClient: XmtpMlsStreams,
     {
         StreamConversations::new_owned(self.context.clone(), conversation_type).await
     }
 }
 
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi + XmtpMlsStreams + Send + Sync + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    Context: XmtpSharedContext + Send + Sync + 'static,
+    Context::ApiClient: XmtpMlsStreams + Send + Sync + 'static,
+    Context::MlsStorage: Send + Sync + 'static,
 {
     pub fn stream_conversations_with_callback(
-        client: Arc<Client<ApiClient, Db>>,
+        client: Arc<Client<Context>>,
         conversation_type: Option<ConversationType>,
-        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
+        #[cfg(not(target_arch = "wasm32"))] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
             + Send
             + 'static,
-        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<ApiClient, Db>>)
+        #[cfg(target_arch = "wasm32")] mut convo_callback: impl FnMut(Result<MlsGroup<Context>>)
             + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
@@ -294,7 +294,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
-            installation_id = %self.context().installation_public_key(),
+            installation_id = %self.context.installation_id(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );
@@ -310,7 +310,7 @@ where
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
-            installation_id = %self.context().installation_public_key(),
+            installation_id = %self.context.installation_id(),
             conversation_type = ?conversation_type,
             "stream all messages"
         );
@@ -319,7 +319,7 @@ where
     }
 
     pub fn stream_all_messages_with_callback(
-        client: Arc<Client<ApiClient, Db>>,
+        context: Context,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<StoredGroupMessage>)
@@ -332,9 +332,9 @@ where
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client
-                .stream_all_messages(conversation_type, consent_state)
-                .await?;
+            tracing::debug!("stream all messages with callback");
+            let stream = StreamAllMessages::new(&context, conversation_type, consent_state).await?;
+
             futures::pin_mut!(stream);
             let _ = tx.send(());
 
@@ -348,7 +348,7 @@ where
     }
 
     pub fn stream_consent_with_callback(
-        client: Arc<Client<ApiClient, Db>>,
+        client: Arc<Client<Context>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<StoredConsentRecord>>)
             + Send
             + 'static,
@@ -375,7 +375,7 @@ where
     }
 
     pub fn stream_preferences_with_callback(
-        client: Arc<Client<ApiClient, Db>>,
+        client: Arc<Client<Context>>,
         #[cfg(not(target_arch = "wasm32"))] mut callback: impl FnMut(Result<Vec<PreferenceUpdate>>)
             + Send
             + 'static,

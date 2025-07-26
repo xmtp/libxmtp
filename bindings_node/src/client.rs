@@ -13,14 +13,22 @@ use xmtp_api::ApiDebugWrapper;
 pub use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb, StorageOption};
 use xmtp_mls::builder::SyncWorkerMode as XmtpSyncWorkerMode;
+use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
 use xmtp_mls::Client as MlsClient;
 use xmtp_proto::api_client::AggregateStats;
 
-pub type RustXmtpClient = MlsClient<ApiDebugWrapper<TonicApiClient>>;
-pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<TonicApiClient>, xmtp_db::DefaultStore>;
+pub type MlsContext = Arc<
+  XmtpMlsLocalContext<
+    ApiDebugWrapper<TonicApiClient>,
+    xmtp_db::DefaultStore,
+    xmtp_db::DefaultMlsStore,
+  >,
+>;
+pub type RustXmtpClient = MlsClient<MlsContext>;
+pub type RustMlsGroup = MlsGroup<MlsContext>;
 static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new();
 
 #[napi]
@@ -28,6 +36,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   pub account_identifier: Identifier,
+  pub app_version: Option<String>,
 }
 
 impl Client {
@@ -141,11 +150,12 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
+  app_version: Option<String>,
 ) -> Result<Client> {
   let root_identifier = account_identifier.clone();
 
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = TonicApiClient::create(&host, is_secure)
+  let api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
@@ -208,11 +218,17 @@ pub async fn create_client(
     builder = builder.device_sync_worker_mode(device_sync_worker_mode.into());
   };
 
-  let xmtp_client = builder.build().await.map_err(ErrorWrapper::from)?;
+  let xmtp_client = builder
+    .default_mls_store()
+    .map_err(ErrorWrapper::from)?
+    .build()
+    .await
+    .map_err(ErrorWrapper::from)?;
 
   Ok(Client {
     inner_client: Arc::new(xmtp_client),
     account_identifier: root_identifier,
+    app_version,
   })
 }
 
@@ -236,6 +252,16 @@ impl Client {
   #[napi]
   pub fn installation_id_bytes(&self) -> Uint8Array {
     self.inner_client.installation_public_key().into()
+  }
+
+  #[napi]
+  pub fn app_version(&self) -> String {
+    self.app_version.clone().unwrap_or_default()
+  }
+
+  #[napi]
+  pub fn libxmtp_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
   }
 
   #[napi]
@@ -300,7 +326,7 @@ impl Client {
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>> {
-    let conn = self.inner_client().store().db();
+    let conn = self.inner_client().context.store().db();
 
     let inbox_id = self
       .inner_client
@@ -367,9 +393,9 @@ impl Client {
 
   #[napi]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String> {
-    let provider = Arc::new(self.inner_client().mls_provider());
+    let db = self.inner_client().context.db();
     Ok(
-      upload_debug_archive(&provider, Some(server_url))
+      upload_debug_archive(db, Some(server_url))
         .await
         .map_err(ErrorWrapper::from)?,
     )

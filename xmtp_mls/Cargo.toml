@@ -153,6 +153,7 @@ futures-test = "0.3.31"
 futures-timer.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
+openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
 passkey = { version = "0.4" }
 public-suffix = { version = "0.1.2" }

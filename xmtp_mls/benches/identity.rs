@@ -18,7 +18,7 @@ fn setup() -> Runtime {
 }
 
 async fn ecdsa_signature(client: &BenchClient, owner: impl InboxOwner) -> SignatureRequest {
-    let mut signature_request = client.context().signature_request().unwrap();
+    let mut signature_request = client.context.signature_request().unwrap();
     let signature_text = signature_request.signature_text();
     let unverified_signature = owner.sign(&signature_text).unwrap();
     signature_request

@@ -4,8 +4,10 @@ use openmls::{
         BasicCredential, KeyPackageBundle, KeyPackageRef, MlsMessageBodyIn, MlsMessageIn, Welcome,
     },
 };
-use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+use openmls_traits::storage::StorageProvider;
 use tls_codec::{Deserialize, Serialize};
+use xmtp_db::MlsProviderExt;
+use xmtp_db::XmtpMlsStorageProvider;
 
 use crate::{
     client::ClientError,
@@ -15,8 +17,7 @@ use crate::{
 };
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    ConnectionExt, NotFound,
+    NotFound,
 };
 
 use super::WrapperAlgorithm;
@@ -32,8 +33,8 @@ impl DecryptedWelcome {
     ///
     /// This function will find the appropriate private key for the algorithm from the database and use it
     /// to decrypt. It will error if the private key cannot be found or decryption fails
-    pub(crate) fn from_encrypted_bytes<C: ConnectionExt>(
-        provider: &XmtpOpenMlsProvider<C>,
+    pub(crate) fn from_encrypted_bytes<P: MlsProviderExt>(
+        provider: &P,
         hpke_public_key: &[u8],
         encrypted_welcome_bytes: &[u8],
         wrapper_ciphersuite: WrapperAlgorithm,
@@ -72,14 +73,14 @@ impl DecryptedWelcome {
     }
 }
 
-pub(super) fn find_key_package_hash_ref<C: ConnectionExt>(
-    provider: &XmtpOpenMlsProvider<C>,
+pub(super) fn find_key_package_hash_ref(
+    provider: &impl MlsProviderExt,
     hpke_public_key: &[u8],
 ) -> Result<KeyPackageRef, GroupError> {
     let serialized_hpke_public_key = hpke_public_key.tls_serialize_detached()?;
 
     Ok(provider
-        .storage()
+        .key_store()
         .read(KEY_PACKAGE_REFERENCES, &serialized_hpke_public_key)?
         .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
@@ -87,14 +88,15 @@ pub(super) fn find_key_package_hash_ref<C: ConnectionExt>(
 /// For Curve25519 keys, we can just get the private key from the key package bundle
 /// For Post Quantum keys, we use look up the KEY_PACKAGE_WRAPPER_PRIVATE_KEY which is keyed
 /// by the hash reference of the key package.
-pub(super) fn find_private_key<C: ConnectionExt>(
-    provider: &XmtpOpenMlsProvider<C>,
+pub(super) fn find_private_key(
+    provider: &impl MlsProviderExt,
     hash_ref: &KeyPackageRef,
     wrapper_ciphersuite: &WrapperAlgorithm,
 ) -> Result<Vec<u8>, GroupError> {
     match wrapper_ciphersuite {
         WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> = provider.storage().key_package(hash_ref)?;
+            let key_package: Option<KeyPackageBundle> =
+                provider.key_store().key_package(hash_ref)?;
             Ok(key_package
                 .map(|kp| kp.init_private_key().to_vec())
                 .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
@@ -103,11 +105,8 @@ pub(super) fn find_private_key<C: ConnectionExt>(
             let serialized_hash_ref = bincode::serialize(hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
             let private_key = provider
-                .storage()
-                .read::<{ openmls_traits::storage::CURRENT_VERSION }, Vec<u8>>(
-                    KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
-                    &serialized_hash_ref,
-                )?;
+                .key_store()
+                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
 
             Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)
         }

@@ -1,14 +1,12 @@
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+use crate::{sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use std::fmt;
 
 use super::{ConnectionExt, TransactionGuard};
 
 /// A wrapper for RawDbConnection that houses all XMTP DB operations.
-/// Uses a [`Mutex]` internally for interior mutability, so that the connection
-/// and transaction state can be shared between the OpenMLS Provider and
-/// native XMTP operations
-pub struct DbConnection<C = crate::DefaultConnection> {
-    conn: C,
+#[derive(Clone)]
+pub struct DbConnection<C> {
+    pub(super) conn: C,
 }
 
 impl<C> DbConnection<C> {
@@ -17,11 +15,19 @@ impl<C> DbConnection<C> {
     }
 }
 
+impl<C: ConnectionExt> crate::IntoConnection for DbConnection<C> {
+    type Connection = C;
+
+    fn into_connection(self) -> Self::Connection {
+        self.conn
+    }
+}
+
 impl<C> DbConnection<C>
 where
     C: ConnectionExt,
 {
-    pub fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    pub fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         <Self as ConnectionExt>::start_transaction(self)
     }
 
@@ -46,7 +52,7 @@ where
 {
     type Connection = C::Connection;
 
-    fn start_transaction(&self) -> Result<TransactionGuard<'_>, crate::ConnectionError> {
+    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
         self.conn.start_transaction()
     }
 
@@ -69,6 +75,14 @@ where
     fn is_in_transaction(&self) -> bool {
         self.conn.is_in_transaction()
     }
+
+    fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.conn.disconnect()
+    }
+
+    fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        self.conn.reconnect()
+    }
 }
 
 // Forces a move for conn
@@ -76,9 +90,9 @@ where
 // This way, conn will be moved into XmtpOpenMlsProvider. This forces codepaths to
 // use a connection from the provider, rather than pulling a new one from the pool, resulting
 // in two connections in the same scope.
-impl<C> From<DbConnection<C>> for XmtpOpenMlsProvider<C> {
-    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<C> {
-        XmtpOpenMlsProvider::new(db.conn)
+impl<C: ConnectionExt> From<DbConnection<C>> for XmtpOpenMlsProvider<SqlKeyStore<C>> {
+    fn from(db: DbConnection<C>) -> XmtpOpenMlsProvider<SqlKeyStore<C>> {
+        XmtpOpenMlsProvider::new(SqlKeyStore::new(db.conn))
     }
 }
 

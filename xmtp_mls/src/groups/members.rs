@@ -1,11 +1,10 @@
-use crate::identity_updates::IdentityUpdates;
+use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
-use xmtp_api::XmtpApi;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
-    XmtpDb,
 };
 use xmtp_id::{
     associations::{AssociationState, Identifier},
@@ -28,15 +27,15 @@ pub enum PermissionLevel {
     SuperAdmin,
 }
 
-impl<ApiClient, Db> MlsGroup<ApiClient, Db>
+impl<Context> MlsGroup<Context>
 where
-    ApiClient: XmtpApi,
-    Db: XmtpDb,
+    Context: XmtpSharedContext,
 {
     /// Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub async fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let provider = self.mls_provider();
-        let group_membership = self.load_mls_group_with_lock(&provider, |mls_group| {
+        let db = self.context.db();
+        let storage = self.context.mls_storage();
+        let group_membership = self.load_mls_group_with_lock(storage, |mls_group| {
             Ok(extract_group_membership(mls_group.extensions())?)
         })?;
         let requests = group_membership
@@ -46,9 +45,8 @@ where
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
-        let conn = provider.db();
         let mut association_states: Vec<AssociationState> =
-            StoredAssociationState::batch_read_from_cache(conn, requests.clone())?;
+            StoredAssociationState::batch_read_from_cache(&db, requests.clone())?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
             let missing_requests: Vec<_> = requests
@@ -64,9 +62,9 @@ where
                     Some((id.as_str(), Some(*sequence)))
                 })
                 .collect();
-            let identity_updates = IdentityUpdates::new(self.context.clone());
+            let identity_updates = IdentityUpdates::new(&self.context);
             let mut new_states = identity_updates
-                .batch_get_association_state(conn, &missing_requests)
+                .batch_get_association_state(&db, &missing_requests)
                 .await?;
             association_states.append(&mut new_states);
 
@@ -97,8 +95,7 @@ where
                     PermissionLevel::Member
                 };
 
-                let consent =
-                    conn.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
+                let consent = db.get_consent_record(inbox_id_str.clone(), ConsentType::InboxId)?;
 
                 Ok(GroupMember {
                     inbox_id: inbox_id_str.clone(),

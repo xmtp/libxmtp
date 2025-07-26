@@ -58,7 +58,7 @@ fn create_ffi_client(c: &mut Criterion) {
                     let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
                     let (url, is_secure) = network_url();
-                    let api = xmtpv3::mls::connect_to_backend(url, is_secure)
+                    let api = xmtpv3::mls::connect_to_backend(url, is_secure, None)
                         .await
                         .unwrap();
                     (
@@ -113,7 +113,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
     let path = tmp_path();
     let (url, is_secure) = network_url();
     let api = runtime.block_on(async {
-        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure)
+        let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure, None)
             .await
             .unwrap();
         xmtpv3::mls::create_client(

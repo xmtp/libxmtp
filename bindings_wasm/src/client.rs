@@ -12,6 +12,7 @@ use xmtp_api_http::XmtpHttpApiClient;
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::builder::SyncWorkerMode;
+use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
 use xmtp_mls::utils::events::upload_debug_archive;
@@ -22,13 +23,21 @@ use crate::conversations::Conversations;
 use crate::identity::{ApiStats, Identifier, IdentityStats};
 use crate::inbox_state::InboxState;
 
-pub type RustXmtpClient = MlsClient<ApiDebugWrapper<XmtpHttpApiClient>>;
-pub type RustMlsGroup = MlsGroup<ApiDebugWrapper<XmtpHttpApiClient>, xmtp_db::DefaultStore>;
+pub type MlsContext = Arc<
+  XmtpMlsLocalContext<
+    ApiDebugWrapper<XmtpHttpApiClient>,
+    xmtp_db::DefaultStore,
+    xmtp_db::DefaultMlsStore,
+  >,
+>;
+pub type RustXmtpClient = MlsClient<MlsContext>;
+pub type RustMlsGroup = MlsGroup<MlsContext>;
 
 #[wasm_bindgen]
 pub struct Client {
   account_identifier: Identifier,
   inner_client: Arc<RustXmtpClient>,
+  app_version: Option<String>,
 }
 
 impl Client {
@@ -147,9 +156,17 @@ pub async fn create_client(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
   disable_events: Option<bool>,
+  app_version: Option<String>,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
+  let api_client = XmtpHttpApiClient::new(
+    host.clone(),
+    app_version
+      .as_ref()
+      .unwrap_or(&"0.0.0".to_string())
+      .to_string(),
+  )
+  .await?;
 
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
@@ -204,6 +221,8 @@ pub async fn create_client(
   }
 
   let xmtp_client = builder
+    .default_mls_store()
+    .map_err(|e| JsError::new(&e.to_string()))?
     .build()
     .await
     .map_err(|e| JsError::new(&e.to_string()))?;
@@ -212,6 +231,7 @@ pub async fn create_client(
     account_identifier,
     #[allow(clippy::arc_with_non_send_sync)]
     inner_client: Arc::new(xmtp_client),
+    app_version,
   })
 }
 
@@ -240,6 +260,16 @@ impl Client {
   #[wasm_bindgen(getter, js_name = installationIdBytes)]
   pub fn installation_id_bytes(&self) -> Uint8Array {
     Uint8Array::from(self.inner_client.installation_public_key().as_slice())
+  }
+
+  #[wasm_bindgen(getter, js_name = appVersion)]
+  pub fn app_version(&self) -> String {
+    self.app_version.clone().unwrap_or("0.0.0".to_string())
+  }
+
+  #[wasm_bindgen(getter, js_name = libxmtpVersion)]
+  pub fn libxmtp_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
   }
 
   #[wasm_bindgen(js_name = canMessage)]
@@ -286,7 +316,7 @@ impl Client {
     &self,
     identifier: Identifier,
   ) -> Result<Option<String>, JsError> {
-    let conn = self.inner_client.store().db();
+    let conn = self.inner_client.context.store().db();
     let inbox_id = self
       .inner_client
       .find_inbox_id_from_identifier(&conn, identifier.try_into()?)
@@ -359,9 +389,9 @@ impl Client {
 
   #[wasm_bindgen(js_name = uploadDebugArchive)]
   pub async fn upload_debug_archive(&self, server_url: String) -> Result<String, JsError> {
-    let provider = Arc::new(self.inner_client().mls_provider());
+    let db = self.inner_client().context.db();
 
-    upload_debug_archive(&provider, Some(server_url))
+    upload_debug_archive(db, Some(server_url))
       .await
       .map_err(|e| JsError::new(&format!("{e}")))
   }

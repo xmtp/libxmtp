@@ -1,0 +1,4 @@
+#!/bin/bash
+set -eou pipefail
+
+cargo nextest run --profile ci --workspace --test-threads 2 -E 'kind(lib) and deps(xmtp_mls)' --exclude bindings_wasm

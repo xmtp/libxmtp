@@ -32,9 +32,23 @@ fn setup() -> (Arc<BenchClient>, Vec<Identity>, Runtime) {
         let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
         let client = if is_dev_network {
             tracing::info!("Using Dev GRPC");
-            Arc::new(ClientBuilder::new_dev_client(&wallet).await)
+            Arc::new(
+                ClientBuilder::new_test_builder(&wallet)
+                    .await
+                    .dev()
+                    .await
+                    .build_unchecked()
+                    .await,
+            )
         } else {
-            Arc::new(ClientBuilder::new_local_client(&wallet).await)
+            Arc::new(
+                ClientBuilder::new_test_builder(&wallet)
+                    .await
+                    .local()
+                    .await
+                    .build_unchecked()
+                    .await,
+            )
         };
 
         let identities: Vec<Identity> =
