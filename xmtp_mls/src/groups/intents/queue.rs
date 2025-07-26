@@ -1,11 +1,13 @@
-use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{stream, StreamExt, TryFutureExt};
 use std::collections::HashSet;
 use std::future::Future;
+use xmtp_db::diesel::Connection;
 
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use crate::track;
 use derive_builder::Builder;
+use itertools::{Either, Itertools};
 use xmtp_db::{
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     prelude::*,
@@ -43,6 +45,7 @@ impl QueueIntentBuilder {
     pub async fn queue_for_each<'a, C, F, Fut, E>(
         &mut self,
         groups: HashSet<MlsGroup<C>>,
+        context: &'a C,
         data: F,
     ) -> Result<Vec<StoredGroupIntent>, GroupError>
     where
@@ -50,34 +53,47 @@ impl QueueIntentBuilder {
         F: Fn(MlsGroup<C>) -> Fut,
         Fut: Future<Output = Result<Vec<u8>, E>>,
         GroupError: From<E>,
+        E: std::fmt::Debug + std::error::Error,
     {
         if groups.is_empty() {
             return Ok(vec![]);
         }
 
         // get the intent data for each group
-        let groups: Vec<(MlsGroup<C>, Vec<u8>)> = stream::iter(groups)
+        let (groups, errors): (Vec<_>, Vec<_>) = stream::iter(groups)
             .map(|group| data(group.clone()).map_ok(move |d| (group, d)))
             .buffered(10)
-            .try_collect()
-            .await?;
+            .collect::<Vec<Result<_, _>>>()
+            .await
+            .into_iter()
+            .partition_result();
+        let mut errors = errors.into_iter().map(GroupError::from).collect::<Vec<_>>();
 
-        let intents: Vec<StoredGroupIntent> = {
-            let first_group = groups
-                .first()
-                .expect("checked for existence of at least one group");
-            let context = &first_group.0.context.clone();
-
+        let (intents, errs): (Vec<StoredGroupIntent>, Vec<_>) = {
             context.mls_storage().transaction(|conn| {
-                let storage = conn.key_store();
-                let db = storage.db();
-
-                groups
+                let intents = groups
                     .into_iter()
-                    .map(|(group, data)| self.clone().data(data).queue_with_conn(&db, &group))
-                    .collect::<Result<Vec<StoredGroupIntent>, _>>()
+                    .map(|(group, data)| {
+                        let intent = self.clone().data(data).build()?;
+
+                        conn.transaction(|conn| {
+                            let storage = conn.key_store();
+                            let db = storage.db();
+                            intent.queue_with_conn(&db, &group)
+                        })
+                    })
+                    .partition_map(|result| match result {
+                        Ok(intent) => Either::Left(intent),
+                        Err(err) => Either::Right(err),
+                    });
+                Ok::<_, GroupError>(intents)
             })?
         };
+        errors.extend(errs);
+
+        for error in errors {
+            tracing::warn!("failed to queue intent {error}");
+        }
         Ok(intents)
     }
 

@@ -259,7 +259,7 @@ where
         let groups = HashSet::from_iter(groups);
         let intents = QueueIntent::builder()
             .update_group_membership()
-            .queue_for_each(groups, move |group| async move {
+            .queue_for_each(groups, &self.context, move |group| async move {
                 let intent = group.get_membership_update_intent(&[], &[]).await?;
                 let intent: Vec<u8> = intent.into();
                 Ok::<_, GroupError>(intent)
