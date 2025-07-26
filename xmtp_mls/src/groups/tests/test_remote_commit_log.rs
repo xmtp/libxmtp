@@ -163,7 +163,7 @@ async fn test_publish_commit_log_to_remote() {
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        last_commit_log_entry.commit_sequence_id,
+        last_commit_log_entry.rowid as i64,
         published_commit_log_cursor
     );
 
