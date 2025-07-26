@@ -132,23 +132,23 @@ impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
 #[derive(Insertable, Debug, PartialEq, Clone, Builder)]
 #[diesel(table_name = group_intents)]
 #[builder(setter(into), build_fn(error = "StorageError"))]
-pub struct NewGroupIntent {
+pub struct NewGroupIntent<'a> {
     pub kind: IntentKind,
-    pub group_id: Vec<u8>,
-    pub data: Vec<u8>,
+    pub group_id: &'a [u8],
+    pub data: &'a [u8],
     pub should_push: bool,
     #[builder(default = "IntentState::ToPublish")]
     pub state: IntentState,
 }
 
-impl_store!(NewGroupIntent, group_intents);
+impl_store!(NewGroupIntent<'_>, group_intents);
 
-impl NewGroupIntent {
-    pub fn builder() -> NewGroupIntentBuilder {
+impl<'a> NewGroupIntent<'a> {
+    pub fn builder() -> NewGroupIntentBuilder<'a> {
         NewGroupIntentBuilder::default()
     }
 
-    pub fn new(kind: IntentKind, group_id: Vec<u8>, data: Vec<u8>, should_push: bool) -> Self {
+    pub fn new(kind: IntentKind, group_id: &'a [u8], data: &'a [u8], should_push: bool) -> Self {
         Self {
             kind,
             group_id,
@@ -162,13 +162,13 @@ impl NewGroupIntent {
 pub trait QueryGroupIntent<C: ConnectionExt> {
     fn insert_group_intent(
         &self,
-        to_save: NewGroupIntent,
+        to_save: NewGroupIntent<'_>,
     ) -> Result<StoredGroupIntent, crate::ConnectionError>;
 
     // Query for group_intents by group_id, optionally filtering by state and kind
     fn find_group_intents(
         &self,
-        group_id: Vec<u8>,
+        group_id: &[u8],
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError>;
@@ -230,7 +230,7 @@ impl<C: ConnectionExt> QueryGroupIntent<C> for DbConnection<C> {
     #[tracing::instrument(level = "trace", skip(self))]
     fn find_group_intents(
         &self,
-        group_id: Vec<u8>,
+        group_id: &[u8],
         allowed_states: Option<Vec<IntentState>>,
         allowed_kinds: Option<Vec<IntentKind>>,
     ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
@@ -342,10 +342,10 @@ impl<C: ConnectionExt> QueryGroupIntent<C> for DbConnection<C> {
                 .set((
                     dsl::state.eq(IntentState::ToPublish),
                     // When moving to ToPublish, clear the payload hash and post commit data
-                    dsl::payload_hash.eq(None::<Vec<u8>>),
-                    dsl::post_commit_data.eq(None::<Vec<u8>>),
+                    dsl::payload_hash.eq(None::<&[u8]>),
+                    dsl::post_commit_data.eq(None::<&[u8]>),
                     dsl::published_in_epoch.eq(None::<i64>),
-                    dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::staged_commit.eq(None::<&[u8]>),
                 ))
                 .execute(conn)
         })?;
@@ -496,13 +496,13 @@ pub(crate) mod tests {
             .unwrap();
     }
 
-    impl NewGroupIntent {
+    impl<'a> NewGroupIntent<'a> {
         // Real group intents must always start as ToPublish. But for tests we allow forcing the
         // state
         pub fn new_test(
             kind: IntentKind,
-            group_id: Vec<u8>,
-            data: Vec<u8>,
+            group_id: &'a [u8],
+            data: &'a [u8],
             state: IntentState,
         ) -> Self {
             Self {
@@ -534,7 +534,7 @@ pub(crate) mod tests {
         let kind = IntentKind::UpdateGroupMembership;
         let state = IntentState::ToPublish;
 
-        let to_insert = NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), state);
+        let to_insert = NewGroupIntent::new_test(kind, &group_id, &data, state);
 
         with_connection(|conn| {
             // Group needs to exist or FK constraint will fail
@@ -543,7 +543,7 @@ pub(crate) mod tests {
             to_insert.store(conn).unwrap();
 
             let results = conn
-                .find_group_intents(group_id.clone(), Some(vec![IntentState::ToPublish]), None)
+                .find_group_intents(&group_id, Some(vec![IntentState::ToPublish]), None)
                 .unwrap();
 
             assert_eq!(results.len(), 1);
@@ -563,24 +563,27 @@ pub(crate) mod tests {
     #[xmtp_common::test]
     async fn test_query() {
         let group_id = rand_vec::<24>();
+        let id1 = rand_vec::<24>();
+        let id2 = rand_vec::<24>();
+        let id3 = rand_vec::<24>();
 
         let test_intents: Vec<NewGroupIntent> = vec![
             NewGroupIntent::new_test(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &id1,
                 IntentState::ToPublish,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &id2,
                 IntentState::Published,
             ),
             NewGroupIntent::new_test(
                 IntentKind::KeyUpdate,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &id3,
                 IntentState::Committed,
             ),
         ];
@@ -596,7 +599,7 @@ pub(crate) mod tests {
             // Can query for multiple states
             let mut results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    &group_id,
                     Some(vec![IntentState::ToPublish, IntentState::Published]),
                     None,
                 )
@@ -606,14 +609,14 @@ pub(crate) mod tests {
 
             // Can query by kind
             results = conn
-                .find_group_intents(group_id.clone(), None, Some(vec![IntentKind::KeyUpdate]))
+                .find_group_intents(&group_id, None, Some(vec![IntentKind::KeyUpdate]))
                 .unwrap();
             assert_eq!(results.len(), 2);
 
             // Can query by kind and state
             results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    &group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::KeyUpdate]),
                 )
@@ -624,7 +627,7 @@ pub(crate) mod tests {
             // Can get no results
             results = conn
                 .find_group_intents(
-                    group_id.clone(),
+                    &group_id,
                     Some(vec![IntentState::Committed]),
                     Some(vec![IntentKind::SendMessage]),
                 )
@@ -633,7 +636,7 @@ pub(crate) mod tests {
             assert_eq!(results.len(), 0);
 
             // Can get all intents
-            results = conn.find_group_intents(group_id, None, None).unwrap();
+            results = conn.find_group_intents(&group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
         })
         .await
@@ -649,8 +652,8 @@ pub(crate) mod tests {
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &rand_vec::<24>(),
                 false,
             )
             .store(conn)
@@ -692,8 +695,8 @@ pub(crate) mod tests {
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &rand_vec::<24>(),
                 false,
             )
             .store(conn)
@@ -738,8 +741,8 @@ pub(crate) mod tests {
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &rand_vec::<24>(),
                 false,
             )
             .store(conn)
@@ -783,8 +786,8 @@ pub(crate) mod tests {
             // Store the intent
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &rand_vec::<24>(),
                 false,
             )
             .store(conn)
@@ -816,8 +819,8 @@ pub(crate) mod tests {
             insert_group(conn, group_id.clone());
             NewGroupIntent::new(
                 IntentKind::UpdateGroupMembership,
-                group_id.clone(),
-                rand_vec::<24>(),
+                &group_id,
+                &rand_vec::<24>(),
                 false,
             )
             .store(conn)

@@ -124,13 +124,9 @@ mod tests {
     pub fn test_get_version_info() {
         print!("{}", get_version_info());
     }
-    /*
     // Execute once before any tests are run
-    #[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[ctor::ctor]
     fn _setup() {
-        crate::logger::init_logger();
         let _ = fdlimit::raise_fd_limit();
     }
-    */
 }
