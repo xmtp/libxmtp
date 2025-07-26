@@ -313,6 +313,7 @@ mod tests {
     };
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use xmtp_common::{rand_string, rand_u64};
+    use xmtp_configuration::CIPHERSUITE;
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_id::{
         associations::{
@@ -322,7 +323,6 @@ mod tests {
         },
         utils::test::{docker_smart_wallet, SignatureWithNonce, SmartWalletContext},
     };
-    use xmtp_mls::configuration::CIPHERSUITE;
     use xmtp_proto::xmtp::{
         identity::{
             associations::IdentityUpdate as IdentityUpdateProto,

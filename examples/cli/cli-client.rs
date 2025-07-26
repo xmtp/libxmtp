@@ -35,6 +35,7 @@ use xmtp_api_d14n::queries::D14nClient;
 use xmtp_api_grpc::grpc_client::GrpcClient;
 use xmtp_api_grpc::{grpc_api_helper::Client as ClientV3, GrpcError};
 use xmtp_common::time::now_ns;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
@@ -47,7 +48,6 @@ use xmtp_db::{
 };
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, AssociationState, Identifier, MemberKind};
-use xmtp_mls::configuration::DeviceSyncUrls;
 use xmtp_mls::context::XmtpMlsLocalContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::device_sync_legacy::DeviceSyncContent;

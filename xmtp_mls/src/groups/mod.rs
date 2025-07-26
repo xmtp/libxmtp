@@ -31,14 +31,8 @@ use self::{
 };
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::{
-    client::ClientError,
-    configuration::{
-        CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
-    },
-    identity_updates::load_identity_updates,
-    intents::ProcessIntentError,
-    subscriptions::LocalEvents,
-    utils::id::calculate_message_id,
+    client::ClientError, identity_updates::load_identity_updates, intents::ProcessIntentError,
+    subscriptions::LocalEvents, utils::id::calculate_message_id,
 };
 use crate::{context::XmtpSharedContext, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
@@ -65,6 +59,12 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::{
+    CIPHERSUITE, MAX_GROUP_SIZE, MAX_PAST_EPOCHS, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+};
+use xmtp_configuration::{
+    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
+};
 use xmtp_content_types::should_push;
 use xmtp_content_types::ContentCodec;
 use xmtp_content_types::{
@@ -92,10 +92,6 @@ use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
-    config::{
-        GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
-        MUTABLE_METADATA_EXTENSION_ID,
-    },
     group::{DMMetadataOptions, GroupMetadataOptions},
     group_metadata::{extract_group_metadata, DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{

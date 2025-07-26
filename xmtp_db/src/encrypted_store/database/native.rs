@@ -312,7 +312,7 @@ impl NativeDbConnection {
     fn new(path: &str, customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         let read = Pool::builder()
             .connection_customizer(customizer.clone())
-            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+            .max_size(xmtp_configuration::MAX_DB_POOL_SIZE)
             .build(ConnectionManager::new(path))?;
 
         let mut write = SqliteConnection::establish(path)?;
@@ -344,7 +344,7 @@ impl NativeDbConnection {
         let mut pool = self.read.write();
         *pool = Some(
             builder
-                .max_size(crate::configuration::MAX_DB_POOL_SIZE)
+                .max_size(xmtp_configuration::MAX_DB_POOL_SIZE)
                 .build(ConnectionManager::new(self.path.clone()))?,
         );
 
