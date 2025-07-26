@@ -1614,8 +1614,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_conversation_debug_info(`ptr`: Point
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_conversation_message_disappearing_settings(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_xmtpv3_fn_method_fficonversation_conversation_type(`ptr`: Pointer,
-): Long
+fun uniffi_xmtpv3_fn_method_fficonversation_conversation_type(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_created_at_ns(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_dm_peer_inbox_id(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1624,8 +1624,8 @@ fun uniffi_xmtpv3_fn_method_fficonversation_find_duplicate_dms(`ptr`: Pointer,
 ): Long
 fun uniffi_xmtpv3_fn_method_fficonversation_find_messages(`ptr`: Pointer,`opts`: RustBuffer.ByValue,
 ): Long
-fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(`ptr`: Pointer,`opts`: RustBuffer.ByValue,
-): Long
+fun uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(`ptr`: Pointer,`opts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_get_hmac_keys(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_method_fficonversation_group_description(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -2164,7 +2164,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings() != 53380.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 51396.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 43322.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 17973.toShort()) {
@@ -2179,7 +2179,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 19931.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 33179.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 46761.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 35284.toShort()) {
@@ -3381,7 +3381,7 @@ public interface FfiConversationInterface {
     
     fun `conversationMessageDisappearingSettings`(): FfiMessageDisappearingSettings?
     
-    suspend fun `conversationType`(): FfiConversationType
+    fun `conversationType`(): FfiConversationType
     
     fun `createdAtNs`(): kotlin.Long
     
@@ -3391,7 +3391,7 @@ public interface FfiConversationInterface {
     
     suspend fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
     
-    suspend fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions>
+    fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions>
     
     fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>>
     
@@ -3707,26 +3707,17 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     }
     
 
-    
-    @Throws(GenericException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `conversationType`() : FfiConversationType {
-        return uniffiRustCallAsync(
-        callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_conversation_type(
-                thisPtr,
-                
-            )
-        },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
-        // lift function
-        { FfiConverterTypeFfiConversationType.lift(it) },
-        // Error FFI converter
-        GenericException.ErrorHandler,
+    override fun `conversationType`(): FfiConversationType {
+            return FfiConverterTypeFfiConversationType.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_conversation_type(
+        it, _status)
+}
+    }
     )
     }
+    
 
     override fun `createdAtNs`(): kotlin.Long {
             return FfiConverterLong.lift(
@@ -3795,25 +3786,17 @@ open class FfiConversation: Disposable, AutoCloseable, FfiConversationInterface
     }
 
     
-    @Throws(GenericException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions) : List<FfiMessageWithReactions> {
-        return uniffiRustCallAsync(
-        callWithPointer { thisPtr ->
-            UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(
-                thisPtr,
-                FfiConverterTypeFfiListMessagesOptions.lower(`opts`),
-            )
-        },
-        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, callback, continuation) },
-        { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
-        { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
-        // lift function
-        { FfiConverterSequenceTypeFfiMessageWithReactions.lift(it) },
-        // Error FFI converter
-        GenericException.ErrorHandler,
+    @Throws(GenericException::class)override fun `findMessagesWithReactions`(`opts`: FfiListMessagesOptions): List<FfiMessageWithReactions> {
+            return FfiConverterSequenceTypeFfiMessageWithReactions.lift(
+    callWithPointer {
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(
+        it, FfiConverterTypeFfiListMessagesOptions.lower(`opts`),_status)
+}
+    }
     )
     }
+    
 
     
     @Throws(GenericException::class)override fun `getHmacKeys`(): Map<kotlin.ByteArray, List<FfiHmacKey>> {
