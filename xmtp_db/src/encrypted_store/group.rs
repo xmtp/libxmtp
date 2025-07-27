@@ -673,7 +673,6 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
                         .eq(ConversationType::Group)
                         .and(dsl::should_publish_commit_log.eq(true))),
             )
-            .filter(dsl::membership_state.ne(GroupMembershipState::Rejected))
             .select(dsl::id)
             .order(dsl::created_at_ns.asc());
 
@@ -686,7 +685,6 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
     ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
-            .filter(dsl::membership_state.ne(GroupMembershipState::Rejected))
             .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
