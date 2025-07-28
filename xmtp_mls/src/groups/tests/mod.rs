@@ -2539,8 +2539,7 @@ async fn create_membership_update_no_sync(group: &TestMlsGroup) {
         return;
     }
 
-    QueueIntent::builder()
-        .update_group_membership()
+    QueueIntent::update_group_membership()
         .data(intent_data)
         .queue(group)
         .unwrap();

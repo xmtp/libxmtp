@@ -42,46 +42,52 @@ impl QueueIntentBuilder {
         let intent = self.build()?;
         intent.queue_with_conn(conn, group)
     }
-
-    /// Create an intent to send a message
-    pub fn send_message(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::SendMessage);
-        self
-    }
-
-    /// Create an intent to update the keys for a group
-    pub fn key_update(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::KeyUpdate);
-        self
-    }
-
-    /// Create an intent to update the metadata of a group
-    pub fn metadata_update(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::MetadataUpdate);
-        self
-    }
-
-    /// Create an intent to update the membership of a group
-    pub fn update_group_membership(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::UpdateGroupMembership);
-        self
-    }
-
-    /// Create an intent to update the admin list of a group
-    pub fn update_admin_list(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::UpdateAdminList);
-        self
-    }
-
-    /// create an intent to update the permissions of a group
-    pub fn update_permission(&mut self) -> &mut Self {
-        self.kind = Some(IntentKind::UpdatePermission);
-        self
-    }
 }
 
 impl QueueIntent {
-    pub fn builder() -> QueueIntentBuilder {
+    /// Create an intent to send a message
+    pub fn send_message() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::SendMessage);
+        this
+    }
+
+    /// Create an intent to update the keys for a group
+    pub fn key_update() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::KeyUpdate);
+        this
+    }
+
+    /// Create an intent to update the metadata of a group
+    pub fn metadata_update() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::MetadataUpdate);
+        this
+    }
+
+    /// Create an intent to update the membership of a group
+    pub fn update_group_membership() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::UpdateGroupMembership);
+        this
+    }
+
+    /// Create an intent to update the admin list of a group
+    pub fn update_admin_list() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::UpdateAdminList);
+        this
+    }
+
+    /// create an intent to update the permissions of a group
+    pub fn update_permission() -> QueueIntentBuilder {
+        let mut this = QueueIntent::builder();
+        this.kind = Some(IntentKind::UpdatePermission);
+        this
+    }
+
+    fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
     }
 
@@ -150,9 +156,7 @@ impl QueueIntent {
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            QueueIntent::builder()
-                .key_update()
-                .queue_with_conn(conn, group)?;
+            QueueIntent::key_update().queue_with_conn(conn, group)?;
         }
         Ok(())
     }

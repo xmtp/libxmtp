@@ -974,8 +974,7 @@ where
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =
             Self::extract_queryable_content_fields(message);
-        QueueIntent::builder()
-            .send_message()
+        QueueIntent::send_message()
             .data(intent_data)
             .should_push(queryable_content_fields.should_push)
             .queue(self)?;
@@ -1111,8 +1110,7 @@ where
             return ok_result;
         }
 
-        let intent = QueueIntent::builder()
-            .update_group_membership()
+        let intent = QueueIntent::update_group_membership()
             .data(intent_data)
             .queue(self)?;
 
@@ -1172,8 +1170,7 @@ where
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
-        let intent = QueueIntent::builder()
-            .update_group_membership()
+        let intent = QueueIntent::update_group_membership()
             .data(intent_data)
             .queue(self)?;
 
@@ -1206,8 +1203,7 @@ where
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
 
@@ -1224,8 +1220,7 @@ where
                 version.to_string(),
             )
             .into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
 
@@ -1267,8 +1262,7 @@ where
         )
         .into();
 
-        let intent = QueueIntent::builder()
-            .update_permission()
+        let intent = QueueIntent::update_permission()
             .data(intent_data)
             .queue(self)?;
 
@@ -1309,8 +1303,7 @@ where
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
 
@@ -1350,8 +1343,7 @@ where
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
 
@@ -1408,8 +1400,7 @@ where
                 expire_from_ms,
             )
             .into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
@@ -1425,8 +1416,7 @@ where
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
-        let intent = QueueIntent::builder()
-            .metadata_update()
+        let intent = QueueIntent::metadata_update()
             .data(intent_data)
             .queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
@@ -1527,8 +1517,7 @@ where
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = QueueIntent::builder()
-            .update_admin_list()
+        let intent = QueueIntent::update_admin_list()
             .data(intent_data)
             .queue(self)?;
 
@@ -1642,7 +1631,7 @@ where
 
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = QueueIntent::builder().key_update().queue(self)?;
+        let intent = QueueIntent::key_update().queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }

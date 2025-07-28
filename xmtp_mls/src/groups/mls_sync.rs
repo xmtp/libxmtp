@@ -2261,8 +2261,7 @@ where
             intent_data
         );
 
-        let intent = QueueIntent::builder()
-            .update_group_membership()
+        let intent = QueueIntent::update_group_membership()
             .data(intent_data)
             .queue(self)?;
 
