@@ -82,7 +82,7 @@ use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
-    ops::RangeInclusive,
+    ops::RangeInclusive, time::Instant,
 };
 use thiserror::Error;
 use tracing::debug;
@@ -364,7 +364,14 @@ where
 
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
+        let start = Instant::now();
         let result = self.receive().await;
+        let duration = start.elapsed();
+
+        tracing::info!(
+            "Lopi: sync with conn receive in {:?}",
+            duration
+        );
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -376,7 +383,14 @@ where
             }
         }
 
+        let start = Instant::now();
         let result = self.post_commit().await;
+        let duration = start.elapsed();
+
+        tracing::info!(
+            "Lopi: sync with conn post commit in {:?}",
+            duration
+        );
         track_err!("Post commit", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
@@ -1721,10 +1735,26 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let db = self.context.db();
+
+        let start = Instant::now();
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, &db)
-            .await?;
+            .await?;        
+        let duration = start.elapsed();
+
+        tracing::info!(
+            "Lopi: query messages in {:?}",
+            duration
+        );
+
+        let start = Instant::now();
         let summary = self.process_messages(messages).await;
+        let duration = start.elapsed();
+
+        tracing::info!(
+            "Lopi: sync with conn recieve process messages in {:?}",
+            duration
+        );
 
         track!(
             "Fetched messages",
