@@ -830,16 +830,15 @@ where
 }
 
 // methods requiring 'static (owned) generics
-impl<ApiClient, Db> Client<ApiClient, Db>
+impl<Context> Client<Context>
 where
-    ApiClient: XmtpApi + 'static,
-    Db: XmtpDb + Send + Sync + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
     pub async fn sync_all_groups(
         &self,
-        groups: Vec<MlsGroup<ApiClient, Db>>,
+        groups: Vec<MlsGroup<Context>>,
     ) -> Result<usize, GroupError> {
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
@@ -847,13 +846,21 @@ where
     }
 
     pub async fn sync_all_welcomes_and_history_sync_groups(&self) -> Result<usize, ClientError> {
-        let provider = self.mls_provider();
+        let storage = self.context.mls_storage();
         self.sync_welcomes().await?;
-        let groups = provider
+        let groups = storage
             .db()
             .all_sync_groups()?
             .into_iter()
-            .map(|g| MlsGroup::new(self.context.clone(), g.id, g.dm_id, g.created_at_ns))
+            .map(|g| {
+                MlsGroup::new(
+                    self.context.clone(),
+                    g.id,
+                    g.dm_id,
+                    g.conversation_type,
+                    g.created_at_ns,
+                )
+            })
             .collect();
         let active_groups_count = self.sync_all_groups(groups).await?;
 

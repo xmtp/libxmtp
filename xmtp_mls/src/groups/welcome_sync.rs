@@ -103,10 +103,9 @@ where
     }
 }
 
-impl<Api, Db> WelcomeService<Api, Db>
+impl<Context> WelcomeService<Context>
 where
-    Api: XmtpApi + 'static,
-    Db: XmtpDb + 'static,
+    Context: XmtpSharedContext + 'static,
 {
     /// Sync all groups for the current installation and return the number of groups that were synced.
     /// Only active groups will be synced.
