@@ -1,6 +1,6 @@
 //! App Argument Options
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -11,6 +11,7 @@ mod types;
 pub use types::*;
 use xmtp_api_d14n::queries::D14nClient;
 use xmtp_proto::api_client::ApiBuilder;
+use xmtp_cursor_state::store::CursorStore;
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -272,7 +273,10 @@ impl BackendOpts {
             message.set_host(network.to_string());
             message.set_tls(is_secure);
             let message = message.build().await?;
-            Ok(Arc::new(D14nClient::new(message, payer)))
+
+            let cursor_store = Arc::new(Mutex::new(CursorStore::new()));
+
+            Ok(Arc::new(D14nClient::new(message, payer, cursor_store)))
         } else {
             trace!(url = %network, is_secure, "create grpc");
             Ok(Arc::new(

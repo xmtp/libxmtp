@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name = "xmtp_cursor_state"
+rust-version = "1.70"
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }
+hex = "0.4.3"

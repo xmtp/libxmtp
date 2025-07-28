@@ -17,7 +17,7 @@ use owo_colors::OwoColorize;
 use prost::Message;
 use serializable::maybe_get_text;
 use std::iter::Iterator;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{fs, path::PathBuf, time::Duration};
 use thiserror::Error;
 use tracing::Dispatch;
@@ -57,6 +57,7 @@ use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
 use xmtp_proto::traits::ApiClientError;
+use xmtp_cursor_state::store::{CursorStore};
 
 #[macro_use]
 extern crate tracing;
@@ -246,7 +247,10 @@ async fn main() -> color_eyre::eyre::Result<()> {
             payer.set_host("http://localhost:5052".into());
             payer.set_tls(false);
             let payer = payer.build().await?;
-            Arc::new(D14nClient::new(message, payer))
+
+
+            let cursor_store = Arc::new(Mutex::new(CursorStore::new()));
+            Arc::new(D14nClient::new(message, payer, cursor_store))
         }
         (true, Env::Production) => {
             let mut message = GrpcClient::builder();
@@ -257,7 +261,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
             payer.set_host("https://payer.testnet.xmtp.network:443".into());
             payer.set_tls(true);
             let payer = payer.build().await?;
-            Arc::new(D14nClient::new(message, payer))
+            let cursor_store = Arc::new(Mutex::new(CursorStore::new()));
+            Arc::new(D14nClient::new(message, payer, cursor_store))
         }
         (true, Env::Staging) => {
             let mut message = GrpcClient::builder();
@@ -268,7 +273,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
             payer.set_host("https://payer.testnet-staging.xmtp.network:443".into());
             payer.set_tls(true);
             let payer = payer.build().await?;
-            Arc::new(D14nClient::new(message, payer))
+            let cursor_store = Arc::new(Mutex::new(CursorStore::new()));
+            Arc::new(D14nClient::new(message, payer, cursor_store))
         }
         (true, Env::Dev) => {
             let mut message = GrpcClient::builder();
@@ -279,7 +285,8 @@ async fn main() -> color_eyre::eyre::Result<()> {
             payer.set_host("https://payer.testnet-dev.xmtp.network:443".into());
             payer.set_tls(true);
             let payer = payer.build().await?;
-            Arc::new(D14nClient::new(message, payer))
+            let cursor_store = Arc::new(Mutex::new(CursorStore::new()));
+            Arc::new(D14nClient::new(message, payer, cursor_store))
         }
         (false, Env::Local) => {
             Arc::new(ClientV3::create("http://localhost:5556", false, None::<String>).await?)

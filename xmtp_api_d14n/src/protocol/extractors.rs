@@ -141,10 +141,10 @@ pub struct WelcomeMessageExtractor {
 }
 
 impl Extractor for WelcomeMessageExtractor {
-    type Output = mls_v1::WelcomeMessage;
+    type Output = (mls_v1::WelcomeMessage, u32, u64);
 
     fn get(self) -> Self::Output {
-        self.welcome_message
+        (self.welcome_message, self.originator_node_id, self.originator_sequence_id)
     }
 }
 
@@ -188,10 +188,10 @@ pub struct GroupMessageExtractor {
 }
 
 impl Extractor for GroupMessageExtractor {
-    type Output = mls_v1::GroupMessage;
+    type Output = (mls_v1::GroupMessage, u32, u64);
 
     fn get(self) -> Self::Output {
-        self.group_message
+        (self.group_message, self.originator_node_id, self.originator_sequence_id)
     }
 }
 

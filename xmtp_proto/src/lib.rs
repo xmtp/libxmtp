@@ -20,6 +20,8 @@ pub mod convert;
 pub mod types;
 #[cfg(feature = "convert")]
 pub mod v4_utils;
+#[cfg(feature = "convert")]
+mod v4_impls;
 
 #[cfg(test)]
 pub mod test {

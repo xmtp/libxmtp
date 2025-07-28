@@ -8483,6 +8483,7 @@ dependencies = [
  "xmtp_api_d14n",
  "xmtp_api_grpc",
  "xmtp_cryptography",
+ "xmtp_cursor_state",
  "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
@@ -8536,6 +8537,7 @@ dependencies = [
  "xmtp_api_grpc",
  "xmtp_api_http",
  "xmtp_common",
+ "xmtp_cursor_state",
  "xmtp_proto",
 ]
 
@@ -8638,6 +8640,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_content_types",
  "xmtp_cryptography",
+ "xmtp_cursor_state",
  "xmtp_db",
  "xmtp_id",
  "xmtp_mls",
@@ -8716,6 +8719,14 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "zeroize",
+]
+
+[[package]]
+name = "xmtp_cursor_state"
+version = "1.4.0-dev"
+dependencies = [
+ "hex",
+ "xmtp_proto",
 ]
 
 [[package]]

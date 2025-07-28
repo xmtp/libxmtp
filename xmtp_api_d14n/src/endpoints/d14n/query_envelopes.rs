@@ -2,6 +2,7 @@ use derive_builder::Builder;
 use prost::Message;
 use prost::bytes::Bytes;
 use std::borrow::Cow;
+use xmtp_cursor_state::store::SharedCursorStore;
 use xmtp_proto::mls_v1::PagingInfo;
 use xmtp_proto::traits::{BodyError, Endpoint};
 use xmtp_proto::xmtp::xmtpv4::envelopes::Cursor;
@@ -10,18 +11,22 @@ use xmtp_proto::xmtp::xmtpv4::message_api::FILE_DESCRIPTOR_SET;
 use xmtp_proto::xmtp::xmtpv4::message_api::{QueryEnvelopesRequest, QueryEnvelopesResponse};
 
 /// Query a single thing
-#[derive(Debug, Builder, Default, Clone)]
+#[derive(Debug, Builder, Clone)]
 #[builder(build_fn(error = "BodyError"))]
 pub struct QueryEnvelope {
     #[builder(setter(each(name = "topic", into)))]
     topics: Vec<Vec<u8>>,
     #[builder(default = None)]
     paging_info: Option<PagingInfo>,
+    #[builder(setter(into))]
+    cursor_store: SharedCursorStore,
 }
 
 impl QueryEnvelope {
-    pub fn builder() -> QueryEnvelopeBuilder {
-        Default::default()
+    pub fn builder(cursor_store: SharedCursorStore) -> QueryEnvelopeBuilder {
+        let mut builder = QueryEnvelopeBuilder::default();
+        builder.cursor_store(cursor_store);
+        builder
     }
 }
 
@@ -38,11 +43,10 @@ impl Endpoint for QueryEnvelope {
 
     fn body(&self) -> Result<Bytes, BodyError> {
         let limit = self.paging_info.map_or(0, |info| info.limit);
-        //todo: replace with returned node_id
-        let node_id = 100;
-        let last_seen = self.paging_info.map(|info| Cursor {
-            node_id_to_sequence_id: [(node_id, info.id_cursor)].into(),
-        });
+
+        let last_seen: Option<Cursor> = self
+            .cursor_store.lock().unwrap()
+            .lowest_common_cursor(&self.topics);
 
         let query = QueryEnvelopesRequest {
             query: Some(EnvelopesQuery {

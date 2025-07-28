@@ -5,17 +5,21 @@ mod streams;
 
 use xmtp_proto::prelude::ApiBuilder;
 
+use xmtp_cursor_state::store::SharedCursorStore;
+
 #[derive(Clone)]
 pub struct D14nClient<C, P> {
     message_client: C,
     payer_client: P,
+    cursor_store: SharedCursorStore
 }
 
 impl<C, P> D14nClient<C, P> {
-    pub fn new(message_client: C, payer_client: P) -> Self {
+    pub fn new(message_client: C, payer_client: P, cursor_store: SharedCursorStore) -> Self {
         Self {
             message_client,
             payer_client,
+            cursor_store,
         }
     }
 }
@@ -23,13 +27,15 @@ impl<C, P> D14nClient<C, P> {
 pub struct D14nClientBuilder<Builder1, Builder2> {
     message_client: Builder1,
     payer_client: Builder2,
+    cursor_store: SharedCursorStore,
 }
 
 impl<Builder1, Builder2> D14nClientBuilder<Builder1, Builder2> {
-    pub fn new(message_client: Builder1, payer_client: Builder2) -> Self {
+    pub fn new(message_client: Builder1, payer_client: Builder2, cursor_store: SharedCursorStore) -> Self {
         Self {
             message_client,
             payer_client,
+            cursor_store,
         }
     }
 }
@@ -70,6 +76,7 @@ where
         Ok(D14nClient::new(
             <Builder1 as ApiBuilder>::build(self.message_client).await?,
             <Builder2 as ApiBuilder>::build(self.payer_client).await?,
+            self.cursor_store,
         ))
     }
 
