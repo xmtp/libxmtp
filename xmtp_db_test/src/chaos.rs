@@ -1,4 +1,5 @@
 use derive_builder::Builder;
+use diesel::SqliteConnection;
 use parking_lot::Mutex;
 use rand::{Rng, distributions::Standard, prelude::Distribution};
 use std::{collections::HashMap, sync::Arc};
@@ -242,11 +243,9 @@ impl<C> ConnectionExt for ChaosConnection<C>
 where
     C: ConnectionExt,
 {
-    type Connection = C::Connection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.run_static_hooks(STATIC_PRE_READ_HOOK)?;
@@ -263,7 +262,7 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.run_static_hooks(STATIC_PRE_WRITE_HOOK)?;

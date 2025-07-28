@@ -73,6 +73,7 @@ pub trait DbQuery<C: crate::ConnectionExt>:
     + QueryRefreshState<C>
     + QueryIdentityUpdates<C>
     + QueryLocalCommitLog<C>
+    + CheckPragmas<C>
     + crate::ConnectionExt
     + IntoConnection<Connection = C>
 {
@@ -95,6 +96,7 @@ impl<C: crate::ConnectionExt, T: ?Sized> DbQuery<C> for T where
         + QueryRefreshState<C>
         + QueryIdentityUpdates<C>
         + QueryLocalCommitLog<C>
+        + CheckPragmas<C>
         + crate::ConnectionExt
         + IntoConnection<Connection = C>
 {

@@ -1,6 +1,9 @@
+mod pool;
 mod sqlcipher_connection;
 
 use crate::StorageError;
+use crate::configuration::BUSY_TIMEOUT;
+use crate::database::instrumentation::TestInstrumentation;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
 use arc_swap::ArcSwapOption;
@@ -15,8 +18,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use xmtp_common::{RetryableError, retryable};
 
-pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
-pub type Pool = r2d2::Pool<ConnectionManager>;
+use pool::*;
+
 pub type RawDbConnection = PooledConnection<ConnectionManager>;
 
 pub use self::sqlcipher_connection::EncryptedConnection;
@@ -25,13 +28,24 @@ use crate::{EncryptionKey, StorageOption, XmtpDb};
 use super::PersistentOrMem;
 
 trait XmtpConnection:
-    ValidatedConnection + CustomizeConnection<SqliteConnection, r2d2::Error> + dyn_clone::DynClone
+    ValidatedConnection
+    + ConnectionOptions
+    + CustomizeConnection<SqliteConnection, r2d2::Error>
+    + dyn_clone::DynClone
 {
+}
+
+trait ConnectionOptions {
+    fn options(&self) -> &StorageOption;
+    fn is_persistent(&self) -> bool {
+        matches!(self.options(), StorageOption::Persistent(_))
+    }
 }
 
 impl<T> XmtpConnection for T where
     T: ValidatedConnection
         + CustomizeConnection<SqliteConnection, r2d2::Error>
+        + ConnectionOptions
         + dyn_clone::DynClone
 {
 }
@@ -39,49 +53,89 @@ impl<T> XmtpConnection for T where
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
-    fn validate(&self, _opts: &StorageOption) -> Result<(), PlatformStorageError> {
+    fn validate(&self, _opts: &StorageOption, _conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
         Ok(())
     }
+}
+
+/// Pragmas to execute on acquiring a new SQLite connection
+/// According to [pragmas](https://docs.rs/diesel/latest/diesel/prelude/struct.SqliteConnection.html#concurrency)
+/// for concurrency
+/// these pragmas only required to be ran once per session.
+fn connection_pragmas(c: &mut impl SimpleConnection) -> diesel::result::QueryResult<()> {
+    // pragmas must be in a separate call to ensure they apply correctly
+    // _NOTE:_ order is important to ensure later pragmas do not timeout
+    c.batch_execute(&format!("PRAGMA busy_timeout = {};", BUSY_TIMEOUT))?; // sleep for 5s if the database is busy
+    c.batch_execute("PRAGMA synchronous = NORMAL;")?; // fsync only in critical moments
+    c.batch_execute("PRAGMA wal_autocheckpoint = 1000;")?; // write WAL changes back every 1000 pages, for an in average 1MB WAL file. May affect readers if number is increased
+    c.batch_execute("PRAGMA wal_checkpoint(TRUNCATE);")?; // free some space by truncating possibly massive WAL files from the last run.
+    c.batch_execute("PRAGMA query_only = OFF;")?; // Enable writing with the connection
+    c.batch_execute("PRAGMA journal_size_limit = 67108864")?; // maximum size of the WAL file, corresponds to 64MB
+    c.batch_execute("PRAGMA mmap_size = 134217728")?; // maximum size of the internal mmap pool. Corresponds to 128MB
+    c.batch_execute("PRAGMA cache_size = 2000")?; // maximum number of database disk pages that will be hold in memory. Corresponds to ~8MB
+    c.batch_execute("PRAGMA foreign_keys = ON;")?; // enforce foreign keys
+
+    Ok(())
 }
 
 /// An Unencrypted Connection
 /// Creates a Sqlite3 Database/Connection in WAL mode.
-/// Sets `busy_timeout` on each connection.
 /// _*NOTE:*_Unencrypted Connections are not validated and mostly meant for testing.
 /// It is not recommended to use an unencrypted connection in production.
 #[derive(Clone, Debug)]
-pub struct UnencryptedConnection;
+pub struct UnencryptedConnection {
+    options: StorageOption,
+}
+
+impl UnencryptedConnection {
+    pub fn new(options: StorageOption) -> Self {
+        Self { options }
+    }
+}
+
 impl ValidatedConnection for UnencryptedConnection {}
 
-/// Pragmas to execute on acquiring a new SQLite connection
-fn connection_pragmas() -> &'static str {
-    "
-        PRAGMA query_only = OFF;              -- Enable writing with the connection
-        PRAGMA journal_mode = WAL;            -- Better write concurrency
-        PRAGMA journal_size_limit = 67108864; -- maximum size of the WAL file, corresponds to 64MB
-        PRAGMA synchronous = NORMAL;          -- fsync only in critical moments
-        PRAGMA wal_autocheckpoint = 1000;     -- write WAL changes back every 1000 pages, for an in average 1MB WAL file. May affect readers if number is increased
-        PRAGMA wal_checkpoint(TRUNCATE);      -- free some space by truncating possibly massive WAL files from the last run.
-        PRAGMA mmap_size = 134217728;         -- maximum size of the internal mmap pool. Corresponds to 128MB
-        PRAGMA cache_size = 2000;             -- maximum number of database disk pages that will be hold in memory. Corresponds to ~8MB
-        PRAGMA foreign_keys = ON;             -- enforce foreign keys
-        PRAGMA busy_timeout = 15000;          -- sleep for 5s if the database is busy
-    "
+impl ConnectionOptions for UnencryptedConnection {
+    fn options(&self) -> &StorageOption {
+        &self.options
+    }
 }
 
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for UnencryptedConnection {
-    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
-        conn.batch_execute(connection_pragmas())
-            .map_err(r2d2::Error::QueryError)?;
+    fn on_acquire(&self, c: &mut SqliteConnection) -> Result<(), r2d2::Error> {
+        if cfg!(any(test, feature = "test-utils")) {
+            c.set_instrumentation(TestInstrumentation);
+        }
+        connection_pragmas(c)?;
         Ok(())
     }
 }
 
+impl ConnectionOptions for NopConnection {
+    fn options(&self) -> &StorageOption {
+        &self.options
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct NopConnection;
+pub struct NopConnection {
+    options: StorageOption,
+}
+
+impl Default for NopConnection {
+    fn default() -> Self {
+        NopConnection {
+            options: StorageOption::Ephemeral,
+        }
+    }
+}
+
 impl ValidatedConnection for NopConnection {}
 impl CustomizeConnection<SqliteConnection, r2d2::Error> for NopConnection {
-    fn on_acquire(&self, _conn: &mut SqliteConnection) -> Result<(), r2d2::Error> {
+    fn on_acquire(&self, c: &mut SqliteConnection) -> Result<(), r2d2::Error> {
+        if cfg!(any(test, feature = "test-utils")) {
+            c.set_instrumentation(TestInstrumentation);
+        }
         Ok(())
     }
 }
@@ -113,6 +167,8 @@ pub enum PlatformStorageError {
     DbConnection(#[from] diesel::r2d2::Error),
     #[error("Pool needs to  reconnect before use")]
     PoolNeedsConnection,
+    #[error("Using a DB Pool requires a persistent path")]
+    PoolRequiresPath,
     #[error("The SQLCipher Sqlite extension is not present, but an encryption key is given")]
     SqlCipherNotLoaded,
     #[error("PRAGMA key or salt has incorrect value")]
@@ -176,17 +232,16 @@ impl NativeDb {
             let enc_connection = EncryptedConnection::new(key, opts)?;
             Box::new(enc_connection) as Box<dyn XmtpConnection>
         } else if matches!(opts, StorageOption::Persistent(_)) {
-            Box::new(UnencryptedConnection) as Box<dyn XmtpConnection>
+            Box::new(UnencryptedConnection::new(opts.clone())) as Box<dyn XmtpConnection>
         } else {
-            Box::new(NopConnection) as Box<dyn XmtpConnection>
+            Box::new(NopConnection::default()) as Box<dyn XmtpConnection>
         };
-        customizer.validate(opts)?;
+        // customizer.validate(opts)?;
 
-        let conn = match opts {
-            StorageOption::Ephemeral => PersistentOrMem::Mem(EphemeralDbConnection::new()?),
-            StorageOption::Persistent(path) => {
-                PersistentOrMem::Persistent(NativeDbConnection::new(path, customizer.clone())?)
-            }
+        let conn = if customizer.is_persistent() {
+            PersistentOrMem::Persistent(NativeDbConnection::new(customizer.clone())?)
+        } else {
+            PersistentOrMem::Mem(EphemeralDbConnection::new()?)
         };
 
         Ok(Self {
@@ -213,8 +268,9 @@ impl XmtpDb for NativeDb {
         &self.opts
     }
 
-    fn validate(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
-        self.customizer.validate(opts).map_err(Into::into)
+    fn validate(&self, opts: &StorageOption, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+        self.customizer.validate(opts, conn)?;
+        Ok(())
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -242,8 +298,13 @@ impl std::fmt::Debug for EphemeralDbConnection {
 
 impl EphemeralDbConnection {
     pub fn new() -> Result<Self, PlatformStorageError> {
+        let mut c = SqliteConnection::establish(":memory:")?;
+        UnencryptedConnection::on_acquire(
+            &UnencryptedConnection::new(StorageOption::Ephemeral),
+            &mut c,
+        )?;
         Ok(Self {
-            conn: Arc::new(Mutex::new(SqliteConnection::establish(":memory:")?)),
+            conn: Arc::new(Mutex::new(c)),
         })
     }
 
@@ -260,11 +321,9 @@ impl EphemeralDbConnection {
 }
 
 impl ConnectionExt for EphemeralDbConnection {
-    type Connection = SqliteConnection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
@@ -273,7 +332,7 @@ impl ConnectionExt for EphemeralDbConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
@@ -290,8 +349,7 @@ impl ConnectionExt for EphemeralDbConnection {
 }
 
 pub struct NativeDbConnection {
-    pub(super) pool: ArcSwapOption<Pool>,
-    path: String,
+    pub(super) pool: ArcSwapOption<DbPool>,
     customizer: Box<dyn XmtpConnection>,
 }
 
@@ -300,22 +358,16 @@ impl std::fmt::Debug for NativeDbConnection {
         write!(
             f,
             "NativeDbConnection {{ path: {}, state={:?} }}",
-            &self.path,
+            &self.customizer.options(),
             self.pool.load().as_ref().map(|s| s.state()),
         )
     }
 }
 
 impl NativeDbConnection {
-    fn new(path: &str, customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
-        let pool = Pool::builder()
-            .connection_customizer(customizer.clone())
-            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-            .build(ConnectionManager::new(path))?;
-
+    fn new(customizer: Box<dyn XmtpConnection>) -> Result<Self, PlatformStorageError> {
         Ok(Self {
-            pool: ArcSwapOption::new(Some(Arc::new(pool))),
-            path: path.to_string(),
+            pool: ArcSwapOption::new(Some(Arc::new(DbPool::new(customizer.clone())?))),
             customizer,
         })
     }
@@ -328,23 +380,17 @@ impl NativeDbConnection {
 
     fn db_reconnect(&self) -> Result<(), PlatformStorageError> {
         tracing::info!("reconnecting sqlite database connection");
-        let builder = Pool::builder().connection_customizer(self.customizer.clone());
-
-        let new_pool = builder
-            .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-            .build(ConnectionManager::new(self.path.clone()))?;
-        self.pool.store(Some(Arc::new(new_pool)));
+        self.pool
+            .store(Some(Arc::new(DbPool::new(self.customizer.clone())?)));
         Ok(())
     }
 }
 
 impl ConnectionExt for NativeDbConnection {
-    type Connection = SqliteConnection;
-
     #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         if let Some(pool) = &*self.pool.load() {
@@ -365,7 +411,7 @@ impl ConnectionExt for NativeDbConnection {
     #[tracing::instrument(level = "trace", skip_all)]
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         if let Some(pool) = &*self.pool.load() {
@@ -463,5 +509,16 @@ mod tests {
             err
         );
         EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    #[xmtp_common::test]
+    fn test_db_lock() {
+        let path = xmtp_common::tmp_path();
+        let opts = StorageOption::Persistent(path.to_string());
+
+        NativeDbConnection::new(Box::new(UnencryptedConnection::new(opts))).unwrap();
+        // let _store = EncryptedMessageStore::new(db).expect("constructing message store failed.");
+        // let mut connection = SqliteConnection::establish(&path).unwrap();
+        // connection_pragmas(&mut connection).unwrap();
     }
 }
