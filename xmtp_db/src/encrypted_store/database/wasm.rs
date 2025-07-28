@@ -168,11 +168,9 @@ impl WasmDbConnection {
 }
 
 impl ConnectionExt for WasmDbConnection {
-    type Connection = SqliteConnection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
@@ -181,7 +179,7 @@ impl ConnectionExt for WasmDbConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();

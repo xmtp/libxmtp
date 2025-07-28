@@ -1,6 +1,7 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
+use diesel::SqliteConnection;
 // use crate::sql_key_store::XmtpMlsTransactionProvider;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
@@ -27,7 +28,7 @@ pub trait XmtpMlsStorageProvider:
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(&mut <Self::Connection as ConnectionExt>::Connection) -> Result<T, E>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}

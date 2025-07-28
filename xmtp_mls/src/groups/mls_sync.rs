@@ -55,7 +55,7 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
+    ConnectionExt, Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
 };
 use xmtp_db::{prelude::*, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
 use xmtp_mls_common::group_mutable_metadata::{extract_group_mutable_metadata, MetadataField};
@@ -1402,7 +1402,7 @@ where
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.update_cursor_if_needed(&provider, &envelope.group_id, cursor)?
+                        self.update_cursor_if_needed(&db, &envelope.group_id, cursor)?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1626,10 +1626,10 @@ where
                 if !e.is_retryable() && mls_group.is_active() {
                     if let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
                         let storage = conn.key_store();
-                        let provider = XmtpOpenMlsProvider::new(storage);
+                        let provider = XmtpOpenMlsProviderRef::new(&storage);
                         // TODO(rich): Add log_err! macro/trait for swallowing errors
                         if let Err(update_cursor_error) =
-                            self.update_cursor_if_needed(&provider, &self.group_id, message_cursor)
+                            self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor)
                         {
                             // We don't need to propagate the error if the cursor fails to update - the worst case is
                             // that the non-retriable error is processed again
@@ -1747,9 +1747,9 @@ where
     }
 
     #[tracing::instrument(skip_all, level = "trace")]
-    fn update_cursor_if_needed(
+    fn update_cursor_if_needed<C: ConnectionExt>(
         &self,
-        provider: &impl MlsProviderExt,
+        db: &impl DbQuery<C>,
         group_id: &[u8],
         cursor: u64,
     ) -> Result<bool, StorageError> {
@@ -1758,11 +1758,7 @@ where
             hex::encode(group_id),
             cursor
         );
-        let updated =
-            provider
-                .key_store()
-                .db()
-                .update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        let updated = db.update_cursor(group_id, EntityKind::Group, cursor as i64)?;
         if updated {
             tracing::debug!("cursor updated to [{}]", cursor as i64);
         } else {
