@@ -120,17 +120,18 @@ where
 
         let mut store = self.cursor_store.lock().unwrap();
         for (_msg, node_id, seq_id) in &extracted {
-
-            store.processed(topic.clone(), &Cursor {
-                node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
-            });
+            store.processed(
+                topic.clone(),
+                &Cursor {
+                    node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
+                },
+            );
         }
 
         let messages = extracted
             .into_iter()
             .map(|(msg, _, _)| msg)
             .collect::<Vec<_>>();
-
 
         Ok(mls_v1::QueryGroupMessagesResponse {
             messages,
@@ -159,9 +160,12 @@ where
 
         let mut store = self.cursor_store.lock().unwrap();
         for (_msg, node_id, seq_id) in &extracted {
-            store.processed(topic.clone(), &Cursor {
-                node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
-            });
+            store.processed(
+                topic.clone(),
+                &Cursor {
+                    node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
+                },
+            );
         }
 
         let messages = extracted

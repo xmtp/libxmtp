@@ -19,9 +19,9 @@ pub mod convert;
 #[cfg(feature = "convert")]
 pub mod types;
 #[cfg(feature = "convert")]
-pub mod v4_utils;
-#[cfg(feature = "convert")]
 mod v4_impls;
+#[cfg(feature = "convert")]
+pub mod v4_utils;
 
 #[cfg(test)]
 pub mod test {

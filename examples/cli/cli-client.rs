@@ -38,6 +38,7 @@ use xmtp_common::time::now_ns;
 use xmtp_content_types::{text::TextCodec, ContentCodec};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::signature::SignatureError;
+use xmtp_cursor_state::store::CursorStore;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_db::NativeDb;
@@ -57,7 +58,6 @@ use xmtp_mls::{builder::ClientBuilderError, client::ClientError};
 use xmtp_mls::{identity::IdentityStrategy, InboxOwner};
 use xmtp_proto::api_client::{ApiBuilder, BoxableXmtpApi};
 use xmtp_proto::traits::ApiClientError;
-use xmtp_cursor_state::store::{CursorStore};
 
 #[macro_use]
 extern crate tracing;

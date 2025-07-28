@@ -11,7 +11,7 @@ use xmtp_cursor_state::store::SharedCursorStore;
 pub struct D14nClient<C, P> {
     message_client: C,
     payer_client: P,
-    cursor_store: SharedCursorStore
+    cursor_store: SharedCursorStore,
 }
 
 impl<C, P> D14nClient<C, P> {
@@ -31,7 +31,11 @@ pub struct D14nClientBuilder<Builder1, Builder2> {
 }
 
 impl<Builder1, Builder2> D14nClientBuilder<Builder1, Builder2> {
-    pub fn new(message_client: Builder1, payer_client: Builder2, cursor_store: SharedCursorStore) -> Self {
+    pub fn new(
+        message_client: Builder1,
+        payer_client: Builder2,
+        cursor_store: SharedCursorStore,
+    ) -> Self {
         Self {
             message_client,
             payer_client,
