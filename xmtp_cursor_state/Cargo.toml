@@ -6,5 +6,5 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
-xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }
 hex = "0.4.3"
+xmtp_proto = { path = "../xmtp_proto", features = ["convert"] }

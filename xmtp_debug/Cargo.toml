@@ -53,9 +53,9 @@ valuable = { version = "0.1", features = ["derive"] }
 xmtp_api_d14n.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_cryptography = { workspace = true, features = ["exposed-keys"] }
+xmtp_cursor_state = { workspace = true }
 xmtp_db.workspace = true
 xmtp_id.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-xmtp_cursor_state = {workspace = true}
