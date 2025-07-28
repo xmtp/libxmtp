@@ -62,7 +62,9 @@ where
 
         let topics = request.requests.topics()?;
         let last_seen: Option<Cursor> = self
-            .cursor_store.lock().unwrap()
+            .cursor_store
+            .lock()
+            .unwrap()
             .lowest_common_cursor(&topics);
         let result: QueryEnvelopesResponse = QueryEnvelopes::builder()
             .envelopes(EnvelopesQuery {

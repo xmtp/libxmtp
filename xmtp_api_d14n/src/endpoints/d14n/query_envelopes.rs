@@ -45,7 +45,9 @@ impl Endpoint for QueryEnvelope {
         let limit = self.paging_info.map_or(0, |info| info.limit);
 
         let last_seen: Option<Cursor> = self
-            .cursor_store.lock().unwrap()
+            .cursor_store
+            .lock()
+            .unwrap()
             .lowest_common_cursor(&self.topics);
 
         let query = QueryEnvelopesRequest {

@@ -10,8 +10,8 @@ use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
 use xmtp_api_d14n::queries::D14nClient;
-use xmtp_proto::api_client::ApiBuilder;
 use xmtp_cursor_state::store::CursorStore;
+use xmtp_proto::api_client::ApiBuilder;
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]

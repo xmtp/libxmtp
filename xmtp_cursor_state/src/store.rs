@@ -168,9 +168,9 @@ mod tests {
             .lowest_common_cursor(&[topic("a"), topic("b"), topic("c")])
             .unwrap();
 
-        assert_eq!(lcc.node_id_to_sequence_id.get(&1), Some(&8));  // min(10, 15, 8)
+        assert_eq!(lcc.node_id_to_sequence_id.get(&1), Some(&8)); // min(10, 15, 8)
         assert_eq!(lcc.node_id_to_sequence_id.get(&2), Some(&12)); // min(20, 12)
-        assert_eq!(lcc.node_id_to_sequence_id.get(&3), Some(&9));  // min(9, 11)
+        assert_eq!(lcc.node_id_to_sequence_id.get(&3), Some(&9)); // min(9, 11)
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
             .lowest_common_cursor(&[topic("a"), topic("b"), topic("not-found")])
             .unwrap();
 
-        assert_eq!(lcc.node_id_to_sequence_id.get(&1), Some(&5));  // min(10, 5)
+        assert_eq!(lcc.node_id_to_sequence_id.get(&1), Some(&5)); // min(10, 5)
     }
 
     #[test]

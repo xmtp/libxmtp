@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use crate::xmtp::xmtpv4::envelopes::Cursor;
 use crate::types::ClockOrdering;
+use crate::xmtp::xmtpv4::envelopes::Cursor;
+use std::collections::{HashMap, HashSet};
 
 impl Cursor {
     /// Creates a new empty cursor
@@ -25,7 +25,8 @@ impl Cursor {
 
     /// Compares this cursor to another to determine their relative ordering
     pub fn compare(&self, other: &Cursor) -> ClockOrdering {
-        let all_nodes: HashSet<_> = self.node_id_to_sequence_id
+        let all_nodes: HashSet<_> = self
+            .node_id_to_sequence_id
             .keys()
             .chain(other.node_id_to_sequence_id.keys())
             .collect();
