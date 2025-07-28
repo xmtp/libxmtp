@@ -49,9 +49,8 @@ pub trait QueryIdentity<C: ConnectionExt> {
 
 impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
-        let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
-
         self.raw_query_write(|conn| {
+            let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
             diesel::update(dsl::identity)
                 .filter(dsl::next_key_package_rotation_ns.gt(rotate_at_ns))
                 .set(dsl::next_key_package_rotation_ns.eq(rotate_at_ns))
@@ -69,13 +68,12 @@ impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
     ) -> Result<(), StorageError> {
         use crate::schema::identity::dsl;
 
-        let queue_interval_ns = now_ns() - KEY_PACKAGE_QUEUE_INTERVAL_NS;
         self.raw_query_write(|conn| {
             diesel::update(dsl::identity)
                 .filter(
                     dsl::next_key_package_rotation_ns
                         .is_null()
-                        .or(dsl::next_key_package_rotation_ns.gt(queue_interval_ns)),
+                        .or(dsl::next_key_package_rotation_ns.le(now_ns())),
                 )
                 .set(dsl::next_key_package_rotation_ns.eq(Some(now_ns() + rotation_interval_ns)))
                 .execute(conn)?;
