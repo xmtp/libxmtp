@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
-pub const INTERVAL_DURATION: Duration = Duration::from_secs(5);
+pub const INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -299,6 +299,8 @@ where
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
         let remote_log_cursors =
             conn.get_remote_log_cursors(conversation_ids_for_remote_log_download.as_slice())?;
+        // For now we will rely on next iteration of the worker to download the next batch of commit log entries
+        // if there is more than MAX_PAGE_SIZE entries to download per group
         let query_log_requests: Vec<QueryCommitLogRequest> = remote_log_cursors
             .iter()
             .map(|(conversation_id, cursor)| QueryCommitLogRequest {
