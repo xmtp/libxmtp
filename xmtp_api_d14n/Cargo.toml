@@ -27,7 +27,7 @@ xmtp_proto = { workspace = true, features = ["convert"] }
 
 # only for tests
 xmtp_api_http = { workspace = true, optional = true, features = ["test-utils"] }
-xmtp_cursor_state = {workspace = true}
+xmtp_cursor_state = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 xmtp_api_grpc = { workspace = true, optional = true, features = ["test-utils"] }

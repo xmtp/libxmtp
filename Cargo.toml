@@ -161,7 +161,7 @@ xmtp_proto = { path = "xmtp_proto" }
 xmtp_macro = { path = "xmtp_macro" }
 xmtp_db = { path = "xmtp_db" }
 xmtp_db_test = { path = "xmtp_db_test" }
-xmtp_cursor_state = {path = "xmtp_cursor_state"}
+xmtp_cursor_state = { path = "xmtp_cursor_state" }
 bindings-wasm = { path = "bindings_wasm" }
 
 [profile.dbg]
