@@ -28,11 +28,9 @@ impl AsRef<MockConnection> for MockConnection {
 
 // TODO: We should use diesels test transaction
 impl ConnectionExt for MockConnection {
-    type Connection = SqliteConnection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.inner.lock();
@@ -41,7 +39,7 @@ impl ConnectionExt for MockConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.inner.lock();
@@ -494,14 +492,18 @@ mock! {
             group_id: &[u8],
         ) -> Result<Option<i32>, crate::ConnectionError>;
     }
+
+    impl<C: ConnectionExt + 'static> CheckPragmas<C> for DbQuery<C> {
+        fn busy_timeout(
+            &self,
+        ) -> Result<i32, crate::ConnectionError>;
+    }
 }
 
 impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
-    type Connection = <C as ConnectionExt>::Connection;
-
     fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         todo!()
@@ -509,7 +511,7 @@ impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
 
     fn raw_query_write<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         todo!()

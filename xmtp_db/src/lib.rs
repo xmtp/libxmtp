@@ -48,6 +48,7 @@ pub mod prelude {
     pub use super::local_commit_log::QueryLocalCommitLog;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::refresh_state::QueryRefreshState;
+    pub use super::pragmas::CheckPragmas;
     pub use super::traits::*;
 }
 
@@ -71,6 +72,12 @@ impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -145,7 +152,6 @@ pub mod test_util {
                     intents_processed
                 ) VALUES (0, 0, 0, 0);"#,
             ];
-
             for query in queries {
                 let query = diesel::sql_query(query);
                 let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();

@@ -1159,7 +1159,7 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
-    #[xmtp_common::test(flavor = "multi_thread")]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1203,11 +1203,7 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 2)
-    )]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_all_groups_and_welcomes() {
         tester!(alix);
         tester!(bo, passkey);

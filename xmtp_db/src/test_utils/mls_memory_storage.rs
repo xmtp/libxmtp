@@ -35,11 +35,9 @@ impl MemoryStorage {
 }
 
 impl ConnectionExt for MemoryStorage {
-    type Connection = diesel::SqliteConnection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut c = self.inner.lock();
@@ -48,7 +46,7 @@ impl ConnectionExt for MemoryStorage {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut c = self.inner.lock();

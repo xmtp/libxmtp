@@ -1,3 +1,5 @@
+use diesel::SqliteConnection;
+
 use crate::{sql_key_store::SqlKeyStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 use std::fmt;
 
@@ -29,14 +31,14 @@ where
 {
     pub fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
     {
         <Self as ConnectionExt>::raw_query_read::<_, _>(self, fun)
     }
 
     pub fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut C::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
     {
         <Self as ConnectionExt>::raw_query_write::<_, _>(self, fun)
     }
@@ -46,11 +48,9 @@ impl<C> ConnectionExt for DbConnection<C>
 where
     C: ConnectionExt,
 {
-    type Connection = C::Connection;
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.conn.raw_query_read(fun)
@@ -58,7 +58,7 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         self.conn.raw_query_write(fun)

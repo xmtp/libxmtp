@@ -96,6 +96,8 @@ where
                 fmt::layer()
                     .compact()
                     .with_ansi(true)
+                    .with_thread_ids(true)
+                    .with_test_writer()
                     .fmt_fields({
                         format::debug_fn(move |writer, field, value| {
                             if field.name() == "message" {

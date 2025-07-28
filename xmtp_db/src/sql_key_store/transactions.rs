@@ -1,45 +1,30 @@
 use super::*;
 use crate::DbConnection;
-use diesel::connection::LoadConnection;
-use diesel::migration::MigrationConnection;
-use diesel::sqlite::Sqlite;
-use diesel_migrations::MigrationHarness;
 use std::cell::RefCell;
 
 /// wrapper around a mutable connection (&mut SqliteConnection)
 /// Requires that all execution/transaction happens in one thread on one connection.
 /// This connection _must only_ be created from starting a transaction
-pub struct MutableTransactionConnection<'a, C> {
+pub struct MutableTransactionConnection<'a> {
     // we cannot avoid interior mutability here
     // because raw_query methods require &self, as do MlsStorage trait methods.
     // Since we no longer have async transactions, once a transaction is started
     // we can ensure it occurs all on one thread.
-    pub(crate) conn: RefCell<&'a mut C>,
+    pub(crate) conn: RefCell<&'a mut SqliteConnection>,
 }
 
-impl<'a, C> MutableTransactionConnection<'a, C> {
-    pub fn new(conn: &'a mut C) -> Self {
+impl<'a> MutableTransactionConnection<'a> {
+    pub fn new(conn: &'a mut SqliteConnection) -> Self {
         Self {
             conn: RefCell::new(conn),
         }
     }
 }
 
-impl<'a, C> ConnectionExt for MutableTransactionConnection<'a, C>
-where
-    C: diesel::Connection<Backend = Sqlite>
-        + diesel::connection::SimpleConnection
-        + LoadConnection
-        + MigrationConnection
-        + MigrationHarness<<C as diesel::Connection>::Backend>
-        + crate::MlsKeyStore
-        + Send,
-{
-    type Connection = C;
-
+impl<'a> ConnectionExt for MutableTransactionConnection<'a> {
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.borrow_mut();
@@ -48,7 +33,7 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.borrow_mut();
@@ -79,13 +64,29 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(&mut <C as ConnectionExt>::Connection) -> Result<T, E>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let conn = &self.conn;
 
-        // one call to raw_query_write = mutex only locked once for entire transaciton
-        conn.raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
+        // one call to raw_query_write = mutex only locked once for entire transaction
+        // immediate transactions forces SQLite to respect BUSY_TIMEOUT
+        // there are a few ways we can get DB Locked Errors:
+        // 1.) A Transaction is already writing
+        //  https://www.sqlite.org/rescode.html#busy
+        // 2.) Promoting a transaction to write:
+        // we start a transaction with BEGIN (read), then later promote the transaction to a write.
+        // another tranaction is already writing, so SQLite throws Database Locked.
+        // code: https://www.sqlite.org/rescode.html#busy_snapshot
+        // we set BUSY_TIMEOUT. this is effectively a timeout for SQLite to get a lock on the
+        // write to a table. See [BUSY_TIMOUT](xmtp_db::configuration::BUSY_TIMEOUT)
+        // we use immediate_transaction to force SQLite to respect busy_timeout as soon as the
+        // transaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
+        // set.
+
+        let result =
+            conn.raw_query_write(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?;
+        Ok(result?)
     }
 
     fn read<V: Entity<CURRENT_VERSION>>(
