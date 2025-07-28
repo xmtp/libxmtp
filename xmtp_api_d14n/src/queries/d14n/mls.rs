@@ -16,7 +16,7 @@ use xmtp_proto::api_client::{ApiStats, XmtpMlsClient};
 use xmtp_proto::mls_v1;
 use xmtp_proto::traits::Client;
 use xmtp_proto::traits::{ApiClientError, Query};
-use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
+use xmtp_proto::xmtp::xmtpv4::envelopes::{ClientEnvelope, Cursor};
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 use xmtp_proto::xmtp::xmtpv4::message_api::QueryEnvelopesResponse;
 
@@ -104,17 +104,33 @@ where
         &self,
         request: mls_v1::QueryGroupMessagesRequest,
     ) -> Result<mls_v1::QueryGroupMessagesResponse, Self::Error> {
-        let response: QueryEnvelopesResponse = QueryEnvelope::builder()
-            .topic(TopicKind::GroupMessagesV1.build(request.group_id.as_slice()))
+        let topic = TopicKind::GroupMessagesV1.build(request.group_id.as_slice());
+
+        let response: QueryEnvelopesResponse = QueryEnvelope::builder(self.cursor_store.clone())
+            .topic(topic.clone())
             .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let messages = SequencedExtractor::builder()
+        let extracted = SequencedExtractor::builder()
             .envelopes(response.envelopes)
             .build::<GroupMessageExtractor>()
             .get()?;
+
+        let mut store = self.cursor_store.lock().unwrap();
+        for (_msg, node_id, seq_id) in &extracted {
+
+            store.processed(topic.clone(), &Cursor {
+                node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
+            });
+        }
+
+        let messages = extracted
+            .into_iter()
+            .map(|(msg, _, _)| msg)
+            .collect::<Vec<_>>();
+
 
         Ok(mls_v1::QueryGroupMessagesResponse {
             messages,
@@ -129,17 +145,29 @@ where
     ) -> Result<mls_v1::QueryWelcomeMessagesResponse, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.build(request.installation_key.as_slice());
 
-        let response = QueryEnvelope::builder()
-            .topic(topic)
+        let response = QueryEnvelope::builder(self.cursor_store.clone())
+            .topic(topic.clone())
             .paging_info(request.paging_info)
             .build()?
             .query(&self.message_client)
             .await?;
 
-        let messages = SequencedExtractor::builder()
+        let extracted = SequencedExtractor::builder()
             .envelopes(response.envelopes)
             .build::<WelcomeMessageExtractor>()
             .get()?;
+
+        let mut store = self.cursor_store.lock().unwrap();
+        for (_msg, node_id, seq_id) in &extracted {
+            store.processed(topic.clone(), &Cursor {
+                node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
+            });
+        }
+
+        let messages = extracted
+            .into_iter()
+            .map(|(msg, _, _)| msg)
+            .collect::<Vec<_>>();
 
         Ok(mls_v1::QueryWelcomeMessagesResponse {
             messages,
