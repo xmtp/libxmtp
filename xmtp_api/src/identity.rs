@@ -70,6 +70,9 @@ where
         T: TryFrom<IdentityUpdateLog>,
         <T as TryFrom<IdentityUpdateLog>>::Error: RetryableError + Send + Sync + 'static,
     {
+        if filters.is_empty() {
+            return Ok(vec![].into_iter());
+        }
         let chunks = filters.chunks(GET_IDENTITY_UPDATES_CHUNK_SIZE);
 
         let res = try_join_all(chunks.map(|chunk| async move {
