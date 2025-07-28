@@ -19,6 +19,7 @@ use crate::{
     worker::{metrics::WorkerMetrics, WorkerRunner},
 };
 use openmls::prelude::tls_codec::Error as TlsCodecError;
+use std::time::Instant;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast;
@@ -435,6 +436,8 @@ where
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
+        let start = Instant::now();
+
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,
@@ -442,6 +445,12 @@ where
             permissions_policy_set.unwrap_or_default(),
             opts.unwrap_or_default(),
         )?;
+        let duration: std::time::Duration = start.elapsed();
+
+        tracing::info!(
+            "Lopi: Created MLS and inserted in {:?}",
+            duration
+        );
 
         // notify streams of our new group
         let _ = self

@@ -5,6 +5,7 @@ use crate::worker::FfiSyncWorker;
 use crate::worker::FfiSyncWorkerMode;
 use crate::{FfiSubscribeError, GenericError};
 use prost::Message;
+use std::time::Instant;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{strategies, ApiClientWrapper, ApiDebugWrapper, ApiIdentifier};
@@ -1331,9 +1332,16 @@ impl FfiConversations {
             _ => None,
         };
 
+        let start = Instant::now();
         let convo = self
             .inner_client
             .create_group(group_permissions, Some(metadata_options))?;
+        let duration: std::time::Duration = start.elapsed();
+
+        log::info!(
+            "Lopi: Created inner group in {:?}",
+            duration
+        );
 
         Ok(Arc::new(convo.into()))
     }
@@ -1373,13 +1381,27 @@ impl FfiConversations {
             inbox_ids.join(", ")
         );
 
+        let start = Instant::now();
         let convo = self.create_group_optimistic(opts)?;
+        let duration: std::time::Duration = start.elapsed();
 
+        log::info!(
+            "Lopi: Created group in {:?}",
+            duration
+        );
+
+        let start = Instant::now();
         if !inbox_ids.is_empty() {
             convo.add_members_by_inbox_id(inbox_ids).await?;
         } else {
             convo.sync().await?;
         };
+        let duration: std::time::Duration = start.elapsed();
+
+        log::info!(
+            "Lopi: Add members to group in {:?}",
+            duration
+        );
 
         Ok(convo)
     }
