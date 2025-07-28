@@ -220,7 +220,14 @@ pub trait QueryGroup<C: ConnectionExt> {
     fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
     /// Get conversation IDs for all conversations that require a remote commit log publish (DMs and groups where user is super admin, excluding sync groups)
-    fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    fn get_conversation_ids_for_remote_log_publish(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+    /// Get conversation IDs for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
+    fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 
     fn get_conversation_type(
         &self,
@@ -653,7 +660,11 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         })
     }
 
-    fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    /// Get conversation IDs for all conversations that require a remote commit log publish
+    /// (DMs and groups where user is super admin, excluding sync groups and rejected groups)
+    fn get_conversation_ids_for_remote_log_publish(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(
                 dsl::conversation_type
@@ -664,6 +675,17 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
             )
             .select(dsl::id)
             .order(dsl::created_at_ns.asc());
+
+        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+    }
+
+    // All dms and groups that are note sync groups or rejected
+    fn get_conversation_ids_for_remote_log_download(
+        &self,
+    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+        let query = dsl::groups
+            .filter(dsl::conversation_type.ne(ConversationType::Sync))
+            .select(dsl::id);
 
         self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
     }

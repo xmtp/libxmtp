@@ -1,5 +1,6 @@
 use crate::group::ConversationType;
 use crate::local_commit_log::LocalCommitLog;
+use std::collections::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -225,7 +226,11 @@ mock! {
         fn clear_fork_flag_for_group(&self, group_id: &[u8]) -> Result<(), crate::ConnectionError>;
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
-        fn get_conversation_ids_for_remote_log(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
+        fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
     }
 
@@ -459,6 +464,12 @@ mock! {
             entity_kind: crate::refresh_state::EntityKind,
             cursor: i64,
         ) -> Result<bool, StorageError>;
+
+        #[mockall::concretize]
+        fn get_remote_log_cursors(
+            &self,
+            conversation_ids: &[Vec<u8>],
+        ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
     }
 
     impl<C: ConnectionExt + 'static> QueryIdentityUpdates<C> for DbQuery<C> {

@@ -1,4 +1,4 @@
-use crate::groups::commit_log::CommitLogWorker;
+use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::{context::XmtpSharedContext, tester};
 use prost::Message;
 use rand::Rng;
@@ -139,14 +139,16 @@ async fn test_publish_commit_log_to_remote() {
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
         )
         .unwrap();
     assert_eq!(published_commit_log_cursor, 0);
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
-    let result = commit_log_worker.run_test(Some(1)).await;
+    let result = commit_log_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
+        .await;
     assert!(result.is_ok());
 
     let published_commit_log_cursor = alix
@@ -154,14 +156,14 @@ async fn test_publish_commit_log_to_remote() {
         .db()
         .get_last_cursor_for_id(
             &alix_group.group_id,
-            xmtp_db::refresh_state::EntityKind::PublishedCommitLog,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
         )
         .unwrap();
     assert!(published_commit_log_cursor > 0);
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        last_commit_log_entry.commit_sequence_id,
+        last_commit_log_entry.rowid as i64,
         published_commit_log_cursor
     );
 
@@ -185,5 +187,312 @@ async fn test_publish_commit_log_to_remote() {
     assert_eq!(
         entry.commit_sequence_id,
         last_commit_log_entry.commit_sequence_id as u64
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_download_commit_log_from_remote() {
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None).unwrap();
+    alix_group
+        .add_members_by_inbox_id(&[bo.inbox_id()])
+        .await
+        .unwrap();
+
+    alix_group
+        .update_group_name("foo".to_string())
+        .await
+        .unwrap();
+    alix_group
+        .update_group_name("bar".to_string())
+        .await
+        .unwrap();
+
+    bo.sync_all_welcomes_and_groups(None).await.unwrap();
+    let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    let bo_group = binding.first().unwrap();
+    bo_group.sync().await.unwrap();
+    bo_group
+        .update_group_name("bo group name".to_string())
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+
+    // Before Alix publishes commits upload commit cursor should be 0 for both groups:
+    let alix_group_1_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_id(
+            &alix_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+        )
+        .unwrap();
+    assert_eq!(alix_group_1_cursor, 0);
+
+    // Verify that publish works as expected
+    let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
+    let test_results = commit_log_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
+        .await
+        .unwrap();
+    // We only ran the worker one time
+    assert_eq!(test_results.len(), 1);
+    // We published commit log entries for one group
+    assert_eq!(
+        test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    // We have saved zero remote commit log entries so far
+    assert!(test_results[0].save_remote_commit_log_results.is_none());
+
+    // Running for bo and charlie should have no publish commit log results since they are not super admins
+    let mut commit_log_worker = CommitLogWorker::new(bo.context.clone());
+    let bo_test_results = commit_log_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
+        .await
+        .unwrap();
+    assert_eq!(bo_test_results.len(), 1);
+    assert!(bo_test_results[0]
+        .publish_commit_log_results
+        .as_ref()
+        .unwrap()
+        .is_empty());
+
+    // Verify the number of commits published results for alix group 1
+    assert_eq!(
+        test_results[0].publish_commit_log_results.clone().unwrap()[0].conversation_id,
+        alix_group.group_id
+    );
+    assert_eq!(
+        test_results[0].publish_commit_log_results.clone().unwrap()[0].num_entries_published,
+        4
+    );
+
+    // After Alix publishes commits upload commit cursor should be equal to publish results last rowid for both groups:
+    let alix_group_1_cursor = alix
+        .context
+        .db()
+        .get_last_cursor_for_id(
+            &alix_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload,
+        )
+        .unwrap();
+
+    let alix_group1_publish_result_upload_cursor =
+        test_results[0].publish_commit_log_results.clone().unwrap()[0].last_entry_published_rowid;
+    assert_eq!(
+        alix_group_1_cursor,
+        alix_group1_publish_result_upload_cursor
+    );
+
+    // Verify that when we save remote commit log entries for alix and bo, that we get the same results
+    let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
+    let alix_test_results = commit_log_worker_alix
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await
+        .unwrap();
+    let mut commit_log_worker_bo = CommitLogWorker::new(bo.context.clone());
+    let bo_test_results = commit_log_worker_bo
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await
+        .unwrap();
+    assert_eq!(alix_test_results.len(), 1);
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        alix_group.group_id
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_saved,
+        4
+    );
+
+    assert_eq!(bo_test_results.len(), 1);
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        bo_group.group_id
+    );
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_saved,
+        4
+    );
+
+    // Verify that cursor works as expected for saving new remote commit log entries
+    alix_group
+        .update_group_name("one".to_string())
+        .await
+        .unwrap();
+    alix_group
+        .update_group_name("two".to_string())
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+    bo_group.sync().await.unwrap();
+
+    let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
+    let alix_test_results = commit_log_worker_alix
+        .run_test(CommitLogTestFunction::All, None)
+        .await
+        .unwrap();
+
+    // Alix should only have saved 2 new remote commit log entries
+    assert_eq!(
+        alix_test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        alix_group.group_id
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_published,
+        2
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        alix_group.group_id
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_saved,
+        2
+    );
+
+    alix_group
+        .update_group_name("three".to_string())
+        .await
+        .unwrap();
+    alix_group
+        .update_group_name("four".to_string())
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+    bo_group.sync().await.unwrap();
+
+    let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
+    let alix_test_results = commit_log_worker_alix
+        .run_test(CommitLogTestFunction::All, None)
+        .await
+        .unwrap();
+
+    let mut commit_log_worker_bo = CommitLogWorker::new(bo.context.clone());
+    let bo_test_results = commit_log_worker_bo
+        .run_test(CommitLogTestFunction::All, None)
+        .await
+        .unwrap();
+
+    // Alix should have saved 2 new entries, while bo should have saved 4
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        alix_group.group_id
+    );
+    assert_eq!(
+        alix_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_saved,
+        2
+    );
+
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .conversation_id,
+        bo_group.group_id
+    );
+    assert_eq!(
+        bo_test_results[0]
+            .save_remote_commit_log_results
+            .as_ref()
+            .unwrap()[0]
+            .num_entries_saved,
+        4
     );
 }
