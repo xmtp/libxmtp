@@ -3311,7 +3311,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3349,7 +3349,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3420,7 +3420,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -3453,7 +3453,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3478,7 +3478,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path),
@@ -3519,7 +3519,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3545,7 +3545,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path),
@@ -3597,7 +3597,7 @@ mod tests {
             .unwrap();
         let client = create_client(
             connection.clone(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3640,7 +3640,7 @@ mod tests {
 
         let build = create_client(
             connection.clone(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3803,7 +3803,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -3925,7 +3925,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4023,7 +4023,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4060,7 +4060,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -4106,7 +4106,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),
@@ -7382,7 +7382,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7427,7 +7427,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7510,7 +7510,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7551,7 +7551,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7579,7 +7579,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7604,7 +7604,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -7640,7 +7640,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(tmp_path()),
@@ -8921,7 +8921,7 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
-            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
             Some(path.clone()),

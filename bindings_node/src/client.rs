@@ -157,7 +157,7 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
-  let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
+  let sync_api_client = TonicApiClient::create(&host, is_secure)
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
