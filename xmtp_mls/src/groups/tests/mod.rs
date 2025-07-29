@@ -15,6 +15,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
+use crate::groups::intents::QueueIntent;
 use crate::groups::{DmValidationError, MetadataPermissionsError};
 use crate::groups::{
     MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
@@ -50,7 +51,7 @@ use xmtp_db::schema::groups;
 use xmtp_db::{
     consent_record::ConsentState,
     group::{ConversationType, GroupQueryArgs},
-    group_intent::{IntentKind, IntentState},
+    group_intent::IntentState,
     group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
     prelude::*,
     XmtpOpenMlsProviderRef,
@@ -2538,8 +2539,9 @@ async fn create_membership_update_no_sync(group: &TestMlsGroup) {
         return;
     }
 
-    group
-        .queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)
+    QueueIntent::update_group_membership()
+        .data(intent_data)
+        .queue(group)
         .unwrap();
 }
 

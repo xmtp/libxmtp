@@ -29,7 +29,7 @@ use self::{
     },
     validated_commit::extract_group_membership,
 };
-use crate::groups::mls_ext::CommitLogStorer;
+use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
 use crate::{
     client::ClientError,
     configuration::{
@@ -79,7 +79,6 @@ use xmtp_db::{consent_record::ConsentType, Fetch};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
-    group_intent::IntentKind,
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
 use xmtp_db::{
@@ -976,11 +975,10 @@ where
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let queryable_content_fields: QueryableContentFields =
             Self::extract_queryable_content_fields(message);
-        self.queue_intent(
-            IntentKind::SendMessage,
-            intent_data,
-            queryable_content_fields.should_push,
-        )?;
+        QueueIntent::send_message()
+            .data(intent_data)
+            .should_push(queryable_content_fields.should_push)
+            .queue(self)?;
 
         // store this unpublished message locally before sending
         let message_id = calculate_message_id(&self.group_id, message, &now.to_string());
@@ -1114,8 +1112,9 @@ where
             return ok_result;
         }
 
-        let intent =
-            self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
+        let intent = QueueIntent::update_group_membership()
+            .data(intent_data)
+            .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
         track!(
@@ -1172,8 +1171,9 @@ where
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let intent_data = self.get_membership_update_intent(&[], inbox_ids).await?;
-        let intent =
-            self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
+        let intent = QueueIntent::update_group_membership()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
 
@@ -1204,7 +1204,9 @@ where
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_name(group_name).into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1219,7 +1221,9 @@ where
                 version.to_string(),
             )
             .into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1259,7 +1263,9 @@ where
         )
         .into();
 
-        let intent = self.queue_intent(IntentKind::UpdatePermission, intent_data, false)?;
+        let intent = QueueIntent::update_permission()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1298,7 +1304,9 @@ where
         }
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_description(group_description).into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1336,7 +1344,9 @@ where
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_group_image_url_square(group_image_url_square)
                 .into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1391,7 +1401,9 @@ where
                 expire_from_ms,
             )
             .into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -1405,7 +1417,9 @@ where
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new_update_conversation_message_disappear_in_ns(expire_in_ms)
                 .into();
-        let intent = self.queue_intent(IntentKind::MetadataUpdate, intent_data, false)?;
+        let intent = QueueIntent::metadata_update()
+            .data(intent_data)
+            .queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
@@ -1504,7 +1518,9 @@ where
         };
         let intent_data: Vec<u8> =
             UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
-        let intent = self.queue_intent(IntentKind::UpdateAdminList, intent_data, false)?;
+        let intent = QueueIntent::update_admin_list()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
@@ -1616,7 +1632,7 @@ where
 
     /// Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let intent = self.queue_intent(IntentKind::KeyUpdate, vec![], false)?;
+        let intent = QueueIntent::key_update().queue(self)?;
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
     }
