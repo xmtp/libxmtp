@@ -85,9 +85,9 @@ async fn new_client_inner(
         None,
     ))
     .api_client(api)
+    .store(EncryptedMessageStore::new(db)?)
     .default_mls_store()?
     .with_remote_verifier()?
-    .store(EncryptedMessageStore::new(db)?)
     .build()
     .await?;
 
