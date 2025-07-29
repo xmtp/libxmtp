@@ -8,7 +8,7 @@ use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::mls_v1::QueryCommitLogRequest;
+use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -101,7 +101,11 @@ async fn test_commit_log_publish_and_query_apis() {
     let result = alix
         .context
         .api()
-        .publish_commit_log(&[commit_log_entry.clone()])
+        .publish_commit_log(vec![PublishCommitLogRequest {
+            group_id: group_id.clone(),
+            serialized_commit_log_entry: commit_log_entry.clone().encode_to_vec(),
+            signature: None,
+        }])
         .await;
     assert!(result.is_ok());
 
