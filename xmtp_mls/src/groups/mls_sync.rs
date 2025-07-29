@@ -9,7 +9,10 @@ use super::{
     validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
     GroupError, HmacKey, MlsGroup,
 };
-use crate::groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update;
+use crate::groups::{
+    device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
+    intents::QueueIntent,
+};
 use crate::{
     client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
     mls_store::MlsStore, subscriptions::stream_messages::extract_message_cursor,
@@ -2258,8 +2261,9 @@ where
             intent_data
         );
 
-        let intent =
-            self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
+        let intent = QueueIntent::update_group_membership()
+            .data(intent_data)
+            .queue(self)?;
 
         let _ = self.sync_until_intent_resolved(intent.id).await?;
         Ok(())
