@@ -209,7 +209,11 @@ async fn test_client_creation() {
         let result = Client::builder(test_case.strategy)
             .temp_store()
             .await
-            .api_client(
+            .api_clients(
+                <TestClient as XmtpTestClient>::create_local()
+                    .build()
+                    .await
+                    .unwrap(),
                 <TestClient as XmtpTestClient>::create_local()
                     .build()
                     .await
@@ -251,7 +255,11 @@ async fn test_turn_local_telemetry_off() {
     let store = xmtp_db::TestDb::create_persistent_store(None).await;
     let client = Client::builder(identity_strategy.clone())
         .store(store)
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
@@ -290,7 +298,11 @@ async fn test_2nd_time_client_creation() {
 
     let client1 = Client::builder(identity_strategy.clone())
         .store(store.clone())
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
@@ -306,7 +318,11 @@ async fn test_2nd_time_client_creation() {
 
     let client2 = Client::builder(IdentityStrategy::CachedOnly)
         .store(store.clone())
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
@@ -329,7 +345,11 @@ async fn test_2nd_time_client_creation() {
         None,
     ))
     .store(store.clone())
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
@@ -348,7 +368,11 @@ async fn test_2nd_time_client_creation() {
     let client4 = Client::builder(identity_strategy)
         .temp_store()
         .await
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
@@ -582,7 +606,11 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
@@ -609,7 +637,11 @@ async fn identity_persistence_test() {
         nonce,
         None,
     ))
-    .api_client(
+    .api_clients(
+        <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap(),
         <TestClient as XmtpTestClient>::create_local()
             .build()
             .await
@@ -647,7 +679,11 @@ async fn identity_persistence_test() {
     // Use cached only strategy
     let store_d = xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await;
     let client_d = Client::builder(IdentityStrategy::CachedOnly)
-        .api_client(
+        .api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await

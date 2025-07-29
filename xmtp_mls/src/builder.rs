@@ -176,11 +176,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "api_client",
             })?;
 
-        let sync_api_client = sync_api_client
-            .take()
-            .ok_or(ClientBuilderError::MissingParameter {
-                parameter: "sync_api_client",
-            })?;
+        let sync_api_client =
+            sync_api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameter {
+                    parameter: "sync_api_client",
+                })?;
 
         let scw_verifier = scw_verifier
             .take()

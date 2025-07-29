@@ -83,7 +83,6 @@ use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
     ops::RangeInclusive,
-    time::Instant,
 };
 use thiserror::Error;
 use tracing::debug;

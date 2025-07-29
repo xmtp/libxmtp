@@ -59,8 +59,8 @@ use openmls::{
 };
 use openmls_traits::storage::CURRENT_VERSION;
 use prost::Message;
+use std::collections::HashMap;
 use std::future::Future;
-use std::{collections::HashMap, time::Instant};
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
