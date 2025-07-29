@@ -906,7 +906,7 @@ where
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        // self.maybe_update_installations(update_interval_ns).await?;
+        self.maybe_update_installations(update_interval_ns).await?;
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed

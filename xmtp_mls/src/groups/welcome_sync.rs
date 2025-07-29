@@ -65,6 +65,16 @@ where
     /// Returns any new groups created in the operation
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<Context>>, GroupError> {
+        self.sync_welcomes_inner(true).await
+    }
+
+    /// Download all unread welcome messages and converts to a group struct, ignoring malformed messages.
+    /// Returns any new groups created in the operation
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub async fn sync_welcomes_inner(
+        &self,
+        queue_key_rotation: bool,
+    ) -> Result<Vec<MlsGroup<Context>>, GroupError> {
         let db = self.context.db();
         let store = MlsStore::new(self.context.clone());
         let envelopes = store.query_welcome_messages(&db).await?;
@@ -94,7 +104,7 @@ where
         // Rotate the keys regardless of whether the welcomes failed or succeeded. It is better to over-rotate than
         // to under-rotate, as the latter risks leaving expired key packages on the network. We already have a max
         // rotation interval.
-        if num_envelopes > 0 {
+        if queue_key_rotation && num_envelopes > 0 {
             self.context.identity().queue_key_rotation(&db).await?;
         }
 
@@ -173,7 +183,7 @@ where
     ) -> Result<usize, GroupError> {
         let db = self.context.db();
 
-        if let Err(err) = self.sync_welcomes().await {
+        if let Err(err) = self.sync_welcomes_inner(false).await {
             tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
         }
 
@@ -200,6 +210,8 @@ where
             .collect();
 
         let success_count = self.sync_groups_in_batches(groups, 10).await?;
+
+        self.context.identity().queue_key_rotation(&db).await?;
 
         Ok(success_count)
     }
