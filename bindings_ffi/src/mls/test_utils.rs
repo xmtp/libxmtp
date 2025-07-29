@@ -151,6 +151,9 @@ where
         connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap(),
+        connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false, None)
+            .await
+            .unwrap(),
         Some(tmp_path()),
         Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
         &inbox_id,
