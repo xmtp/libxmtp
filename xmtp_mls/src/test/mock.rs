@@ -68,6 +68,7 @@ impl Clone for NewMockContext {
         Self {
             identity: self.identity.clone(),
             api_client: self.api_client.clone(),
+            sync_api_client: self.sync_api_client.clone(),
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
@@ -140,5 +141,9 @@ impl XmtpSharedContext for NewMockContext {
 
     fn mutexes(&self) -> &MutexRegistry {
         &self.mutexes
+    }
+
+    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+        &self.sync_api_client
     }
 }

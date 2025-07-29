@@ -159,6 +159,10 @@ pub async fn create_client(
     .await
     .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
 
+  let sync_api_client = TonicApiClient::create(&host, is_secure, app_version.as_ref())
+    .await
+    .map_err(|_| Error::from_reason("Error creating Tonic API client"))?;
+
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
     None => StorageOption::Ephemeral,
@@ -193,7 +197,7 @@ pub async fn create_client(
 
   let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_client(api_client)
+      .api_clients(api_client, sync_api_client)
       .enable_api_debug_wrapper()
       .map_err(ErrorWrapper::from)?
       .with_remote_verifier()
@@ -204,7 +208,7 @@ pub async fn create_client(
       .device_sync_server_url(&url),
 
     None => xmtp_mls::Client::builder(identity_strategy)
-      .api_client(api_client)
+      .api_clients(api_client, sync_api_client)
       .enable_api_debug_wrapper()
       .map_err(ErrorWrapper::from)?
       .with_remote_verifier()

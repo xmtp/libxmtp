@@ -31,6 +31,7 @@ pub fn context() -> NewMockContext {
         },
         workers: WorkerRunner::new(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
+        sync_api_client: ApiClientWrapper::new(MockApiClient::new(), Default::default()),
     }
 }
 

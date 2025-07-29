@@ -391,6 +391,7 @@ where
 
         // Consent state defaults to allowed when the user creates the group
         new_group.update_consent_state(ConsentState::Allowed)?;
+
         Ok(new_group)
     }
 
@@ -1091,6 +1092,7 @@ where
         inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
         self.ensure_not_paused().await?;
+
         let ids = inbox_ids
             .as_ref()
             .iter()
@@ -1115,7 +1117,6 @@ where
             .queue(self)?;
 
         self.sync_until_intent_resolved(intent.id).await?;
-
         track!(
             "Group Membership Change",
             {

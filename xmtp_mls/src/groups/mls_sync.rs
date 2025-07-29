@@ -368,6 +368,7 @@ where
         // Even if receiving fails, we continue to post_commit
         // Errors are collected in the summary.
         let result = self.receive().await;
+
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -380,6 +381,7 @@ where
         }
 
         let result = self.post_commit().await;
+
         track_err!("Post commit", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
@@ -1724,11 +1726,12 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub(super) async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         let db = self.context.db();
+
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, &db)
             .await?;
-        let summary = self.process_messages(messages).await;
 
+        let summary = self.process_messages(messages).await;
         track!(
             "Fetched messages",
             {

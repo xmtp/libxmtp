@@ -34,6 +34,20 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
             .unwrap()
     };
 
+    let sync_api_client = if is_dev_network {
+        tracing::info!("Using Dev GRPC");
+        <TestApiClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap()
+    } else {
+        tracing::info!("Using Local GRPC");
+        <TestApiClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap()
+    };
+
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
         wallet.identifier(),
@@ -44,7 +58,7 @@ pub async fn new_unregistered_client(history_sync: bool) -> (BenchClient, Privat
     let mut client = client
         .temp_store()
         .await
-        .api_client(api_client)
+        .api_clients(api_client, sync_api_client)
         .with_remote_verifier()
         .unwrap()
         .default_mls_store()

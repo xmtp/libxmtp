@@ -166,9 +166,11 @@ where
         }
 
         let api_client = ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
+        let sync_api_client =
+            ClientBuilder::new_custom_api_client(&format!("http://{api_addr}")).await;
         let client = ClientBuilder::new_test_builder(&self.owner)
             .await
-            .api_client(api_client)
+            .api_clients(api_client, sync_api_client)
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .with_device_sync_server_url(self.sync_url.clone())
             .maybe_version(self.version.clone())

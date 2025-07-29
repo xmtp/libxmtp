@@ -435,6 +435,7 @@ where
         opts: Option<GroupMetadataOptions>,
     ) -> Result<MlsGroup<Context>, ClientError> {
         tracing::info!("creating group");
+
         let group: MlsGroup<Context> = MlsGroup::create_and_insert(
             self.context.clone(),
             GroupMembershipState::Allowed,

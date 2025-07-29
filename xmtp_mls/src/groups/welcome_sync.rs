@@ -176,7 +176,6 @@ where
         if let Err(err) = self.sync_welcomes().await {
             tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
         }
-
         let query_args = GroupQueryArgs {
             consent_states,
             include_duplicate_dms: true,

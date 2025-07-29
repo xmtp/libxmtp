@@ -87,7 +87,7 @@ where
 
         let messages = self
             .context
-            .api()
+            .sync_api()
             .query_group_messages(group_id.to_vec(), Some(id_cursor as u64))
             .await?;
 
