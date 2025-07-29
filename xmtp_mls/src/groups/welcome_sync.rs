@@ -180,11 +180,7 @@ where
         }
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: sync welcomes in {:?}",
-            duration
-        );
-
+        tracing::info!("Lopi: sync welcomes in {:?}", duration);
 
         let query_args = GroupQueryArgs {
             consent_states,
@@ -197,10 +193,7 @@ where
         let conversations = db.fetch_conversation_list(query_args)?;
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: fetch convos in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: fetch convos in {:?}", duration);
 
         let groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
@@ -219,10 +212,7 @@ where
         let success_count = self.sync_groups_in_batches(groups, 10).await?;
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: sync groups in batches in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: sync groups in batches in {:?}", duration);
         Ok(success_count)
     }
 
@@ -258,26 +248,20 @@ where
                                 tracing::warn!(?err, "sync_with_conn failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
-                            }                            
+                            }
                             let duration: std::time::Duration = start.elapsed();
-                    
-                            tracing::info!(
-                                "Lopi: sync with conn in {:?}",
-                                duration
-                            );
+
+                            tracing::info!("Lopi: sync with conn in {:?}", duration);
 
                             let start = Instant::now();
                             if let Err(err) = group.maybe_update_installations(None).await {
                                 tracing::warn!(?err, "maybe_update_installations failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
-                            }                            
+                            }
                             let duration: std::time::Duration = start.elapsed();
-                    
-                            tracing::info!(
-                                "Lopi: maybe update in {:?}",
-                                duration
-                            );
+
+                            tracing::info!("Lopi: maybe update in {:?}", duration);
 
                             active_group_count.fetch_add(1, Ordering::SeqCst);
                         }

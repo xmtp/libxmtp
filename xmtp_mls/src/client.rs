@@ -447,10 +447,7 @@ where
         )?;
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: Created MLS and inserted in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: Created MLS and inserted in {:?}", duration);
 
         // notify streams of our new group
         let _ = self

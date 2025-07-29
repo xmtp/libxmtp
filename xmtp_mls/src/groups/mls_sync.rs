@@ -82,7 +82,8 @@ use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
     mem::{discriminant, Discriminant},
-    ops::RangeInclusive, time::Instant,
+    ops::RangeInclusive,
+    time::Instant,
 };
 use thiserror::Error;
 use tracing::debug;
@@ -368,10 +369,7 @@ where
         let result = self.receive().await;
         let duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: sync with conn receive in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: sync with conn receive in {:?}", duration);
         track_err!("Receive messages", &result, group: &self.group_id);
         match result {
             Ok(s) => summary.add_process(s),
@@ -387,10 +385,7 @@ where
         let result = self.post_commit().await;
         let duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: sync with conn post commit in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: sync with conn post commit in {:?}", duration);
         track_err!("Post commit", &result, group: &self.group_id);
         if let Err(e) = result {
             tracing::error!("post commit error {e:?}",);
@@ -1739,13 +1734,10 @@ where
         let start = Instant::now();
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(&self.group_id, &db)
-            .await?;        
+            .await?;
         let duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: query messages in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: query messages in {:?}", duration);
 
         let start = Instant::now();
         let summary = self.process_messages(messages).await;

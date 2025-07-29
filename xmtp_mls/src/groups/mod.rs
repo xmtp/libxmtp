@@ -59,8 +59,8 @@ use openmls::{
 };
 use openmls_traits::storage::CURRENT_VERSION;
 use prost::Message;
-use std::{collections::HashMap, time::Instant};
 use std::future::Future;
+use std::{collections::HashMap, time::Instant};
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
@@ -397,10 +397,7 @@ where
 
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: Update consent state in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: Update consent state in {:?}", duration);
         Ok(new_group)
     }
 
@@ -1107,10 +1104,7 @@ where
 
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: Ensure not paused in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: Ensure not paused in {:?}", duration);
         let ids = inbox_ids
             .as_ref()
             .iter()
@@ -1139,10 +1133,7 @@ where
 
         let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!(
-            "Lopi: sync until resolved in {:?}",
-            duration
-        );
+        tracing::info!("Lopi: sync until resolved in {:?}", duration);
         track!(
             "Group Membership Change",
             {
