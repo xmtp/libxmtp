@@ -62,7 +62,11 @@ impl<A, S> ClientBuilder<A, S> {
             .build()
             .await
             .unwrap();
-        self.api_client(api_client)
+        let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
+        self.api_clients(api_client, sync_api_client)
     }
 
     pub async fn local(self) -> ClientBuilder<TestClient, S> {
@@ -70,7 +74,11 @@ impl<A, S> ClientBuilder<A, S> {
             .build()
             .await
             .unwrap();
-        self.api_client(api_client)
+        let sync_api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+        self.api_clients(api_client, sync_api_client)
     }
 }
 
@@ -160,10 +168,14 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .build()
             .await
             .unwrap();
+        let sync_api_client = <TestClient as XmtpTestClient>::create_dev()
+            .build()
+            .await
+            .unwrap();
 
         let client = Self::new_test_builder(owner)
             .await
-            .api_client(api_client)
+            .api_clients(api_client, sync_api_client)
             .build()
             .await
             .unwrap();
@@ -181,9 +193,14 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .await
             .unwrap();
 
+        let sync_api_client = <TestClient as XmtpTestClient>::create_local()
+            .build()
+            .await
+            .unwrap();
+
         let client = Self::new_test_builder(owner)
             .await
-            .api_client(api_client)
+            .api_clients(api_client, sync_api_client)
             .device_sync_server_url(history_sync_url)
             .build()
             .await
@@ -196,7 +213,11 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
 
 impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     pub async fn local_client(self) -> ClientBuilder<TestClient, Db> {
-        self.api_client(
+        self.api_clients(
+            <TestClient as XmtpTestClient>::create_local()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_local()
                 .build()
                 .await
@@ -205,7 +226,11 @@ impl<ApiClient, Db> ClientBuilder<ApiClient, Db> {
     }
 
     pub async fn dev_client(self) -> ClientBuilder<TestClient, Db> {
-        self.api_client(
+        self.api_clients(
+            <TestClient as XmtpTestClient>::create_dev()
+                .build()
+                .await
+                .unwrap(),
             <TestClient as XmtpTestClient>::create_dev()
                 .build()
                 .await

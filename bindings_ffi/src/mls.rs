@@ -221,6 +221,7 @@ pub async fn apply_signature_request(
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
+    sync_api: Arc<XmtpApiClient>,
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
@@ -269,7 +270,10 @@ pub async fn create_client(
     );
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_client(Arc::unwrap_or_clone(api).0)
+        .api_clients(
+            Arc::unwrap_or_clone(api).0,
+            Arc::unwrap_or_clone(sync_api).0,
+        )
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
@@ -3307,6 +3311,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some([0u8; 32].to_vec()),
             &inbox_id,
@@ -3339,6 +3346,9 @@ mod tests {
         let inbox_id = ident.inbox_id(nonce).unwrap();
 
         let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -3410,6 +3420,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             None,
             &inbox_id,
@@ -3440,6 +3453,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             None,
             &inbox_id,
@@ -3459,6 +3475,9 @@ mod tests {
         drop(client_a);
 
         let client_b = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -3500,6 +3519,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -3520,6 +3542,9 @@ mod tests {
         other_key[31] = 1;
 
         let result_errored = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -3572,6 +3597,9 @@ mod tests {
             .unwrap();
         let client = create_client(
             connection.clone(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -3612,6 +3640,9 @@ mod tests {
 
         let build = create_client(
             connection.clone(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             Some(key.clone()),
             &inbox_id,
@@ -3772,6 +3803,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -3891,6 +3925,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             Some(key),
             &inbox_id,
@@ -3986,6 +4023,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(path.clone()),
             None, // encryption_key
             &inbox_id,
@@ -4017,6 +4057,9 @@ mod tests {
         let path = tmp_path();
 
         let client_amal = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -4060,6 +4103,9 @@ mod tests {
         );
 
         let client_bola = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -7336,6 +7382,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
@@ -7375,6 +7424,9 @@ mod tests {
 
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -7458,6 +7510,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &client_b_inbox_id,
@@ -7496,6 +7551,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_a_inbox_id,
@@ -7521,6 +7579,9 @@ mod tests {
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             Some(tmp_path()),
             Some(xmtp_db::EncryptedMessageStore::<()>::generate_enc_key().into()),
             &wallet_b_inbox_id,
@@ -7540,6 +7601,9 @@ mod tests {
         // Step 3: Wallet B creates a second client for inbox_id B
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let _client_b2 = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -7573,6 +7637,9 @@ mod tests {
         // Step 5: Wallet B tries to create another new client for inbox_id B, but it fails
         let ffi_ident: FfiIdentifier = wallet_b.identifier().into();
         let client_b3 = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),
@@ -8851,6 +8918,9 @@ mod tests {
         let path = tmp_path();
         let key = static_enc_key().to_vec();
         let client = create_client(
+            connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap(),
             connect_to_backend(xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap(),

@@ -58,11 +58,15 @@ fn create_ffi_client(c: &mut Criterion) {
                     let inbox_id = ident.inbox_id(nonce).unwrap();
                     let path = tmp_path();
                     let (url, is_secure) = network_url();
-                    let api = xmtpv3::mls::connect_to_backend(url, is_secure)
+                    let api = xmtpv3::mls::connect_to_backend(url.clone(), is_secure)
+                        .await
+                        .unwrap();
+                    let sync_api = xmtpv3::mls::connect_to_backend(url, is_secure)
                         .await
                         .unwrap();
                     (
                         api,
+                        sync_api,
                         inbox_id,
                         wallet.identifier(),
                         nonce,
@@ -71,10 +75,11 @@ fn create_ffi_client(c: &mut Criterion) {
                     )
                 })
             },
-            |(api, inbox_id, ident, nonce, path, span)| async move {
+            |(api, sync_api, inbox_id, ident, nonce, path, span)| async move {
                 let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
                     api,
+                    sync_api,
                     Some(path),
                     Some(vec![0u8; 32]),
                     &inbox_id,
@@ -118,6 +123,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
             .unwrap();
         xmtpv3::mls::create_client(
             api.clone(),
+            api.clone(),
             Some(path.clone()),
             Some(vec![0u8; 32]),
             &inbox_id.clone(),
@@ -152,6 +158,7 @@ fn cached_create_ffi_client(c: &mut Criterion) {
             |(api, inbox_id, ident, nonce, path, history_sync, span)| async move {
                 let ffi_ident: FfiIdentifier = ident.into();
                 xmtpv3::mls::create_client(
+                    api.clone(),
                     api,
                     Some(path),
                     Some(vec![0u8; 32]),

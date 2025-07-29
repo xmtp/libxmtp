@@ -159,6 +159,8 @@ pub async fn create_client(
   init_logging(log_options.unwrap_or_default())?;
   let api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
 
+  let sync_api_client = XmtpHttpApiClient::new(host.clone(), "0.0.0".into()).await?;
+
   let storage_option = match db_path {
     Some(path) => StorageOption::Persistent(path),
     None => StorageOption::Ephemeral,
@@ -191,7 +193,7 @@ pub async fn create_client(
 
   let mut builder = match device_sync_server_url {
     Some(url) => xmtp_mls::Client::builder(identity_strategy)
-      .api_client(api_client)
+      .api_clients(api_client, sync_api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .with_allow_offline(allow_offline)
@@ -199,7 +201,7 @@ pub async fn create_client(
       .store(store)
       .device_sync_server_url(&url),
     None => xmtp_mls::Client::builder(identity_strategy)
-      .api_client(api_client)
+      .api_clients(api_client, sync_api_client)
       .enable_api_debug_wrapper()?
       .with_remote_verifier()?
       .with_allow_offline(allow_offline)
