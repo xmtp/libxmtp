@@ -10,26 +10,10 @@ use super::{
     GroupError, HmacKey, MlsGroup,
 };
 use crate::groups::device_sync_legacy::preference_sync_legacy::process_incoming_preference_update;
+use crate::identity_updates::IdentityUpdates;
 use crate::{
     client::ClientError, context::XmtpSharedContext, groups::mls_ext::MlsGroupReload,
     mls_store::MlsStore, subscriptions::stream_messages::extract_message_cursor,
-};
-use crate::{
-    configuration::sync_update_installations_interval_ns, identity_updates::IdentityUpdates,
-};
-use crate::{
-    configuration::{
-        GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
-    },
-    groups::{
-        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
-        validated_commit::ValidatedCommit,
-    },
-    identity::{parse_credential, IdentityError},
-    identity_updates::load_identity_updates,
-    intents::ProcessIntentError,
-    subscriptions::LocalEvents,
-    utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
 };
 use crate::{
     groups::group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
@@ -41,7 +25,22 @@ use crate::{
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
 };
+use crate::{
+    groups::{
+        device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
+        validated_commit::ValidatedCommit,
+    },
+    identity::{parse_credential, IdentityError},
+    identity_updates::load_identity_updates,
+    intents::ProcessIntentError,
+    subscriptions::LocalEvents,
+    utils::{self, hash::sha256, id::calculate_message_id, time::hmac_epoch},
+};
 use update_group_membership::apply_update_group_membership_intent;
+use xmtp_configuration::SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS;
+use xmtp_configuration::{
+    GRPC_DATA_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+};
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
     events::EventLevel,
@@ -418,7 +417,7 @@ where
      * Group syncing may involve picking up messages unrelated to the intent, so simply checking for errors
      * does not give a clear signal as to whether the intent was successfully completed or not.
      *
-     * This method will retry up to `crate::configuration::MAX_GROUP_SYNC_RETRIES` times.
+     * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
      */
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) async fn sync_until_intent_resolved(
@@ -429,7 +428,7 @@ where
         let db = self.context.db();
         let mut num_attempts = 0;
         // Return the last error to the caller if we fail to sync
-        while num_attempts < crate::configuration::MAX_GROUP_SYNC_RETRIES {
+        while num_attempts < xmtp_configuration::MAX_GROUP_SYNC_RETRIES {
             match self.sync_with_conn().await {
                 Ok(s) => summary.extend(s),
                 Err(s) => {
@@ -2222,7 +2221,7 @@ where
         }
 
         // determine how long of an interval in time to use before updating list
-        let interval_ns = update_interval_ns.unwrap_or(sync_update_installations_interval_ns());
+        let interval_ns = update_interval_ns.unwrap_or(SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS);
 
         let now_ns = xmtp_common::time::now_ns();
         let last_ns = db.get_installations_time_checked(self.group_id.clone())?;

@@ -4,8 +4,9 @@ use super::{
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
     GroupError, MlsGroup,
 };
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+
 use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
     context::XmtpSharedContext,
     track,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},

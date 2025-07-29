@@ -1,10 +1,10 @@
-use crate::configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 use crate::encrypted_store::schema::identity;
 use crate::schema::identity::dsl;
 use crate::{ConnectionExt, DbConnection, StorageError, impl_fetch, impl_store};
 use derive_builder::Builder;
 use diesel::prelude::*;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::KEY_PACKAGE_QUEUE_INTERVAL_NS;
 
 /// Identity of this installation
 /// There can only be one.

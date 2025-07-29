@@ -11,10 +11,10 @@ use xmtp_db::XmtpMlsStorageProvider;
 
 use crate::{
     client::ClientError,
-    configuration::MAX_PAST_EPOCHS,
     groups::{mls_ext::unwrap_welcome, GroupError},
     identity::parse_credential,
 };
+use xmtp_configuration::MAX_PAST_EPOCHS;
 use xmtp_db::{
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     NotFound,

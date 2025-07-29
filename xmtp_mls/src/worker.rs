@@ -1,11 +1,9 @@
-use crate::{
-    configuration::WORKER_RESTART_DELAY, context::XmtpSharedContext,
-    groups::device_sync::worker::SyncMetric,
-};
+use crate::{context::XmtpSharedContext, groups::device_sync::worker::SyncMetric};
 use metrics::WorkerMetrics;
 use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::{any::Any, collections::HashMap, hash::Hash, sync::Arc};
+use xmtp_configuration::WORKER_RESTART_DELAY;
 
 pub mod metrics;
 
