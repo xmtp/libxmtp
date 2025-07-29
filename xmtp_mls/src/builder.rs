@@ -178,9 +178,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let sync_api_client = sync_api_client
             .take()
-            // .or_else(|| Some(api_client.clone()))
             .ok_or(ClientBuilderError::MissingParameter {
-                parameter: "sync_api_client (fallback to api_client also failed)",
+                parameter: "sync_api_client",
             })?;
 
         let scw_verifier = scw_verifier
@@ -382,7 +381,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    pub fn api_client<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
+    pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
         let api_retry = Retry::builder().build();
         let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
         let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());

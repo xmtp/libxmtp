@@ -7,7 +7,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use std::time::Instant;
 use xmtp_common::{retry_async, Retry};
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
 use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
@@ -174,14 +173,9 @@ where
     ) -> Result<usize, GroupError> {
         let db = self.context.db();
 
-        let start = Instant::now();
         if let Err(err) = self.sync_welcomes().await {
             tracing::warn!(?err, "sync_welcomes failed, continuing with group sync");
         }
-        let duration: std::time::Duration = start.elapsed();
-
-        tracing::info!("Lopi: sync welcomes in {:?}", duration);
-
         let query_args = GroupQueryArgs {
             consent_states,
             include_duplicate_dms: true,
@@ -189,11 +183,7 @@ where
             ..GroupQueryArgs::default()
         };
 
-        let start = Instant::now();
         let conversations = db.fetch_conversation_list(query_args)?;
-        let duration: std::time::Duration = start.elapsed();
-
-        tracing::info!("Lopi: fetch convos in {:?}", duration);
 
         let groups: Vec<MlsGroup<Context>> = conversations
             .into_iter()
@@ -208,11 +198,8 @@ where
             })
             .collect();
 
-        let start = Instant::now();
         let success_count = self.sync_groups_in_batches(groups, 10).await?;
-        let duration: std::time::Duration = start.elapsed();
 
-        tracing::info!("Lopi: sync groups in batches in {:?}", duration);
         Ok(success_count)
     }
 
@@ -243,25 +230,17 @@ where
 
                     match is_active_res {
                         Ok(is_active) if is_active => {
-                            let start = Instant::now();
                             if let Err(err) = group.sync_with_conn().await {
                                 tracing::warn!(?err, "sync_with_conn failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
-                            let duration: std::time::Duration = start.elapsed();
 
-                            tracing::info!("Lopi: sync with conn in {:?}", duration);
-
-                            let start = Instant::now();
                             if let Err(err) = group.maybe_update_installations(None).await {
                                 tracing::warn!(?err, "maybe_update_installations failed");
                                 failed_group_count.fetch_add(1, Ordering::SeqCst);
                                 return;
                             }
-                            let duration: std::time::Duration = start.elapsed();
-
-                            tracing::info!("Lopi: maybe update in {:?}", duration);
 
                             active_group_count.fetch_add(1, Ordering::SeqCst);
                         }

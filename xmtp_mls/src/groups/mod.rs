@@ -391,13 +391,8 @@ where
         );
 
         // Consent state defaults to allowed when the user creates the group
-        let start = Instant::now();
-
         new_group.update_consent_state(ConsentState::Allowed)?;
 
-        let duration: std::time::Duration = start.elapsed();
-
-        tracing::info!("Lopi: Update consent state in {:?}", duration);
         Ok(new_group)
     }
 
@@ -1098,13 +1093,8 @@ where
         &self,
         inbox_ids: impl AsRef<[S]>,
     ) -> Result<UpdateGroupMembershipResult, GroupError> {
-        let start = Instant::now();
-
         self.ensure_not_paused().await?;
 
-        let duration: std::time::Duration = start.elapsed();
-
-        tracing::info!("Lopi: Ensure not paused in {:?}", duration);
         let ids = inbox_ids
             .as_ref()
             .iter()
@@ -1127,13 +1117,7 @@ where
         let intent =
             self.queue_intent(IntentKind::UpdateGroupMembership, intent_data.into(), false)?;
 
-        let start = Instant::now();
-
         self.sync_until_intent_resolved(intent.id).await?;
-
-        let duration: std::time::Duration = start.elapsed();
-
-        tracing::info!("Lopi: sync until resolved in {:?}", duration);
         track!(
             "Group Membership Change",
             {
