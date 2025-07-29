@@ -218,7 +218,6 @@ pub async fn apply_signature_request(
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
     sync_api: Arc<XmtpApiClient>,
-    publish_api: Arc<XmtpApiClient>,
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     inbox_id: &InboxId,
@@ -270,7 +269,6 @@ pub async fn create_client(
         .api_clients(
             Arc::unwrap_or_clone(api).0,
             Arc::unwrap_or_clone(sync_api).0,
-            Arc::unwrap_or_clone(publish_api).0,
         )
         .enable_api_debug_wrapper()?
         .with_remote_verifier()?

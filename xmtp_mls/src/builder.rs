@@ -76,7 +76,6 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     disable_events: bool,
     mls_storage: Option<S>,
     sync_api_client: Option<ApiClientWrapper<ApiClient>>,
-    publish_api_client: Option<ApiClientWrapper<ApiClient>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -111,7 +110,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: true,
             mls_storage: None,
             sync_api_client: None,
-            publish_api_client: None,
         }
     }
 }
@@ -128,7 +126,6 @@ where
     ) -> ClientBuilder<ApiClient, S, Db> {
         let cloned_api: ApiClientWrapper<ApiClient> = client.context.api_client.clone();
         let cloned_sync_api: ApiClientWrapper<ApiClient> = client.context.sync_api_client.clone();
-        let cloned_publish_api: ApiClientWrapper<ApiClient> = client.context.publish_api_client.clone();
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
@@ -145,7 +142,6 @@ where
             disable_events: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             sync_api_client: Some(cloned_sync_api),
-            publish_api_client: Some(cloned_publish_api),
         }
     }
 }
@@ -171,7 +167,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events,
             mut mls_storage,
             mut sync_api_client,
-            mut publish_api_client,
             ..
         } = self;
 
@@ -186,12 +181,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .take()
                 .ok_or(ClientBuilderError::MissingParameter {
                     parameter: "sync_api_client",
-                })?;
-        let publish_api_client =
-            publish_api_client
-                .take()
-                .ok_or(ClientBuilderError::MissingParameter {
-                    parameter: "publish_api_client",
                 })?;
 
         let scw_verifier = scw_verifier
@@ -254,7 +243,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             },
             workers: workers.clone(),
             sync_api_client,
-            publish_api_client,
         });
 
         // register workers
@@ -313,7 +301,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
-            publish_api_client: self.publish_api_client,
         }
     }
 
@@ -347,7 +334,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             )),
             store: self.store,
             sync_api_client: self.sync_api_client,
-            publish_api_client: self.publish_api_client,
         })
     }
 
@@ -365,7 +351,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: Some(mls_storage),
             sync_api_client: self.sync_api_client,
-            publish_api_client: self.publish_api_client,
         }
     }
 
@@ -397,11 +382,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
-    pub fn api_clients<A>(self, api_client: A, sync_api_client: A, publish_api_client: A) -> ClientBuilder<A, S, Db> {
+    pub fn api_clients<A>(self, api_client: A, sync_api_client: A) -> ClientBuilder<A, S, Db> {
         let api_retry = Retry::builder().build();
         let api_client = ApiClientWrapper::new(api_client, api_retry.clone());
         let sync_api_client = ApiClientWrapper::new(sync_api_client, api_retry.clone());
-        let publish_api_client = ApiClientWrapper::new(publish_api_client, api_retry.clone());
         ClientBuilder {
             api_client: Some(api_client),
             identity: self.identity,
@@ -415,7 +399,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: self.mls_storage,
             sync_api_client: Some(sync_api_client),
-            publish_api_client: Some(publish_api_client),
         }
     }
 
@@ -525,11 +508,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     .expect("checked for none")
                     .attach_debug_wrapper(),
             ),
-            publish_api_client: Some(
-                self.publish_api_client
-                    .expect("checked for none")
-                    .attach_debug_wrapper(),
-            ),
         })
     }
 
@@ -551,7 +529,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
-            publish_api_client: self.publish_api_client,
         }
     }
 
@@ -584,7 +561,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_events: self.disable_events,
             mls_storage: self.mls_storage,
             sync_api_client: self.sync_api_client,
-            publish_api_client: self.publish_api_client,
         })
     }
 }

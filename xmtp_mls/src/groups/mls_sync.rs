@@ -1966,7 +1966,7 @@ where
 
                         let messages = self.prepare_group_messages(vec![(payload_slice, should_send_push_notification)])?;
                         self.context
-                            .publish_api()
+                            .api()
                             .send_group_messages(messages)
                             .await?;
 
