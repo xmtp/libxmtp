@@ -6,3 +6,11 @@ pub enum TopicKind {
     IdentityUpdatesV1,
     KeyPackagesV1,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockOrdering {
+    Equal,
+    Ancestor,
+    Descendant,
+    Concurrent,
+}
