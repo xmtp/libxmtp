@@ -32,6 +32,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// The XMTP Api Client
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) sync_api_client: ApiClientWrapper<ApiClient>, // sync-only channel
+    pub(crate) publish_api_client: ApiClientWrapper<ApiClient>, // sync-only channel
     /// XMTP Local Storage
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
@@ -140,6 +141,7 @@ where
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient>;
+    fn publish_api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
     fn device_sync(&self) -> &DeviceSync;
@@ -204,6 +206,10 @@ where
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.sync_api_client
+    }
+
+    fn publish_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+        &self.publish_api_client
     }
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
@@ -272,6 +278,10 @@ where
 
     fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         <T as XmtpSharedContext>::sync_api(self)
+    }
+
+    fn publish_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
+        <T as XmtpSharedContext>::publish_api(self)
     }
 
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>> {
