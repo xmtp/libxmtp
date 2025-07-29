@@ -906,7 +906,7 @@ where
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
-        self.maybe_update_installations(update_interval_ns).await?;
+        // self.maybe_update_installations(update_interval_ns).await?;
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
@@ -1550,24 +1550,24 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
         let db = self.context.db();
-        let _new_records: Vec<PreferenceUpdate> = self
+        let new_records: Vec<PreferenceUpdate> = self
             .quietly_update_consent_state(state, &db)?
             .into_iter()
             .map(PreferenceUpdate::Consent)
             .collect();
 
-        // if !new_records.is_empty() {
-        //     // Dispatch an update event so it can be synced across devices
-        //     let _ = self
-        //         .context
-        //         .worker_events()
-        //         .send(SyncWorkerEvent::SyncPreferences(new_records.clone()));
-        //     // Broadcast the changes
-        //     let _ = self
-        //         .context
-        //         .local_events()
-        //         .send(LocalEvents::PreferencesChanged(new_records));
-        // }
+        if !new_records.is_empty() {
+            // Dispatch an update event so it can be synced across devices
+            let _ = self
+                .context
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(new_records.clone()));
+            // Broadcast the changes
+            let _ = self
+                .context
+                .local_events()
+                .send(LocalEvents::PreferencesChanged(new_records));
+        }
 
         Ok(())
     }
