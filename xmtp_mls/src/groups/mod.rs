@@ -910,7 +910,7 @@ where
         self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
-        self.update_consent_state(ConsentState::Allowed)?;
+        // self.update_consent_state(ConsentState::Allowed)?;
 
         Ok(())
     }
