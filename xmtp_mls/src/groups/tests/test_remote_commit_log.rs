@@ -2,13 +2,16 @@ use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::{context::XmtpSharedContext, tester};
+use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
+use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rand::Rng;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::prelude::*;
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::mls_v1::QueryCommitLogRequest;
+use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -98,10 +101,34 @@ async fn test_commit_log_publish_and_query_apis() {
         applied_epoch_authenticator: vec![9, 10, 11, 12],
     };
 
+    // Sign the commit log entry since backend now requires signatures
+    let provider = alix.context.mls_provider();
+    let crypto = provider.crypto();
+
+    // Generate a signing key for this test
+    let (private_key_bytes, _) = crypto.signature_key_gen(SignatureScheme::ED25519)?;
+    let private_key = xmtp_cryptography::Secret::new(private_key_bytes.clone());
+    let public_key = xmtp_cryptography::signature::to_public_key(&private_key)?.to_vec();
+
+    // Sign the serialized entry
+    let serialized_entry = commit_log_entry.clone().encode_to_vec();
+    let signature = crypto.sign(
+        SignatureScheme::ED25519,
+        &serialized_entry,
+        &private_key_bytes,
+    )?;
+
     let result = alix
         .context
         .api()
-        .publish_commit_log(&[commit_log_entry.clone()])
+        .publish_commit_log(vec![PublishCommitLogRequest {
+            group_id: group_id.clone(),
+            serialized_commit_log_entry: serialized_entry,
+            signature: Some(RecoverableEd25519Signature {
+                bytes: signature,
+                public_key: public_key.clone(),
+            }),
+        }])
         .await;
     assert!(result.is_ok());
 
@@ -119,7 +146,16 @@ async fn test_commit_log_publish_and_query_apis() {
     assert_eq!(response.len(), 1);
     assert_eq!(response[0].commit_log_entries.len(), 1);
 
-    let raw_bytes = &response[0].commit_log_entries[0].serialized_commit_log_entry;
+    let returned_entry = &response[0].commit_log_entries[0];
+    let raw_bytes = &returned_entry.serialized_commit_log_entry;
+
+    // Verify the backend preserved the signature
+    assert!(
+        returned_entry.signature.is_some(),
+        "Backend should preserve signature"
+    );
+    let sig = returned_entry.signature.as_ref().unwrap();
+    assert_eq!(sig.public_key, public_key, "Public key should match");
 
     // TODO(cvoell): this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();

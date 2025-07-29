@@ -1,5 +1,6 @@
 use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
+use crate::group::StoredGroupCommitLogPublicKey;
 use crate::local_commit_log::LocalCommitLog;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -213,7 +214,7 @@ mock! {
 
         fn has_duplicate_dm(&self, group_id: &[u8]) -> Result<bool, crate::ConnectionError>;
 
-        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+        fn get_conversation_ids_for_remote_log_publish(&self) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
         fn get_conversation_ids_for_remote_log_download(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
 

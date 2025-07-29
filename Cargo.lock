@@ -3742,6 +3742,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "libcrux-ed25519"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e684194634af6a661c167af731a0232990f9987eaed46a9ebb1d01d613d04067"
+dependencies = [
+ "libcrux-hacl-rs 0.0.3",
+ "libcrux-macros 0.0.3",
+ "libcrux-sha2 0.0.3",
+]
+
+[[package]]
 name = "libcrux-hacl-rs"
 version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4601,7 +4612,7 @@ dependencies = [
  "hpke-rs-crypto 0.3.0",
  "hpke-rs-libcrux",
  "libcrux-chacha20poly1305 0.0.2",
- "libcrux-ed25519",
+ "libcrux-ed25519 0.0.2",
  "libcrux-hkdf 0.0.2",
  "libcrux-sha2 0.0.2",
  "openmls_memory_storage",
@@ -8715,6 +8726,7 @@ dependencies = [
  "const-hex",
  "ed25519-dalek",
  "getrandom 0.3.3",
+ "libcrux-ed25519 0.0.3",
  "openmls",
  "openmls_basic_credential",
  "openmls_traits",
