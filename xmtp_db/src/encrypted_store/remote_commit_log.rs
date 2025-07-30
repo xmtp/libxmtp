@@ -1,22 +1,41 @@
 use diesel::RunQueryDsl;
 
-use crate::{impl_store, schema::remote_commit_log};
+use crate::{
+    ConnectionExt, DbConnection, impl_store, schema::remote_commit_log,
+    schema::remote_commit_log::dsl,
+};
 use diesel::{
     Insertable, Queryable,
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
+    prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
 };
+
 use serde::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
+#[derive(Insertable, Debug, Clone)]
+#[diesel(table_name = remote_commit_log)]
+pub struct NewRemoteCommitLog {
+    pub log_sequence_id: i64,
+    pub group_id: Vec<u8>,
+    pub commit_sequence_id: i64,
+    pub commit_result: CommitResult,
+    pub applied_epoch_number: i64,
+    pub applied_epoch_authenticator: Vec<u8>,
+}
+
+impl_store!(NewRemoteCommitLog, remote_commit_log);
+
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
-#[diesel(primary_key(sequence_id))]
+#[diesel(primary_key(rowid))]
 pub struct RemoteCommitLog {
+    pub rowid: i32,
     // The sequence ID of the log entry on the server
     pub log_sequence_id: i64,
     // The group ID of the conversation
@@ -27,9 +46,9 @@ pub struct RemoteCommitLog {
     // 1 = Applied, all other values are failures matching the protobuf enum
     pub commit_result: CommitResult,
     // The epoch number after the commit was applied, or the existing number otherwise
-    pub applied_epoch_number: Option<i64>,
+    pub applied_epoch_number: i64,
     // The state after the commit was applied, or the existing state otherwise
-    pub applied_epoch_authenticator: Option<Vec<u8>>,
+    pub applied_epoch_authenticator: Vec<u8>,
 }
 
 impl_store!(RemoteCommitLog, remote_commit_log);
@@ -98,3 +117,44 @@ impl From<ProtoCommitResult> for CommitResult {
 
 // the max page size for queries
 pub const MAX_PAGE_SIZE: u32 = 100;
+
+pub trait QueryRemoteCommitLog<C: ConnectionExt> {
+    fn get_latest_remote_log_sequence_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+    fn get_latest_applied_entry(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+}
+
+impl<C: ConnectionExt> QueryRemoteCommitLog<C> for DbConnection<C> {
+    fn get_latest_remote_log_sequence_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::remote_commit_log
+                .filter(remote_commit_log::group_id.eq(group_id))
+                .order(remote_commit_log::log_sequence_id.desc())
+                .limit(1)
+                .first(db)
+                .optional()
+        })
+    }
+
+    fn get_latest_applied_entry(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::remote_commit_log
+                .filter(remote_commit_log::group_id.eq(group_id))
+                .filter(remote_commit_log::commit_result.eq(CommitResult::Success))
+                .order(remote_commit_log::log_sequence_id.desc())
+                .first(db)
+                .optional()
+        })
+    }
+}

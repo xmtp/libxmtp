@@ -1,5 +1,6 @@
 use crate::group::ConversationType;
 use crate::local_commit_log::LocalCommitLog;
+use crate::remote_commit_log::RemoteCommitLog;
 use std::collections::HashMap;
 use std::sync::{
     Arc,
@@ -520,6 +521,12 @@ mock! {
             &self,
             group_id: &[u8],
         ) -> Result<Option<i32>, crate::ConnectionError>;
+    }
+
+    impl<C: ConnectionExt + 'static> QueryRemoteCommitLog<C> for DbQuery<C> {
+        fn get_latest_remote_log_sequence_id(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
+
+        fn get_latest_applied_entry(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
     }
 }
 

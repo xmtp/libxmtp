@@ -5,7 +5,7 @@ use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_db::{
     prelude::*,
-    remote_commit_log::{self, CommitResult, RemoteCommitLog},
+    remote_commit_log::{self, CommitResult, NewRemoteCommitLog},
     DbQuery, StorageError, Store, XmtpDb,
 };
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
@@ -123,8 +123,24 @@ pub struct SaveRemoteCommitLogResult {
 
 pub struct UpdateCursorsResult {
     pub conversation_id: Vec<u8>,
+    pub num_entries_saved: usize,
     pub last_entry_saved_commit_sequence_id: i64,
     pub last_entry_saved_remote_log_sequence_id: i64,
+}
+
+pub struct EntryValidationInfo {
+    pub requested_group_id: Vec<u8>,
+    pub latest_stored_sequence_id: u64,
+    pub latest_applied_epoch_authenticator: Vec<u8>,
+    pub latest_applied_epoch_number: u64,
+}
+
+// Test related types
+#[cfg(test)]
+pub enum CommitLogTestFunction {
+    PublishCommitLogsToRemote,
+    SaveRemoteCommitLog,
+    All,
 }
 
 #[cfg(test)]
@@ -133,6 +149,7 @@ pub struct TestResult {
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
 }
 
+// CommitLogWorker implementation
 impl<Context> CommitLogWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
@@ -144,58 +161,6 @@ where
             self.save_remote_commit_log().await?;
         }
         Ok(())
-    }
-
-    /// Test-only version that runs without infinite loop
-    #[cfg(test)]
-    pub async fn run_test(
-        &mut self,
-        commit_log_test_function: CommitLogTestFunction,
-        iterations: Option<usize>,
-    ) -> Result<Vec<TestResult>, CommitLogError> {
-        let mut test_results = Vec::new();
-        match iterations {
-            Some(n) => {
-                // Run exactly n times
-                for _ in 0..n {
-                    let test_result = self.test_helper(&commit_log_test_function).await?;
-                    test_results.push(test_result);
-                }
-            }
-            None => {
-                let test_result = self.test_helper(&commit_log_test_function).await?;
-                test_results.push(test_result);
-            }
-        }
-        Ok(test_results)
-    }
-
-    #[cfg(test)]
-    async fn test_helper(
-        &mut self,
-        commit_log_test_function: &CommitLogTestFunction,
-    ) -> Result<TestResult, CommitLogError> {
-        let mut test_result = TestResult {
-            save_remote_commit_log_results: None,
-            publish_commit_log_results: None,
-        };
-        match commit_log_test_function {
-            CommitLogTestFunction::PublishCommitLogsToRemote => {
-                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
-                test_result.publish_commit_log_results = Some(publish_commit_log_results);
-            }
-            CommitLogTestFunction::SaveRemoteCommitLog => {
-                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
-                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
-            }
-            CommitLogTestFunction::All => {
-                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
-                test_result.publish_commit_log_results = Some(publish_commit_log_results);
-                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
-                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
-            }
-        }
-        Ok(test_result)
     }
 
     async fn publish_commit_logs_to_remote(
@@ -345,11 +310,35 @@ where
         let group_id = commit_log_response.group_id;
         let mut latest_download_cursor = 0;
         let mut latest_sequence_id = 0;
+        let mut num_entries_saved = 0;
         for entry in commit_log_response.commit_log_entries {
-            // TODO(cam): we will have to decrypt here
             let log_entry =
                 PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
-            RemoteCommitLog {
+
+            // TODO(cam): From the local commit log, fetch the following info:
+            // 1. The latest applied epoch authenticator
+            // 2. The latest applied epoch number
+            // 3. The latest stored sequence id
+            let latest_applied_entry = conn.get_latest_applied_entry(&group_id)?;
+            // let latest_sequence_id =
+
+            let validation_info = EntryValidationInfo {
+                requested_group_id: group_id.clone(),
+                latest_stored_sequence_id: latest_sequence_id,
+                latest_applied_epoch_authenticator: latest_applied_entry
+                    .clone()
+                    .map(|e| e.applied_epoch_authenticator)
+                    .unwrap_or(Vec::new()),
+                latest_applied_epoch_number: latest_applied_entry
+                    .map(|e| e.applied_epoch_number)
+                    .unwrap_or(0) as u64,
+            };
+            if Self::should_skip_remote_commit_log_entry(validation_info, &log_entry) {
+                continue;
+            }
+
+            num_entries_saved += 1;
+            NewRemoteCommitLog {
                 log_sequence_id: entry.sequence_id as i64,
                 group_id: log_entry.group_id,
                 commit_sequence_id: log_entry.commit_sequence_id as i64,
@@ -357,8 +346,8 @@ where
                     ProtoCommitResult::try_from(log_entry.commit_result)
                         .unwrap_or(ProtoCommitResult::Unspecified),
                 ),
-                applied_epoch_number: Some(log_entry.applied_epoch_number as i64),
-                applied_epoch_authenticator: Some(log_entry.applied_epoch_authenticator),
+                applied_epoch_number: log_entry.applied_epoch_number as i64,
+                applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
             }
             .store(conn)?;
             if entry.sequence_id > latest_download_cursor {
@@ -375,15 +364,83 @@ where
         )?;
         Ok(UpdateCursorsResult {
             conversation_id: group_id,
+            num_entries_saved,
             last_entry_saved_commit_sequence_id: latest_sequence_id as i64,
             last_entry_saved_remote_log_sequence_id: latest_download_cursor as i64,
         })
     }
-}
 
-#[cfg(test)]
-pub enum CommitLogTestFunction {
-    PublishCommitLogsToRemote,
-    SaveRemoteCommitLog,
-    All,
+    fn should_skip_remote_commit_log_entry(
+        validation_info: EntryValidationInfo,
+        entry: &PlaintextCommitLogEntry,
+    ) -> bool {
+        let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
+        // Should skip if:
+        // 1. The entry signature is invalid - TODO(cam)
+        // 2. The group_id of the entry does not match the requested group_id.
+        // 3. The commit_sequence_id of the entry is <= 0.
+        // 4. The commit_sequence_id of the entry is not greater than the most recently stored entry, if one exists.
+        // 5. The last_epoch_authenticator does not match the epoch_authenticatorof the most recently stored entry with a CommitResult of COMMIT_RESULT_APPLIED, if one exists.
+        // 7. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
+        entry.group_id != validation_info.requested_group_id
+            || entry.commit_sequence_id == 0
+            || entry.commit_sequence_id <= validation_info.latest_stored_sequence_id
+            || (is_applied
+                && entry.last_epoch_authenticator
+                    != validation_info.latest_applied_epoch_authenticator)
+            || (is_applied
+                && entry.applied_epoch_number != validation_info.latest_applied_epoch_number + 1)
+    }
+
+    /// Test-only version that runs without infinite loop
+    #[cfg(test)]
+    pub async fn run_test(
+        &mut self,
+        commit_log_test_function: CommitLogTestFunction,
+        iterations: Option<usize>,
+    ) -> Result<Vec<TestResult>, CommitLogError> {
+        let mut test_results = Vec::new();
+        match iterations {
+            Some(n) => {
+                // Run exactly n times
+                for _ in 0..n {
+                    let test_result = self.test_helper(&commit_log_test_function).await?;
+                    test_results.push(test_result);
+                }
+            }
+            None => {
+                let test_result = self.test_helper(&commit_log_test_function).await?;
+                test_results.push(test_result);
+            }
+        }
+        Ok(test_results)
+    }
+
+    #[cfg(test)]
+    async fn test_helper(
+        &mut self,
+        commit_log_test_function: &CommitLogTestFunction,
+    ) -> Result<TestResult, CommitLogError> {
+        let mut test_result = TestResult {
+            save_remote_commit_log_results: None,
+            publish_commit_log_results: None,
+        };
+        match commit_log_test_function {
+            CommitLogTestFunction::PublishCommitLogsToRemote => {
+                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
+                test_result.publish_commit_log_results = Some(publish_commit_log_results);
+            }
+            CommitLogTestFunction::SaveRemoteCommitLog => {
+                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
+                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
+            }
+            CommitLogTestFunction::All => {
+                let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;
+                test_result.publish_commit_log_results = Some(publish_commit_log_results);
+                let save_remote_commit_log_results = self.save_remote_commit_log().await?;
+                test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
+            }
+        }
+        Ok(test_result)
+    }
 }
