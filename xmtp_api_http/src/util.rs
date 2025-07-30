@@ -53,7 +53,7 @@ impl xmtp_proto::api_client::XmtpTestClient for crate::XmtpHttpApiClient {
         use xmtp_proto::api_client::ApiBuilder;
         let mut api = crate::XmtpHttpApiClient::builder();
         // payer has same address as d14n locally
-        api.set_host(crate::constants::ApiUrls::LOCAL_D14N_ADDRESS.into());
+        api.set_host(crate::constants::ApiUrls::LOCAL_PAYER_ADDRESS.into());
         api.set_libxmtp_version(env!("CARGO_PKG_VERSION").into())
             .unwrap();
         api.set_app_version("0.0.0".into()).unwrap();
