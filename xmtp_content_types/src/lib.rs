@@ -33,6 +33,7 @@ pub enum ContentType {
     MultiRemoteAttachment,
     TransactionReference,
     DeviceSyncMessage,
+    WalletSendCalls,
 }
 
 impl TryFrom<&str> for ContentType {
@@ -77,6 +78,7 @@ pub fn should_push(content_type_id: String) -> bool {
             ContentType::MultiRemoteAttachment => true,
             ContentType::TransactionReference => true,
             ContentType::DeviceSyncMessage => false,
+            ContentType::WalletSendCalls => true,
         }
     } else {
         false
