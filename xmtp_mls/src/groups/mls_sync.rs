@@ -1054,6 +1054,7 @@ where
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
                         if sender_inbox_id == self.context.inbox_id() {
+                            tracing::info!(installation_id = hex::encode(self.context.installation_id()), "new sync group message event");
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..

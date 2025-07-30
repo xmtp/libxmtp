@@ -44,7 +44,7 @@ where
     }
 
     pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
-        tracing::info!("Sending new HMAC key to sync group.");
+        tracing::info!("[{}] Sending new HMAC key to sync group.", self.context.installation_id());
 
         self.sync_preferences(vec![PreferenceUpdate::Hmac {
             key: HmacKey::random_key(),

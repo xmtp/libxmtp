@@ -61,7 +61,7 @@ where
         let receiver = context.worker_events().subscribe();
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
-            .unwrap_or_default();
+            .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
         let client = DeviceSyncClient::new(context, metrics.clone());
 
         Self {
@@ -133,7 +133,10 @@ where
         self.metrics.increment_metric(SyncMetric::Init);
 
         while let Ok(event) = self.receiver.recv().await {
-            tracing::info!("New event: {event:?}");
+            tracing::info!(
+                "[{}] New event: {event:?}",
+                self.client.context.installation_id()
+            );
 
             match event {
                 SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
@@ -357,7 +360,10 @@ where
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
                 }
-
+                tracing::info!(
+                    "{} storing preference updates",
+                    self.context.installation_id()
+                );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 let updated = store_preference_updates(updates.clone(), &conn, handle)?;
                 if !updated.is_empty() {
@@ -658,6 +664,8 @@ pub enum SyncMetric {
 
 impl WorkerMetrics<SyncMetric> {
     pub async fn wait_for_init(&self) -> Result<(), xmtp_common::time::Expired> {
-        self.wait(SyncMetric::SyncGroupCreated, 1).await
+        self.register_interest(SyncMetric::SyncGroupCreated, 1)
+            .wait()
+            .await
     }
 }

@@ -7,7 +7,9 @@ use diesel::{
 };
 
 use crate::{
-    configuration::BUSY_TIMEOUT, native::XmtpConnection, PlatformStorageError, StorageOption
+    PlatformStorageError, StorageOption,
+    configuration::{BUSY_TIMEOUT, MIN_DB_POOL_SIZE},
+    native::XmtpConnection,
 };
 type Pool = r2d2::Pool<ConnectionManager>;
 pub type ConnectionManager = r2d2::ConnectionManager<SqliteConnection>;
@@ -24,7 +26,7 @@ impl DbPool {
         let pool = Pool::builder()
             .connection_customizer(customizer.clone())
             .max_size(crate::configuration::MAX_DB_POOL_SIZE)
-            .min_idle(Some(10))
+            .min_idle(Some(MIN_DB_POOL_SIZE))
             .build(ConnectionManager::new(path))?;
 
         let mut c = pool.get()?;
@@ -46,7 +48,7 @@ impl DbPool {
 mod tests {
     use crate::{
         EncryptedConnection, StorageOption, UnencryptedConnection, ValidatedConnection,
-        native::ConnectionOptions, prelude::*
+        native::ConnectionOptions, prelude::*,
     };
 
     use super::*;
@@ -57,16 +59,17 @@ mod tests {
         fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
         where
             F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-            Self: Sized {
+            Self: Sized,
+        {
             let mut c = self.get().unwrap();
             Ok(fun(&mut c)?)
-
         }
 
         fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
         where
             F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
-            Self: Sized {
+            Self: Sized,
+        {
             let mut c = self.get().unwrap();
             Ok(fun(&mut c)?)
         }
@@ -127,7 +130,7 @@ mod tests {
     #[case(unencrypted_connection())]
     #[test]
     pub fn sets_busy_timeout(#[case] customizer: Box<dyn XmtpConnection>) {
-        use crate::{configuration::BUSY_TIMEOUT, DbConnection};
+        use crate::{DbConnection, configuration::BUSY_TIMEOUT};
         let pool = DbPool::new(customizer.clone()).unwrap();
         let dbconn = DbConnection::new(pool);
         let timeout = dbconn.busy_timeout().unwrap();

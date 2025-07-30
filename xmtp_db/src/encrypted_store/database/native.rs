@@ -53,7 +53,11 @@ impl<T> XmtpConnection for T where
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
-    fn validate(&self, _opts: &StorageOption, _conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
+    fn validate(
+        &self,
+        _opts: &StorageOption,
+        _conn: &mut SqliteConnection,
+    ) -> Result<(), PlatformStorageError> {
         Ok(())
     }
 }
@@ -141,15 +145,6 @@ impl CustomizeConnection<SqliteConnection, r2d2::Error> for NopConnection {
 }
 
 impl StorageOption {
-    // create a completely new standalone connection
-    pub(super) fn conn(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
-        use StorageOption::*;
-        match self {
-            Persistent(path) => SqliteConnection::establish(path),
-            Ephemeral => SqliteConnection::establish(":memory:"),
-        }
-    }
-
     pub(super) fn path(&self) -> Option<&String> {
         use StorageOption::*;
         match self {
@@ -268,7 +263,11 @@ impl XmtpDb for NativeDb {
         &self.opts
     }
 
-    fn validate(&self, opts: &StorageOption, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+    fn validate(
+        &self,
+        opts: &StorageOption,
+        conn: &mut SqliteConnection,
+    ) -> Result<(), ConnectionError> {
         self.customizer.validate(opts, conn)?;
         Ok(())
     }
