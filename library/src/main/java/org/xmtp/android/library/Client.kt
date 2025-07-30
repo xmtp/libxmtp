@@ -39,6 +39,8 @@ data class ClientOptions(
     val dbEncryptionKey: ByteArray,
     val historySyncUrl: String? = api.env.getHistorySyncUrl(),
     val dbDirectory: String? = null,
+    val deviceSyncEnabled: Boolean = true,
+    val debugEventsEnabled: Boolean = false,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -79,6 +81,8 @@ class Client(
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
+        private val syncApiClientCache = mutableMapOf<String, XmtpApiClient>()
+        private val syncCacheLock = Mutex()
 
         fun activatePersistentLibXMTPLogWriter(
             appContext: Context,
@@ -146,6 +150,22 @@ class Client(
                 // If not cached or not connected, create a fresh client
                 val newClient = connectToBackend(api.env.getUrl(), api.isSecure)
                 apiClientCache[cacheKey] = newClient
+                return@withLock newClient
+            }
+        }
+
+        suspend fun connectToSyncApiBackend(api: ClientOptions.Api): XmtpApiClient {
+            val cacheKey = api.env.getUrl()
+            return syncCacheLock.withLock {
+                val cached = syncApiClientCache[cacheKey]
+
+                if (cached != null && isConnected(cached)) {
+                    return cached
+                }
+
+                // If not cached or not connected, create a fresh client
+                val newClient = connectToBackend(api.env.getUrl(), api.isSecure)
+                syncApiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
         }
@@ -218,6 +238,7 @@ class Client(
 
             val ffiClient = createClient(
                 api = connectToApiBackend(api),
+                syncApi = connectToApiBackend(api),
                 db = null,
                 encryptionKey = null,
                 accountIdentifier = publicIdentity.ffiPrivate,
@@ -227,7 +248,7 @@ class Client(
                 deviceSyncServerUrl = null,
                 deviceSyncMode = null,
                 allowOffline = false,
-                disableEvents = false,
+                disableEvents = true,
             )
 
             return useClient(ffiClient)
@@ -377,6 +398,7 @@ class Client(
 
             val ffiClient = createClient(
                 api = connectToApiBackend(options.api),
+                syncApi = connectToSyncApiBackend(options.api),
                 db = dbPath,
                 encryptionKey = options.dbEncryptionKey,
                 accountIdentifier = publicIdentity.ffiPrivate,
@@ -384,9 +406,9 @@ class Client(
                 nonce = 0.toULong(),
                 legacySignedPrivateKeyProto = null,
                 deviceSyncServerUrl = options.historySyncUrl,
-                deviceSyncMode = FfiSyncWorkerMode.ENABLED,
+                deviceSyncMode = if (!options.deviceSyncEnabled) FfiSyncWorkerMode.DISABLED else FfiSyncWorkerMode.ENABLED,
                 allowOffline = buildOffline,
-                disableEvents = false,
+                disableEvents = options.debugEventsEnabled,
             )
             return Pair(ffiClient, dbPath)
         }
