@@ -25,7 +25,7 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
 
     fn encode(data: TransactionReference) -> Result<EncodedContent, CodecError> {
         let json = serde_json::to_vec(&data)
-            .map_err(|e| CodecError::Encode(format!("JSON encode error: {}", e)))?;
+            .map_err(|e| CodecError::Encode(format!("JSON encode error: {e}")))?;
 
         Ok(EncodedContent {
             r#type: Some(Self::content_type()),
@@ -38,7 +38,7 @@ impl ContentCodec<TransactionReference> for TransactionReferenceCodec {
 
     fn decode(encoded: EncodedContent) -> Result<TransactionReference, CodecError> {
         serde_json::from_slice(&encoded.content)
-            .map_err(|e| CodecError::Decode(format!("JSON decode error: {}", e)))
+            .map_err(|e| CodecError::Decode(format!("JSON decode error: {e}")))
     }
 }
 
@@ -117,4 +117,3 @@ pub(crate) mod tests {
         );
     }
 }
-
