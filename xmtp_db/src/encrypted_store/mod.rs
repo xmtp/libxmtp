@@ -72,7 +72,10 @@ pub enum StorageOption {
 
 impl std::fmt::Display for StorageOption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        match self {
+            StorageOption::Ephemeral => write!(f, "Ephemeral"),
+            StorageOption::Persistent(path) => write!(f, "Persistent({})", path),
+        }
     }
 }
 
@@ -252,7 +255,11 @@ pub trait XmtpDb: Send + Sync {
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected
-    fn validate(&self, _opts: &StorageOption, _conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+    fn validate(
+        &self,
+        _opts: &StorageOption,
+        _conn: &mut SqliteConnection,
+    ) -> Result<(), ConnectionError> {
         Ok(())
     }
 

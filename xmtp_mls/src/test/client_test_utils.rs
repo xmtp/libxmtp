@@ -78,6 +78,7 @@ where
                 Ok(g.export_ratchet_tree())
             })?;
         assert_eq!(ratchet_tree, other_ratchet_tree);
+        tracing::info!("self = [{}], other = [{}]", hex::encode(sync_group.group_id), hex::encode(other_sync_group.group_id));
 
         Ok(())
     }

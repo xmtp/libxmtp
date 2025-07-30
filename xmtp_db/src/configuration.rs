@@ -3,8 +3,13 @@ use xmtp_common::{NS_IN_DAY, NS_IN_SEC};
 #[allow(unused)]
 pub const MAX_DB_POOL_SIZE: u32 = 25;
 
+/// Minimum number of connections that will be continually kept idle even during no
+/// activity.
+pub const MIN_DB_POOL_SIZE: u32 = 5;
+
 /// This is the maximum amount of time SQLite spends
-/// trying to acquire a lock for writing
+/// trying to acquire a lock for writing to the database.
+/// if the lock fails to acquire, it returns "database is locked".
 pub const BUSY_TIMEOUT: i32 = 5_000;
 
 #[allow(dead_code)]

@@ -270,7 +270,10 @@ where
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
         let metrics = self.context.workers().sync_metrics();
-        DeviceSyncClient::new(self.context.clone(), metrics.unwrap_or_default())
+        DeviceSyncClient::new(
+            self.context.clone(),
+            metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.context.installation_id()))),
+        )
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
