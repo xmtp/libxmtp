@@ -342,10 +342,10 @@ mod test {
         }
 
         fn create_local_payer() -> Self::Builder {
-            let mut client = Client::builder();
-            client.set_host("http://localhost:5050".into());
-            client.set_tls(false);
-            client
+            let mut payer = Client::builder();
+            payer.set_host("http://localhost:5052".into());
+            payer.set_tls(false);
+            payer
         }
 
         fn create_dev() -> Self::Builder {
