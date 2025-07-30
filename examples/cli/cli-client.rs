@@ -247,7 +247,6 @@ async fn main() -> color_eyre::eyre::Result<()> {
             payer.set_tls(false);
             let payer = payer.build().await?;
             Arc::new(D14nClient::new(message, payer))
-
         }
         (true, Env::Production) => {
             let mut message = GrpcClient::builder();
