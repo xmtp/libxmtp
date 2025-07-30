@@ -26,7 +26,7 @@ pub static XMTP_STAGING_PAYER: LazyLock<Url> =
 pub static XMTP_DEV_PAYER: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://payer.testnet-dev.xmtp.network:443").unwrap());
 pub static XMTP_LOCAL_PAYER: LazyLock<Url> =
-    LazyLock::new(|| Url::parse("http://localhost:5050").unwrap());
+    LazyLock::new(|| Url::parse("http://localhost:5052").unwrap());
 
 pub static TMPDIR: LazyLock<TempDir> = LazyLock::<TempDir>::new(|| TempDir::new().unwrap());
 pub const STORAGE_PREFIX: &str = "xdbg";

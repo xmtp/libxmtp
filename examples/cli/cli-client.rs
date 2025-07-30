@@ -238,12 +238,16 @@ async fn main() -> color_eyre::eyre::Result<()> {
 
     let grpc: XmtpApiClient = match (cli.testnet, &cli.env) {
         (true, Env::Local) => {
-            let mut client = GrpcClient::builder();
-            client.set_host("http://localhost:5050".into());
-            client.set_tls(false);
-            let client = client.build().await?;
+            let mut message = GrpcClient::builder();
+            message.set_host("http://localhost:5050".into());
+            message.set_tls(false);
+            let message = message.build().await?;
+            let mut payer = GrpcClient::builder();
+            payer.set_host("http://localhost:5052".into());
+            payer.set_tls(false);
+            let payer = payer.build().await?;
+            Arc::new(D14nClient::new(message, payer))
 
-            Arc::new(D14nClient::new(client.clone(), client))
         }
         (true, Env::Production) => {
             let mut message = GrpcClient::builder();
