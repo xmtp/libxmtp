@@ -513,5 +513,4 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(sameConvoAlixMessageCount, 5)  // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
 		try fixtures.cleanUpDatabases()
 	}
-
 }

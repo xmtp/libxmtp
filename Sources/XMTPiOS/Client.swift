@@ -53,6 +53,8 @@ public struct ClientOptions {
 	public var dbEncryptionKey: Data
 	public var dbDirectory: String?
 	public var historySyncUrl: String?
+	public var deviceSyncEnabled: Bool
+	public var debugEventsEnabled: Bool
 
 	public init(
 		api: Api = Api(),
@@ -61,7 +63,10 @@ public struct ClientOptions {
 		dbEncryptionKey: Data,
 		dbDirectory: String? = nil,
 		historySyncUrl: String? = nil,
-		useDefaultHistorySyncUrl: Bool = true
+		useDefaultHistorySyncUrl: Bool = true,
+		deviceSyncEnabled: Bool = true,
+		debugEventsEnabled: Bool = false
+
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -73,11 +78,14 @@ public struct ClientOptions {
 		} else {
 			self.historySyncUrl = historySyncUrl
 		}
+		self.deviceSyncEnabled = deviceSyncEnabled
+		self.debugEventsEnabled = debugEventsEnabled
 	}
 }
 
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
+	private var syncApiClientCache: [String: XmtpApiClient] = [:]
 
 	func getClient(forKey key: String) -> XmtpApiClient? {
 		return apiClientCache[key]
@@ -85,6 +93,14 @@ actor ApiClientCache {
 
 	func setClient(_ client: XmtpApiClient, forKey key: String) {
 		apiClientCache[key] = client
+	}
+
+	func getSyncClient(forKey key: String) -> XmtpApiClient? {
+		return syncApiClientCache[key]
+	}
+
+	func setSyncClient(_ client: XmtpApiClient, forKey key: String) {
+		syncApiClientCache[key] = client
 	}
 }
 
@@ -293,8 +309,13 @@ public final class Client {
 				dbURL = legacyDbURL
 			}
 		}
+
+		let deviceSyncMode: FfiSyncWorkerMode =
+			!options.deviceSyncEnabled ? .disabled : .enabled
+
 		let ffiClient = try await LibXMTP.createClient(
 			api: connectToApiBackend(api: options.api),
+			syncApi: connectToSyncApiBackend(api: options.api),
 			db: dbURL,
 			encryptionKey: options.dbEncryptionKey,
 			inboxId: inboxId,
@@ -302,9 +323,9 @@ public final class Client {
 			nonce: 0,
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncServerUrl: options.historySyncUrl,
-			deviceSyncMode: .enabled,
+			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			disableEvents: false
+			disableEvents: options.debugEventsEnabled
 		)
 
 		return (ffiClient, dbURL)
@@ -353,6 +374,28 @@ public final class Client {
 			isSecure: api.isSecure
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
+		return newClient
+	}
+
+	public static func connectToSyncApiBackend(api: ClientOptions.Api)
+		async throws
+		-> XmtpApiClient
+	{
+		let cacheKey = api.env.url
+
+		// Check for an existing connected client
+		if let cached = await apiCache.getSyncClient(forKey: cacheKey),
+			try await LibXMTP.isConnected(api: cached)
+		{
+			return cached
+		}
+
+		// Either not cached or not connected; create new client
+		let newClient = try await connectToBackend(
+			host: api.env.url,
+			isSecure: api.isSecure
+		)
+		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
 	}
 
@@ -455,6 +498,7 @@ public final class Client {
 			api: api, publicIdentity: identity)
 		return try await LibXMTP.createClient(
 			api: connectToApiBackend(api: api),
+			syncApi: connectToApiBackend(api: api),
 			db: nil,
 			encryptionKey: nil,
 			inboxId: inboxId,
