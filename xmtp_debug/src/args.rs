@@ -378,7 +378,7 @@ mod tests {
             "--url",
             "http://localhost:5050",
             "--payer-url",
-            "http://localhost:5050",
+            "http://localhost:5150",
         ]);
         assert!(opts.is_ok());
     }
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn payer_url_only_is_valid_but_maybe_warning() {
-        let opts = parse_backend_args(&["--payer-url", "http://localhost:5050"]);
+        let opts = parse_backend_args(&["--payer-url", "http://localhost:5150"]);
         assert!(opts.is_ok());
     }
 
@@ -416,7 +416,7 @@ mod tests {
             "--url",
             "http://localhost:5050",
             "--payer-url",
-            "http://localhost:5050",
+            "http://localhost:5150",
         ]);
         assert!(opts.is_err());
     }

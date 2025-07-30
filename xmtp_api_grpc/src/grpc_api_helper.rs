@@ -343,7 +343,7 @@ mod test {
 
         fn create_local_payer() -> Self::Builder {
             let mut client = Client::builder();
-            client.set_host("http://localhost:5050".into());
+            client.set_host("http://localhost:5150".into());
             client.set_tls(false);
             client
         }

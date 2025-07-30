@@ -84,7 +84,7 @@ pub mod tests {
         fn create_local_d14n() -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_d14n(),
-                <Payer as XmtpTestClient>::create_local_d14n(),
+                <Payer as XmtpTestClient>::create_local_payer(),
             )
         }
     }

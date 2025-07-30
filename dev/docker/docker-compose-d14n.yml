@@ -9,6 +9,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
   chain:
     platform: linux/amd64
     image: ghcr.io/xmtp/contracts:v0.4.3
@@ -34,9 +41,20 @@ services:
       register-node:
         condition: service_completed_successfully
     restart: on-failure
+  xmtpd-gateway:
+    platform: linux/amd64
+    image: ghcr.io/xmtp/xmtpd-gateway:sha-af9c1ad
+    env_file:
+      - local.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - 5150:5050
+      - 5155:5055
   repnode:
     platform: linux/amd64
-    image: ghcr.io/xmtp/xmtpd:sha-f8358a1
+    image: ghcr.io/xmtp/xmtpd:sha-af9c1ad
     env_file:
       - local.env
     depends_on:
