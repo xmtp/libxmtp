@@ -2760,6 +2760,59 @@ pub fn decode_multi_remote_attachment(
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiWalletSendCallMetadata {
+    pub description: String,
+    pub transaction_type: String,
+    pub additional: Vec<(String, String)>,
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiWalletSendCall {
+    pub to: Option<String>,
+    pub data: Option<String>,
+    pub value: Option<String>,
+    pub gas: Option<String>,
+    pub metadata: Option<FfiWalletSendCallMetadata>,
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiWalletSendCalls {
+    pub version: String,
+    pub chain_id: String,
+    pub from: String,
+    pub calls: Vec<FfiWalletSendCall>,
+    pub capabilities: Vec<(String, String)>,
+}
+
+#[uniffi::export]
+pub fn encode_wallet_send_calls(
+    calls: FfiWalletSendCalls,
+) -> Result<Vec<u8>, GenericError> {
+    let calls: WalletSendCalls = calls.into();
+    let encoded = WalletSendCallsCodec::encode(calls)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_wallet_send_calls(
+    bytes: Vec<u8>,
+) -> Result<FfiWalletSendCalls, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    WalletSendCallsCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
