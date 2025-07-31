@@ -20,8 +20,8 @@ use crate::{
 pub enum EntityKind {
     Welcome = 1,
     Group = 2,
-    CommitLogUpload = 3, // Last local entry we uploaded to the remote commit log
-    CommitLogDownload = 4, // Last remote entry we downloaded from the remote commit log
+    CommitLogUpload = 3, // Rowid of the last local entry we uploaded to the remote commit log
+    CommitLogDownload = 4, // Server log sequence id of last remote entry we downloaded from the remote commit log
 }
 
 impl std::fmt::Display for EntityKind {

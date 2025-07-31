@@ -5,10 +5,10 @@ use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_db::{
     prelude::*,
-    remote_commit_log::{self, CommitResult, NewRemoteCommitLog},
+    remote_commit_log::{self, CommitResult, NewRemoteCommitLog, RemoteLogValidationInfo},
     DbQuery, StorageError, Store, XmtpDb,
 };
-use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
+use xmtp_proto::xmtp::mls::message_contents::{CommitLogEntry, CommitResult as ProtoCommitResult};
 use xmtp_proto::{
     mls_v1::{PagingInfo, QueryCommitLogRequest, QueryCommitLogResponse},
     xmtp::{message_api::v1::SortDirection, mls::message_contents::PlaintextCommitLogEntry},
@@ -126,13 +126,6 @@ pub struct UpdateCursorsResult {
     pub num_entries_saved: usize,
     pub last_entry_saved_commit_sequence_id: i64,
     pub last_entry_saved_remote_log_sequence_id: i64,
-}
-
-pub struct EntryValidationInfo {
-    pub requested_group_id: Vec<u8>,
-    pub latest_stored_sequence_id: u64,
-    pub latest_applied_epoch_authenticator: Vec<u8>,
-    pub latest_applied_epoch_number: u64,
 }
 
 // Test related types
@@ -309,37 +302,27 @@ where
     ) -> Result<UpdateCursorsResult, CommitLogError> {
         let group_id = commit_log_response.group_id;
         let mut latest_download_cursor = 0;
-        let mut latest_sequence_id = 0;
+        let mut latest_commit_sequence_id = 0;
         let mut num_entries_saved = 0;
-        for entry in commit_log_response.commit_log_entries {
-            let log_entry =
-                PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
+        let entries: Vec<CommitLogEntry> = commit_log_response.commit_log_entries;
+        for entry in entries {
+            let commit_log_entry: CommitLogEntry = entry;
+            let log_entry = PlaintextCommitLogEntry::decode(
+                commit_log_entry.encrypted_commit_log_entry.as_slice(),
+            )?;
 
-            // TODO(cam): From the local commit log, fetch the following info:
+            // From the stored remote commit log, fetch the following info:
             // 1. The latest applied epoch authenticator
             // 2. The latest applied epoch number
             // 3. The latest stored sequence id
-            let latest_applied_entry = conn.get_latest_applied_entry(&group_id)?;
-            // let latest_sequence_id =
-
-            let validation_info = EntryValidationInfo {
-                requested_group_id: group_id.clone(),
-                latest_stored_sequence_id: latest_sequence_id,
-                latest_applied_epoch_authenticator: latest_applied_entry
-                    .clone()
-                    .map(|e| e.applied_epoch_authenticator)
-                    .unwrap_or(Vec::new()),
-                latest_applied_epoch_number: latest_applied_entry
-                    .map(|e| e.applied_epoch_number)
-                    .unwrap_or(0) as u64,
-            };
-            if Self::should_skip_remote_commit_log_entry(validation_info, &log_entry) {
+            let validation_info = conn.get_remote_log_validation_info(&group_id)?;
+            if Self::should_skip_remote_commit_log_entry(&validation_info, &log_entry) {
                 continue;
             }
 
             num_entries_saved += 1;
             NewRemoteCommitLog {
-                log_sequence_id: entry.sequence_id as i64,
+                log_sequence_id: commit_log_entry.sequence_id as i64,
                 group_id: log_entry.group_id,
                 commit_sequence_id: log_entry.commit_sequence_id as i64,
                 commit_result: CommitResult::from(
@@ -350,11 +333,11 @@ where
                 applied_epoch_authenticator: log_entry.applied_epoch_authenticator,
             }
             .store(conn)?;
-            if entry.sequence_id > latest_download_cursor {
-                latest_download_cursor = entry.sequence_id;
+            if commit_log_entry.sequence_id > latest_download_cursor {
+                latest_download_cursor = commit_log_entry.sequence_id;
             }
-            if log_entry.commit_sequence_id > latest_sequence_id {
-                latest_sequence_id = log_entry.commit_sequence_id;
+            if log_entry.commit_sequence_id as i64 > latest_commit_sequence_id {
+                latest_commit_sequence_id = log_entry.commit_sequence_id as i64;
             }
         }
         conn.update_cursor(
@@ -365,13 +348,13 @@ where
         Ok(UpdateCursorsResult {
             conversation_id: group_id,
             num_entries_saved,
-            last_entry_saved_commit_sequence_id: latest_sequence_id as i64,
+            last_entry_saved_commit_sequence_id: latest_commit_sequence_id,
             last_entry_saved_remote_log_sequence_id: latest_download_cursor as i64,
         })
     }
 
     fn should_skip_remote_commit_log_entry(
-        validation_info: EntryValidationInfo,
+        validation_info: &RemoteLogValidationInfo,
         entry: &PlaintextCommitLogEntry,
     ) -> bool {
         let is_applied = entry.commit_result == ProtoCommitResult::Applied as i32;
@@ -384,8 +367,11 @@ where
         // 7. The entry has a CommitResult of COMMIT_RESULT_APPLIED, but the epoch number is not exactly 1 greater than the most recently stored entry with a result of COMMIT_RESULT_APPLIED, if one exists.
         entry.group_id != validation_info.requested_group_id
             || entry.commit_sequence_id == 0
-            || entry.commit_sequence_id <= validation_info.latest_stored_sequence_id
+            || entry.commit_sequence_id <= validation_info.latest_stored_commit_sequence_id
             || (is_applied
+                && !validation_info
+                    .latest_applied_epoch_authenticator
+                    .is_empty()
                 && entry.last_epoch_authenticator
                     != validation_info.latest_applied_epoch_authenticator)
             || (is_applied
