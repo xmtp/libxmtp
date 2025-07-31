@@ -201,6 +201,12 @@ harness = false
 name = "identity"
 required-features = ["bench"]
 
+[[bench]]
+harness = false
+name = "sync_all"
+required-features = ["bench"]
+
+
 [[test]]
 harness = true
 name = "chaos"

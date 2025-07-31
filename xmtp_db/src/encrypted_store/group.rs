@@ -412,6 +412,7 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
         Ok(())
     }
 
+    #[tracing::instrument(skip_all, level = "trace")]
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())

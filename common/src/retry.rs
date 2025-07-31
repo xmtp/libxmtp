@@ -320,16 +320,13 @@ impl Retry {
 #[macro_export]
 macro_rules! retry_async {
     ($retry: expr, $code: tt) => {{
-        use tracing::Instrument as _;
         #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
         let time_spent = $crate::time::Instant::now();
-        let span = tracing::trace_span!("retry");
         loop {
-            let span = span.clone();
             #[allow(clippy::redundant_closure_call)]
-            let res = $code.instrument(span).await;
+            let res = $code.await;
             match res {
                 Ok(v) => break Ok(v),
                 Err(e) => {
