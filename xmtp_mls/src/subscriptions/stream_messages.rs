@@ -244,6 +244,7 @@ where
     /// - Creating the new subscription fails
     #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
     #[allow(clippy::type_complexity)]
+    #[tracing::instrument(level = "trace", skip(context, new_group), fields(new_group = hex::encode(&new_group)))]
     async fn subscribe(
         context: Cow<'a, C>,
         filters: Vec<GroupFilter>,
@@ -253,9 +254,23 @@ where
         Vec<u8>,
         Option<u64>,
     )> {
-        // get the last synced cursor
+        let db_cursor = match context
+            .db()
+            .query_group_messages()
+            .get_latest_sequence_id_for_group(&new_group)
+            .await
+        {
+            Ok(Some(cursor)) => Some(cursor as u64),
+            Ok(None) => fallback_cursor(), // e.g. Some(1) or None
+            Err(e) => {
+                tracing::error!("DB failure: {}", e);
+                fallback_cursor()
+            }
+        };
+
         let stream = context.api().subscribe_group_messages(filters).await?;
-        Ok((stream, new_group, Some(1)))
+
+        Ok((stream, new_group, db_cursor.or(Some(1))))
     }
 }
 
