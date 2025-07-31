@@ -56,9 +56,9 @@ where
     }
 }
 
-pub(super) fn store_preference_updates<C: ConnectionExt>(
+pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
-    conn: &impl DbQuery<C>,
+    conn: &impl DbQuery,
     handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];

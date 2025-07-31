@@ -1,8 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{
-    ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider,
-    sql_key_store::transactions::MutableTransactionConnection,
+    sql_key_store::transactions::MutableTransactionConnection, ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider
 };
 
 use bincode;
@@ -13,6 +12,8 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod mock;
 mod transactions;
 
 const SELECT_QUERY: &str =
@@ -61,7 +62,7 @@ impl<'a, A> SqlKeyStore<A> {
 
 impl<D, C> From<D> for SqlKeyStore<D>
 where
-    D: crate::DbQuery<C>,
+    D: crate::DbQuery,
     D: ConnectionExt<Connection = C>,
     C: ConnectionExt,
 {

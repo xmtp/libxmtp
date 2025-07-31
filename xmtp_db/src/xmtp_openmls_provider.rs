@@ -1,4 +1,6 @@
 use crate::ConnectionExt;
+use crate::DbQuery;
+use crate::MlsKeyStore;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
 // use crate::sql_key_store::XmtpMlsTransactionProvider;
@@ -19,15 +21,17 @@ pub trait XmtpMlsStorageProvider:
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;
 
-    type DbQuery<'a>: crate::DbQuery<&'a Self::Connection>
+    type DbQuery<'a>: crate::DbQuery
     where
         Self::Connection: 'a;
+
+    type TxQuery: MlsKeyStore;
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(&mut <Self::Connection as ConnectionExt>::Connection) -> Result<T, E>,
+       F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
 
     fn _disable_lint_for_self<'a>(_: Self::DbQuery<'a>) {}

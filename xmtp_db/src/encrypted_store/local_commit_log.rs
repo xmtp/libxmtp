@@ -120,7 +120,7 @@ impl std::fmt::Debug for LocalCommitLog {
     }
 }
 
-pub trait QueryLocalCommitLog<C: ConnectionExt> {
+pub trait QueryLocalCommitLog {
     fn get_group_logs(
         &self,
         group_id: &[u8],
@@ -145,7 +145,38 @@ pub trait QueryLocalCommitLog<C: ConnectionExt> {
     ) -> Result<Option<i32>, crate::ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryLocalCommitLog<C> for DbConnection<C> {
+impl<T> QueryLocalCommitLog for &T where T: QueryLocalCommitLog {
+    fn get_group_logs(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_group_logs(group_id)
+    }
+
+    fn get_group_logs_for_publishing(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_group_logs_for_publishing(group_id, after_cursor)
+    }
+
+    fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_log_for_group(group_id)
+    }
+
+    fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        (**self).get_local_commit_log_cursor(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     fn get_group_logs(
         &self,
         group_id: &[u8],

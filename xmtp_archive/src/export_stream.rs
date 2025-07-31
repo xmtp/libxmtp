@@ -19,29 +19,28 @@ pub(super) struct BatchExportStream {
 }
 
 impl BatchExportStream {
-    pub(super) fn new<C, D>(opts: &BackupOptions, db: Arc<D>) -> Self
+    pub(super) fn new<D>(opts: &BackupOptions, db: Arc<D>) -> Self
     where
-        C: ConnectionExt + Send + Sync + 'static,
-        D: DbQuery<C> + Send + Sync + 'static,
+        D: DbQuery + Send + Sync + 'static,
     {
         let input_streams = opts
             .elements()
             .flat_map(|e| match e {
                 BackupElementSelection::Consent => {
-                    vec![BackupRecordStreamer::<ConsentSave, D, C>::new_stream(
+                    vec![BackupRecordStreamer::<ConsentSave, D>::new_stream(
                         db.clone(),
                         opts,
                     )]
                 }
                 BackupElementSelection::Messages => vec![
                     // Order matters here. Don't put messages before groups.
-                    BackupRecordStreamer::<GroupSave, D, C>::new_stream(db.clone(), opts),
-                    BackupRecordStreamer::<GroupMessageSave, D, C>::new_stream(db.clone(), opts),
+                    BackupRecordStreamer::<GroupSave, D>::new_stream(db.clone(), opts),
+                    BackupRecordStreamer::<GroupMessageSave, D>::new_stream(db.clone(), opts),
                 ],
                 BackupElementSelection::Event => {
                     vec![
-                        BackupRecordStreamer::<GroupSave, D, C>::new_stream(db.clone(), opts),
-                        BackupRecordStreamer::<EventSave, D, C>::new_stream(db.clone(), opts),
+                        BackupRecordStreamer::<GroupSave, D>::new_stream(db.clone(), opts),
+                        BackupRecordStreamer::<EventSave, D>::new_stream(db.clone(), opts),
                     ]
                 }
                 BackupElementSelection::Unspecified => vec![],
@@ -93,7 +92,7 @@ impl Iterator for BatchExportStream {
 
 pub(crate) trait BackupRecordProvider: Send {
     const BATCH_SIZE: i64;
-    fn backup_records<D, C>(
+    fn backup_records<D>(
         db: Arc<D>,
         start_ns: Option<i64>,
         end_ns: Option<i64>,
@@ -101,23 +100,21 @@ pub(crate) trait BackupRecordProvider: Send {
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
-        C: ConnectionExt,
-        D: DbQuery<C> + 'static;
+        D: DbQuery + 'static;
 }
 
-pub(crate) struct BackupRecordStreamer<R, D, C> {
+pub(crate) struct BackupRecordStreamer<R, D> {
     cursor: i64,
     db: Arc<D>,
     start_ns: Option<i64>,
     end_ns: Option<i64>,
-    _phantom: PhantomData<(R, C)>,
+    _phantom: PhantomData<R>,
 }
 
-impl<R, D, C> BackupRecordStreamer<R, D, C>
+impl<R, D> BackupRecordStreamer<R, D>
 where
     R: BackupRecordProvider + 'static,
-    C: ConnectionExt + Send + Sync + 'static,
-    D: DbQuery<C> + Send + Sync + 'static,
+    D: DbQuery + Send + Sync + 'static,
 {
     pub(super) fn new_stream(db: Arc<D>, opts: &BackupOptions) -> BackupInputStream {
         Box::new(Self {
@@ -130,11 +127,10 @@ where
     }
 }
 
-impl<R, D, C> Iterator for BackupRecordStreamer<R, D, C>
+impl<R, D> Iterator for BackupRecordStreamer<R, D>
 where
     R: BackupRecordProvider + Send,
-    C: ConnectionExt,
-    D: DbQuery<C> + 'static,
+    D: DbQuery + 'static,
 {
     type Item = Result<Vec<BackupElement>, StorageError>;
     fn next(&mut self) -> Option<Self::Item> {

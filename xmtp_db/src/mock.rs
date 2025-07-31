@@ -11,7 +11,7 @@ use mockall::mock;
 use parking_lot::Mutex;
 
 use crate::{ConnectionError, ConnectionExt, TransactionGuard};
-pub type MockDb = MockDbQuery<MockConnection>;
+pub type MockDb = MockDbQuery;
 
 #[derive(Clone)]
 pub struct MockConnection {
@@ -77,14 +77,14 @@ impl ConnectionExt for MockConnection {
 use crate::StorageError;
 use crate::prelude::*;
 mock! {
-    pub DbQuery<C: ConnectionExt + 'static> {}
+    pub DbQuery {}
 
-    impl<C: ConnectionExt + 'static> ReadOnly<C> for DbQuery<C> {
+    impl ReadOnly for DbQuery {
         fn enable_readonly(&self) -> Result<(), StorageError>;
         fn disable_readonly(&self) -> Result<(), StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryConsentRecord<C> for DbQuery<C> {
+    impl QueryConsentRecord for DbQuery {
         fn get_consent_record(
             &self,
             entity: String,
@@ -122,7 +122,7 @@ mock! {
         ) -> Result<Vec<crate::consent_record::StoredConsentRecord>, crate::ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryConversationList<C> for DbQuery<C> {
+    impl QueryConversationList for DbQuery {
         #[mockall::concretize]
         fn fetch_conversation_list<A: AsRef<crate::group::GroupQueryArgs>>(
             &self,
@@ -130,7 +130,7 @@ mock! {
         ) -> Result<Vec<crate::conversation_list::ConversationListItem>, StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryDms<C> for DbQuery<C> {
+    impl QueryDms for DbQuery {
         fn fetch_stitched(
             &self,
             key: &[u8],
@@ -148,7 +148,7 @@ mock! {
         -> Result<Vec<crate::group::StoredGroup>, ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryGroup<C> for DbQuery<C> {
+    impl QueryGroup for DbQuery {
         #[mockall::concretize]
         fn find_groups<A: AsRef<crate::group::GroupQueryArgs>>(
             &self,
@@ -234,7 +234,7 @@ mock! {
         fn get_conversation_type(&self, group_id: &[u8]) -> Result<ConversationType, crate::ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryGroupVersion<C> for DbQuery<C> {
+    impl QueryGroupVersion for DbQuery {
         fn set_group_paused(&self, group_id: &[u8], min_version: &str) -> Result<(), StorageError>;
 
         fn unpause_group(&self, group_id: &[u8]) -> Result<(), StorageError>;
@@ -242,7 +242,7 @@ mock! {
         fn get_group_paused_version(&self, group_id: &[u8]) -> Result<Option<String>, StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryGroupIntent<C> for DbQuery<C> {
+    impl QueryGroupIntent for DbQuery {
         fn insert_group_intent(
             &self,
             to_save: crate::group_intent::NewGroupIntent,
@@ -301,7 +301,7 @@ mock! {
         ) -> Result<(), StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryGroupMessage<C> for DbQuery<C> {
+    impl QueryGroupMessage for DbQuery {
         fn get_group_messages(
             &self,
             group_id: &[u8],
@@ -370,7 +370,7 @@ mock! {
         fn delete_expired_messages(&self) -> Result<usize, crate::ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryIdentity<C> for DbQuery<C> {
+    impl QueryIdentity for DbQuery {
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
 
         fn reset_key_package_rotation_queue(&self, rotation_interval: i64) -> Result<(), StorageError>;
@@ -378,7 +378,7 @@ mock! {
         fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryIdentityCache<C> for DbQuery<C> {
+    impl QueryIdentityCache for DbQuery {
         #[mockall::concretize]
         fn fetch_cached_inbox_ids<T>(
             &self,
@@ -400,7 +400,7 @@ mock! {
             for<'a> &'a T: Into<crate::identity_cache::StoredIdentityKind>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryKeyPackageHistory<C> for DbQuery<C> {
+    impl QueryKeyPackageHistory for DbQuery {
         fn store_key_package_history_entry(
             &self,
             key_package_hash_ref: Vec<u8>,
@@ -428,7 +428,7 @@ mock! {
         fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryKeyStoreEntry<C> for DbQuery<C> {
+    impl QueryKeyStoreEntry for DbQuery {
         fn insert_or_update_key_store_entry(
             &self,
             key: Vec<u8>,
@@ -436,13 +436,13 @@ mock! {
         ) -> Result<(), StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryDeviceSyncMessages<C> for DbQuery<C> {
+    impl QueryDeviceSyncMessages for DbQuery {
         fn unprocessed_sync_group_messages(
             &self,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, StorageError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryRefreshState<C> for DbQuery<C> {
+    impl QueryRefreshState for DbQuery {
         #[mockall::concretize]
         fn get_refresh_state<EntityId: AsRef<[u8]>>(
             &self,
@@ -472,7 +472,7 @@ mock! {
         ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryIdentityUpdates<C> for DbQuery<C> {
+    impl QueryIdentityUpdates for DbQuery {
         #[mockall::concretize]
         fn get_identity_updates<InboxId: AsRef<str>>(
             &self,
@@ -497,7 +497,7 @@ mock! {
         ) -> Result<std::collections::HashMap<String, i64>, crate::ConnectionError>;
     }
 
-    impl<C: ConnectionExt + 'static> QueryLocalCommitLog<C> for DbQuery<C> {
+    impl QueryLocalCommitLog for DbQuery {
         fn get_group_logs(
             &self,
             group_id: &[u8],
@@ -523,11 +523,13 @@ mock! {
     }
 }
 
-impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
-    type Connection = <C as ConnectionExt>::Connection;
+impl ConnectionExt for MockDbQuery {
+    type Connection = SqliteConnection;
 
     fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        panic!("start tx");
+        Ok(TransactionGuard {
+            in_transaction: Arc::new(AtomicBool::new(true)),
+        })
     }
 
     fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
@@ -559,10 +561,11 @@ impl<C: ConnectionExt> ConnectionExt for MockDbQuery<C> {
     }
 }
 
-impl<C: ConnectionExt> IntoConnection for MockDbQuery<C> {
+impl IntoConnection for MockDbQuery {
     type Connection = MockConnection;
 
     fn into_connection(self) -> Self::Connection {
         todo!()
     }
 }
+

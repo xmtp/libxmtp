@@ -204,9 +204,9 @@ where
 }
 
 /// Get the [`AssociationState`] for each `inbox_id`
-pub async fn inbox_addresses_with_verifier<C: ConnectionExt, ApiClient: XmtpApi>(
+pub async fn inbox_addresses_with_verifier<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &impl DbQuery<C>,
+    conn: &impl DbQuery,
     inbox_ids: Vec<InboxIdRef<'_>>,
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<AssociationState>, ClientError> {
@@ -276,7 +276,7 @@ where
     /// Calls the server to look up the `inbox_id` associated with a given identifier
     pub async fn find_inbox_id_from_identifier(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         identifier: Identifier,
     ) -> Result<Option<String>, ClientError> {
         let results = self
@@ -289,7 +289,7 @@ where
     /// If no `inbox_id` is found, returns None.
     pub(crate) async fn find_inbox_ids_from_identifiers(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         identifiers: &[Identifier],
     ) -> Result<Vec<Option<String>>, ClientError> {
         let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(identifiers)?;

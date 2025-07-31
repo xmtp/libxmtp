@@ -38,7 +38,7 @@ impl StoredIdentityUpdate {
 
 impl_store!(StoredIdentityUpdate, identity_updates);
 
-pub trait QueryIdentityUpdates<C: ConnectionExt> {
+pub trait QueryIdentityUpdates {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     fn get_identity_updates<InboxId: AsRef<str>>(
@@ -66,7 +66,39 @@ pub trait QueryIdentityUpdates<C: ConnectionExt> {
     ) -> Result<HashMap<String, i64>, crate::ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryIdentityUpdates<C> for DbConnection<C> {
+impl<T> QueryIdentityUpdates for &T where T: QueryIdentityUpdates {
+    fn get_identity_updates<InboxId: AsRef<str>>(
+        &self,
+        inbox_id: InboxId,
+        from_sequence_id: Option<i64>,
+        to_sequence_id: Option<i64>,
+    ) -> Result<Vec<StoredIdentityUpdate>, crate::ConnectionError> {
+        (**self).get_identity_updates(inbox_id, from_sequence_id, to_sequence_id)
+    }
+
+    fn insert_or_ignore_identity_updates(
+        &self,
+        updates: &[StoredIdentityUpdate],
+    ) -> Result<(), crate::ConnectionError> {
+        (**self).insert_or_ignore_identity_updates(updates)
+    }
+
+    fn get_latest_sequence_id_for_inbox(
+        &self,
+        inbox_id: &str,
+    ) -> Result<i64, crate::ConnectionError> {
+        todo!()
+    }
+
+    fn get_latest_sequence_id(
+        &self,
+        inbox_ids: &[&str],
+    ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
+        todo!()
+    }
+}
+
+impl<C: ConnectionExt> QueryIdentityUpdates for DbConnection<C> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
     /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     fn get_identity_updates<InboxId: AsRef<str>>(

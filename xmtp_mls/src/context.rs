@@ -90,6 +90,26 @@ where
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
+    pub fn replace_mls_store<S2>(self, mls_store: S2) -> XmtpMlsLocalContext<ApiClient, Db, S2> {
+        XmtpMlsLocalContext::<ApiClient, Db, S2> {
+            identity: self.identity,
+            api_client: self.api_client,
+            sync_api_client: self.sync_api_client,
+            store: self.store,
+            mls_storage: mls_store,
+            mutexes: self.mutexes,
+            mls_commit_lock: self.mls_commit_lock,
+            version_info: self.version_info,
+            local_events: self.local_events,
+            worker_events: self.worker_events,
+            scw_verifier: self.scw_verifier,
+            device_sync: self.device_sync,
+            workers: self.workers,
+        }
+    }
+}
+
+impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> InstallationId {
         (*self.identity.installation_keys.public_bytes()).into()

@@ -51,7 +51,7 @@ pub mod prelude {
     pub use super::traits::*;
 }
 
-pub trait ReadOnly<C: ConnectionExt> {
+pub trait ReadOnly {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError>;
 
@@ -59,7 +59,7 @@ pub trait ReadOnly<C: ConnectionExt> {
     fn disable_readonly(&self) -> Result<(), StorageError>;
 }
 
-impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
+impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
@@ -71,6 +71,23 @@ impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
+}
+
+impl<T> ReadOnly for &T where T: ReadOnly {
+    #[allow(unused)]
+    fn enable_readonly(&self) -> Result<(), StorageError> {
+        (**self).enable_readonly()
+    }
+
+    #[allow(unused)]
+    fn disable_readonly(&self) -> Result<(), StorageError> {
+        (**self).disable_readonly()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn init_sqlite() {
+    // This is a no-op for wasm32
 }
 
 #[cfg(not(target_arch = "wasm32"))]

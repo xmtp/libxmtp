@@ -39,7 +39,7 @@ impl ConnectionExt for MemoryStorage {
 
     // mls memory storage does not do transactions
     fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
-        panic!("mls memory storage does not start transactions")
+        panic!("memory storage cannot start txs")
     }
 
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>

@@ -352,13 +352,10 @@ where
     }
 }
 
-pub async fn upload_debug_archive<C>(
-    db: impl DbQuery<C> + Send + Sync + 'static,
+pub async fn upload_debug_archive(
+    db: impl DbQuery + Send + Sync + 'static,
     device_sync_server_url: Option<impl AsRef<str>>,
-) -> Result<String, DeviceSyncError>
-where
-    C: ConnectionExt + Send + Sync + 'static,
-{
+) -> Result<String, DeviceSyncError> {
     let device_sync_server_url = device_sync_server_url
         .map(|url| url.as_ref().to_string())
         .unwrap_or(DeviceSyncUrls::PRODUCTION_ADDRESS.to_string());

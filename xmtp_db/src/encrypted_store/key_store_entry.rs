@@ -24,7 +24,7 @@ impl<C: ConnectionExt> Delete<StoredKeyStoreEntry> for DbConnection<C> {
     }
 }
 
-pub trait QueryKeyStoreEntry<C: ConnectionExt> {
+pub trait QueryKeyStoreEntry {
     fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,
@@ -32,7 +32,17 @@ pub trait QueryKeyStoreEntry<C: ConnectionExt> {
     ) -> Result<(), StorageError>;
 }
 
-impl<C: ConnectionExt> QueryKeyStoreEntry<C> for DbConnection<C> {
+impl<T> QueryKeyStoreEntry for &T where T: QueryKeyStoreEntry {
+    fn insert_or_update_key_store_entry(
+        &self,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StorageError> {
+        (**self).insert_or_update_key_store_entry(key, value)
+    }
+}
+
+impl<C: ConnectionExt> QueryKeyStoreEntry for DbConnection<C> {
     fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,

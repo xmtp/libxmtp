@@ -77,8 +77,8 @@ impl<Context> IdentityUpdates<Context> {
 
 /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
 /// If no `to_sequence_id` is provided, use the latest value in the database
-pub async fn get_association_state_with_verifier<C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub async fn get_association_state_with_verifier(
+    conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
@@ -164,8 +164,8 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
 /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
 /// If the association state is not available in the cache, this falls back to reconstructing the association state
 /// from Identity Updates in the network.
-pub async fn batch_get_association_state_with_verifier<C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub async fn batch_get_association_state_with_verifier(
+    conn: &impl DbQuery,
     identifiers: &[(impl AsIdRef, Option<i64>)],
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<AssociationState>, ClientError> {
@@ -196,7 +196,7 @@ where
     /// from Identity Updates in the network.
     pub async fn batch_get_association_state(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         batch_get_association_state_with_verifier(conn, identifiers, &self.context.scw_verifier())
@@ -219,7 +219,7 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        conn: &impl xmtp_db::DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
@@ -236,7 +236,7 @@ where
     /// provided `inbox_id`
     pub(crate) async fn get_association_state_diff(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
@@ -487,7 +487,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
@@ -566,9 +566,9 @@ where
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn load_identity_updates<ApiClient: XmtpApi, C: ConnectionExt>(
+pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &impl xmtp_db::DbQuery<C>,
+    conn: &impl xmtp_db::DbQuery,
     inbox_ids: &[&str],
 ) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
     if inbox_ids.is_empty() {

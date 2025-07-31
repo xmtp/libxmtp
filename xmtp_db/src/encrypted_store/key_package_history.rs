@@ -26,7 +26,7 @@ pub struct StoredKeyPackageHistoryEntry {
 
 impl_store_or_ignore!(NewKeyPackageHistoryEntry, key_package_history);
 
-pub trait QueryKeyPackageHistory<C: ConnectionExt> {
+pub trait QueryKeyPackageHistory {
     fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,
@@ -52,7 +52,47 @@ pub trait QueryKeyPackageHistory<C: ConnectionExt> {
     fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
 }
 
-impl<C: ConnectionExt> QueryKeyPackageHistory<C> for DbConnection<C> {
+impl<T> QueryKeyPackageHistory for &T where T: QueryKeyPackageHistory {
+    fn store_key_package_history_entry(
+        &self,
+        key_package_hash_ref: Vec<u8>,
+        post_quantum_public_key: Option<Vec<u8>>,
+    ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
+        (**self).store_key_package_history_entry(key_package_hash_ref, post_quantum_public_key)
+    }
+
+    fn find_key_package_history_entry_by_hash_ref(
+        &self,
+        hash_ref: Vec<u8>,
+    ) -> Result<StoredKeyPackageHistoryEntry, StorageError> {
+        (**self).find_key_package_history_entry_by_hash_ref(hash_ref)
+    }
+
+    fn find_key_package_history_entries_before_id(
+        &self,
+        id: i32,
+    ) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+        (**self).find_key_package_history_entries_before_id(id)
+    }
+
+    fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
+        (**self).mark_key_package_before_id_to_be_deleted(id)
+    }
+
+    fn get_expired_key_packages(&self) -> Result<Vec<StoredKeyPackageHistoryEntry>, StorageError> {
+        (**self).get_expired_key_packages()
+    }
+
+    fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError> {
+        (**self).delete_key_package_history_up_to_id(id)
+    }
+
+    fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError> {
+        (**self).delete_key_package_entry_with_id(id)
+    }
+}
+
+impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
     fn store_key_package_history_entry(
         &self,
         key_package_hash_ref: Vec<u8>,

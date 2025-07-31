@@ -1550,10 +1550,10 @@ where
     }
 
     // Returns new consent records. Does not broadcast changes.
-    pub fn quietly_update_consent_state<C: ConnectionExt>(
+    pub fn quietly_update_consent_state(
         &self,
         state: ConsentState,
-        db: &impl DbQuery<C>,
+        db: &impl DbQuery,
     ) -> Result<Vec<StoredConsentRecord>, GroupError> {
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
@@ -2110,8 +2110,8 @@ async fn validate_initial_group_membership(
     Ok(())
 }
 
-pub fn filter_inbox_ids_needing_updates<'a, C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub fn filter_inbox_ids_needing_updates<'a>(
+    conn: &impl DbQuery,
     filters: &[(&'a str, i64)],
 ) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
     let existing_sequence_ids =

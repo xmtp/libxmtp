@@ -30,13 +30,12 @@ impl QueueIntentBuilder {
     }
 
     /// private api to queue an intent w/o starting a transaction
-    fn queue_with_conn<Ctx, C>(
+    fn queue_with_conn<Ctx>(
         &mut self,
-        conn: &impl DbQuery<C>,
+        conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
     ) -> Result<StoredGroupIntent, GroupError>
     where
-        C: ConnectionExt,
         Ctx: XmtpSharedContext,
     {
         let intent = self.build()?;
@@ -102,14 +101,13 @@ impl QueueIntent {
         })
     }
 
-    fn queue_with_conn<Ctx, C>(
+    fn queue_with_conn<Ctx>(
         self,
-        conn: &impl DbQuery<C>,
+        conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
     ) -> Result<StoredGroupIntent, GroupError>
     where
         Ctx: XmtpSharedContext,
-        C: ConnectionExt,
     {
         if self.kind == IntentKind::SendMessage {
             self.maybe_insert_key_update_intent(conn, group)?;
@@ -143,14 +141,13 @@ impl QueueIntent {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn maybe_insert_key_update_intent<Ctx, C>(
+    fn maybe_insert_key_update_intent<Ctx>(
         &self,
-        conn: &impl DbQuery<C>,
+        conn: &impl DbQuery,
         group: &MlsGroup<Ctx>,
     ) -> Result<(), GroupError>
     where
         Ctx: XmtpSharedContext,
-        C: ConnectionExt,
     {
         let last_rotated_at_ns = conn.get_rotated_at_ns(group.group_id.clone())?;
         let now_ns = xmtp_common::time::now_ns();

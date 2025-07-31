@@ -33,7 +33,7 @@ pub enum StoredIdentityKind {
 impl_store!(IdentityCache, identity_cache);
 impl_fetch!(IdentityCache, identity_cache);
 
-pub trait QueryIdentityCache<C: ConnectionExt> {
+pub trait QueryIdentityCache {
     /// Returns a HashMap of WalletAddress -> InboxId
     fn fetch_cached_inbox_ids<T>(
         &self,
@@ -50,7 +50,27 @@ pub trait QueryIdentityCache<C: ConnectionExt> {
         for<'a> &'a T: Into<StoredIdentityKind>;
 }
 
-impl<C: ConnectionExt> QueryIdentityCache<C> for DbConnection<C> {
+impl<G> QueryIdentityCache for &G where G: QueryIdentityCache {
+    fn fetch_cached_inbox_ids<T>(
+        &self,
+        identifiers: &[T],
+    ) -> Result<HashMap<String, String>, StorageError>
+    where
+        T: std::fmt::Display,
+        for<'a> &'a T: Into<StoredIdentityKind> {
+        (**self).fetch_cached_inbox_ids(identifiers)
+    }
+
+    fn cache_inbox_id<T, S>(&self, identifier: &T, inbox_id: S) -> Result<(), StorageError>
+    where
+        T: std::fmt::Display,
+        S: ToString,
+        for<'a> &'a T: Into<StoredIdentityKind> {
+        (**self).cache_inbox_id(identifier, inbox_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryIdentityCache for DbConnection<C> {
     /// Returns a HashMap of WalletAddress -> InboxId
     fn fetch_cached_inbox_ids<T>(
         &self,

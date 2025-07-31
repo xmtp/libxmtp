@@ -1,8 +1,10 @@
+
 use crate::ConnectionExt;
 use crate::StorageError;
 use crate::prelude::*;
 
 /// Get an MLS Key store
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait MlsKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
@@ -56,48 +58,47 @@ pub trait IntoConnection {
     fn into_connection(self) -> Self::Connection;
 }
 
-pub trait DbQuery<C: crate::ConnectionExt>:
-    ReadOnly<C>
-    + QueryConsentRecord<C>
-    + QueryConversationList<C>
-    + QueryDms<C>
-    + QueryGroup<C>
-    + QueryGroupVersion<C>
-    + QueryGroupIntent<C>
-    + QueryGroupMessage<C>
-    + QueryIdentity<C>
-    + QueryIdentityCache<C>
-    + QueryKeyPackageHistory<C>
-    + QueryKeyStoreEntry<C>
-    + QueryDeviceSyncMessages<C>
-    + QueryRefreshState<C>
-    + QueryIdentityUpdates<C>
-    + QueryLocalCommitLog<C>
+pub trait DbQuery:
+    ReadOnly
+    + QueryConsentRecord
+    + QueryConversationList
+    + QueryDms
+    + QueryGroup
+    + QueryGroupVersion
+    + QueryGroupIntent
+    + QueryGroupMessage
+    + QueryIdentity
+    + QueryIdentityCache
+    + QueryKeyPackageHistory
+    + QueryKeyStoreEntry
+    + QueryDeviceSyncMessages
+    + QueryRefreshState
+    + QueryIdentityUpdates
+    + QueryLocalCommitLog
     + crate::ConnectionExt
-    + IntoConnection<Connection = C>
 {
 }
 
-impl<C: crate::ConnectionExt, T: ?Sized> DbQuery<C> for T where
-    T: ReadOnly<C>
-        + QueryConsentRecord<C>
-        + QueryConversationList<C>
-        + QueryDms<C>
-        + QueryGroup<C>
-        + QueryGroupVersion<C>
-        + QueryGroupIntent<C>
-        + QueryGroupMessage<C>
-        + QueryIdentity<C>
-        + QueryIdentityCache<C>
-        + QueryKeyPackageHistory<C>
-        + QueryKeyStoreEntry<C>
-        + QueryDeviceSyncMessages<C>
-        + QueryRefreshState<C>
-        + QueryIdentityUpdates<C>
-        + QueryLocalCommitLog<C>
+impl<T: ?Sized> DbQuery for T where
+    T: ReadOnly
+        + QueryConsentRecord
+        + QueryConversationList
+        + QueryDms
+        + QueryGroup
+        + QueryGroupVersion
+        + QueryGroupIntent
+        + QueryGroupMessage
+        + QueryIdentity
+        + QueryIdentityCache
+        + QueryKeyPackageHistory
+        + QueryKeyStoreEntry
+        + QueryDeviceSyncMessages
+        + QueryRefreshState
+        + QueryIdentityUpdates
+        + QueryLocalCommitLog
         + crate::ConnectionExt
-        + IntoConnection<Connection = C>
 {
 }
+
 
 pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

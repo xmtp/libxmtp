@@ -122,8 +122,8 @@ impl Events {
         }
     }
 
-    pub fn clear_old_events<C: ConnectionExt>(
-        db: &impl crate::DbQuery<C>,
+    pub fn clear_old_events(
+        db: &impl crate::DbQuery,
     ) -> Result<(), crate::ConnectionError> {
         db.raw_query_write(|db| {
             diesel::delete(dsl::events.filter(dsl::created_at_ns.lt(now_ns() - NS_IN_DAY * 15)))

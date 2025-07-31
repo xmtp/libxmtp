@@ -257,3 +257,51 @@ where
         Ok(active_group_count.load(Ordering::SeqCst))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::map::HashMap;
+    use rstest::*;
+    use xmtp_db::{
+        mock::{MockConnection, MockDbQuery},
+        sql_key_store::{mock::MockSqlKeyStore, SqlKeyStore},
+    };
+
+    use crate::test::mock::*;
+
+    fn generate_welcome(id: u64) -> welcome_message::V1 {
+        welcome_message::V1 {
+            id,
+            created_ns: 0,
+            installation_key: vec![0],
+            data: vec![0],
+            hpke_public_key: vec![0],
+            wrapper_algorithm: 0,
+            welcome_metadata: vec![0],
+        }
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn increments_cursor_on_non_retriable(mut context: NewMockContext) {
+        let db = MockDbQuery::new();
+        let mls_store = MockMlsKeyStore::default();
+        let sql_store = MockSqlKeyStore::new(db, mls_store);
+        let mut context = context.replace_mls_store(sql_store);
+        let db_calls = || {
+            let mut mock_db = MockDbQuery::new();
+            mock_db
+                .expect_get_last_cursor_for_id()
+                .returning(|id, entity| Ok(0));
+            mock_db
+        };
+        context.store.expect_db().returning(db_calls);
+
+        let context = Arc::new(context);
+        let service = WelcomeService::new(context);
+        let welcome = generate_welcome(50);
+        service.process_new_welcome(&welcome, true).await.unwrap();
+        todo!()
+    }
+}
