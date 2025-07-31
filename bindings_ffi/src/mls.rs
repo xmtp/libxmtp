@@ -14,6 +14,9 @@ use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec;
 use xmtp_content_types::reaction::ReactionCodec;
 use xmtp_content_types::text::TextCodec;
+use xmtp_content_types::transaction_reference::TransactionMetadata;
+use xmtp_content_types::transaction_reference::TransactionReference;
+use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::{encoded_content_to_bytes, ContentCodec};
 use xmtp_db::group::ConversationType;
 use xmtp_db::group::DmIdExt;
@@ -2760,6 +2763,101 @@ pub fn decode_multi_remote_attachment(
         .map_err(|e| GenericError::Generic { err: e.to_string() })
 }
 
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiTransactionMetadata {
+    pub transaction_type: String,
+    pub currency: String,
+    pub amount: f64,
+    pub decimals: u32,
+    pub from_address: String,
+    pub to_address: String,
+}
+
+impl From<FfiTransactionMetadata> for TransactionMetadata {
+    fn from(f: FfiTransactionMetadata) -> Self {
+        TransactionMetadata {
+            transaction_type: f.transaction_type,
+            currency: f.currency,
+            amount: f.amount,
+            decimals: f.decimals,
+            from_address: f.from_address,
+            to_address: f.to_address,
+        }
+    }
+}
+
+impl From<TransactionMetadata> for FfiTransactionMetadata {
+    fn from(t: TransactionMetadata) -> Self {
+        FfiTransactionMetadata {
+            transaction_type: t.transaction_type,
+            currency: t.currency,
+            amount: t.amount,
+            decimals: t.decimals,
+            from_address: t.from_address,
+            to_address: t.to_address,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiTransactionReference {
+    pub namespace: Option<String>,
+    pub network_id: String,
+    pub reference: String,
+    pub metadata: Option<FfiTransactionMetadata>,
+}
+
+impl From<FfiTransactionReference> for TransactionReference {
+    fn from(f: FfiTransactionReference) -> Self {
+        TransactionReference {
+            namespace: f.namespace,
+            network_id: f.network_id,
+            reference: f.reference,
+            metadata: f.metadata.map(Into::into),
+        }
+    }
+}
+
+impl From<TransactionReference> for FfiTransactionReference {
+    fn from(t: TransactionReference) -> Self {
+        FfiTransactionReference {
+            namespace: t.namespace,
+            network_id: t.network_id,
+            reference: t.reference,
+            metadata: t.metadata.map(Into::into),
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn encode_transaction_reference(
+    reference: FfiTransactionReference,
+) -> Result<Vec<u8>, GenericError> {
+    let reference: TransactionReference = reference.into();
+
+    let encoded = TransactionReferenceCodec::encode(reference)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    let mut buf = Vec::new();
+    encoded
+        .encode(&mut buf)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    Ok(buf)
+}
+
+#[uniffi::export]
+pub fn decode_transaction_reference(
+    bytes: Vec<u8>,
+) -> Result<FfiTransactionReference, GenericError> {
+    let encoded_content = EncodedContent::decode(bytes.as_slice())
+        .map_err(|e| GenericError::Generic { err: e.to_string() })?;
+
+    TransactionReferenceCodec::decode(encoded_content)
+        .map(Into::into)
+        .map_err(|e| GenericError::Generic { err: e.to_string() })
+}
+
 #[derive(uniffi::Record, Clone)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -3024,8 +3122,8 @@ mod tests {
     };
     use crate::{
         apply_signature_request, connect_to_backend, decode_multi_remote_attachment,
-        decode_reaction, encode_multi_remote_attachment, encode_reaction,
-        get_inbox_id_for_identifier,
+        decode_reaction, decode_transaction_reference, encode_multi_remote_attachment,
+        encode_reaction, encode_transaction_reference, get_inbox_id_for_identifier,
         identity::{FfiIdentifier, FfiIdentifierKind},
         inbox_owner::{FfiInboxOwner, IdentityValidationError, SigningError},
         inbox_state_from_inbox_ids, is_connected,
@@ -3039,7 +3137,7 @@ mod tests {
         FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
         FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReaction,
         FfiReactionAction, FfiReactionSchema, FfiRemoteAttachmentInfo, FfiSubscribeError,
-        GenericError,
+        FfiTransactionMetadata, FfiTransactionReference, GenericError,
     };
     use alloy::signers::local::PrivateKeySigner;
     use futures::future::join_all;
@@ -8150,6 +8248,32 @@ mod tests {
             assert_eq!(decoded.scheme, original.scheme);
             assert_eq!(decoded.url, original.url);
         }
+    }
+
+    #[tokio::test]
+    async fn test_transaction_reference_roundtrip() {
+        let original = FfiTransactionReference {
+            namespace: Some("eip155".to_string()),
+            network_id: "1".to_string(),
+            reference: "0xabc123".to_string(),
+            metadata: Some(FfiTransactionMetadata {
+                transaction_type: "transfer".to_string(),
+                currency: "ETH".to_string(),
+                amount: 0.42,
+                decimals: 18,
+                from_address: "0xfrom".to_string(),
+                to_address: "0xto".to_string(),
+            }),
+        };
+
+        let encoded = encode_transaction_reference(original.clone()).unwrap();
+        let decoded = decode_transaction_reference(encoded).unwrap();
+
+        assert_eq!(original.reference, decoded.reference);
+        assert_eq!(
+            original.metadata.as_ref().unwrap().currency,
+            decoded.metadata.as_ref().unwrap().currency
+        );
     }
 
     #[tokio::test]
