@@ -47,8 +47,8 @@ impl DbPool {
 #[cfg(test)]
 mod tests {
     use crate::{
-        EncryptedConnection, StorageOption, UnencryptedConnection, ValidatedConnection,
-        native::ConnectionOptions, prelude::*,
+        ConnectionExt, EncryptedConnection, StorageOption, UnencryptedConnection,
+        ValidatedConnection, native::ConnectionOptions, prelude::*,
     };
 
     use super::*;
