@@ -27,7 +27,20 @@ pub trait XmtpMlsStorageProvider:
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
+    /// Start a savepoint within a transaction
+    /// Must only be used when already in a transaction
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+
+    /// Start a savepoint within a transaction
+    /// Must only be used when already in a transaction
+    // TODO: enforce that this is only used within transactions
+    // otherwise we run into sqlite race conditions b/c this does not
+    // use BEGIN IMMEDIATE.
+    // we can ensure this by checking sqlite transaction depth.
+    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
