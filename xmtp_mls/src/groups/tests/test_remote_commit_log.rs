@@ -50,7 +50,7 @@ async fn test_commit_log_publish_and_query_apis() {
     assert_eq!(response.len(), 1);
     assert_eq!(response[0].commit_log_entries.len(), 1);
 
-    let raw_bytes = &response[0].commit_log_entries[0].encrypted_commit_log_entry;
+    let raw_bytes = &response[0].commit_log_entries[0].serialized_commit_log_entry;
 
     // TODO(cvoell): this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
@@ -180,7 +180,7 @@ async fn test_publish_commit_log_to_remote() {
     let response = query_result.unwrap();
     assert_eq!(response.len(), 1);
     assert_eq!(response[0].commit_log_entries.len(), 1);
-    let raw_bytes = &response[0].commit_log_entries[0].encrypted_commit_log_entry;
+    let raw_bytes = &response[0].commit_log_entries[0].serialized_commit_log_entry;
 
     // TODO: this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
