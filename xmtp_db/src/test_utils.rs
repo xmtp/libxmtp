@@ -16,6 +16,9 @@ pub trait XmtpTestDb {
     async fn create_persistent_store(
         path: Option<String>,
     ) -> EncryptedMessageStore<crate::DefaultDatabase>;
+    /// Create an empty unencrypted database
+    /// does no validation and does not run migrations.
+    async fn create_unencrypted_persistent_store(path: Option<String>) -> crate::DefaultStore;
     /// Create an empty database
     /// does no validation and does not run migrations.
     async fn create_database(path: Option<String>) -> crate::DefaultDatabase;
@@ -150,6 +153,13 @@ mod native {
             let path = path.unwrap_or(xmtp_common::tmp_path());
             let opts = StorageOption::Persistent(path.to_string());
             let db = crate::database::NativeDb::new(&opts, [0u8; 32]).unwrap();
+            EncryptedMessageStore::new(db).expect("constructing message store failed.")
+        }
+
+        async fn create_unencrypted_persistent_store(path: Option<String>) -> crate::DefaultStore {
+            let path = path.unwrap_or(xmtp_common::tmp_path());
+            let opts = StorageOption::Persistent(path.to_string());
+            let db = crate::database::NativeDb::new_unencrypted(&opts).unwrap();
             EncryptedMessageStore::new(db).expect("constructing message store failed.")
         }
 
