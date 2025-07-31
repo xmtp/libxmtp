@@ -7,7 +7,7 @@ use futures_util::{AsyncRead, AsyncWriteExt};
 use prost::Message;
 use sha2::digest::{generic_array::GenericArray, typenum};
 use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::{ConnectionExt, prelude::*};
+use xmtp_db::prelude::*;
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupMetadataSave, BackupOptions, backup_element::Element,
 };

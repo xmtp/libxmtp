@@ -8,7 +8,7 @@ use xmtp_common::RetryableError;
 use xmtp_db::{
     group::{GroupQueryArgs, StoredGroup},
     refresh_state::EntityKind,
-    Fetch, NotFound, XmtpDb, XmtpOpenMlsProvider,
+    Fetch, NotFound, XmtpOpenMlsProvider,
 };
 use xmtp_proto::mls_v1::{GroupMessage, WelcomeMessage};
 

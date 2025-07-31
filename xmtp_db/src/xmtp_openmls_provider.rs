@@ -1,6 +1,5 @@
 use crate::ConnectionExt;
-use crate::DbQuery;
-use crate::MlsKeyStore;
+use crate::TransactionalKeyStore;
 use crate::MlsProviderExt;
 use crate::sql_key_store::SqlKeyStoreError;
 // use crate::sql_key_store::XmtpMlsTransactionProvider;
@@ -25,7 +24,7 @@ pub trait XmtpMlsStorageProvider:
     where
         Self::Connection: 'a;
 
-    type TxQuery: MlsKeyStore;
+    type TxQuery: TransactionalKeyStore;
 
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 

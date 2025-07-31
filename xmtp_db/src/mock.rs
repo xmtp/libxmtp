@@ -1,4 +1,6 @@
 use crate::group::ConversationType;
+use crate::association_state::QueryAssociationStateCache;
+use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 use crate::local_commit_log::LocalCommitLog;
 use std::collections::HashMap;
 use std::sync::{
@@ -77,7 +79,9 @@ impl ConnectionExt for MockConnection {
 use crate::StorageError;
 use crate::prelude::*;
 mock! {
-    pub DbQuery {}
+    pub DbQuery {
+
+    }
 
     impl ReadOnly for DbQuery {
         fn enable_readonly(&self) -> Result<(), StorageError>;
@@ -521,6 +525,29 @@ mock! {
             group_id: &[u8],
         ) -> Result<Option<i32>, crate::ConnectionError>;
     }
+
+    impl QueryAssociationStateCache for DbQuery {
+        fn write_to_cache(
+            &self,
+            inbox_id: String,
+            sequence_id: i64,
+            state: AssociationStateProto,
+        ) -> Result<(), StorageError>;
+
+        #[mockall::concretize]
+        fn read_from_cache<A: AsRef<str>>(
+            &self,
+            inbox_id: A,
+            sequence_id: i64,
+        ) -> Result<Option<AssociationStateProto>, StorageError>;
+
+
+        #[mockall::concretize]
+        fn batch_read_from_cache(
+            &self,
+            identifiers: Vec<(String, i64)>,
+        ) -> Result<Vec<AssociationStateProto>, StorageError>;
+    }
 }
 
 impl ConnectionExt for MockDbQuery {
@@ -545,7 +572,12 @@ impl ConnectionExt for MockDbQuery {
         F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        todo!()
+        // usually OK because we seldom use the result of a write
+        tracing::warn!("unhandled mock raw_query_write");
+        unsafe {
+            let uninit = std::mem::MaybeUninit::<T>::uninit();
+            Ok(uninit.assume_init())
+        }
     }
 
     fn is_in_transaction(&self) -> bool {

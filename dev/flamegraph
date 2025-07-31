@@ -12,4 +12,4 @@ else
   XMTP_FLAMEGRAPH=trace cargo bench --no-fail-fast --features bench -p xmtp_mls -- "$1"
 fi
 
-cat xmtp_mls/tracing.foldeed | inferno-flamegraph > tracing-flamegraph.svg
+cat xmtp_mls/tracing.folded | inferno-flamegraph > tracing-flamegraph.svg

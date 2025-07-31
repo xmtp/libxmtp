@@ -1,11 +1,12 @@
-
 use crate::ConnectionExt;
 use crate::StorageError;
+use crate::association_state::QueryAssociationStateCache;
 use crate::prelude::*;
 
-/// Get an MLS Key store
+/// Get an MLS Key store in the context of a transaction
+/// this must only be used within transactions.
 #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
-pub trait MlsKeyStore {
+pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
         Self: 'a;
@@ -75,6 +76,7 @@ pub trait DbQuery:
     + QueryRefreshState
     + QueryIdentityUpdates
     + QueryLocalCommitLog
+    + QueryAssociationStateCache
     + crate::ConnectionExt
 {
 }
@@ -96,9 +98,9 @@ impl<T: ?Sized> DbQuery for T where
         + QueryRefreshState
         + QueryIdentityUpdates
         + QueryLocalCommitLog
+        + QueryAssociationStateCache
         + crate::ConnectionExt
 {
 }
-
 
 pub use crate::xmtp_openmls_provider::XmtpMlsStorageProvider;

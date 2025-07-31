@@ -3,7 +3,6 @@ use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPrefere
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
-use xmtp_db::ConnectionExt;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
     device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,

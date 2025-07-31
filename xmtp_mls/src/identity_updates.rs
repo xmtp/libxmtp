@@ -10,10 +10,10 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{retry_async, retryable, Retry, RetryableError};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::association_state::StoredAssociationState;
 use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
-use xmtp_db::{ConnectionExt, XmtpDb};
+use xmtp_db::StorageError;
+use xmtp_db::XmtpDb;
 use xmtp_id::{
     associations::{
         apply_update,
@@ -95,9 +95,9 @@ pub async fn get_association_state_with_verifier(
     }
 
     if let Some(association_state) =
-        StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
+        conn.read_from_cache(inbox_id, last_sequence_id)?
     {
-        return Ok(association_state);
+        return Ok(association_state.try_into().map_err(StorageError::from)?);
     }
 
     let unverified_updates = updates
@@ -109,12 +109,8 @@ pub async fn get_association_state_with_verifier(
 
     let association_state = get_state(updates)?;
 
-    StoredAssociationState::write_to_cache(
-        conn,
-        inbox_id.to_owned(),
-        last_sequence_id,
-        association_state.clone().into(),
-    )?;
+    conn.write_to_cache(inbox_id.to_owned(), last_sequence_id, association_state.clone().into())?;
+
 
     Ok(association_state)
 }
@@ -292,12 +288,7 @@ where
 
         tracing::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
         if let Some(last_sequence_id) = last_sequence_id {
-            StoredAssociationState::write_to_cache(
-                conn,
-                inbox_id.to_string(),
-                last_sequence_id,
-                final_state.clone().into(),
-            )?;
+            conn.write_to_cache(inbox_id.to_string(), last_sequence_id, final_state.clone().into())?;
         }
 
         Ok(initial_state.diff(&final_state))

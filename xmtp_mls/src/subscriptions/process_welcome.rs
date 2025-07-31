@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
-use super::{stream_conversations::ConversationStreamError, Result};
+use super::{Result, stream_conversations::ConversationStreamError};
 use crate::context::XmtpSharedContext;
 use crate::groups::welcome_sync::WelcomeService;
-use crate::groups::GroupError;
+use crate::groups::{GroupError, InitialMembershipValidator};
 use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
-use xmtp_common::{retry_async, Retry};
-use xmtp_db::{group::ConversationType, prelude::*, NotFound};
-use xmtp_proto::mls_v1::{welcome_message, WelcomeMessage};
+use xmtp_common::{Retry, retry_async};
+use xmtp_db::{NotFound, group::ConversationType, prelude::*};
+use xmtp_proto::mls_v1::{WelcomeMessage, welcome_message};
 
 /// Future for processing `WelcomeorGroup`
 pub struct ProcessWelcomeFuture<Context> {
@@ -267,7 +267,7 @@ where
         let welcome_message::V1 {
             id,
             created_ns: _,
-            ref installation_key,
+            installation_key,
             ..
         } = welcome;
         let id = *id as i64;
@@ -287,7 +287,12 @@ where
         let welcomes = WelcomeService::new(self.context.clone());
         let res = retry_async!(
             Retry::default(),
-            (async { welcomes.process_new_welcome(welcome, false).await })
+            (async {
+                let validator = InitialMembershipValidator::new(&self.context);
+                welcomes
+                    .process_new_welcome(welcome, false, validator)
+                    .await
+            })
         );
 
         if let Ok(_)

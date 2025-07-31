@@ -22,9 +22,12 @@ use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::XmtpDb;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
+use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
 
 mod generate;
 pub use generate::*;
+mod openmls_mock;
+pub use openmls_mock::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
 pub type MockContext = Arc<
@@ -33,6 +36,7 @@ pub type MockContext = Arc<
 /// A mock context type that hasn't yet been added into an Arc type.
 pub type NewMockContext =
     XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>;
+pub type MockStoreAndContext = XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
 pub type MockProcessMessageFuture = ProcessMessageFuture<MockContext>;
 pub type MockMlsGroup = MlsGroup<MockContext>;
 

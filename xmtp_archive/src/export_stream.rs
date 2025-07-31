@@ -1,5 +1,5 @@
 use std::{marker::PhantomData, sync::Arc};
-use xmtp_db::{ConnectionExt, StorageError, prelude::*};
+use xmtp_db::{StorageError, prelude::*};
 use xmtp_proto::xmtp::device_sync::{
     BackupElement, BackupElementSelection, BackupOptions, consent_backup::ConsentSave,
     event_backup::EventSave, group_backup::GroupSave, message_backup::GroupMessageSave,

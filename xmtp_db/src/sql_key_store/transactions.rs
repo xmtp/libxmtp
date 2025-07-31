@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DbConnection, DbQuery, TransactionGuard};
+use crate::{DbConnection, TransactionGuard};
 use diesel::connection::LoadConnection;
 use diesel::migration::MigrationConnection;
 use diesel::sqlite::Sqlite;
@@ -32,7 +32,7 @@ where
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<C as diesel::Connection>::Backend>
-        + crate::MlsKeyStore
+        + crate::TransactionalKeyStore
         + Send,
 {
     type Connection = C;

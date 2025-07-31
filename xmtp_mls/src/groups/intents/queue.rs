@@ -5,7 +5,7 @@ use derive_builder::Builder;
 use xmtp_db::{
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     prelude::*,
-    ConnectionExt, DbQuery,
+    DbQuery,
 };
 
 #[derive(Builder, Debug)]

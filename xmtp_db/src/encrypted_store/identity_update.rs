@@ -87,14 +87,14 @@ impl<T> QueryIdentityUpdates for &T where T: QueryIdentityUpdates {
         &self,
         inbox_id: &str,
     ) -> Result<i64, crate::ConnectionError> {
-        todo!()
+        (**self).get_latest_sequence_id_for_inbox(inbox_id)
     }
 
     fn get_latest_sequence_id(
         &self,
         inbox_ids: &[&str],
     ) -> Result<HashMap<String, i64>, crate::ConnectionError> {
-        todo!()
+        (**self).get_latest_sequence_id(inbox_ids)
     }
 }
 

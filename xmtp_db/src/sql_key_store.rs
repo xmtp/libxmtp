@@ -1,7 +1,8 @@
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{
-    sql_key_store::transactions::MutableTransactionConnection, ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider
+    ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
+    sql_key_store::transactions::MutableTransactionConnection,
 };
 
 use bincode;
@@ -31,7 +32,7 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-impl MlsKeyStore for diesel::SqliteConnection {
+impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
         = SqlKeyStore<MutableTransactionConnection<'a, Self>>
     where
@@ -1046,6 +1047,17 @@ fn epoch_key_pairs_id(
 impl From<bincode::Error> for SqlKeyStoreError {
     fn from(_: bincode::Error) -> Self {
         Self::SerializationError
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl SqlKeyStore<crate::test_utils::MemoryStorage> {
+    pub fn kv_pairs(&self) -> String {
+        self.conn.key_value_pairs()
+    }
+
+    pub fn kv_pairs_utf8(&self) -> String {
+        self.conn.key_value_pairs_utf8()
     }
 }
 

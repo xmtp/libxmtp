@@ -15,7 +15,7 @@ use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     events::{EventLevel, Events, EVENTS_ENABLED},
-    ConnectionExt, DbQuery, StorageError, Store,
+    DbQuery, StorageError, Store,
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 

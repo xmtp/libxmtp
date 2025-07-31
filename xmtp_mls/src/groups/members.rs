@@ -3,8 +3,8 @@ use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 use super::{validated_commit::extract_group_membership, GroupError, MlsGroup};
 use xmtp_db::prelude::*;
 use xmtp_db::{
-    association_state::StoredAssociationState,
     consent_record::{ConsentState, ConsentType},
+    StorageError
 };
 use xmtp_id::{
     associations::{AssociationState, Identifier},
@@ -45,8 +45,8 @@ where
             .filter(|(_, sequence_id)| *sequence_id != 0) // Skip the initial state
             .collect::<Vec<_>>();
 
-        let mut association_states: Vec<AssociationState> =
-            StoredAssociationState::batch_read_from_cache(&db, requests.clone())?;
+        let association_states = db.batch_read_from_cache(requests.clone())?;
+        let mut association_states: Vec<AssociationState> = association_states.into_iter().map(|a| a.try_into()).collect::<Result<_, _>>().map_err(StorageError::from)?;
         if association_states.len() != requests.len() {
             // Attempt to rebuild the cache.
             let missing_requests: Vec<_> = requests

@@ -43,7 +43,7 @@ use xmtp_common::{RetryableError, retryable};
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
-use crate::{MlsKeyStore, Store, XmtpMlsStorageProvider};
+use crate::{TransactionalKeyStore, Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -116,7 +116,7 @@ pub trait ConnectionExt {
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
-        + MlsKeyStore
+        + TransactionalKeyStore
         + Send;
 
     fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
