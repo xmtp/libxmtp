@@ -865,6 +865,72 @@ describe('Conversations', () => {
     expect(messages.map((m) => m.id)).toEqual([message3])
   })
 
+  it('should stitch dms', async () => {
+    const agent = createUser()
+    const user = createUser()
+    const agent_client = await createRegisteredClient(agent)
+    const user_client_a = await createRegisteredClient(user)
+
+    await user_client_a.conversations().createDm({
+      identifier: agent.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
+
+    await sleep(2000)
+
+    let messages: Message[] = []
+    const stream = agent_client.conversations().streamAllMessages(
+        (err, message) => {
+          console.log(message)
+          messages.push(message!)
+        },
+        () => {
+          console.log('closed')
+        },
+        ConversationType.Dm,
+        [ConsentState.Allowed, ConsentState.Unknown]
+    )
+
+    // Client A send a message to the dm with the Agent
+    const client_a_groups = user_client_a.conversations()
+    await client_a_groups.sync()
+    const client_a_conversations = client_a_groups.list()
+    expect(client_a_conversations.length).toBe(1)
+    await client_a_conversations[0].conversation.send(encodeTextMessage('gm!'))
+    await sleep(1000)
+
+    // User introduce Client B
+    const user_client_b = await createRegisteredClient(user)
+
+    // Client B Creates a DM with the Agent
+    await user_client_b.conversations().createDm({
+      identifier: agent.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    })
+
+    const client_b_groups = user_client_b.conversations()
+    await client_b_groups.sync()
+    const client_b_conversations = client_a_groups.list()
+    expect(client_a_conversations.length).toBe(1)
+    await client_b_conversations[0].conversation.send(encodeTextMessage('b'))
+    // agent must have received 2 messages so far
+    await sleep(10000)
+    expect(messages.length).toBe(2)
+
+    const agent_groups = agent_client.conversations()
+    const agent_conversations = agent_groups.list()
+    expect(agent_conversations.length).toBe(1)
+
+
+    await client_a_groups.sync()
+    const client_a_conversations2 = client_a_groups.list()
+    expect(client_a_conversations2.length).toBe(1)
+    expect(client_a_conversations2[0].lastMessage.id).toBe(client_b_conversations[0].lastMessage.id)
+    expect(agent_conversations[0].lastMessage.id).toBe(client_b_conversations[0].lastMessage.id)
+
+    stream.end()
+  })
+
   it('should get hmac keys', async () => {
     const user1 = createUser()
     const user2 = createUser()
