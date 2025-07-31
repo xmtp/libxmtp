@@ -615,6 +615,7 @@ where
             }
         }
 
+        let mut deferred_events = mls_sync::DeferredEvents::new();
         context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             let db = storage.db();
@@ -721,7 +722,7 @@ where
                     // Let the DeviceSync worker know about the presence of a new
                     // sync group that came in from a welcome.3
                     let group_id = mls_group.group_id().to_vec();
-                    let _ = context.worker_events().send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
+                    deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                     group
                         .membership_state(GroupMembershipState::Allowed)
@@ -822,7 +823,10 @@ where
             }
 
             Ok(group)
-        })
+        })?;
+
+        // Send all deferred events after the transaction completes
+        deferred_events.send_all(&context);
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now
