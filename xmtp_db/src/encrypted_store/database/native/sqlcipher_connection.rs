@@ -243,7 +243,10 @@ impl EncryptedConnection {
         }
     }
 
-    fn check_for_sqlcipher(opts: &StorageOption, conn: &mut SqliteConnection) -> Result<CipherVersion, PlatformStorageError> {
+    fn check_for_sqlcipher(
+        opts: &StorageOption,
+        conn: &mut SqliteConnection,
+    ) -> Result<CipherVersion, PlatformStorageError> {
         if cfg!(any(test, feature = "test-utils")) {
             conn.batch_execute("pragma cipher_log = stdout; pragma cipher_log_level = NONE;")?;
         }
@@ -267,7 +270,11 @@ impl ConnectionOptions for EncryptedConnection {
 }
 
 impl super::ValidatedConnection for EncryptedConnection {
-    fn validate(&self, opts: &StorageOption, conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
+    fn validate(
+        &self,
+        opts: &StorageOption,
+        conn: &mut SqliteConnection,
+    ) -> Result<(), PlatformStorageError> {
         let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, conn)?;
 
         // test the key according to
