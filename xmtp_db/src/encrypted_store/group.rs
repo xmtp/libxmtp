@@ -237,12 +237,19 @@ pub trait QueryGroup<C: ConnectionExt> {
     /// Get conversation IDs for all conversations that require a remote commit log download (DMs and groups that are not sync groups)
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError>;
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError>;
 
     fn get_conversation_type(
         &self,
         group_id: &[u8],
     ) -> Result<ConversationType, crate::ConnectionError>;
+
+    /// Updates the commit log public key for a group
+    fn set_group_commit_log_public_key(
+        &self,
+        group_id: &[u8],
+        public_key: &[u8],
+    ) -> Result<(), StorageError>;
 }
 
 impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
@@ -692,12 +699,12 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
     // All dms and groups that are note sync groups or rejected
     fn get_conversation_ids_for_remote_log_download(
         &self,
-    ) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
+    ) -> Result<Vec<StoredGroupCommitLogPublicKey>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.ne(ConversationType::Sync))
-            .select(dsl::id);
+            .select((dsl::id, dsl::commit_log_public_key));
 
-        self.raw_query_read(|conn| query.load::<Vec<u8>>(conn))
+        self.raw_query_read(|conn| query.load::<StoredGroupCommitLogPublicKey>(conn))
     }
 
     fn get_conversation_type(
@@ -709,6 +716,30 @@ impl<C: ConnectionExt> QueryGroup<C> for DbConnection<C> {
             .select(dsl::conversation_type);
         let conversation_type = self.raw_query_read(|conn| query.first(conn))?;
         Ok(conversation_type)
+    }
+
+    fn set_group_commit_log_public_key(
+        &self,
+        group_id: &[u8],
+        public_key: &[u8],
+    ) -> Result<(), StorageError> {
+        use crate::schema::groups::dsl;
+        let num_updated = self.raw_query_write(|conn| {
+            diesel::update(dsl::groups)
+                .filter(
+                    dsl::id
+                        .eq(group_id)
+                        .and(dsl::commit_log_public_key.is_null()),
+                )
+                .set(dsl::commit_log_public_key.eq(public_key))
+                .execute(conn)
+        })?;
+        if num_updated == 0 {
+            return Err(StorageError::Duplicate(DuplicateItem::CommitLogPublicKey(
+                group_id.to_vec(),
+            )));
+        }
+        Ok(())
     }
 }
 

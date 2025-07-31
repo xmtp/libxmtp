@@ -109,6 +109,8 @@ pub enum NotFound {
 pub enum DuplicateItem {
     #[error("the welcome id {0:?} already exists")]
     WelcomeId(Option<i64>),
+    #[error("the commit log public key for group id {id} already exists", id = hex::encode(_0))]
+    CommitLogPublicKey(Vec<u8>),
 }
 
 impl RetryableError for DuplicateItem {
@@ -116,6 +118,7 @@ impl RetryableError for DuplicateItem {
         use DuplicateItem::*;
         match self {
             WelcomeId(_) => false,
+            CommitLogPublicKey(_) => false,
         }
     }
 }
