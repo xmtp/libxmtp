@@ -167,7 +167,7 @@ where
     ) -> Result<Self> {
         tracing::debug!("setting up messages subscription");
         let api = context.api();
-        let groups = GroupList::new(groups, api).await?;
+        let groups = GroupList::new(groups, api, &context.db()).await?;
         let subscription = api.subscribe_group_messages(groups.filters()).await?;
         tracing::info!("stream_messages ready");
 

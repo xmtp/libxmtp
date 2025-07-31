@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use futures::{stream, StreamExt, TryStreamExt};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
 use xmtp_common::types::GroupId;
+use xmtp_db::prelude::QueryGroupMessage;
 
 use crate::subscriptions::SubscribeError;
 
@@ -78,29 +79,50 @@ impl std::fmt::Display for MessagePosition {
 }
 
 pub(super) trait Api {
-    /// get the latest message for a cursor
-    async fn query_latest_position(
+    /// existing method: pure network
+    async fn query_latest_position<C>(
         &self,
         group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError>;
+        db: &impl QueryGroupMessage<C>,
+    ) -> Result<MessagePosition, SubscribeError>
+    where
+        C: xmtp_db::ConnectionExt;
 }
 
 impl<A> Api for ApiClientWrapper<A>
 where
     A: XmtpApi,
 {
-    async fn query_latest_position(
+    async fn query_latest_position<C>(
         &self,
         group: &GroupId,
-    ) -> Result<MessagePosition, SubscribeError> {
+        db: &impl QueryGroupMessage<C>,
+    ) -> Result<MessagePosition, SubscribeError>
+    where
+        C: xmtp_db::ConnectionExt,
+    {
+        // Try from DB
+        if let Ok(Some(cursor)) = db.get_latest_sequence_id_for_group(group) {
+            tracing::debug!(
+                "Using local DB sequence_id {} for group {:?}",
+                cursor,
+                hex::encode(group)
+            );
+            return Ok(MessagePosition::new(cursor as u64, cursor as u64));
+        }
+
+        // Fallback to network
+        tracing::debug!("Falling back to network for group {:?}", hex::encode(group));
+
         if let Some(msg) = self.query_latest_group_message(group).await? {
             let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
             Ok(MessagePosition::new(cursor, cursor))
         } else {
-            Ok(MessagePosition::new(0, 0))
-        } // there is no cursor for this group yet
+            Ok(MessagePosition::new(0, 0)) // nothing yet
+        }
     }
 }
+
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct GroupList {
@@ -108,10 +130,13 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) async fn new(list: Vec<GroupId>, api: &impl Api) -> Result<Self, SubscribeError> {
+    pub(super) async fn new<C>(list: Vec<GroupId>, api: &impl Api, db: &impl QueryGroupMessage<C>) -> Result<Self, SubscribeError>
+    where
+        C: xmtp_db::ConnectionExt,
+    {
         let list = stream::iter(list)
             .map(|group| async {
-                let position = api.query_latest_position(&group).await?;
+                let position = api.query_latest_position(&group, db).await?;
                 Ok((group, position))
             })
             .buffer_unordered(8)
