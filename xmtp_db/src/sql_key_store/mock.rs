@@ -62,6 +62,14 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
         f(&mut store)
     }
 
+    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error {
+        let mut store = self.mock_mls.lock();
+        f(&mut store)
+    }
+
     #[tracing::instrument(level = "trace", skip(self))]
     fn read<V: openmls_traits::storage::Entity<CURRENT_VERSION>>(
         &self,
