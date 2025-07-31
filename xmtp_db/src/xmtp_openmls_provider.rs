@@ -1,7 +1,7 @@
 use crate::ConnectionExt;
 use crate::MlsProviderExt;
-use crate::sql_key_store::SqlKeyStoreError;
 use crate::TransactionalKeyStore;
+use crate::sql_key_store::SqlKeyStoreError;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;

@@ -35,7 +35,7 @@ pub fn test(
     let test_attrs = if is_async {
         let flavor = attributes.flavor();
 
-        if !(&flavor.value() == "current_thread") {
+        if &flavor.value() != "current_thread" {
             let workers = attributes.worker_threads();
             quote! {
                 #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor, worker_threads = #workers))]

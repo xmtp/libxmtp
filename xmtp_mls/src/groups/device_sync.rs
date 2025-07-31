@@ -231,7 +231,11 @@ where
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
                 let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
-                tracing::info!("[{}] Creating sync group: {}", hex::encode(self.context.installation_id()), hex::encode(&sync_group.group_id));
+                tracing::info!(
+                    "[{}] Creating sync group: {}",
+                    hex::encode(self.context.installation_id()),
+                    hex::encode(&sync_group.group_id)
+                );
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 

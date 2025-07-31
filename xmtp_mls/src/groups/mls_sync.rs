@@ -46,7 +46,7 @@ use crate::{
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
-    Fetch, MlsProviderExt, StorageError,
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
@@ -55,7 +55,6 @@ use xmtp_db::{
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    StoreOrIgnore,
 };
 use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
@@ -84,7 +83,7 @@ use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    mem::{discriminant, Discriminant},
+    mem::{Discriminant, discriminant},
     ops::RangeInclusive,
 };
 use thiserror::Error;
@@ -1060,7 +1059,10 @@ where
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
                         if sender_inbox_id == self.context.inbox_id() {
-                            tracing::info!(installation_id = hex::encode(self.context.installation_id()), "new sync group message event");
+                            tracing::info!(
+                                installation_id = hex::encode(self.context.installation_id()),
+                                "new sync group message event"
+                            );
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
@@ -1110,7 +1112,8 @@ where
 
                                 tracing::info!("Received a history request.");
                                 // Send this event after the transaction completes
-                                deferred_events.add_worker_event(SyncWorkerEvent::Request { message_id });
+                                deferred_events
+                                    .add_worker_event(SyncWorkerEvent::Request { message_id });
                                 Ok(())
                             }
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -1146,7 +1149,8 @@ where
 
                                 tracing::info!("Received a history reply.");
                                 // Send this event after the transaction completes
-                                deferred_events.add_worker_event(SyncWorkerEvent::Reply { message_id });
+                                deferred_events
+                                    .add_worker_event(SyncWorkerEvent::Reply { message_id });
                                 Ok(())
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
@@ -1160,7 +1164,8 @@ where
 
                                 // Broadcast those updates for integrators to be notified of changes
                                 // Send this event after the transaction completes
-                                deferred_events.add_local_event(LocalEvents::PreferencesChanged(updates));
+                                deferred_events
+                                    .add_local_event(LocalEvents::PreferencesChanged(updates));
                                 Ok(())
                             }
                             _ => {
@@ -2773,7 +2778,7 @@ impl DeferredEvents {
         while let Some(event) = self.worker_events.pop_front() {
             let _ = context.worker_events().send(event);
         }
-        
+
         while let Some(event) = self.local_events.pop_front() {
             let _ = context.local_events().send(event);
         }

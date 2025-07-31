@@ -68,7 +68,11 @@ where
         self.db.db()
     }
 
-    fn validate(&self, opts: &StorageOption, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+    fn validate(
+        &self,
+        opts: &StorageOption,
+        conn: &mut SqliteConnection,
+    ) -> Result<(), ConnectionError> {
         self.db.validate(opts, conn)
     }
 
