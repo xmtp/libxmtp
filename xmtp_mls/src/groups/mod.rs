@@ -616,7 +616,7 @@ where
         }
 
         let mut deferred_events = mls_sync::DeferredEvents::new();
-        context.mls_storage().transaction(|conn| {
+        let res = context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             let db = storage.db();
             let provider = XmtpOpenMlsProviderRef::new(&storage);
@@ -822,11 +822,12 @@ where
                 group.quietly_update_consent_state(ConsentState::Allowed, &db)?;
             }
 
-            Ok(group)
+            Ok::<_, GroupError>(group)
         })?;
 
         // Send all deferred events after the transaction completes
         deferred_events.send_all(&context);
+        Ok(res)
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now
