@@ -426,141 +426,129 @@ async fn it_gets_messages_by_content_type() {
 
 #[xmtp_common::test]
 async fn it_places_group_updated_message_correctly_based_on_sort_order() {
-    with_connection(
-        |conn: &DbConnection<
-            std::sync::Arc<
-                crate::PersistentOrMem<crate::NativeDbConnection, crate::EphemeralDbConnection>,
-            >,
-        >| {
-            // Create a DM group
-            let mut group = generate_group(None);
-            group.conversation_type = ConversationType::Dm;
-            group.store(conn).unwrap();
+    with_connection(|conn| {
+        // Create a DM group
+        let mut group = generate_group(None);
+        group.conversation_type = ConversationType::Dm;
+        group.store(conn).unwrap();
 
-            // Insert one GroupUpdated message and two normal messages
-            let group_updated_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(5_000),
-                Some(ContentType::GroupUpdated),
-                None,
-                None,
-            );
+        // Insert one GroupUpdated message and two normal messages
+        let group_updated_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(5_000),
+            Some(ContentType::GroupUpdated),
+            None,
+            None,
+        );
 
-            let earlier_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(1_000),
-                Some(ContentType::Text),
-                None,
-                None,
-            );
+        let earlier_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(1_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
 
-            let later_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(10_000),
-                Some(ContentType::Text),
-                None,
-                None,
-            );
+        let later_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(10_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
 
-            assert_ok!(
-                vec![
-                    group_updated_msg.clone(),
-                    earlier_msg.clone(),
-                    later_msg.clone()
-                ]
-                .store(conn)
-            );
+        assert_ok!(
+            vec![
+                group_updated_msg.clone(),
+                earlier_msg.clone(),
+                later_msg.clone()
+            ]
+            .store(conn)
+        );
 
-            // Ascending order: GroupUpdated should be at position 0
-            let messages_asc = conn
-                .get_group_messages(
-                    &group.id,
-                    &MsgQueryArgs {
-                        direction: Some(SortDirection::Ascending),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
+        // Ascending order: GroupUpdated should be at position 0
+        let messages_asc = conn
+            .get_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    direction: Some(SortDirection::Ascending),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
 
-            assert_eq!(messages_asc.len(), 3);
-            assert_eq!(messages_asc[0].content_type, ContentType::GroupUpdated);
-            assert_eq!(messages_asc[1].sent_at_ns, 1_000);
-            assert_eq!(messages_asc[2].sent_at_ns, 10_000);
+        assert_eq!(messages_asc.len(), 3);
+        assert_eq!(messages_asc[0].content_type, ContentType::GroupUpdated);
+        assert_eq!(messages_asc[1].sent_at_ns, 1_000);
+        assert_eq!(messages_asc[2].sent_at_ns, 10_000);
 
-            // Descending order: GroupUpdated should be at the end
-            let messages_desc = conn
-                .get_group_messages(
-                    &group.id,
-                    &MsgQueryArgs {
-                        direction: Some(SortDirection::Descending),
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
+        // Descending order: GroupUpdated should be at the end
+        let messages_desc = conn
+            .get_group_messages(
+                &group.id,
+                &MsgQueryArgs {
+                    direction: Some(SortDirection::Descending),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
 
-            assert_eq!(messages_desc.len(), 3);
-            assert_eq!(messages_desc[0].sent_at_ns, 10_000);
-            assert_eq!(messages_desc[1].sent_at_ns, 1_000);
-            assert_eq!(messages_desc[2].content_type, ContentType::GroupUpdated);
-        },
-    )
+        assert_eq!(messages_desc.len(), 3);
+        assert_eq!(messages_desc[0].sent_at_ns, 10_000);
+        assert_eq!(messages_desc[1].sent_at_ns, 1_000);
+        assert_eq!(messages_desc[2].content_type, ContentType::GroupUpdated);
+    })
     .await
 }
 
 #[xmtp_common::test]
 async fn test_get_latest_sequence_id_for_group() {
-    with_connection(
-        |conn: &DbConnection<
-            std::sync::Arc<
-                crate::PersistentOrMem<crate::NativeDbConnection, crate::EphemeralDbConnection>,
-            >,
-        >| {
-            let group = generate_group(None);
-            group.store(conn).unwrap();
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
 
-            // Insert one GroupUpdated message and two normal messages
-            let group_updated_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(5_000),
-                Some(ContentType::GroupUpdated),
-                None,
-                None,
-            );
+        // Insert one GroupUpdated message and two normal messages
+        let group_updated_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(5_000),
+            Some(ContentType::GroupUpdated),
+            None,
+            None,
+        );
 
-            let earlier_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(1_000),
-                Some(ContentType::Text),
-                None,
-                None,
-            );
+        let earlier_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(1_000),
+            Some(ContentType::Text),
+            None,
+            None,
+        );
 
-            let later_msg = generate_message(
-                Some(GroupMessageKind::Application),
-                Some(&group.id),
-                Some(10_000),
-                Some(ContentType::Text),
-                None,
-                Some(7),
-            );
+        let later_msg = generate_message(
+            Some(GroupMessageKind::Application),
+            Some(&group.id),
+            Some(10_000),
+            Some(ContentType::Text),
+            None,
+            Some(7),
+        );
 
-            assert_ok!(
-                vec![
-                    group_updated_msg.clone(),
-                    earlier_msg.clone(),
-                    later_msg.clone()
-                ]
-                .store(conn)
-            );
+        assert_ok!(
+            vec![
+                group_updated_msg.clone(),
+                earlier_msg.clone(),
+                later_msg.clone()
+            ]
+            .store(conn)
+        );
 
-            let latest = conn.get_latest_sequence_id_for_group(&group.id).unwrap();
-            assert_eq!(latest, Some(7));
-        },
-    )
+        let latest = conn.get_latest_sequence_id_for_group(&group.id).unwrap();
+        assert_eq!(latest, Some(7));
+    })
     .await
 }
