@@ -1,11 +1,11 @@
-use std::collections::HashSet;
-
 use super::{Result, stream_conversations::ConversationStreamError};
 use crate::context::XmtpSharedContext;
 use crate::groups::GroupError;
+use crate::groups::InitialMembershipValidator;
 use crate::groups::welcome_sync::WelcomeService;
 use crate::intents::ProcessIntentError;
 use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
+use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{NotFound, group::ConversationType, prelude::*};
 use xmtp_proto::mls_v1::{WelcomeMessage, welcome_message};
@@ -287,7 +287,12 @@ where
         let welcomes = WelcomeService::new(self.context.clone());
         let res = retry_async!(
             Retry::default(),
-            (async { welcomes.process_new_welcome(welcome, false,).await })
+            (async {
+                let validator = InitialMembershipValidator::new(&self.context);
+                welcomes
+                    .process_new_welcome(welcome, false, validator)
+                    .await
+            })
         );
 
         if let Ok(_)
