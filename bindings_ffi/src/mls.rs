@@ -6949,7 +6949,7 @@ mod tests {
         bo.conversations()
             .sync_all_conversations(None)
             .await
-            .unwrap(); 
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -6968,7 +6968,7 @@ mod tests {
         bo.conversations()
             .sync_all_conversations(None)
             .await
-            .unwrap(); 
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
@@ -6976,7 +6976,7 @@ mod tests {
         bo.conversations()
             .sync_all_conversations(None)
             .await
-            .unwrap(); 
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
@@ -6996,7 +6996,7 @@ mod tests {
         bo.conversations()
             .sync_all_conversations(None)
             .await
-            .unwrap(); 
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
@@ -7004,7 +7004,7 @@ mod tests {
         bo.conversations()
             .sync_all_conversations(None)
             .await
-            .unwrap(); 
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),

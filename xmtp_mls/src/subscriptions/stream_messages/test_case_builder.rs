@@ -345,20 +345,6 @@ impl StreamSequenceBuilder {
     fn create_session(&mut self, groups: Vec<GroupTestCase>) {
         let times = groups.len();
 
-        // Set up expectations for query_group_messages for the new groups
-        self.context
-            .api_client
-            .api_client
-            .expect_query_group_messages()
-            .times(times)
-            .returning(|req| {
-                let message = generate_message(1, &req.group_id);
-                Ok(QueryGroupMessagesResponse {
-                    messages: vec![message],
-                    paging_info: None,
-                })
-            });
-
         self.context
             .api_client
             .api_client
