@@ -6910,12 +6910,13 @@ mod tests {
     async fn test_stream_all_dm_messages() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
+    
         let alix_dm = alix
             .conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
             .await
             .unwrap();
-
+    
         let alix_group = alix
             .conversations()
             .create_group(
@@ -6924,7 +6925,7 @@ mod tests {
             )
             .await
             .unwrap();
-
+    
         // Stream all conversations
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -6935,18 +6936,20 @@ mod tests {
             )
             .await;
         stream.wait_for_ready().await;
-
+    
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
-
+    
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
-
+    
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
-
+    
         // Stream just groups
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
@@ -6954,42 +6957,46 @@ mod tests {
             .stream_all_group_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
-
+    
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
-
+    
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
-
+    
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
-
-        // Stream just dms
+    
+        // Stream just DMs
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
             .stream_all_dm_messages(stream_callback.clone(), None)
             .await;
         stream.wait_for_ready().await;
-
+    
         alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
-
+    
         alix_group.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations().sync_all_conversations(None).await.unwrap(); // ✅ Force sync
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),
             "Stream unexpectedly received a Group message"
         );
         assert_eq!(stream_callback.message_count(), 1);
-
+    
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
-    }
+    }    
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_long_messages() {
