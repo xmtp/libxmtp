@@ -227,6 +227,7 @@ pub(crate) mod tests {
                     Some(i * 1000),
                     Some(ContentType::Text),
                     None,
+                    None,
                 );
 
                 message.store(conn).unwrap();
@@ -268,6 +269,7 @@ pub(crate) mod tests {
                 Some(3000), // Last message timestamp
                 None,
                 None,
+                None,
             );
             message.store(conn).unwrap();
 
@@ -307,6 +309,7 @@ pub(crate) mod tests {
                 Some(1000),
                 Some(ContentType::Text),
                 None,
+                None,
             );
             first_message.store(conn).unwrap();
 
@@ -327,6 +330,7 @@ pub(crate) mod tests {
                 Some(&group.id),
                 Some(2000),
                 Some(ContentType::Text),
+                None,
                 None,
             );
             second_message.store(conn).unwrap();
