@@ -537,7 +537,6 @@ where
             .validator(validator)
             .process()
             .await
-
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now

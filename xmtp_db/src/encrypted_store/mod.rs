@@ -37,6 +37,7 @@ pub mod local_commit_log;
 pub mod remote_commit_log;
 
 pub use self::db_connection::DbConnection;
+use diesel::result::DatabaseErrorKind;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
@@ -226,7 +227,12 @@ pub trait XmtpDb: Send + Sync {
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.conn().raw_query_write(|conn| {
-            self.validate(opts, conn).unwrap();
+            self.validate(opts, conn).map_err(|e| {
+                diesel::result::Error::DatabaseError(
+                    DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                )
+            })?;
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
@@ -433,10 +439,13 @@ pub(crate) mod tests {
         let db = wasm::WasmDb::new(&opts).await.unwrap();
 
         let store = EncryptedMessageStore { db };
-        store.conn().raw_query_read(|c| {
-            store.db.validate(&opts, c).unwrap();
-            Ok(())
-        });
+        store
+            .conn()
+            .raw_query_read(|c| {
+                store.db.validate(&opts, c).unwrap();
+                Ok(())
+            })
+            .unwrap();
 
         store
             .conn()

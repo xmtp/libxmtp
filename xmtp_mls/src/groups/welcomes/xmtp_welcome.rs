@@ -110,7 +110,7 @@ where
             .events
             .take()
             .expect("builder is built with events as Some");
-        let commit_result = this.commit_and_verify(&mut events)?;
+        let commit_result = this.commit_or_fail_forever(&mut events)?;
         commit_result.into_result()
     }
 }
@@ -231,11 +231,12 @@ where
     /// Verifies the welcome processed succesfully. If it fails on a non-retryable error,
     /// increments the cursor. Otherwise state must remain as if no transaction occurred.
     /// Returns an error if group failed to commit.
-    fn commit_and_verify(
+    /// Once transaction succeeds, sends device sync messages
+    fn commit_or_fail_forever(
         &self,
         events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
-        self.context.mls_storage().transaction(|conn| {
+        let commit_result = self.context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             // Savepoint transaction
             let result = storage.savepoint(|conn| self.commit(conn, events));
@@ -255,7 +256,9 @@ where
                 Err(e) => Err(e),
                 Ok(group) => Ok(CommitResult::Ok(group)),
             }
-        })
+        })?;
+        events.send_all(&self.context);
+        Ok(commit_result)
     }
 
     /// The welcome was validated and we haven't processed yet.
@@ -370,7 +373,7 @@ where
                 .paused_for_version(paused_for_version)
                 .build()?,
             ConversationType::Dm => {
-                validate_dm_group(&*context, &mls_group, &added_by_inbox_id)?;
+                validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
                     .membership_state(GroupMembershipState::Pending)
                     .last_message_ns(welcome.created_ns as i64)

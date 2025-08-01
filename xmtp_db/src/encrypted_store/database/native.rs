@@ -397,7 +397,7 @@ impl ConnectionExt for NativeDbConnection {
                 pool.state().idle_connections,
                 pool.state().connections
             );
-            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
+            let mut conn = pool.get()?;
             fun(&mut conn).map_err(ConnectionError::from)
         } else {
             Err(ConnectionError::from(
@@ -418,7 +418,7 @@ impl ConnectionExt for NativeDbConnection {
                 pool.state().idle_connections,
                 pool.state().connections
             );
-            let mut conn = pool.get().map_err(PlatformStorageError::from)?;
+            let mut conn = pool.get()?;
             fun(&mut conn).map_err(ConnectionError::from)
         } else {
             Err(ConnectionError::from(

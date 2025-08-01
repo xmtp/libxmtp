@@ -159,8 +159,12 @@ where
         F: Fn() -> Fut,
         Fut: Future<Output = ()>,
     {
-        let mut m = self.metrics.lock();
-        let info = m.entry(metric).or_insert(Info::new(self.installation_id));
+        let info = {
+            let mut m = self.metrics.lock();
+            m.entry(metric)
+                .or_insert(Info::new(self.installation_id))
+                .clone()
+        };
         xmtp_common::time::timeout(Duration::from_secs(20), async {
             while info.count() < count {
                 f().await;

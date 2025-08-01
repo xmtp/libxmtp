@@ -3265,8 +3265,7 @@ mod tests {
         }
 
         pub fn enable_notifications(&self) -> OwnedNotified {
-            let notify = self.notify.clone().notified_owned();
-            notify
+            self.notify.clone().notified_owned()
         }
 
         pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
@@ -7280,8 +7279,7 @@ mod tests {
         alix_b.sync_preferences().await.unwrap();
         hmac_received.wait().await.unwrap();
 
-        let result =
-            tokio::time::timeout(std::time::Duration::from_secs(10), async { notify.await }).await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), notify).await;
         assert!(result.is_ok());
 
         {

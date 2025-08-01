@@ -18,7 +18,7 @@ pub enum WorkerKind {
     CommitLog,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WorkerRunner {
     factories: Vec<DynFactory>,
     metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
@@ -26,10 +26,7 @@ pub struct WorkerRunner {
 
 impl WorkerRunner {
     pub fn new() -> Self {
-        Self {
-            factories: Vec::new(),
-            metrics: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Default::default()
     }
 
     pub fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
