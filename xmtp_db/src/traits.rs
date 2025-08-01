@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 /// Get an MLS Key store in the context of a transaction
 /// this must only be used within transactions.
-// #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
 pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
