@@ -1,5 +1,5 @@
 use crate::group::ConversationType;
-use crate::local_commit_log::LocalCommitLog;
+use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteLogValidationInfo};
 use std::collections::HashMap;
 use std::sync::{
@@ -506,10 +506,11 @@ mock! {
 
         // Local commit log entries are returned sorted in ascending order of `rowid`
         // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-        fn get_group_logs_for_publishing(
+        fn get_local_commit_log_after_cursor(
             &self,
             group_id: &[u8],
             after_cursor: i64,
+            order_by: LocalCommitLogOrder,
         ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
         fn get_latest_log_for_group(
@@ -529,6 +530,12 @@ mock! {
         fn get_latest_applied_entry(&self, group_id: &[u8]) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
         fn get_remote_log_validation_info(&self, group_id: &[u8]) -> Result<RemoteLogValidationInfo, crate::ConnectionError>;
+
+        fn get_remote_commit_log_after_cursor(
+            &self,
+            group_id: &[u8],
+            after_cursor: i64,
+        ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
     }
 }
 

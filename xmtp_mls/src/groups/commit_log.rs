@@ -1,9 +1,10 @@
 use futures::StreamExt;
 use prost::Message;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_db::{
+    local_commit_log::LocalCommitLogOrder,
     prelude::*,
     remote_commit_log::{self, CommitResult, NewRemoteCommitLog, RemoteLogValidationInfo},
     DbQuery, StorageError, Store, XmtpDb,
@@ -128,11 +129,18 @@ pub struct UpdateCursorsResult {
     pub last_entry_saved_remote_log_sequence_id: i64,
 }
 
+pub struct ForkedStateCheckResult {
+    pub is_forked: bool,
+    pub forked_epoch_number: Option<u64>,
+    pub forked_commit_sequence_id: Option<u64>,
+}
+
 // Test related types
 #[cfg(test)]
 pub enum CommitLogTestFunction {
     PublishCommitLogsToRemote,
     SaveRemoteCommitLog,
+    CheckForkedState,
     All,
 }
 
@@ -140,6 +148,7 @@ pub enum CommitLogTestFunction {
 pub struct TestResult {
     pub save_remote_commit_log_results: Option<Vec<SaveRemoteCommitLogResult>>,
     pub publish_commit_log_results: Option<Vec<ConversationCursorInfo>>,
+    pub forked_state_check_results: Option<HashMap<Vec<u8>, ForkedStateCheckResult>>,
 }
 
 // CommitLogWorker implementation
@@ -152,6 +161,7 @@ where
         while (intervals.next().await).is_some() {
             self.publish_commit_logs_to_remote().await?;
             self.save_remote_commit_log().await?;
+            self.check_forked_state().await?;
         }
         Ok(())
     }
@@ -224,10 +234,14 @@ where
             // Local commit log entries are returned sorted in ascending order of `rowid`
             // All local commit log will have rowid > 0 since sqlite rowid starts at 1 https://www.sqlite.org/autoinc.html
             let (plaintext_commit_log_entries, rowids): (Vec<PlaintextCommitLogEntry>, Vec<i32>) =
-                conn.get_group_logs_for_publishing(conversation_id, published_commit_log_cursor)?
-                    .iter()
-                    .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
-                    .unzip();
+                conn.get_local_commit_log_after_cursor(
+                    conversation_id,
+                    published_commit_log_cursor,
+                    LocalCommitLogOrder::AscendingByRowid,
+                )?
+                .iter()
+                .map(|log| (PlaintextCommitLogEntry::from(log), log.rowid))
+                .unzip();
 
             // Step 3: Compile the conversation cursor info and all the commit log entries for this conversation
             if let Some(max_rowid) = rowids.into_iter().last() {
@@ -378,6 +392,68 @@ where
                 && entry.applied_epoch_number != validation_info.latest_applied_epoch_number + 1)
     }
 
+    pub async fn check_forked_state(
+        &mut self,
+    ) -> Result<HashMap<Vec<u8>, ForkedStateCheckResult>, CommitLogError> {
+        let conn = &self.context.db();
+        let conversation_ids_for_forked_state_check =
+            conn.get_conversation_ids_for_remote_log_download()?;
+
+        let mut forked_state_check_results = HashMap::new();
+        'outer: for conversation_id in conversation_ids_for_forked_state_check {
+            let fork_check_local_cursor = conn.get_last_cursor_for_id(
+                &conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
+            )?;
+            let fork_check_remote_cursor = conn.get_last_cursor_for_id(
+                &conversation_id,
+                xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
+            )?;
+
+            for local_log in conn.get_local_commit_log_after_cursor(
+                &conversation_id,
+                fork_check_local_cursor,
+                LocalCommitLogOrder::DescendingByRowid,
+            )? {
+                // If the commit_sequence_id of the row is present in the cached remote commit log, compare the applied_epoch_authenticator of both entries, and return.
+                // If the row is a Welcome, stop iterating after the check has been applied - the installation has been readded, so earlier state should not be checked.
+                // If no matching commit_sequence_id has been found, then the result is indeterminate.
+                for remote_log in conn.get_remote_commit_log_after_cursor(
+                    &conversation_id,
+                    fork_check_remote_cursor,
+                )? {
+                    if local_log.commit_sequence_id == remote_log.commit_sequence_id
+                        && local_log.applied_epoch_authenticator
+                            != remote_log.applied_epoch_authenticator
+                    {
+                        println!("Forked state check result: {:?}", remote_log);
+                        println!("Local log: {:?}", local_log);
+                        forked_state_check_results.insert(
+                            conversation_id.clone(),
+                            ForkedStateCheckResult {
+                                is_forked: true,
+                                forked_epoch_number: Some(remote_log.applied_epoch_number as u64),
+                                forked_commit_sequence_id: Some(
+                                    remote_log.commit_sequence_id as u64,
+                                ),
+                            },
+                        );
+                        continue 'outer;
+                    }
+                }
+            }
+            forked_state_check_results.insert(
+                conversation_id,
+                ForkedStateCheckResult {
+                    is_forked: false,
+                    forked_epoch_number: None,
+                    forked_commit_sequence_id: None,
+                },
+            );
+        }
+        Ok(forked_state_check_results)
+    }
+
     /// Test-only version that runs without infinite loop
     #[cfg(test)]
     pub async fn run_test(
@@ -410,6 +486,7 @@ where
         let mut test_result = TestResult {
             save_remote_commit_log_results: None,
             publish_commit_log_results: None,
+            forked_state_check_results: None,
         };
         match commit_log_test_function {
             CommitLogTestFunction::PublishCommitLogsToRemote => {
@@ -419,6 +496,10 @@ where
             CommitLogTestFunction::SaveRemoteCommitLog => {
                 let save_remote_commit_log_results = self.save_remote_commit_log().await?;
                 test_result.save_remote_commit_log_results = Some(save_remote_commit_log_results);
+            }
+            CommitLogTestFunction::CheckForkedState => {
+                let forked_state_check_results = self.check_forked_state().await?;
+                test_result.forked_state_check_results = Some(forked_state_check_results);
             }
             CommitLogTestFunction::All => {
                 let publish_commit_log_results = self.publish_commit_logs_to_remote().await?;

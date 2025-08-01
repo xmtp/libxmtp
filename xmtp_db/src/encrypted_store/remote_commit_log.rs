@@ -138,6 +138,11 @@ pub trait QueryRemoteCommitLog<C: ConnectionExt> {
         &self,
         group_id: &[u8],
     ) -> Result<RemoteLogValidationInfo, crate::ConnectionError>;
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 }
 
 impl<C: ConnectionExt> QueryRemoteCommitLog<C> for DbConnection<C> {
@@ -188,6 +193,21 @@ impl<C: ConnectionExt> QueryRemoteCommitLog<C> for DbConnection<C> {
             latest_applied_epoch_number: latest_applied_entry
                 .map(|e| e.applied_epoch_number)
                 .unwrap_or(0) as u64,
+        })
+    }
+
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+        self.raw_query_read(|db| {
+            dsl::remote_commit_log
+                .filter(dsl::group_id.eq(group_id))
+                .filter(dsl::rowid.gt(after_cursor as i32))
+                .filter(dsl::commit_sequence_id.ne(0))
+                .order_by(dsl::rowid.desc())
+                .load(db)
         })
     }
 }
