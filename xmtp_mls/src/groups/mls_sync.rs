@@ -1,13 +1,12 @@
 use super::{
-    build_extensions_for_admin_lists_update, build_extensions_for_metadata_update,
-    build_extensions_for_permissions_update,
+    GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
+    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
     intents::{
         Installation, IntentError, PostCommitAction, SendMessageIntentData, SendWelcomesAction,
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
-    validated_commit::{extract_group_membership, CommitValidationError, LibXMTPVersion},
-    GroupError, HmacKey, MlsGroup,
+    validated_commit::{CommitValidationError, LibXMTPVersion, extract_group_membership},
 };
 use crate::groups::{
     device_sync_legacy::preference_sync_legacy::process_incoming_preference_update,
@@ -28,7 +27,7 @@ use crate::{
         device_sync_legacy::DeviceSyncContent, intents::UpdateMetadataIntentData,
         validated_commit::ValidatedCommit,
     },
-    identity::{parse_credential, IdentityError},
+    identity::{IdentityError, parse_credential},
     identity_updates::load_identity_updates,
     intents::ProcessIntentError,
     subscriptions::LocalEvents,
@@ -39,7 +38,7 @@ use crate::{
     utils::id::calculate_message_id_for_intent,
 };
 use crate::{
-    groups::mls_ext::{wrap_welcome, CommitLogStorer, WrapWelcomeError},
+    groups::mls_ext::{CommitLogStorer, WrapWelcomeError, wrap_welcome},
     subscriptions::SyncWorkerEvent,
     track, track_err,
     verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
@@ -47,18 +46,18 @@ use crate::{
 use update_group_membership::apply_update_group_membership_intent;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
+    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
     events::EventLevel,
     group::{ConversationType, StoredGroup},
-    group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
+    group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     refresh_state::EntityKind,
     remote_commit_log::CommitResult,
     sql_key_store,
     user_preferences::StoredUserPreferences,
-    Fetch, MlsProviderExt, StorageError, StoreOrIgnore,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
-use xmtp_mls_common::group_mutable_metadata::{extract_group_mutable_metadata, MetadataField};
+use xmtp_db::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef, prelude::*};
+use xmtp_mls_common::group_mutable_metadata::{MetadataField, extract_group_mutable_metadata};
 
 use crate::groups::mls_sync::GroupMessageProcessingError::OpenMlsProcessMessage;
 use futures::future::try_join_all;
@@ -71,42 +70,42 @@ use openmls::{
     framing::{ContentType as MlsContentType, ProtocolMessage},
     group::{GroupEpoch, StagedCommit},
     prelude::{
-        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
+        tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
     },
     treesync::LeafNodeParameters,
 };
 use openmls::{framing::WireFormat, prelude::BasicCredentialError};
 use openmls_traits::OpenMlsProvider;
-use prost::bytes::Bytes;
 use prost::Message;
+use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
     collections::{HashMap, HashSet},
-    mem::{discriminant, Discriminant},
+    mem::{Discriminant, discriminant},
     ops::RangeInclusive,
 };
 use thiserror::Error;
 use tracing::debug;
 use xmtp_common::time::now_ns;
-use xmtp_common::{retry_async, Retry, RetryableError};
-use xmtp_content_types::{group_updated::GroupUpdatedCodec, CodecError, ContentCodec};
-use xmtp_db::{group_intent::IntentKind::MetadataUpdate, NotFound};
+use xmtp_common::{Retry, RetryableError, retry_async};
+use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
+use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_proto::xmtp::mls::message_contents::group_updated;
 use xmtp_proto::xmtp::mls::{
     api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
-        welcome_message_input::{
-            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
-        },
         GroupMessage, GroupMessageInput, WelcomeMessageInput,
+        group_message::{V1 as GroupMessageV1, Version as GroupMessageVersion},
+        group_message_input::{V1 as GroupMessageInputV1, Version as GroupMessageInputVersion},
+        welcome_message_input::{
+            V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion,
+        },
     },
     message_contents::{
-        plaintext_envelope::{v2::MessageType, Content, V1, V2},
         GroupUpdated, PlaintextEnvelope,
+        plaintext_envelope::{Content, V1, V2, v2::MessageType},
     },
 };
 pub mod update_group_membership;
@@ -1594,10 +1593,10 @@ where
         let message = match process_result {
             Ok(m) => {
                 tracing::info!(
-                "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
-                hex::encode(&self.group_id),
-                message_cursor
-            );
+                    "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
+                    hex::encode(&self.group_id),
+                    message_cursor
+                );
                 Ok(m)
             }
             Err(GroupMessageProcessingError::CommitValidation(
@@ -1787,7 +1786,10 @@ where
             self.context.inbox_id(),
             validated_commit.added_inboxes.len(),
             validated_commit.removed_inboxes.len(),
-            validated_commit.metadata_validation_info.metadata_field_changes.len(),
+            validated_commit
+                .metadata_validation_info
+                .metadata_field_changes
+                .len(),
         );
         let sender_installation_id = validated_commit.actor_installation_id();
         let sender_inbox_id = validated_commit.actor_inbox_id();

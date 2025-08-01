@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
 use xmtp_common::types::GroupId;
 use xmtp_db::prelude::QueryGroupMessage;

@@ -22,7 +22,7 @@ pub use self::group_permissions::PreconfiguredPolicies;
 use self::{
     group_membership::GroupMembership,
     group_permissions::PolicySet,
-    group_permissions::{extract_group_permissions, GroupMutablePermissions},
+    group_permissions::{GroupMutablePermissions, extract_group_permissions},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
@@ -30,6 +30,7 @@ use self::{
     validated_commit::extract_group_membership,
 };
 use crate::groups::{intents::QueueIntent, mls_ext::CommitLogStorer};
+use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{
     client::ClientError,
     configuration::{
@@ -40,7 +41,6 @@ use crate::{
     subscriptions::LocalEvents,
     utils::id::calculate_message_id,
 };
-use crate::{context::XmtpSharedContext, GroupCommitLock};
 use crate::{subscriptions::SyncWorkerEvent, track};
 use device_sync::preference_sync::PreferenceUpdate;
 pub use error::*;
@@ -65,29 +65,29 @@ use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use validated_commit::LibXMTPVersion;
 use xmtp_common::time::now_ns;
-use xmtp_content_types::should_push;
 use xmtp_content_types::ContentCodec;
+use xmtp_content_types::should_push;
 use xmtp_content_types::{
     group_updated::GroupUpdatedCodec,
     reaction::{LegacyReaction, ReactionCodec},
 };
+use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::local_commit_log::LocalCommitLog;
+use xmtp_db::prelude::*;
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::xmtp_openmls_provider::{XmtpOpenMlsProvider, XmtpOpenMlsProviderRef};
-use xmtp_db::XmtpMlsStorageProvider;
-use xmtp_db::{consent_record::ConsentType, Fetch};
+use xmtp_db::{Fetch, consent_record::ConsentType};
+use xmtp_db::{
+    NotFound, StorageError,
+    group_message::{ContentType, StoredGroupMessageWithReactions},
+    refresh_state::EntityKind,
+};
+use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, MsgQueryArgs, StoredGroupMessage},
 };
-use xmtp_db::{
-    group_message::{ContentType, StoredGroupMessageWithReactions},
-    refresh_state::EntityKind,
-    NotFound, StorageError,
-};
-use xmtp_db::{prelude::*, ConnectionExt};
-use xmtp_db::{Store, StoreOrIgnore};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
 use xmtp_mls_common::{
@@ -96,19 +96,19 @@ use xmtp_mls_common::{
         MUTABLE_METADATA_EXTENSION_ID,
     },
     group::{DMMetadataOptions, GroupMetadataOptions},
-    group_metadata::{extract_group_metadata, DmMembers, GroupMetadata, GroupMetadataError},
+    group_metadata::{DmMembers, GroupMetadata, GroupMetadataError, extract_group_metadata},
     group_mutable_metadata::{
-        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
-        MessageDisappearingSettings, MetadataField,
+        GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings,
+        MetadataField, extract_group_mutable_metadata,
     },
 };
 use xmtp_proto::xmtp::mls::{
     api::v1::welcome_message,
     message_contents::{
+        ContentTypeId, EncodedContent, GroupUpdated, PlaintextEnvelope,
         content_types::ReactionV2,
         group_updated::Inbox,
         plaintext_envelope::{Content, V1},
-        ContentTypeId, EncodedContent, GroupUpdated, PlaintextEnvelope,
     },
 };
 
@@ -1550,10 +1550,10 @@ where
     }
 
     // Returns new consent records. Does not broadcast changes.
-    pub fn quietly_update_consent_state<C: ConnectionExt>(
+    pub fn quietly_update_consent_state(
         &self,
         state: ConsentState,
-        db: &impl DbQuery<C>,
+        db: &impl DbQuery,
     ) -> Result<Vec<StoredConsentRecord>, GroupError> {
         let consent_record = StoredConsentRecord::new(
             ConsentType::ConversationId,
@@ -1617,7 +1617,7 @@ where
             None => {
                 return Err(GroupError::NotFound(NotFound::GroupById(
                     self.group_id.clone(),
-                )))
+                )));
             }
         };
 
@@ -1793,7 +1793,7 @@ where
     }
 }
 
-fn build_protected_metadata_extension(
+pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
 ) -> Result<Extension, MetadataPermissionsError> {
@@ -1826,7 +1826,7 @@ fn build_dm_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-fn build_mutable_permissions_extension(
+pub(crate) fn build_mutable_permissions_extension(
     policies: PolicySet,
 ) -> Result<Extension, MetadataPermissionsError> {
     let permissions: Vec<u8> = GroupMutablePermissions::new(policies).try_into()?;
@@ -2007,7 +2007,7 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
 }
 
-fn build_group_config(
+pub(crate) fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
     group_membership_extension: Extension,
@@ -2110,8 +2110,8 @@ async fn validate_initial_group_membership(
     Ok(())
 }
 
-pub fn filter_inbox_ids_needing_updates<'a, C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub fn filter_inbox_ids_needing_updates<'a>(
+    conn: &impl DbQuery,
     filters: &[(&'a str, i64)],
 ) -> Result<Vec<&'a str>, xmtp_db::ConnectionError> {
     let existing_sequence_ids =

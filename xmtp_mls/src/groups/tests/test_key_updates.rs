@@ -1,7 +1,7 @@
 use crate::tester;
 use futures::future::join_all;
 use std::{future::Future, pin::Pin, time::Duration};
-use xmtp_common::{retry_async, Retry};
+use xmtp_common::{Retry, retry_async};
 use xmtp_db::events::Events;
 
 #[xmtp_common::test(unwrap_try = true)]

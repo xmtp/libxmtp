@@ -3,7 +3,7 @@ use crate::ConnectionExt;
 use super::*;
 use crate::ConnectionError;
 
-pub trait QueryDms<C: ConnectionExt> {
+pub trait QueryDms {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError>;
 
@@ -15,7 +15,27 @@ pub trait QueryDms<C: ConnectionExt> {
     fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryDms<C> for DbConnection<C> {
+impl<T> QueryDms for &T
+where
+    T: QueryDms,
+{
+    fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
+        (**self).fetch_stitched(key)
+    }
+
+    fn find_dm_group<M>(&self, members: M) -> Result<Option<StoredGroup>, ConnectionError>
+    where
+        M: std::fmt::Display,
+    {
+        (**self).find_dm_group(members)
+    }
+
+    fn other_dms(&self, group_id: &[u8]) -> Result<Vec<StoredGroup>, ConnectionError> {
+        (**self).other_dms(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
     fn fetch_stitched(&self, key: &[u8]) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query_read(|conn| {

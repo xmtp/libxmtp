@@ -6,17 +6,17 @@ use super::device_sync::{DeviceSyncClient, DeviceSyncError};
 use crate::context::XmtpSharedContext;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::worker::metrics::WorkerMetrics;
-use crate::{subscriptions::LocalEvents, Client};
+use crate::{Client, subscriptions::LocalEvents};
 use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm,
+    aead::{Aead, KeyInit},
 };
 use preference_sync_legacy::LegacyUserPreferenceUpdate;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use xmtp_common::time::now_ns;
 use xmtp_common::NS_IN_HOUR;
+use xmtp_common::time::now_ns;
 use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
@@ -27,17 +27,18 @@ use xmtp_db::{DbConnection, StorageError, Store, XmtpOpenMlsProvider};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::api_client::XmtpApi;
 use xmtp_proto::xmtp::device_sync::{
-    content::{
-        device_sync_key_type::Key as EncKeyProto, DeviceSyncKeyType as DeviceSyncKeyTypeProto,
-        DeviceSyncReply as DeviceSyncReplyProto, DeviceSyncRequest as DeviceSyncRequestProto,
-        V1UserPreferenceUpdate as UserPreferenceUpdateProto,
-    },
     BackupElementSelection,
+    content::{
+        DeviceSyncKeyType as DeviceSyncKeyTypeProto, DeviceSyncReply as DeviceSyncReplyProto,
+        DeviceSyncRequest as DeviceSyncRequestProto,
+        V1UserPreferenceUpdate as UserPreferenceUpdateProto,
+        device_sync_key_type::Key as EncKeyProto,
+    },
 };
 
 use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
 use xmtp_proto::xmtp::mls::message_contents::{
-    plaintext_envelope::v2::MessageType, plaintext_envelope::V2, PlaintextEnvelope,
+    PlaintextEnvelope, plaintext_envelope::V2, plaintext_envelope::v2::MessageType,
 };
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
