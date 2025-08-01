@@ -10,8 +10,9 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Retry, RetryableError, retry_async, retryable};
 use xmtp_cryptography::CredentialSign;
+use xmtp_db::StorageError;
+use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
-use xmtp_db::{StorageError, XmtpDb};
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
 use xmtp_id::{
     AsIdRef, InboxIdRef,
