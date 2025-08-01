@@ -6,6 +6,7 @@ use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
 use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
+use derive_builder::Builder;
 use openmls::prelude::HpkeKeyPair;
 use openmls::prelude::hash_ref::HashReference;
 use openmls::{
@@ -255,6 +256,8 @@ pub enum IdentityError {
     MissingPostQuantumPublicKey,
     #[error("Bincode serialization error")]
     Bincode,
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl NeedsDbReconnect for IdentityError {
@@ -585,69 +588,11 @@ impl Identity {
         provider: &impl MlsProviderExt,
         include_post_quantum: bool,
     ) -> Result<NewKeyPackageResult, IdentityError> {
-        let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
-        let mut post_quantum_keypair = None;
-        if include_post_quantum {
-            let keypair = generate_post_quantum_key()?;
-            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
-            post_quantum_keypair = Some(keypair);
-        }
-        let key_package_extensions = Extensions::from_vec(extensions)?;
-
-        let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(self.inbox_id().as_bytes()));
-        let leaf_node_extensions = Extensions::single(application_id);
-
-        let capabilities = Capabilities::new(
-            None,
-            Some(&[CIPHERSUITE]),
-            Some(&[
-                ExtensionType::LastResort,
-                ExtensionType::ApplicationId,
-                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-                ExtensionType::ImmutableMetadata,
-            ]),
-            Some(&[ProposalType::GroupContextExtensions]),
-            None,
-        );
-
-        let kp_builder = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities)
-            .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions);
-
-        let kp_builder = {
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
-                let life_time = maybe_mock_package_lifetime();
-                kp_builder.key_package_lifetime(life_time)
-            }
-            #[cfg(not(any(test, feature = "test-utils")))]
-            {
-                kp_builder
-            }
-        };
-
-        let kp = kp_builder.build(
-            CIPHERSUITE,
-            provider,
-            &self.installation_keys,
-            CredentialWithKey {
-                credential: self.credential(),
-                signature_key: self.installation_keys.public_slice().into(),
-            },
-        )?;
-
-        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
-        Ok(NewKeyPackageResult {
-            key_package: kp.key_package().clone(),
-            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
-        })
+        XmtpKeyPackage::builder()
+            .inbox_id(self.inbox_id())
+            .credential(self.credential())
+            .installation_keys(self.installation_keys.clone())
+            .build(provider, include_post_quantum)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -726,6 +671,96 @@ impl Identity {
                 Err(IdentityError::ApiClient(err))
             }
         }
+    }
+}
+
+#[derive(Builder, Debug)]
+#[builder(build_fn(error = "IdentityError", name = "inner_build", private))]
+pub struct XmtpKeyPackage {
+    #[builder(setter(into))]
+    inbox_id: String,
+    #[builder(setter(into))]
+    credential: OpenMlsCredential,
+    #[builder(setter(into))]
+    installation_keys: XmtpInstallationCredential,
+}
+
+impl XmtpKeyPackage {
+    pub(crate) fn builder() -> XmtpKeyPackageBuilder {
+        XmtpKeyPackageBuilder::default()
+    }
+}
+
+impl XmtpKeyPackageBuilder {
+    pub(crate) fn build(
+        &mut self,
+        provider: &impl MlsProviderExt,
+        include_post_quantum: bool,
+    ) -> Result<NewKeyPackageResult, IdentityError> {
+        let this = self.inner_build()?;
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        let mut extensions = vec![last_resort];
+        let mut post_quantum_keypair = None;
+        if include_post_quantum {
+            let keypair = generate_post_quantum_key()?;
+            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
+            post_quantum_keypair = Some(keypair);
+        }
+        let key_package_extensions = Extensions::from_vec(extensions)?;
+
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
+        let leaf_node_extensions = Extensions::single(application_id);
+
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
+
+        let kp_builder = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(leaf_node_extensions)
+            .key_package_extensions(key_package_extensions);
+
+        let kp_builder = {
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
+                let life_time = maybe_mock_package_lifetime();
+                kp_builder.key_package_lifetime(life_time)
+            }
+            #[cfg(not(any(test, feature = "test-utils")))]
+            {
+                kp_builder
+            }
+        };
+
+        let kp = kp_builder.build(
+            CIPHERSUITE,
+            provider,
+            &this.installation_keys,
+            CredentialWithKey {
+                credential: this.credential,
+                signature_key: this.installation_keys.public_slice().into(),
+            },
+        )?;
+
+        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
+        Ok(NewKeyPackageResult {
+            key_package: kp.key_package().clone(),
+            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
+        })
     }
 }
 
@@ -811,7 +846,7 @@ pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQua
 // This is needed to get to the private key when decrypting welcome messages.
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.
 // If a post quantum key is present, we also have a pointer from the key package hash ref -> the post quantum private key.
-fn store_key_package_references(
+pub(crate) fn store_key_package_references(
     provider: &impl MlsProviderExt,
     kp: &KeyPackage,
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
