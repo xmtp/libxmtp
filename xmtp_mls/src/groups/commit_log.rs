@@ -1,9 +1,11 @@
+use crate::groups::commit_log_key::derive_consensus_public_key;
+use crate::groups::commit_log_key::CommitLogKeyCrypto;
 use futures::StreamExt;
 use openmls::prelude::OpenMlsCrypto;
 use openmls::prelude::SignatureScheme;
-use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
+use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_api::ApiError;
@@ -347,12 +349,19 @@ where
     ) -> Result<Vec<SaveRemoteCommitLogResult>, CommitLogError> {
         let conn = &self.context.db();
         // This should be all groups we are in, and all dms are in except sync groups
-        let conversation_ids_for_remote_log_download =
-            conn.get_conversation_ids_for_remote_log_download()?;
+        let conversation_id_to_public_key: HashMap<Vec<u8>, Option<Vec<u8>>> = conn
+            .get_conversation_ids_for_remote_log_download()?
+            .into_iter()
+            .map(|c| (c.id, c.commit_log_public_key))
+            .collect();
 
         // Step 1 is to collect a list of remote log cursors for all conversations and convert them into query log requests
-        let remote_log_cursors =
-            conn.get_remote_log_cursors(conversation_ids_for_remote_log_download.as_slice())?;
+        let remote_log_cursors = conn.get_remote_log_cursors(
+            conversation_id_to_public_key
+                .keys()
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )?;
         // For now we will rely on next iteration of the worker to download the next batch of commit log entries
         // if there is more than MAX_PAGE_SIZE entries to download per group
         let query_log_requests: Vec<QueryCommitLogRequest> = remote_log_cursors
@@ -376,8 +385,18 @@ where
         for response in query_commit_log_responses {
             let num_entries = response.commit_log_entries.len();
             let group_id = response.group_id.clone();
-            let update_cursors_result =
-                self.save_remote_commit_log_entries_and_update_cursors(conn, response)?;
+            // TODO(rich): Make sure there are no race conditions here
+            let mut consensus_public_key: Option<Vec<u8>> = conversation_id_to_public_key
+                .get(&group_id)
+                .and_then(Option::clone);
+            if consensus_public_key.is_none() {
+                consensus_public_key = derive_consensus_public_key(&self.context, &response)?;
+            }
+            let update_cursors_result = self.save_remote_commit_log_entries_and_update_cursors(
+                conn,
+                response,
+                consensus_public_key,
+            )?;
             save_remote_commit_log_results.push(SaveRemoteCommitLogResult {
                 conversation_id: group_id,
                 num_entries_saved: num_entries,
@@ -395,33 +414,45 @@ where
         &self,
         conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
         commit_log_response: QueryCommitLogResponse,
+        consensus_public_key: Option<Vec<u8>>,
     ) -> Result<UpdateCursorsResult, CommitLogError> {
+        let provider = self.context.mls_provider();
         let group_id = commit_log_response.group_id;
         let mut latest_download_cursor = 0;
         let mut latest_sequence_id = 0;
-        for entry in commit_log_response.commit_log_entries {
-            // TODO(cam): we will have to decrypt here
-            let log_entry =
-                PlaintextCommitLogEntry::decode(entry.serialized_commit_log_entry.as_slice())?;
-            RemoteCommitLog {
-                log_sequence_id: entry.sequence_id as i64,
-                group_id: log_entry.group_id,
-                commit_sequence_id: log_entry.commit_sequence_id as i64,
-                commit_result: CommitResult::from(
-                    ProtoCommitResult::try_from(log_entry.commit_result)
-                        .unwrap_or(ProtoCommitResult::Unspecified),
-                ),
-                applied_epoch_number: Some(log_entry.applied_epoch_number as i64),
-                applied_epoch_authenticator: Some(log_entry.applied_epoch_authenticator),
-            }
-            .store(conn)?;
-            if entry.sequence_id > latest_download_cursor {
-                latest_download_cursor = entry.sequence_id;
-            }
-            if log_entry.commit_sequence_id > latest_sequence_id {
-                latest_sequence_id = log_entry.commit_sequence_id;
+        // TODO(rich): Handle partial failures
+        if let Some(consensus_public_key) = consensus_public_key {
+            for entry in commit_log_response.commit_log_entries {
+                if provider
+                    .crypto()
+                    .verify_commit_log_signature(&entry, &consensus_public_key)
+                    .is_err()
+                {
+                    continue;
+                }
+                let log_entry =
+                    PlaintextCommitLogEntry::decode(entry.serialized_commit_log_entry.as_slice())?;
+                RemoteCommitLog {
+                    log_sequence_id: entry.sequence_id as i64,
+                    group_id: log_entry.group_id,
+                    commit_sequence_id: log_entry.commit_sequence_id as i64,
+                    commit_result: CommitResult::from(
+                        ProtoCommitResult::try_from(log_entry.commit_result)
+                            .unwrap_or(ProtoCommitResult::Unspecified),
+                    ),
+                    applied_epoch_number: Some(log_entry.applied_epoch_number as i64),
+                    applied_epoch_authenticator: Some(log_entry.applied_epoch_authenticator),
+                }
+                .store(conn)?;
+                if entry.sequence_id > latest_download_cursor {
+                    latest_download_cursor = entry.sequence_id;
+                }
+                if log_entry.commit_sequence_id > latest_sequence_id {
+                    latest_sequence_id = log_entry.commit_sequence_id;
+                }
             }
         }
+        // TODO(rich): Update these properly
         conn.update_cursor(
             &group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogDownload,

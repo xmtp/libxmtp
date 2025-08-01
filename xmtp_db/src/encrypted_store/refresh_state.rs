@@ -95,7 +95,7 @@ pub trait QueryRefreshState<C: ConnectionExt> {
 
     fn get_remote_log_cursors(
         &self,
-        conversation_ids: &[Vec<u8>],
+        conversation_ids: &[&Vec<u8>],
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
 }
 
@@ -158,14 +158,14 @@ impl<C: ConnectionExt> QueryRefreshState<C> for DbConnection<C> {
 
     fn get_remote_log_cursors(
         &self,
-        conversation_ids: &[Vec<u8>],
+        conversation_ids: &[&Vec<u8>],
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
         let mut cursor_map: HashMap<Vec<u8>, i64> = HashMap::new();
         for conversation_id in conversation_ids {
             let cursor = self
                 .get_last_cursor_for_id(conversation_id, EntityKind::CommitLogDownload)
                 .unwrap_or(0);
-            cursor_map.insert(conversation_id.clone(), cursor);
+            cursor_map.insert(conversation_id.to_vec(), cursor);
         }
         Ok(cursor_map)
     }
