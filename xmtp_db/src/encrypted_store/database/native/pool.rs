@@ -84,12 +84,6 @@ mod tests {
     }
 
     #[derive(QueryableByName, Debug)]
-    struct BusyTimeout {
-        #[diesel(sql_type = diesel::sql_types::Integer)]
-        timeout: i32,
-    }
-
-    #[derive(QueryableByName, Debug)]
     struct JournalMode {
         #[diesel(sql_type = diesel::sql_types::Text)]
         journal_mode: String,

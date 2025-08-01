@@ -15,28 +15,25 @@ impl Instrumentation for TestInstrumentation {
             FinishQuery { query, error, .. } => {
                 if let Some(e) = error {
                     tracing::error!("query {} errored with {:?}", query, error);
-                    match e {
-                        DieselError::DatabaseError(_, info) => {
-                            let mut s = String::new();
-                            let _ = write!(s, "{},", info.message());
-                            if let Some(name) = info.table_name() {
-                                let _ = write!(s, "table_name={},", name);
-                            }
-                            if let Some(name) = info.column_name() {
-                                let _ = write!(s, "column_name={},", name);
-                            }
-                            if let Some(hint) = info.hint() {
-                                let _ = write!(s, "hint={},", hint);
-                            }
-                            if let Some(details) = info.details() {
-                                tracing::error!("details: {},", details);
-                            }
-                            tracing::error!("{}", s);
-                            if s.contains("database is locked") {
-                                panic!("database locked");
-                            }
+                    if let DieselError::DatabaseError(_, info) = e {
+                        let mut s = String::new();
+                        let _ = write!(s, "{},", info.message());
+                        if let Some(name) = info.table_name() {
+                            let _ = write!(s, "table_name={},", name);
                         }
-                        _ => (),
+                        if let Some(name) = info.column_name() {
+                            let _ = write!(s, "column_name={},", name);
+                        }
+                        if let Some(hint) = info.hint() {
+                            let _ = write!(s, "hint={},", hint);
+                        }
+                        if let Some(details) = info.details() {
+                            tracing::error!("details: {},", details);
+                        }
+                        tracing::error!("{}", s);
+                        if s.contains("database is locked") {
+                            panic!("database locked");
+                        }
                     }
                 }
             }

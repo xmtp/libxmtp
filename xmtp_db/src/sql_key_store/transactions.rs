@@ -86,16 +86,16 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
         //      tranaction starts. Otherwise, we still run into problem #2, even if BUSY_TIMEOUT is
         //      set.
 
-        let result =
-            conn.raw_query_write(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c.into()))))?;
-        Ok(result?)
+        conn.raw_query_write(|c| Ok(c.immediate_transaction(|sqlite_c| f(sqlite_c))))?
     }
 
     fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
-        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error {
-        self.conn.raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
+    {
+        self.conn
+            .raw_query_write(|c| Ok(c.transaction(|sqlite_c| f(sqlite_c))))?
     }
 
     fn read<V: Entity<CURRENT_VERSION>>(

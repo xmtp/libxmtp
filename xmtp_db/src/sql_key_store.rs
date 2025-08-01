@@ -50,7 +50,7 @@ pub struct SqlKeyStore<T> {
     conn: T,
 }
 
-impl<'a, A> SqlKeyStore<A> {
+impl<A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
         Self { conn }
     }
