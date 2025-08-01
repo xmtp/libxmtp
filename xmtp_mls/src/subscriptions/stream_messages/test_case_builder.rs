@@ -305,7 +305,7 @@ impl StreamSequenceBuilder {
             // Set up expectations for commonly called db methods
             mock_db
                 .expect_get_latest_sequence_id_for_group()
-                .returning(|_| Ok(Some(0)));
+                .returning(|_| Ok(None));
             mock_db
                 .expect_get_latest_sequence_id()
                 .returning(|_| Ok(HashMap::new()));
