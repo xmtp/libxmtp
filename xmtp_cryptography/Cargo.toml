@@ -20,6 +20,7 @@ alloy = { workspace = true, features = [
 ] }
 ed25519-dalek = { workspace = true, features = ["digest"] }
 hex.workspace = true
+libcrux-ed25519 = "0.0.3"
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_traits.workspace = true
