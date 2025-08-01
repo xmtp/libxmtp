@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
 use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
+use xmtp_db::mock::MockDbQuery;
 use mockall::Sequence;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
@@ -298,6 +299,20 @@ impl StreamSequenceBuilder {
     }
 
     fn init_session(&mut self, groups: Vec<GroupTestCase>) {
+        // Set up db mock expectation
+        let db_calls = || {
+            let mut mock_db = xmtp_db::mock::MockDbQuery::new();
+            // Set up expectations for commonly called db methods
+            mock_db
+                .expect_get_latest_sequence_id_for_group()
+                .returning(|_| Ok(Some(0)));
+            mock_db
+                .expect_get_latest_sequence_id()
+                .returning(|_| Ok(HashMap::new()));
+            mock_db
+        };
+        self.context.store.expect_db().returning(db_calls);
+
         let times = groups.len();
         self.context
             .api_client
@@ -329,6 +344,21 @@ impl StreamSequenceBuilder {
 
     fn create_session(&mut self, groups: Vec<GroupTestCase>) {
         let times = groups.len();
+        
+        // Set up expectations for query_group_messages for the new groups
+        self.context
+            .api_client
+            .api_client
+            .expect_query_group_messages()
+            .times(times)
+            .returning(|req| {
+                let message = generate_message(1, &req.group_id);
+                Ok(QueryGroupMessagesResponse {
+                    messages: vec![message],
+                    paging_info: None,
+                })
+            });
+        
         self.context
             .api_client
             .api_client
