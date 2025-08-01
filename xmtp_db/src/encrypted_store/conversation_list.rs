@@ -58,14 +58,26 @@ pub struct ConversationListItem {
     pub authority_id: Option<String>,
 }
 
-pub trait QueryConversationList<C: ConnectionExt> {
+pub trait QueryConversationList {
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError>;
 }
 
-impl<C: ConnectionExt> QueryConversationList<C> for DbConnection<C> {
+impl<T> QueryConversationList for &T
+where
+    T: QueryConversationList,
+{
+    fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
+        &self,
+        args: A,
+    ) -> Result<Vec<ConversationListItem>, StorageError> {
+        (**self).fetch_conversation_list(args)
+    }
+}
+
+impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,

@@ -4,12 +4,12 @@ use crate::groups::{GroupError, MlsGroup};
 use crate::mls_store::MlsStore;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
-use xmtp_common::{retry_async, Retry};
+use xmtp_common::{Retry, retry_async};
 use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
-use xmtp_proto::xmtp::mls::api::v1::{welcome_message, WelcomeMessage};
+use xmtp_proto::xmtp::mls::api::v1::{WelcomeMessage, welcome_message};
 
 #[derive(Clone)]
 pub struct WelcomeService<Context> {

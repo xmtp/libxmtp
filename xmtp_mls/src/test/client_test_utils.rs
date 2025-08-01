@@ -3,13 +3,13 @@
 use std::sync::Arc;
 
 use xmtp_api::XmtpApi;
-use xmtp_db::{sql_key_store::SqlKeyStore, XmtpDb};
+use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
+    Client,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{GroupError, MlsGroup},
-    Client,
 };
 
 use super::group_test_utils::TestError;

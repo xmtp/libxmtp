@@ -1,9 +1,12 @@
 use crate::ConnectionExt;
 use crate::StorageError;
+use crate::association_state::QueryAssociationStateCache;
 use crate::prelude::*;
 
-/// Get an MLS Key store
-pub trait MlsKeyStore {
+/// Get an MLS Key store in the context of a transaction
+/// this must only be used within transactions.
+// #[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Store = crate::sql_key_store::mock::MockSqlKeyStore;))]
+pub trait TransactionalKeyStore {
     type Store<'a>: XmtpMlsStorageProvider
     where
         Self: 'a;
@@ -56,47 +59,47 @@ pub trait IntoConnection {
     fn into_connection(self) -> Self::Connection;
 }
 
-pub trait DbQuery<C: crate::ConnectionExt>:
-    ReadOnly<C>
-    + QueryConsentRecord<C>
-    + QueryConversationList<C>
-    + QueryDms<C>
-    + QueryGroup<C>
-    + QueryGroupVersion<C>
-    + QueryGroupIntent<C>
-    + QueryGroupMessage<C>
-    + QueryIdentity<C>
-    + QueryIdentityCache<C>
-    + QueryKeyPackageHistory<C>
-    + QueryKeyStoreEntry<C>
-    + QueryDeviceSyncMessages<C>
-    + QueryRefreshState<C>
-    + QueryIdentityUpdates<C>
-    + QueryLocalCommitLog<C>
+pub trait DbQuery:
+    ReadOnly
+    + QueryConsentRecord
+    + QueryConversationList
+    + QueryDms
+    + QueryGroup
+    + QueryGroupVersion
+    + QueryGroupIntent
+    + QueryGroupMessage
+    + QueryIdentity
+    + QueryIdentityCache
+    + QueryKeyPackageHistory
+    + QueryKeyStoreEntry
+    + QueryDeviceSyncMessages
+    + QueryRefreshState
+    + QueryIdentityUpdates
+    + QueryLocalCommitLog
+    + QueryAssociationStateCache
     + crate::ConnectionExt
-    + IntoConnection<Connection = C>
 {
 }
 
-impl<C: crate::ConnectionExt, T: ?Sized> DbQuery<C> for T where
-    T: ReadOnly<C>
-        + QueryConsentRecord<C>
-        + QueryConversationList<C>
-        + QueryDms<C>
-        + QueryGroup<C>
-        + QueryGroupVersion<C>
-        + QueryGroupIntent<C>
-        + QueryGroupMessage<C>
-        + QueryIdentity<C>
-        + QueryIdentityCache<C>
-        + QueryKeyPackageHistory<C>
-        + QueryKeyStoreEntry<C>
-        + QueryDeviceSyncMessages<C>
-        + QueryRefreshState<C>
-        + QueryIdentityUpdates<C>
-        + QueryLocalCommitLog<C>
+impl<T: ?Sized> DbQuery for T where
+    T: ReadOnly
+        + QueryConsentRecord
+        + QueryConversationList
+        + QueryDms
+        + QueryGroup
+        + QueryGroupVersion
+        + QueryGroupIntent
+        + QueryGroupMessage
+        + QueryIdentity
+        + QueryIdentityCache
+        + QueryKeyPackageHistory
+        + QueryKeyStoreEntry
+        + QueryDeviceSyncMessages
+        + QueryRefreshState
+        + QueryIdentityUpdates
+        + QueryLocalCommitLog
+        + QueryAssociationStateCache
         + crate::ConnectionExt
-        + IntoConnection<Connection = C>
 {
 }
 

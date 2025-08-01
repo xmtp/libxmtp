@@ -7,8 +7,8 @@ use crate::{assert_msg, builder::ClientBuilder};
 use crate::{
     tester,
     utils::{
-        fixtures::{bo, eve},
         FullXmtpClient,
+        fixtures::{bo, eve},
     },
 };
 use futures::StreamExt;
@@ -266,7 +266,11 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         .collect::<Vec<String>>();
     let duplicates = find_duplicates_with_count(msgs);
     assert!(duplicates.is_empty());
-    assert_eq!(messages.len(), 45, "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient.");
+    assert_eq!(
+        messages.len(),
+        45,
+        "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient."
+    );
 }
 
 #[rstest::rstest]

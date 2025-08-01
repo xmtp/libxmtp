@@ -258,11 +258,13 @@ async fn test_download_commit_log_from_remote() {
         .await
         .unwrap();
     assert_eq!(bo_test_results.len(), 1);
-    assert!(bo_test_results[0]
-        .publish_commit_log_results
-        .as_ref()
-        .unwrap()
-        .is_empty());
+    assert!(
+        bo_test_results[0]
+            .publish_commit_log_results
+            .as_ref()
+            .unwrap()
+            .is_empty()
+    );
 
     // Verify the number of commits published results for alix group 1
     assert_eq!(
