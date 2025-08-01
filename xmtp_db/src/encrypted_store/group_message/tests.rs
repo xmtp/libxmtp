@@ -15,6 +15,7 @@ pub(crate) fn generate_message(
     sent_at_ns: Option<i64>,
     content_type: Option<ContentType>,
     expire_at_ns: Option<i64>,
+    sequence_id: Option<i64>,
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
@@ -30,7 +31,7 @@ pub(crate) fn generate_message(
         version_minor: 0,
         authority_id: "unknown".to_string(),
         reference_id: None,
-        sequence_id: None,
+        sequence_id,
         originator_id: None,
         expire_at_ns,
     }
@@ -49,7 +50,7 @@ async fn it_does_not_error_on_empty_messages() {
 async fn it_gets_messages() {
     with_connection(|conn| {
         let group = generate_group(None);
-        let message = generate_message(None, Some(&group.id), None, None, None);
+        let message = generate_message(None, Some(&group.id), None, None, None, None);
         group.store(conn).unwrap();
         let id = message.id.clone();
 
@@ -69,7 +70,7 @@ async fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     let store = EncryptedMessageStore::new_test().await;
     let conn = DbConnection::new(store.conn());
-    let message = generate_message(None, None, None, None, None);
+    let message = generate_message(None, None, None, None, None, None);
     let result = message.store(&conn);
     assert_err!(
         result,
@@ -88,7 +89,7 @@ async fn it_gets_many_messages() {
         group.store(conn).unwrap();
 
         for idx in 0..50 {
-            let msg = generate_message(None, Some(&group.id), Some(idx), None, None);
+            let msg = generate_message(None, Some(&group.id), Some(idx), None, None, None);
             assert_ok!(msg.store(conn));
         }
 
@@ -121,10 +122,10 @@ async fn it_gets_messages_by_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000), None, None),
-            generate_message(None, Some(&group.id), Some(100_000), None, None),
-            generate_message(None, Some(&group.id), Some(10_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
         assert_ok!(messages.store(conn));
         let message = conn
@@ -178,18 +179,20 @@ async fn it_deletes_middle_message_by_expiration_time() {
         group.store(conn).unwrap();
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000_000), None, None, None),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(1_001_000_000),
                 None,
                 Some(1_001_000_000),
+                None,
             ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(2_000_000_000_000_000_000),
+                None,
                 None,
                 None,
             ),
@@ -240,6 +243,7 @@ async fn it_gets_messages_by_kind() {
                         None,
                         Some(ContentType::Text),
                         None,
+                        None,
                     );
                     msg.store(conn).unwrap();
                 }
@@ -249,6 +253,7 @@ async fn it_gets_messages_by_kind() {
                         Some(&group.id),
                         None,
                         Some(ContentType::GroupMembershipChange),
+                        None,
                         None,
                     );
                     msg.store(conn).unwrap();
@@ -290,10 +295,10 @@ async fn it_orders_messages_by_sent() {
         assert_eq!(group.last_message_ns, None);
 
         let messages = vec![
-            generate_message(None, Some(&group.id), Some(10_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000), None, None),
-            generate_message(None, Some(&group.id), Some(100_000), None, None),
-            generate_message(None, Some(&group.id), Some(1_000_000), None, None),
+            generate_message(None, Some(&group.id), Some(10_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(100_000), None, None, None),
+            generate_message(None, Some(&group.id), Some(1_000_000), None, None, None),
         ];
 
         assert_ok!(messages.store(conn));
@@ -347,6 +352,7 @@ async fn it_gets_messages_by_content_type() {
                 Some(1_000),
                 Some(ContentType::Text),
                 None,
+                None,
             ),
             generate_message(
                 None,
@@ -354,12 +360,14 @@ async fn it_gets_messages_by_content_type() {
                 Some(2_000),
                 Some(ContentType::GroupMembershipChange),
                 None,
+                None,
             ),
             generate_message(
                 None,
                 Some(&group.id),
                 Some(3_000),
                 Some(ContentType::GroupUpdated),
+                None,
                 None,
             ),
         ];
@@ -418,77 +426,141 @@ async fn it_gets_messages_by_content_type() {
 
 #[xmtp_common::test]
 async fn it_places_group_updated_message_correctly_based_on_sort_order() {
-    with_connection(|conn| {
-        // Create a DM group
-        let mut group = generate_group(None);
-        group.conversation_type = ConversationType::Dm;
-        group.store(conn).unwrap();
+    with_connection(
+        |conn: &DbConnection<
+            std::sync::Arc<
+                crate::PersistentOrMem<crate::NativeDbConnection, crate::EphemeralDbConnection>,
+            >,
+        >| {
+            // Create a DM group
+            let mut group = generate_group(None);
+            group.conversation_type = ConversationType::Dm;
+            group.store(conn).unwrap();
 
-        // Insert one GroupUpdated message and two normal messages
-        let group_updated_msg = generate_message(
-            Some(GroupMessageKind::Application),
-            Some(&group.id),
-            Some(5_000),
-            Some(ContentType::GroupUpdated),
-            None,
-        );
+            // Insert one GroupUpdated message and two normal messages
+            let group_updated_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::GroupUpdated),
+                None,
+                None,
+            );
 
-        let earlier_msg = generate_message(
-            Some(GroupMessageKind::Application),
-            Some(&group.id),
-            Some(1_000),
-            Some(ContentType::Text),
-            None,
-        );
+            let earlier_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
 
-        let later_msg = generate_message(
-            Some(GroupMessageKind::Application),
-            Some(&group.id),
-            Some(10_000),
-            Some(ContentType::Text),
-            None,
-        );
+            let later_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(10_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
 
-        assert_ok!(
-            vec![
-                group_updated_msg.clone(),
-                earlier_msg.clone(),
-                later_msg.clone()
-            ]
-            .store(conn)
-        );
+            assert_ok!(
+                vec![
+                    group_updated_msg.clone(),
+                    earlier_msg.clone(),
+                    later_msg.clone()
+                ]
+                .store(conn)
+            );
 
-        // Ascending order: GroupUpdated should be at position 0
-        let messages_asc = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    direction: Some(SortDirection::Ascending),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+            // Ascending order: GroupUpdated should be at position 0
+            let messages_asc = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        direction: Some(SortDirection::Ascending),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
 
-        assert_eq!(messages_asc.len(), 3);
-        assert_eq!(messages_asc[0].content_type, ContentType::GroupUpdated);
-        assert_eq!(messages_asc[1].sent_at_ns, 1_000);
-        assert_eq!(messages_asc[2].sent_at_ns, 10_000);
+            assert_eq!(messages_asc.len(), 3);
+            assert_eq!(messages_asc[0].content_type, ContentType::GroupUpdated);
+            assert_eq!(messages_asc[1].sent_at_ns, 1_000);
+            assert_eq!(messages_asc[2].sent_at_ns, 10_000);
 
-        // Descending order: GroupUpdated should be at the end
-        let messages_desc = conn
-            .get_group_messages(
-                &group.id,
-                &MsgQueryArgs {
-                    direction: Some(SortDirection::Descending),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+            // Descending order: GroupUpdated should be at the end
+            let messages_desc = conn
+                .get_group_messages(
+                    &group.id,
+                    &MsgQueryArgs {
+                        direction: Some(SortDirection::Descending),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
 
-        assert_eq!(messages_desc.len(), 3);
-        assert_eq!(messages_desc[0].sent_at_ns, 10_000);
-        assert_eq!(messages_desc[1].sent_at_ns, 1_000);
-        assert_eq!(messages_desc[2].content_type, ContentType::GroupUpdated);
-    })
+            assert_eq!(messages_desc.len(), 3);
+            assert_eq!(messages_desc[0].sent_at_ns, 10_000);
+            assert_eq!(messages_desc[1].sent_at_ns, 1_000);
+            assert_eq!(messages_desc[2].content_type, ContentType::GroupUpdated);
+        },
+    )
+    .await
+}
+
+#[xmtp_common::test]
+async fn test_get_latest_sequence_id_for_group() {
+    with_connection(
+        |conn: &DbConnection<
+            std::sync::Arc<
+                crate::PersistentOrMem<crate::NativeDbConnection, crate::EphemeralDbConnection>,
+            >,
+        >| {
+            let group = generate_group(None);
+            group.store(conn).unwrap();
+
+            // Insert one GroupUpdated message and two normal messages
+            let group_updated_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(5_000),
+                Some(ContentType::GroupUpdated),
+                None,
+                None,
+            );
+
+            let earlier_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(1_000),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+
+            let later_msg = generate_message(
+                Some(GroupMessageKind::Application),
+                Some(&group.id),
+                Some(10_000),
+                Some(ContentType::Text),
+                None,
+                Some(7),
+            );
+
+            assert_ok!(
+                vec![
+                    group_updated_msg.clone(),
+                    earlier_msg.clone(),
+                    later_msg.clone()
+                ]
+                .store(conn)
+            );
+
+            let latest = conn.get_latest_sequence_id_for_group(&group.id).unwrap();
+            assert_eq!(latest, Some(7));
+        },
+    )
     .await
 }

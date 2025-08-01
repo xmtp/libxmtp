@@ -123,14 +123,17 @@ where
     }
 }
 
-
 #[derive(Clone, Debug, Default)]
 pub(super) struct GroupList {
     list: HashMap<GroupId, MessagePosition>,
 }
 
 impl GroupList {
-    pub(super) async fn new<C>(list: Vec<GroupId>, api: &impl Api, db: &impl QueryGroupMessage<C>) -> Result<Self, SubscribeError>
+    pub(super) async fn new<C>(
+        list: Vec<GroupId>,
+        api: &impl Api,
+        db: &impl QueryGroupMessage<C>,
+    ) -> Result<Self, SubscribeError>
     where
         C: xmtp_db::ConnectionExt,
     {

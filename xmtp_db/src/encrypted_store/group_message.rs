@@ -262,7 +262,10 @@ impl MsgQueryArgs {
 }
 
 pub trait QueryGroupMessage<C: ConnectionExt> {
-    fn get_latest_sequence_id_for_group(&self, group_id: &[u8]) -> Result<Option<i64>, crate::ConnectionError>;
+    fn get_latest_sequence_id_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError>;
     /// Query for group messages
     fn get_group_messages(
         &self,
