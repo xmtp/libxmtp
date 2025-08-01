@@ -1,4 +1,5 @@
 use crate::{
+    GroupCommitLock, StorageError, XmtpApi,
     client::{Client, DeviceSync},
     context::XmtpMlsLocalContext,
     groups::{
@@ -9,11 +10,10 @@ use crate::{
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
     track,
-    utils::{events::EventWorker, VersionInfo},
+    utils::{VersionInfo, events::EventWorker},
     worker::WorkerRunner,
-    GroupCommitLock, StorageError, XmtpApi,
 };
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::debug;
@@ -22,9 +22,9 @@ use xmtp_common::Retry;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{
-    events::{Events, EVENTS_ENABLED},
-    sql_key_store::SqlKeyStore,
     XmtpDb,
+    events::{EVENTS_ENABLED, Events},
+    sql_key_store::SqlKeyStore,
 };
 use xmtp_id::scw_verifier::RemoteSignatureVerifier;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;

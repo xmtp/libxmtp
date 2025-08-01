@@ -16,12 +16,12 @@ use std::{
     collections::VecDeque,
     future::Future,
     pin::Pin,
-    task::{ready, Poll},
+    task::{Poll, ready},
 };
 
 use super::{
-    process_message::{ProcessFutureFactory, ProcessMessageFuture},
     Result, SubscribeError,
+    process_message::{ProcessFutureFactory, ProcessMessageFuture},
 };
 use crate::{
     context::XmtpSharedContext, groups::MlsGroup, subscriptions::process_message::ProcessedMessage,
@@ -29,12 +29,12 @@ use crate::{
 use futures::Stream;
 use pin_project_lite::pin_project;
 use xmtp_api::GroupFilter;
-use xmtp_common::types::GroupId;
 use xmtp_common::FutureWrapper;
+use xmtp_common::types::GroupId;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::{
     api_client::XmtpMlsStreams,
-    xmtp::mls::api::v1::{group_message, GroupMessage},
+    xmtp::mls::api::v1::{GroupMessage, group_message},
 };
 
 impl xmtp_common::RetryableError for MessageStreamError {
@@ -292,7 +292,10 @@ where
                 r
             }
             Processing { message, .. } => {
-                tracing::trace!("stream messages in processing state. Processing future for envelope @cursor=[{}]", message);
+                tracing::trace!(
+                    "stream messages in processing state. Processing future for envelope @cursor=[{}]",
+                    message
+                );
                 let r = self.as_mut().resolve_futures(cx);
                 match r {
                     Poll::Ready(Some(_)) => {
@@ -384,9 +387,7 @@ where
                     "stream started @[{}] has cursor@[{}] for group_id@[{}], skipping messages for msg with cursor@[{}]",
                     position.started(),
                     position.last_streamed(),
-                    xmtp_common::fmt::truncate_hex(hex::encode(
-                        next_msg.group_id.as_slice()
-                    )),
+                    xmtp_common::fmt::truncate_hex(hex::encode(next_msg.group_id.as_slice())),
                     next_msg.id,
                 );
                 next_msg = ready!(self.as_mut().skip(cx, next_msg))?;

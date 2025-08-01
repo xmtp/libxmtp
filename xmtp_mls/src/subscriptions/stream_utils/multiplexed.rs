@@ -2,7 +2,7 @@
 
 use std::{pin::Pin, task::Poll};
 
-use futures::{stream::FusedStream, Stream};
+use futures::{Stream, stream::FusedStream};
 use pin_project_lite::pin_project;
 use std::task::Context;
 

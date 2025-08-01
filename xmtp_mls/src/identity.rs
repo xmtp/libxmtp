@@ -5,21 +5,21 @@ use crate::configuration::{
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
-use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use openmls::prelude::hash_ref::HashReference;
+use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
 use openmls::prelude::HpkeKeyPair;
+use openmls::prelude::hash_ref::HashReference;
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
+    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
     key_packages::KeyPackage,
     messages::proposals::ProposalType,
-    prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
+    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
 };
 use openmls_libcrux_crypto::Provider as LibcruxProvider;
 use openmls_traits::{
-    crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError, OpenMlsProvider,
+    OpenMlsProvider, crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError,
 };
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,27 +30,28 @@ use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
 use xmtp_common::types::InstallationId;
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{
-        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key, MemberIdentifier,
-    },
     InboxId, InboxIdRef,
+    associations::{
+        MemberIdentifier,
+        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
+        sign_with_legacy_key,
+    },
 };
 use xmtp_mls_common::config::{
     GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
@@ -91,7 +92,7 @@ impl IdentityStrategy {
     pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
         use IdentityStrategy::*;
         match self {
-            CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
+            CreateIfNotFound { inbox_id, .. } => Some(inbox_id),
             _ => None,
         }
     }
@@ -238,7 +239,9 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
-    #[error("Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first.")]
+    #[error(
+        "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
+    )]
     TooManyInstallations {
         inbox_id: String,
         count: usize,
@@ -669,9 +672,9 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub(crate) async fn queue_key_rotation<C: ConnectionExt>(
+    pub(crate) async fn queue_key_rotation(
         &self,
-        conn: &impl DbQuery<C>,
+        conn: &impl DbQuery,
     ) -> Result<(), IdentityError> {
         conn.queue_key_package_rotation()?;
         tracing::info!("Last key package not ready for rotation, queued for rotation");
@@ -855,19 +858,19 @@ mod tests {
         verified_key_package_v2::VerifiedKeyPackageV2,
     };
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
-    use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+    use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
     use xmtp_db::{
+        MlsProviderExt,
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-        MlsProviderExt,
     };
     use xmtp_mls_common::group::DMMetadataOptions;
     use xmtp_proto::mls_v1::welcome_message::{
-        Version as WelcomeMessageVersion, V1 as WelcomeMessageV1,
+        V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
     };
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
