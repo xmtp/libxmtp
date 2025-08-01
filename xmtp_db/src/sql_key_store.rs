@@ -14,6 +14,8 @@ use diesel::{
 use openmls_traits::storage::*;
 use serde::Serialize;
 
+#[cfg(any(feature = "test-utils", test))]
+pub mod mock;
 mod transactions;
 
 const SELECT_QUERY: &str =

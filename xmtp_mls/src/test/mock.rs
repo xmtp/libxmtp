@@ -20,13 +20,18 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_api::test_utils::MockApiClient;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::XmtpDb;
+use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;
 pub use generate::*;
+mod openmls_mock;
+pub use openmls_mock::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
+pub type MockStoreAndContext =
+    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
 pub type MockContext = Arc<
     XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>,
 >;
