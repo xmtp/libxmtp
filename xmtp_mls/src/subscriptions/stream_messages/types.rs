@@ -80,27 +80,22 @@ impl std::fmt::Display for MessagePosition {
 
 pub(super) trait Api {
     /// get the latest message for a cursor
-    async fn query_latest_position<C>(
+    async fn query_latest_position(
         &self,
         group: &GroupId,
-        db: &impl QueryGroupMessage<C>,
-    ) -> Result<MessagePosition, SubscribeError>
-    where
-        C: xmtp_db::ConnectionExt;
+        db: &impl QueryGroupMessage,
+    ) -> Result<MessagePosition, SubscribeError>;
 }
 
 impl<A> Api for ApiClientWrapper<A>
 where
     A: XmtpApi,
 {
-    async fn query_latest_position<C>(
+    async fn query_latest_position(
         &self,
         group: &GroupId,
-        db: &impl QueryGroupMessage<C>,
-    ) -> Result<MessagePosition, SubscribeError>
-    where
-        C: xmtp_db::ConnectionExt,
-    {
+        db: &impl QueryGroupMessage,
+    ) -> Result<MessagePosition, SubscribeError> {
         // Try from DB
         if let Ok(Some(cursor)) = db.get_latest_sequence_id_for_group(group) {
             tracing::debug!(
@@ -130,14 +125,11 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) async fn new<C>(
+    pub(super) async fn new(
         list: Vec<GroupId>,
         api: &impl Api,
-        db: &impl QueryGroupMessage<C>,
-    ) -> Result<Self, SubscribeError>
-    where
-        C: xmtp_db::ConnectionExt,
-    {
+        db: &impl QueryGroupMessage,
+    ) -> Result<Self, SubscribeError> {
         let list = stream::iter(list)
             .map(|group| async {
                 let position = api.query_latest_position(&group, db).await?;

@@ -13,7 +13,7 @@ use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
 use xmtp_common::FutureWrapper;
 use xmtp_common::types::GroupId;
-use xmtp_db::mock::MockDbQuery;
+
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
 
 pin_project! {

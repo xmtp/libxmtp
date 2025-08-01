@@ -337,6 +337,13 @@ impl<T> QueryGroupMessage for &T
 where
     T: QueryGroupMessage,
 {
+    fn get_latest_sequence_id_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i64>, crate::ConnectionError> {
+        (**self).get_latest_sequence_id_for_group(group_id)
+    }
+
     /// Query for group messages
     fn get_group_messages(
         &self,
