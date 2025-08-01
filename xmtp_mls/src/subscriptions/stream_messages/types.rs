@@ -79,7 +79,7 @@ impl std::fmt::Display for MessagePosition {
 }
 
 pub(super) trait Api {
-    /// existing method: pure network
+    /// get the latest message for a cursor
     async fn query_latest_position<C>(
         &self,
         group: &GroupId,
@@ -118,7 +118,8 @@ where
             let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
             Ok(MessagePosition::new(cursor, cursor))
         } else {
-            Ok(MessagePosition::new(0, 0)) // nothing yet
+            // there is no cursor for this group yet
+            Ok(MessagePosition::new(0, 0))
         }
     }
 }

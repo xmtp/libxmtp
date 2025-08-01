@@ -676,11 +676,11 @@ impl<C: ConnectionExt> QueryGroupMessage<C> for DbConnection<C> {
                 .filter(dsl::group_id.eq(group_id))
                 .filter(dsl::sequence_id.is_not_null())
                 .select(dsl::sequence_id)
-                .order((dsl::sequence_id.desc(), dsl::sent_at_ns.desc()))
+                .order(dsl::sequence_id.desc())
                 .limit(1)
                 .first::<Option<i64>>(conn)
                 .optional()
-                .map(|opt| opt.flatten()) // Option<Option<i64>> → Option<i64>
+                .map(|opt| opt.flatten())
         })
     }
 }
