@@ -6,7 +6,6 @@ use std::task::{Context, Poll};
 
 use crate::subscriptions::process_message::ProcessedMessage;
 use crate::test::mock::{MockContext, MockProcessFutureFactory, NewMockContext};
-use xmtp_db::mock::MockDbQuery;
 use crate::test::mock::{context, generate_message, generate_message_and_v1, generate_stored_msg};
 use mockall::Sequence;
 use parking_lot::Mutex;
@@ -14,6 +13,7 @@ use pin_project_lite::pin_project;
 use xmtp_api::test_utils::MockGroupStream;
 use xmtp_common::FutureWrapper;
 use xmtp_common::types::GroupId;
+use xmtp_db::mock::MockDbQuery;
 use xmtp_proto::mls_v1::QueryGroupMessagesResponse;
 
 pin_project! {
@@ -344,7 +344,7 @@ impl StreamSequenceBuilder {
 
     fn create_session(&mut self, groups: Vec<GroupTestCase>) {
         let times = groups.len();
-        
+
         // Set up expectations for query_group_messages for the new groups
         self.context
             .api_client
@@ -358,7 +358,7 @@ impl StreamSequenceBuilder {
                     paging_info: None,
                 })
             });
-        
+
         self.context
             .api_client
             .api_client

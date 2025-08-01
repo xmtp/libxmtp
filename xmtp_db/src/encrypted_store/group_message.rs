@@ -266,7 +266,7 @@ pub trait QueryGroupMessage {
         &self,
         group_id: &[u8],
     ) -> Result<Option<i64>, crate::ConnectionError>;
-    
+
     /// Query for group messages
     fn get_group_messages(
         &self,
