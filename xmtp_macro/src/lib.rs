@@ -35,9 +35,17 @@ pub fn test(
     let test_attrs = if is_async {
         let flavor = attributes.flavor();
 
-        quote! {
-            #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor))]
-            #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
+        if &flavor.value() != "current_thread" {
+            let workers = attributes.worker_threads();
+            quote! {
+                #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor, worker_threads = #workers))]
+                #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
+            }
+        } else {
+            quote! {
+                #[cfg_attr(not(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"))), tokio::test(flavor = #flavor))]
+                #[cfg_attr(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")), wasm_bindgen_test::wasm_bindgen_test)]
+            }
         }
     } else {
         quote! {
@@ -126,6 +134,7 @@ fn transform_question_marks(tokens: proc_macro::TokenStream) -> proc_macro::Toke
 struct Attributes {
     r#async: bool,
     flavor: Option<syn::LitStr>,
+    worker_threads: Option<syn::LitInt>,
     unwrap_try: Option<syn::LitBool>,
 }
 
@@ -140,6 +149,16 @@ impl Attributes {
     fn unwrap_try(&self) -> bool {
         self.unwrap_try.as_ref().is_some_and(|v| v.value())
     }
+
+    fn worker_threads(&self) -> syn::LitInt {
+        self.worker_threads
+            .as_ref()
+            .cloned()
+            .unwrap_or(syn::LitInt::new(
+                &num_cpus::get().to_string(),
+                Span::call_site(),
+            ))
+    }
 }
 
 impl Attributes {
@@ -149,6 +168,9 @@ impl Attributes {
             return Ok(());
         } else if meta.path.is_ident("flavor") {
             self.flavor = Some(meta.value()?.parse()?);
+            return Ok(());
+        } else if meta.path.is_ident("worker_threads") {
+            self.worker_threads = Some(meta.value()?.parse()?);
             return Ok(());
         } else if meta.path.is_ident("unwrap_try") {
             self.unwrap_try = Some(meta.value()?.parse()?);

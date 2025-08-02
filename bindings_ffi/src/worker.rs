@@ -14,7 +14,10 @@ impl FfiSyncWorker {
             return Ok(());
         };
 
-        handle.wait(metric.into(), count as usize).await?;
+        handle
+            .register_interest(metric.into(), count as usize)
+            .wait()
+            .await?;
 
         Ok(())
     }

@@ -85,7 +85,10 @@ where
         self: &Arc<XmtpMlsLocalContext<ApiClient, Db, S>>,
     ) -> DeviceSyncClient<Arc<Self>> {
         let metrics = self.sync_metrics();
-        DeviceSyncClient::new(Arc::clone(self), metrics.unwrap_or_default())
+        DeviceSyncClient::new(
+            Arc::clone(self),
+            metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.installation_id()))),
+        )
     }
 }
 

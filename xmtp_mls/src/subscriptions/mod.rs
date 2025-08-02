@@ -60,7 +60,7 @@ pub enum LocalEvents {
     PreferencesChanged(Vec<PreferenceUpdate>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum SyncWorkerEvent {
     NewSyncGroupFromWelcome(Vec<u8>),
     NewSyncGroupMsg,
@@ -71,6 +71,28 @@ pub enum SyncWorkerEvent {
     // TODO: Device Sync V1 below - Delete when V1 is deleted
     Request { message_id: Vec<u8> },
     Reply { message_id: Vec<u8> },
+}
+
+impl std::fmt::Debug for SyncWorkerEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NewSyncGroupFromWelcome(arg0) => f
+                .debug_tuple("NewSyncGroupFromWelcome")
+                .field(&hex::encode(arg0))
+                .finish(),
+            Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
+            Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
+            Self::CycleHMAC => write!(f, "CycleHMAC"),
+            Self::Request { message_id } => f
+                .debug_struct("Request")
+                .field("message_id", message_id)
+                .finish(),
+            Self::Reply { message_id } => f
+                .debug_struct("Reply")
+                .field("message_id", message_id)
+                .finish(),
+        }
+    }
 }
 
 impl LocalEvents {

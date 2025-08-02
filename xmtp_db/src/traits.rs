@@ -77,6 +77,7 @@ pub trait DbQuery:
     + QueryIdentityUpdates
     + QueryLocalCommitLog
     + QueryAssociationStateCache
+    + CheckPragmas
     + crate::ConnectionExt
 {
 }
@@ -99,6 +100,7 @@ impl<T: ?Sized> DbQuery for T where
         + QueryIdentityUpdates
         + QueryLocalCommitLog
         + QueryAssociationStateCache
+        + CheckPragmas
         + crate::ConnectionExt
 {
 }

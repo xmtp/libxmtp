@@ -30,19 +30,19 @@ impl Opfs {
 
   #[wasm_bindgen(js_name = "wipeFiles")]
   pub async fn wipe_files() -> Result<(), JsError> {
-    opfs_op_async(move |u| async move { u.wipe_files().await }).await
+    opfs_op_async(move |u| async move { u.clear_all().await }).await
   }
 
   /// If a virtual file exists with the given name, disassociates it from the pool and returns true, else returns false without side effects.
   #[wasm_bindgen]
   pub fn rm(name: &str) -> Result<bool, JsError> {
-    opfs_op(|u| u.unlink(name))
+    opfs_op(|u| u.delete_db(name))
   }
 
   /// list files in current pool
   #[wasm_bindgen(js_name = "getFileNames")]
   pub fn ls() -> Vec<String> {
-    opfs_op(|u| Ok(u.get_file_names())).expect("get_file_names is infallible")
+    opfs_op(|u| Ok(u.list())).expect("get_file_names is infallible")
   }
 
   /// import a db file at 'path'
@@ -54,13 +54,13 @@ impl Opfs {
   /// export db file with 'name'
   #[wasm_bindgen(js_name = "exportFile")]
   pub fn export_file(name: &str) -> Result<Vec<u8>, JsError> {
-    opfs_op(|u| u.export_file(name))
+    opfs_op(|u| u.export_db(name))
   }
 
   /// get number of files in pool
   #[wasm_bindgen(js_name = "getFileCount")]
   pub fn get_file_count() -> u32 {
-    opfs_op(|u| Ok(u.get_file_count())).expect("get_file_count is infallible")
+    opfs_op(|u| Ok(u.count())).expect("get_file_count is infallible")
   }
 
   #[wasm_bindgen(js_name = "getCapacity")]

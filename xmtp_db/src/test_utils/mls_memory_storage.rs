@@ -70,16 +70,9 @@ impl MemoryStorage {
 }
 
 impl ConnectionExt for MemoryStorage {
-    type Connection = diesel::SqliteConnection;
-
-    // mls memory storage does not do transactions
-    fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
-        panic!("memory storage cannot start txs")
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut c = self.inner.lock();
@@ -88,15 +81,11 @@ impl ConnectionExt for MemoryStorage {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut c = self.inner.lock();
         Ok(fun(&mut c)?)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        false
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {

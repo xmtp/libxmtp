@@ -25,6 +25,7 @@ pub mod identity_cache;
 pub mod identity_update;
 pub mod key_package_history;
 pub mod key_store_entry;
+pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod refresh_state;
 pub mod schema;
@@ -36,25 +37,22 @@ pub mod local_commit_log;
 pub mod remote_commit_log;
 
 pub use self::db_connection::DbConnection;
+use diesel::result::DatabaseErrorKind;
 pub use diesel::sqlite::{Sqlite, SqliteConnection};
 use openmls::storage::OpenMlsProvider;
 use prost::DecodeError;
-use xmtp_common::{RetryableError, retryable};
+use xmtp_common::RetryableError;
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
-use crate::{Store, TransactionalKeyStore, XmtpMlsStorageProvider};
+use crate::{Store, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
 
-use diesel::connection::SimpleConnection;
-use diesel::{connection::LoadConnection, migration::MigrationConnection, prelude::*, sql_query};
+use diesel::{prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub type EncryptionKey = [u8; 32];
@@ -66,21 +64,19 @@ struct SqliteVersion {
     version: String,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, zeroize::ZeroizeOnDrop)]
 pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
 }
 
-#[derive(Clone)]
-pub struct TransactionGuard {
-    pub(crate) in_transaction: Arc<AtomicBool>,
-}
-
-impl Drop for TransactionGuard {
-    fn drop(&mut self) {
-        self.in_transaction.store(false, Ordering::SeqCst);
+impl std::fmt::Display for StorageOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageOption::Ephemeral => write!(f, "Ephemeral"),
+            StorageOption::Persistent(path) => write!(f, "Persistent({})", path),
+        }
     }
 }
 
@@ -101,8 +97,8 @@ pub enum ConnectionError {
 impl RetryableError for ConnectionError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Database(d) => retryable!(d),
-            Self::Platform(n) => retryable!(n),
+            Self::Database(d) => d.is_retryable(),
+            Self::Platform(n) => n.is_retryable(),
             Self::DecodeError(_) => false,
             Self::DisconnectInTransaction => true,
             Self::ReconnectInTransaction => true,
@@ -111,33 +107,18 @@ impl RetryableError for ConnectionError {
 }
 
 pub trait ConnectionExt {
-    type Connection: diesel::Connection<Backend = Sqlite>
-        + diesel::connection::SimpleConnection
-        + LoadConnection
-        + MigrationConnection
-        + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
-        + TransactionalKeyStore
-        + Send;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
-
-    /// Run a scoped read-only query
-    /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized;
 
     /// Run a scoped write-only query
-    /// Implementors are expected to store an instance of 'TransactionGuard'
     /// in order to track transaction context
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized;
-
-    fn is_in_transaction(&self) -> bool;
 
     fn disconnect(&self) -> Result<(), ConnectionError>;
     fn reconnect(&self) -> Result<(), ConnectionError>;
@@ -147,15 +128,9 @@ impl<C> ConnectionExt for &C
 where
     C: ConnectionExt,
 {
-    type Connection = <C as ConnectionExt>::Connection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_read(self, fun)
@@ -163,14 +138,10 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -186,15 +157,9 @@ impl<C> ConnectionExt for &mut C
 where
     C: ConnectionExt,
 {
-    type Connection = <C as ConnectionExt>::Connection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_read(self, fun)
@@ -202,14 +167,10 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -225,15 +186,9 @@ impl<C> ConnectionExt for Arc<C>
 where
     C: ConnectionExt,
 {
-    type Connection = <C as ConnectionExt>::Connection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        <C as ConnectionExt>::start_transaction(self)
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_read(self, fun)
@@ -241,14 +196,10 @@ where
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         <C as ConnectionExt>::raw_query_write(self, fun)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        <C as ConnectionExt>::is_in_transaction(self)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -274,10 +225,14 @@ pub trait XmtpDb: Send + Sync {
 
     type DbQuery: crate::DbQuery + Send + Sync;
 
-    fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
-        self.validate(opts)?;
+    fn init(&self) -> Result<(), ConnectionError> {
         self.conn().raw_query_write(|conn| {
-            conn.batch_execute("PRAGMA journal_mode = WAL;")?;
+            self.validate(conn).map_err(|e| {
+                diesel::result::Error::DatabaseError(
+                    DatabaseErrorKind::Unknown,
+                    Box::new(e.to_string()),
+                )
+            })?;
             conn.run_pending_migrations(MIGRATIONS)
                 .map_err(diesel::result::Error::QueryBuilderError)?;
 
@@ -295,7 +250,7 @@ pub trait XmtpDb: Send + Sync {
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected
-    fn validate(&self, _opts: &StorageOption) -> Result<(), ConnectionError> {
+    fn validate(&self, _conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
         Ok(())
     }
 
@@ -480,7 +435,13 @@ pub(crate) mod tests {
         let db = wasm::WasmDb::new(&opts).await.unwrap();
 
         let store = EncryptedMessageStore { db };
-        store.db.validate(&opts).unwrap();
+        store
+            .conn()
+            .raw_query_read(|c| {
+                store.db.validate(c).unwrap();
+                Ok(())
+            })
+            .unwrap();
 
         store
             .conn()

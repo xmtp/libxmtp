@@ -270,7 +270,10 @@ where
 
     pub fn device_sync_client(&self) -> DeviceSyncClient<Context> {
         let metrics = self.context.workers().sync_metrics();
-        DeviceSyncClient::new(self.context.clone(), metrics.unwrap_or_default())
+        DeviceSyncClient::new(
+            self.context.clone(),
+            metrics.unwrap_or(Arc::new(WorkerMetrics::new(self.context.installation_id()))),
+        )
     }
 
     /// Calls the server to look up the `inbox_id` associated with a given identifier
@@ -1160,7 +1163,7 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
-    #[xmtp_common::test(flavor = "multi_thread")]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_sync_all_groups() {
         let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
@@ -1204,11 +1207,7 @@ pub(crate) mod tests {
         assert_eq!(bo_messages2.len(), 2);
     }
 
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 2)
-    )]
+    #[xmtp_common::test(flavor = "multi_thread")]
     async fn test_sync_all_groups_and_welcomes() {
         tester!(alix);
         tester!(bo, passkey);

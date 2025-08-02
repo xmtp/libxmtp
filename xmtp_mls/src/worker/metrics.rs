@@ -1,10 +1,11 @@
-use futures::stream::FuturesUnordered;
+use futures::FutureExt;
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
     fmt::Debug,
     future::Future,
     hash::Hash,
+    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -12,77 +13,140 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
-use tokio_stream::StreamExt;
+use xmtp_common::types::InstallationId;
+
+pub struct MetricInterest<Metric> {
+    fut: Pin<Box<dyn Future<Output = ()> + Send>>,
+    count: usize,
+    info: Info,
+    metric: Metric,
+}
+
+impl<Metric> MetricInterest<Metric>
+where
+    Metric: Debug,
+{
+    /// Wait for a metric to be resolved
+    pub async fn wait(self) -> Result<(), xmtp_common::time::Expired> {
+        let Self {
+            fut,
+            count,
+            info,
+            metric,
+        } = self;
+
+        let secs = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
+        let result = xmtp_common::time::timeout(Duration::from_secs(secs), fut).await;
+        tracing::info!(
+            "[{}] succesfully waited for {metric:?}, {:?}",
+            hex::encode(info.installation_id),
+            result
+        );
+        if info.count() >= count {
+            return Ok(());
+        }
+        tracing::error!(
+            "Timed out waiting for {:?} to be >= {}. Value: {}",
+            metric,
+            count,
+            info.count()
+        );
+        result
+    }
+}
+
+/// Information and interest in a specific metric
+#[derive(Debug, Clone)]
+struct Info {
+    count: Arc<AtomicUsize>,
+    // each Notify is a task waiting on this metric to be incremented
+    notify: Arc<Notify>,
+    installation_id: InstallationId,
+}
+
+impl Info {
+    fn new(installation_id: InstallationId) -> Self {
+        Self {
+            count: Arc::new(AtomicUsize::default()),
+            notify: Arc::new(Notify::new()),
+            installation_id,
+        }
+    }
+
+    fn count(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    fn increment(&self) {
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn clear(&self) {
+        self.count.store(0, Ordering::SeqCst)
+    }
+
+    // Registers interest in the next time this event is fired.
+    // Returns a future that resolves when this event resolves
+    fn register_interest(&self) -> impl Future<Output = ()> + 'static {
+        Notify::notified_owned(self.notify.clone())
+    }
+
+    fn fire(&self) {
+        self.notify.notify_waiters();
+    }
+}
 
 #[derive(Debug)]
 pub struct WorkerMetrics<Metric> {
-    metrics: Mutex<HashMap<Metric, Arc<AtomicUsize>>>,
-    notify: Notify,
-}
-
-impl<Metric> Default for WorkerMetrics<Metric>
-where
-    Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
-{
-    fn default() -> Self {
-        Self::new()
-    }
+    metrics: Mutex<HashMap<Metric, Info>>,
+    installation_id: InstallationId,
 }
 
 impl<Metric> WorkerMetrics<Metric>
 where
     Metric: PartialEq + Eq + Hash + Clone + Copy + Debug,
 {
-    pub fn new() -> Self {
+    pub fn new(installation_id: InstallationId) -> Self {
         Self {
             metrics: Mutex::default(),
-            notify: Notify::new(),
+            installation_id,
         }
     }
 
+    fn info(&self, metric: Metric) -> Info {
+        self.metrics
+            .lock()
+            .entry(metric)
+            .or_insert(Info::new(self.installation_id))
+            .clone()
+    }
+
     pub fn get(&self, metric: Metric) -> usize {
-        let mut lock = self.metrics.lock();
-        let atomic = lock.entry(metric).or_default();
-        atomic.load(Ordering::SeqCst)
+        self.info(metric).count()
     }
 
     pub(crate) fn increment_metric(&self, metric: Metric) {
-        let mut lock = self.metrics.lock();
-        let atomic = lock.entry(metric).or_default();
-        atomic.fetch_add(1, Ordering::SeqCst);
-        self.notify.notify_waiters();
+        self.info(metric).increment();
+        tracing::info!("[{}] firing {metric:?}", hex::encode(self.installation_id));
+        self.info(metric).fire();
     }
 
     pub fn reset_metrics(&self) {
         *self.metrics.lock() = HashMap::new();
     }
 
-    /// Blocks until metric's specified count is met
-    pub async fn wait(
-        &self,
-        metric_key: Metric,
-        count: usize,
-    ) -> Result<(), xmtp_common::time::Expired> {
-        let metric = self.metrics.lock().entry(metric_key).or_default().clone();
-
-        let secs = if cfg!(target_arch = "wasm32") { 15 } else { 5 };
-        let result = xmtp_common::time::timeout(Duration::from_secs(secs), async {
-            loop {
-                if metric.load(Ordering::SeqCst) >= count {
-                    return;
-                }
-                self.notify.notified().await;
-            }
-        })
-        .await;
-
-        let val = metric.load(Ordering::SeqCst);
-        if val >= count {
-            return Ok(());
+    /// Register interest in a metric at a certain 'count'.
+    /// Returns a MetricInterest type that can be used to wait for the metric to reach these
+    /// parameters
+    pub fn register_interest(&self, metric_key: Metric, count: usize) -> MetricInterest<Metric> {
+        tracing::info!("registering interest in {metric_key:?}");
+        let info = self.info(metric_key);
+        MetricInterest {
+            fut: info.register_interest().boxed(),
+            count,
+            info: self.info(metric_key),
+            metric: metric_key,
         }
-        tracing::error!("Timed out waiting for {metric_key:?} to be >= {count}. Value: {val}");
-
-        result
     }
 
     pub async fn do_until<F, Fut>(
@@ -95,9 +159,14 @@ where
         F: Fn() -> Fut,
         Fut: Future<Output = ()>,
     {
-        let metric = self.metrics.lock().entry(metric).or_default().clone();
+        let info = {
+            let mut m = self.metrics.lock();
+            m.entry(metric)
+                .or_insert(Info::new(self.installation_id))
+                .clone()
+        };
         xmtp_common::time::timeout(Duration::from_secs(20), async {
-            while metric.load(Ordering::SeqCst) < count {
+            while info.count() < count {
                 f().await;
                 xmtp_common::task::yield_now().await;
             }
@@ -109,34 +178,7 @@ where
         self.metrics
             .lock()
             .entry(metric)
-            .or_default()
-            .store(0, Ordering::SeqCst);
-    }
-}
-
-#[async_trait::async_trait(?Send)]
-pub trait WorkHandleCollection<Metric> {
-    /// Blocks until a metrics specified count is met in at least one handle.
-    /// Useful when testing several clients, and you need at least one of them to do a job.
-    #[allow(unused)]
-    async fn wait_one(&self, metric: Metric, count: usize);
-}
-
-#[async_trait::async_trait(?Send)]
-impl<Metric> WorkHandleCollection<Metric> for Vec<&WorkerMetrics<Metric>>
-where
-    Metric: PartialEq + Eq + Hash + Clone + Copy,
-{
-    async fn wait_one(&self, metric: Metric, count: usize) {
-        let metrics: Vec<Arc<AtomicUsize>> = self
-            .iter()
-            .map(|h| h.metrics.lock().entry(metric).or_default().clone())
-            .collect();
-
-        while !metrics.iter().any(|m| m.load(Ordering::SeqCst) >= count) {
-            let mut notify: FuturesUnordered<_> =
-                self.iter().map(|h| h.notify.notified()).collect();
-            notify.next().await;
-        }
+            .or_insert(Info::new(self.installation_id))
+            .clear();
     }
 }

@@ -2,7 +2,6 @@ use crate::ConnectionExt;
 use crate::MlsProviderExt;
 use crate::TransactionalKeyStore;
 use crate::sql_key_store::SqlKeyStoreError;
-// use crate::sql_key_store::XmtpMlsTransactionProvider;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::storage::CURRENT_VERSION;
@@ -20,15 +19,28 @@ pub trait XmtpMlsStorageProvider:
     /// An Opaque Database connection type. Can be anything.
     type Connection: ConnectionExt;
 
+    type TxQuery: TransactionalKeyStore;
+
     type DbQuery<'a>: crate::DbQuery
     where
         Self::Connection: 'a;
 
-    type TxQuery: TransactionalKeyStore;
-
     fn db<'a>(&'a self) -> Self::DbQuery<'a>;
 
+    /// Start a savepoint within a transaction
+    /// Must only be used when already in a transaction
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;
+
+    /// Start a savepoint within a transaction
+    /// Must only be used when already in a transaction
+    // TODO: enforce that this is only used within transactions
+    // otherwise we run into sqlite race conditions b/c this does not
+    // use BEGIN IMMEDIATE.
+    // we can ensure this by checking sqlite transaction depth.
+    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error;

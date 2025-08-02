@@ -850,7 +850,7 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let metrics = WorkerMetrics::default();
+            let metrics = WorkerMetrics::new(client.context.installation_id());
             let device_sync = DeviceSyncClient::new(&client.context, Arc::new(metrics));
             device_sync.wait_for_sync_worker_init().await;
 

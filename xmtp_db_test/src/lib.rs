@@ -88,7 +88,7 @@ where
         Arc<chaos::ChaosConnection<<Db as XmtpDb>::Connection>>,
         xmtp_db::store::EncryptedMessageStore<ChaosDb<Db>>,
     ) {
-        self.db.init(self.db.opts()).unwrap();
+        self.db.init().unwrap();
         let conn = chaos::ChaosConnection::builder()
             .db(self.db.conn())
             // if we dont set frequency here, the chaos builder itself might fail building

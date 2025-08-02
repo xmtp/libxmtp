@@ -2,23 +2,19 @@ use crate::association_state::QueryAssociationStateCache;
 use crate::group::ConversationType;
 use crate::local_commit_log::LocalCommitLog;
 use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use diesel::prelude::SqliteConnection;
 use mockall::mock;
 use parking_lot::Mutex;
 
-use crate::{ConnectionError, ConnectionExt, TransactionGuard};
+use crate::{ConnectionError, ConnectionExt};
 pub type MockDb = MockDbQuery;
 
 #[derive(Clone)]
 pub struct MockConnection {
     inner: Arc<Mutex<SqliteConnection>>,
-    in_transaction: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for MockConnection {
@@ -35,19 +31,9 @@ impl AsRef<MockConnection> for MockConnection {
 
 // TODO: We should use diesels test transaction
 impl ConnectionExt for MockConnection {
-    type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<crate::TransactionGuard, crate::ConnectionError> {
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.inner.lock();
@@ -56,15 +42,11 @@ impl ConnectionExt for MockConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.inner.lock();
         fun(&mut conn).map_err(ConnectionError::from)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
@@ -553,20 +535,18 @@ mock! {
             identifiers: Vec<(String, i64)>,
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
     }
+
+    impl CheckPragmas for DbQuery {
+        fn busy_timeout(
+            &self,
+        ) -> Result<i32, crate::ConnectionError>;
+    }
 }
 
 impl ConnectionExt for MockDbQuery {
-    type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        Ok(TransactionGuard {
-            in_transaction: Arc::new(AtomicBool::new(true)),
-        })
-    }
-
     fn raw_query_read<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         todo!()
@@ -574,7 +554,7 @@ impl ConnectionExt for MockDbQuery {
 
     fn raw_query_write<T, F>(&self, _fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         // usually OK because we seldom use the result of a write
@@ -583,10 +563,6 @@ impl ConnectionExt for MockDbQuery {
             let uninit = std::mem::MaybeUninit::<T>::uninit();
             Ok(uninit.assume_init())
         }
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        todo!()
     }
 
     fn disconnect(&self) -> Result<(), ConnectionError> {
