@@ -19,6 +19,7 @@ use crate::{
     },
 };
 use futures::TryFutureExt;
+use owo_colors::OwoColorize;
 use std::{any::Any, sync::Arc};
 use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
@@ -448,7 +449,7 @@ where
             tracing::info!("No message history payload sent - server url not present.");
             return Ok(());
         };
-        tracing::info!("\x1b[33mSending sync payload.");
+        tracing::info!("{}", "Sending sync payload.".yellow());
 
         let mut request_id = "".to_string();
         let options = if let Some(request) = request {
@@ -507,7 +508,7 @@ where
     }
 
     pub async fn send_sync_request(&self) -> Result<(), ClientError> {
-        tracing::info!("\x1b[33mSending a sync request.");
+        tracing::info!("{}", "Sending a sync request.".yellow());
 
         let sync_group = self.get_sync_group().await?;
         sync_group
@@ -577,13 +578,19 @@ where
         // Check if this reply was asked for by this installation.
         if !self.is_reply_requested_by_installation(&reply).await? {
             // This installation didn't ask for it. Ignore the reply.
-            tracing::info!("Sync response was not intended for this installation.");
+            tracing::info!(
+                "{}",
+                "Sync response was not intended for this installation.".yellow()
+            );
             return Ok(());
         }
 
         // If a payload was sent to this installation,
         // that means they also sent this installation a bunch of welcomes.
-        tracing::info!("Sync response is for this installation. Syncing welcomes.");
+        tracing::info!(
+            "{}",
+            "Sync response is for this installation. Syncing welcomes.".yellow()
+        );
         self.welcome_service.sync_welcomes().await?;
 
         // Get a download stream of the payload.
