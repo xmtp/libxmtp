@@ -2038,7 +2038,10 @@ impl serde::Serialize for PublishCommitLogRequest {
         if !self.group_id.is_empty() {
             len += 1;
         }
-        if !self.encrypted_commit_log_entry.is_empty() {
+        if !self.serialized_commit_log_entry.is_empty() {
+            len += 1;
+        }
+        if self.signature.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.PublishCommitLogRequest", len)?;
@@ -2047,10 +2050,13 @@ impl serde::Serialize for PublishCommitLogRequest {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("group_id", pbjson::private::base64::encode(&self.group_id).as_str())?;
         }
-        if !self.encrypted_commit_log_entry.is_empty() {
+        if !self.serialized_commit_log_entry.is_empty() {
             #[allow(clippy::needless_borrow)]
             #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("encrypted_commit_log_entry", pbjson::private::base64::encode(&self.encrypted_commit_log_entry).as_str())?;
+            struct_ser.serialize_field("serialized_commit_log_entry", pbjson::private::base64::encode(&self.serialized_commit_log_entry).as_str())?;
+        }
+        if let Some(v) = self.signature.as_ref() {
+            struct_ser.serialize_field("signature", v)?;
         }
         struct_ser.end()
     }
@@ -2064,14 +2070,16 @@ impl<'de> serde::Deserialize<'de> for PublishCommitLogRequest {
         const FIELDS: &[&str] = &[
             "group_id",
             "groupId",
-            "encrypted_commit_log_entry",
-            "encryptedCommitLogEntry",
+            "serialized_commit_log_entry",
+            "serializedCommitLogEntry",
+            "signature",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             GroupId,
-            EncryptedCommitLogEntry,
+            SerializedCommitLogEntry,
+            Signature,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2095,7 +2103,8 @@ impl<'de> serde::Deserialize<'de> for PublishCommitLogRequest {
                     {
                         match value {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
-                            "encryptedCommitLogEntry" | "encrypted_commit_log_entry" => Ok(GeneratedField::EncryptedCommitLogEntry),
+                            "serializedCommitLogEntry" | "serialized_commit_log_entry" => Ok(GeneratedField::SerializedCommitLogEntry),
+                            "signature" => Ok(GeneratedField::Signature),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -2116,7 +2125,8 @@ impl<'de> serde::Deserialize<'de> for PublishCommitLogRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut group_id__ = None;
-                let mut encrypted_commit_log_entry__ = None;
+                let mut serialized_commit_log_entry__ = None;
+                let mut signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::GroupId => {
@@ -2127,13 +2137,19 @@ impl<'de> serde::Deserialize<'de> for PublishCommitLogRequest {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::EncryptedCommitLogEntry => {
-                            if encrypted_commit_log_entry__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("encryptedCommitLogEntry"));
+                        GeneratedField::SerializedCommitLogEntry => {
+                            if serialized_commit_log_entry__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serializedCommitLogEntry"));
                             }
-                            encrypted_commit_log_entry__ = 
+                            serialized_commit_log_entry__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = map_.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -2142,7 +2158,8 @@ impl<'de> serde::Deserialize<'de> for PublishCommitLogRequest {
                 }
                 Ok(PublishCommitLogRequest {
                     group_id: group_id__.unwrap_or_default(),
-                    encrypted_commit_log_entry: encrypted_commit_log_entry__.unwrap_or_default(),
+                    serialized_commit_log_entry: serialized_commit_log_entry__.unwrap_or_default(),
+                    signature: signature__,
                 })
             }
         }

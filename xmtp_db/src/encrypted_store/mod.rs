@@ -43,7 +43,7 @@ use xmtp_common::{RetryableError, retryable};
 
 use super::StorageError;
 use crate::sql_key_store::SqlKeyStoreError;
-use crate::{MlsKeyStore, Store, XmtpMlsStorageProvider};
+use crate::{Store, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 pub use database::*;
 pub use store::*;
@@ -116,7 +116,7 @@ pub trait ConnectionExt {
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<Self::Connection as diesel::Connection>::Backend>
-        + MlsKeyStore
+        + TransactionalKeyStore
         + Send;
 
     fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError>;
@@ -267,12 +267,12 @@ pub type BoxedDatabase = Box<
         >,
 >;
 
-#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery<crate::mock::MockConnection>;))]
+#[cfg_attr(any(feature = "test-utils", test), mockall::automock(type Connection = crate::mock::MockConnection; type DbQuery = crate::mock::MockDbQuery;))]
 pub trait XmtpDb: Send + Sync {
     /// The Connection type for this database
     type Connection: ConnectionExt + Send + Sync;
 
-    type DbQuery: crate::DbQuery<Self::Connection> + Send + Sync;
+    type DbQuery: crate::DbQuery + Send + Sync;
 
     fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
         self.validate(opts)?;

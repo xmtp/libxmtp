@@ -4,9 +4,9 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_api::ApiError;
 use xmtp_db::{
+    DbQuery, StorageError, Store,
     prelude::*,
     remote_commit_log::{self, CommitResult, RemoteCommitLog},
-    DbQuery, StorageError, Store, XmtpDb,
 };
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 use xmtp_proto::{
@@ -238,7 +238,7 @@ where
     // along with the new cursor for each conversation on publication success
     fn prepare_publish_commit_log_info(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         conversation_ids: &[Vec<u8>],
     ) -> Result<(Vec<ConversationCursorInfo>, Vec<PlaintextCommitLogEntry>), CommitLogError> {
         let mut conversation_cursor_info: Vec<ConversationCursorInfo> = Vec::new();
@@ -339,7 +339,7 @@ where
 
     fn save_remote_commit_log_entries_and_update_cursors(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         commit_log_response: QueryCommitLogResponse,
     ) -> Result<UpdateCursorsResult, CommitLogError> {
         let group_id = commit_log_response.group_id;
@@ -348,7 +348,7 @@ where
         for entry in commit_log_response.commit_log_entries {
             // TODO(cam): we will have to decrypt here
             let log_entry =
-                PlaintextCommitLogEntry::decode(entry.encrypted_commit_log_entry.as_slice())?;
+                PlaintextCommitLogEntry::decode(entry.serialized_commit_log_entry.as_slice())?;
             RemoteCommitLog {
                 log_sequence_id: entry.sequence_id as i64,
                 group_id: log_entry.group_id,

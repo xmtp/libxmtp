@@ -1,9 +1,9 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use xmtp_mls::configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
-use xmtp_mls::utils::bench::re_export::{wrap_welcome, WrapperAlgorithm};
+use xmtp_mls::utils::bench::re_export::{WrapperAlgorithm, wrap_welcome};
 
 const BENCH_SIZES: [usize; 24] = [
     16,

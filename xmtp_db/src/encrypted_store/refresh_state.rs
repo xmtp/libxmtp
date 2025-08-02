@@ -73,7 +73,7 @@ pub struct RefreshState {
 impl_store!(RefreshState, refresh_state);
 impl_store_or_ignore!(RefreshState, refresh_state);
 
-pub trait QueryRefreshState<C: ConnectionExt> {
+pub trait QueryRefreshState {
     fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
@@ -99,7 +99,41 @@ pub trait QueryRefreshState<C: ConnectionExt> {
     ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryRefreshState<C> for DbConnection<C> {
+impl<T: QueryRefreshState> QueryRefreshState for &'_ T {
+    fn get_refresh_state<EntityId: AsRef<[u8]>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError> {
+        (**self).get_refresh_state(entity_id, entity_kind)
+    }
+
+    fn get_last_cursor_for_id<Id: AsRef<[u8]>>(
+        &self,
+        id: Id,
+        entity_kind: EntityKind,
+    ) -> Result<i64, StorageError> {
+        (**self).get_last_cursor_for_id(id, entity_kind)
+    }
+
+    fn update_cursor<Id: AsRef<[u8]>>(
+        &self,
+        entity_id: Id,
+        entity_kind: EntityKind,
+        cursor: i64,
+    ) -> Result<bool, StorageError> {
+        (**self).update_cursor(entity_id, entity_kind, cursor)
+    }
+
+    fn get_remote_log_cursors(
+        &self,
+        conversation_ids: &[Vec<u8>],
+    ) -> Result<HashMap<Vec<u8>, i64>, crate::ConnectionError> {
+        (**self).get_remote_log_cursors(conversation_ids)
+    }
+}
+
+impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
     fn get_refresh_state<EntityId: AsRef<[u8]>>(
         &self,
         entity_id: EntityId,
