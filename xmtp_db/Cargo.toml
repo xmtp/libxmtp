@@ -69,7 +69,7 @@ diesel = { workspace = true, features = [
   "serde_json",
 ] }
 sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
-  "bundled",
+  "precompiled",
 ] }
 tokio = { workspace = true, features = ["macros", "tracing"] }
 web-sys = { workspace = true, features = ["DomException"] }

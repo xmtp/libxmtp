@@ -6498,7 +6498,6 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e2e56f9a1fce250ea2dea7b034b624ef7e22fe14870fc55b3b3b1c25d4eef79"
 dependencies = [
- "cc",
  "fragile",
  "js-sys",
  "once_cell",
