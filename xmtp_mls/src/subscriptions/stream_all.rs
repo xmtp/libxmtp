@@ -4,7 +4,7 @@ mod tests;
 use std::{
     borrow::Cow,
     pin::Pin,
-    task::{ready, Poll},
+    task::{Poll, ready},
 };
 
 use crate::{context::XmtpSharedContext, subscriptions::stream_messages::MessagesApiSubscription};
@@ -17,9 +17,9 @@ use xmtp_db::{
 use xmtp_proto::api_client::XmtpMlsStreams;
 
 use super::{
+    Result, SubscribeError,
     stream_conversations::{StreamConversations, WelcomesApiSubscription},
     stream_messages::StreamGroupMessages,
-    Result, SubscribeError,
 };
 use crate::groups::MlsGroup;
 use crate::subscriptions::SyncWorkerEvent;

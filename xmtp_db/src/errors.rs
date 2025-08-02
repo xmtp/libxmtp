@@ -101,7 +101,7 @@ pub enum NotFound {
     MlsGroup,
     #[error("Post Quantum Key Pair not found")]
     PostQuantumPrivateKey,
-    #[error("Key Package not found")]
+    #[error("Key Package {kp} not found", kp = hex::encode(_0))]
     KeyPackage(Vec<u8>),
 }
 

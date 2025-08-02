@@ -9,7 +9,7 @@ use crate::{
 use thiserror::Error;
 use xmtp_api::XmtpApi;
 use xmtp_common::RetryableError;
-use xmtp_db::{group_message::MsgQueryArgs, XmtpDb};
+use xmtp_db::{XmtpDb, group_message::MsgQueryArgs};
 
 #[derive(Error, Debug)]
 pub enum TestError {

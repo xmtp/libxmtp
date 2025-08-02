@@ -5,7 +5,7 @@ use xmtp_common::RetryableError;
 use xmtp_db::group_intent::IntentKind;
 use xmtp_proto::mls_v1::group_message;
 
-use super::{mls_sync::GroupMessageProcessingError, GroupError};
+use super::{GroupError, mls_sync::GroupMessageProcessingError};
 
 #[derive(Default)]
 pub struct SyncSummary {

@@ -1,47 +1,47 @@
 use super::{
-    preference_sync::{store_preference_updates, PreferenceUpdate},
     DeviceSyncClient, DeviceSyncError, IterWithContent,
+    preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
+        GroupError,
         device_sync::{archive::insert_importer, default_archive_options},
         device_sync_legacy::{
-            preference_sync_legacy::LegacyUserPreferenceUpdate, DeviceSyncContent,
+            DeviceSyncContent, preference_sync_legacy::LegacyUserPreferenceUpdate,
         },
-        GroupError,
     },
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
-        metrics::WorkerMetrics, BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory,
-        WorkerKind, WorkerResult,
+        BoxedWorker, DynMetrics, MetricsCasting, Worker, WorkerFactory, WorkerKind, WorkerResult,
+        metrics::WorkerMetrics,
     },
 };
 use futures::TryFutureExt;
 use std::{any::Any, sync::Arc};
-use tokio::sync::{broadcast, OnceCell};
+use tokio::sync::{OnceCell, broadcast};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
-use xmtp_archive::{exporter::ArchiveExporter, ArchiveImporter};
+use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_db::prelude::*;
 use xmtp_db::{
+    StoreOrIgnore,
     group_message::{MsgQueryArgs, StoredGroupMessage},
     processed_device_sync_messages::StoredProcessedDeviceSyncMessages,
-    StoreOrIgnore,
 };
 use xmtp_proto::{
+    ConversionError,
     xmtp::device_sync::{
+        BackupElementSelection, BackupOptions,
         content::{
-            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
             DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
             DeviceSyncRequest as DeviceSyncRequestProto,
             PreferenceUpdates as PreferenceUpdatesProto,
+            device_sync_content::Content as ContentProto, device_sync_key_type::Key,
         },
-        BackupElementSelection, BackupOptions,
     },
-    ConversionError,
 };
 
 const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
@@ -165,11 +165,7 @@ where
     //// Will auto-send a sync request if sync group is created.
     #[instrument(level = "trace", skip_all)]
     async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
-        let Self {
-            ref init,
-            ref client,
-            ..
-        } = self;
+        let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
             let conn = self.client.context.db();

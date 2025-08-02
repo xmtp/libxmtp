@@ -125,7 +125,7 @@ impl From<ProtoCommitResult> for CommitResult {
 // the max page size for queries
 pub const MAX_PAGE_SIZE: u32 = 100;
 
-pub trait QueryRemoteCommitLog<C: ConnectionExt> {
+pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_sequence_id(
         &self,
         group_id: &[u8],
@@ -145,7 +145,41 @@ pub trait QueryRemoteCommitLog<C: ConnectionExt> {
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryRemoteCommitLog<C> for DbConnection<C> {
+impl<T> QueryRemoteCommitLog for &T
+where
+    T: QueryRemoteCommitLog,
+{
+    fn get_latest_remote_log_sequence_id(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_remote_log_sequence_id(group_id)
+    }
+
+    fn get_latest_applied_entry(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_applied_entry(group_id)
+    }
+
+    fn get_remote_log_validation_info(
+        &self,
+        group_id: &[u8],
+    ) -> Result<RemoteLogValidationInfo, crate::ConnectionError> {
+        (**self).get_remote_log_validation_info(group_id)
+    }
+
+    fn get_remote_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+    ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
+        (**self).get_remote_commit_log_after_cursor(group_id, after_cursor)
+    }
+}
+
+impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     fn get_latest_remote_log_sequence_id(
         &self,
         group_id: &[u8],

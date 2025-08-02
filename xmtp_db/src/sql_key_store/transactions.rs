@@ -32,7 +32,7 @@ where
         + LoadConnection
         + MigrationConnection
         + MigrationHarness<<C as diesel::Connection>::Backend>
-        + crate::MlsKeyStore
+        + crate::TransactionalKeyStore
         + Send,
 {
     type Connection = C;
@@ -83,13 +83,15 @@ impl<C: ConnectionExt> XmtpMlsStorageProvider for SqlKeyStore<C> {
     where
         Self::Connection: 'a;
 
+    type TxQuery = <C as ConnectionExt>::Connection;
+
     fn db<'a>(&'a self) -> Self::DbQuery<'a> {
         DbConnection::new(&self.conn)
     }
 
     fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        F: FnOnce(&mut <C as ConnectionExt>::Connection) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let conn = &self.conn;

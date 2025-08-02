@@ -3,9 +3,9 @@ use xmtp_db::{ConnectionError, XmtpTestDb};
 use xmtp_db_test::ChaosDb;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
-    identity::IdentityStrategy,
-    utils::test::{register_client, TestClient},
     Client,
+    identity::IdentityStrategy,
+    utils::test::{TestClient, register_client},
 };
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;

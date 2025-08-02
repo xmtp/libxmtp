@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use xmtp_api::{ApiClientWrapper, GroupFilter, XmtpApi};
 use xmtp_common::types::GroupId;
+use xmtp_db::prelude::QueryGroupMessage;
 
 use crate::subscriptions::SubscribeError;
 
@@ -82,6 +83,7 @@ pub(super) trait Api {
     async fn query_latest_position(
         &self,
         group: &GroupId,
+        db: &impl QueryGroupMessage,
     ) -> Result<MessagePosition, SubscribeError>;
 }
 
@@ -92,13 +94,28 @@ where
     async fn query_latest_position(
         &self,
         group: &GroupId,
+        db: &impl QueryGroupMessage,
     ) -> Result<MessagePosition, SubscribeError> {
+        // Try from DB
+        if let Ok(Some(cursor)) = db.get_latest_sequence_id_for_group(group) {
+            tracing::debug!(
+                "Using local DB sequence_id {} for group {:?}",
+                cursor,
+                hex::encode(group)
+            );
+            return Ok(MessagePosition::new(cursor as u64, cursor as u64));
+        }
+
+        // Fallback to network
+        tracing::debug!("Falling back to network for group {:?}", hex::encode(group));
+
         if let Some(msg) = self.query_latest_group_message(group).await? {
             let cursor = extract_message_cursor(&msg).ok_or(MessageStreamError::InvalidPayload)?;
             Ok(MessagePosition::new(cursor, cursor))
         } else {
+            // there is no cursor for this group yet
             Ok(MessagePosition::new(0, 0))
-        } // there is no cursor for this group yet
+        }
     }
 }
 
@@ -108,10 +125,14 @@ pub(super) struct GroupList {
 }
 
 impl GroupList {
-    pub(super) async fn new(list: Vec<GroupId>, api: &impl Api) -> Result<Self, SubscribeError> {
+    pub(super) async fn new(
+        list: Vec<GroupId>,
+        api: &impl Api,
+        db: &impl QueryGroupMessage,
+    ) -> Result<Self, SubscribeError> {
         let list = stream::iter(list)
             .map(|group| async {
-                let position = api.query_latest_position(&group).await?;
+                let position = api.query_latest_position(&group, db).await?;
                 Ok((group, position))
             })
             .buffer_unordered(8)

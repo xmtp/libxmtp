@@ -1,7 +1,7 @@
 use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use crate::context::XmtpSharedContext;
-use crate::identity::pq_key_package_references_key;
 use crate::identity::IdentityError;
+use crate::identity::pq_key_package_references_key;
 use crate::worker::BoxedWorker;
 use crate::worker::NeedsDbReconnect;
 use crate::worker::WorkerResult;
@@ -13,8 +13,8 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_db::prelude::*;
 use xmtp_db::{
-    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
     MlsProviderExt, StorageError,
+    sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
 
 /// Interval at which the KeyPackagesCleanerWorker runs to delete expired messages.

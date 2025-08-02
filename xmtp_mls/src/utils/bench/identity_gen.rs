@@ -4,7 +4,7 @@ use crate::builder::ClientBuilder;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_id::associations::{test_utils::WalletTestExt, Identifier};
+use xmtp_id::associations::{Identifier, test_utils::WalletTestExt};
 
 use super::{BenchClient, BenchError};
 

@@ -3,17 +3,17 @@
 use super::ProcessedMessage;
 use crate::context::XmtpSharedContext;
 use crate::groups::{
+    MlsGroup,
     mls_sync::GroupMessageProcessingError,
     summary::{MessageIdentifier, SyncSummary},
-    MlsGroup,
 };
-use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use crate::subscriptions::SubscribeError;
+use crate::subscriptions::process_message::MessageIdentifierBuilder;
 use tracing::Instrument;
-use xmtp_common::{retry_async, Retry};
+use xmtp_common::{Retry, retry_async};
 use xmtp_db::group::ConversationType;
 use xmtp_db::prelude::*;
-use xmtp_db::{group_message::StoredGroupMessage, refresh_state::EntityKind, StorageError};
+use xmtp_db::{StorageError, group_message::StoredGroupMessage, refresh_state::EntityKind};
 use xmtp_proto::mls_v1::group_message;
 
 #[cfg_attr(test, mockall::automock)]

@@ -6,6 +6,9 @@ use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{
+    GroupMutablePermissionsV1 as GroupMutablePermissionsProto,
+    MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
+    PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
     membership_policy::{
         AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
         BasePolicy as BasePolicyProto, Kind as PolicyKindProto,
@@ -18,9 +21,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
         AndCondition as PermissionsAndConditionProto, AnyCondition as PermissionsAnyConditionProto,
         Kind as PermissionsPolicyKindProto, PermissionsBasePolicy as PermissionsBasePolicyProto,
     },
-    GroupMutablePermissionsV1 as GroupMutablePermissionsProto,
-    MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
-    PermissionsUpdatePolicy as PermissionsPolicyProto, PolicySet as PolicySetProto,
 };
 
 use super::validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit};

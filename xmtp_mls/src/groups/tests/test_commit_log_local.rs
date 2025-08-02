@@ -1,7 +1,7 @@
 use crate::{
     groups::{
-        intents::{PermissionPolicyOption, PermissionUpdateType},
         UpdateAdminListType,
+        intents::{PermissionPolicyOption, PermissionUpdateType},
     },
     tester,
     utils::{FullXmtpClient, TestMlsGroup},

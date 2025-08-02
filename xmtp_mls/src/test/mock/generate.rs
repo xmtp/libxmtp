@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use xmtp_db::{group_message::StoredGroupMessage, sql_key_store::SqlKeyStore, MemoryStorage};
+use xmtp_db::{MemoryStorage, group_message::StoredGroupMessage, sql_key_store::SqlKeyStore};
 use xmtp_proto::{mls_v1::group_message, xmtp::mls::api::v1};
 
 use crate::{

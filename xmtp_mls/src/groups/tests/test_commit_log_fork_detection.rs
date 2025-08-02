@@ -1,8 +1,8 @@
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
 use crate::tester;
+use xmtp_db::Store;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
-use xmtp_db::Store;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {

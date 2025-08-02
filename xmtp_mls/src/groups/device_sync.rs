@@ -1,10 +1,10 @@
-use super::{summary::SyncSummary, welcome_sync::WelcomeService, GroupError, MlsGroup};
+use super::{GroupError, MlsGroup, summary::SyncSummary, welcome_sync::WelcomeService};
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
-    worker::{metrics::WorkerMetrics, NeedsDbReconnect},
+    worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use futures::future::join_all;
 use prost::Message;
@@ -14,25 +14,25 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
 use worker::SyncMetric;
 use xmtp_archive::ArchiveError;
-use xmtp_common::{time::now_ns, types::InstallationId, RetryableError, NS_IN_DAY};
+use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns, types::InstallationId};
 use xmtp_content_types::encoded_content_to_bytes;
 use xmtp_db::{
-    consent_record::ConsentState, group::GroupQueryArgs, group_message::StoredGroupMessage,
-    NotFound, StorageError,
+    NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
+    group_message::StoredGroupMessage,
 };
-use xmtp_db::{prelude::*, XmtpDb};
-use xmtp_id::{associations::DeserializationError, InboxIdRef};
+use xmtp_db::{XmtpDb, prelude::*};
+use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_proto::xmtp::{
     device_sync::{
-        content::{
-            device_sync_content::Content as ContentProto,
-            DeviceSyncContent as DeviceSyncContentProto,
-        },
         BackupElementSelection, BackupOptions,
+        content::{
+            DeviceSyncContent as DeviceSyncContentProto,
+            device_sync_content::Content as ContentProto,
+        },
     },
     mls::message_contents::{
-        plaintext_envelope::{Content, V1},
         ContentTypeId, EncodedContent, PlaintextEnvelope,
+        plaintext_envelope::{Content, V1},
     },
 };
 

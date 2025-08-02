@@ -125,7 +125,7 @@ pub enum LocalCommitLogOrder {
     DescendingByRowid,
 }
 
-pub trait QueryLocalCommitLog<C: ConnectionExt> {
+pub trait QueryLocalCommitLog {
     fn get_group_logs(
         &self,
         group_id: &[u8],
@@ -151,7 +151,42 @@ pub trait QueryLocalCommitLog<C: ConnectionExt> {
     ) -> Result<Option<i32>, crate::ConnectionError>;
 }
 
-impl<C: ConnectionExt> QueryLocalCommitLog<C> for DbConnection<C> {
+impl<T> QueryLocalCommitLog for &T
+where
+    T: QueryLocalCommitLog,
+{
+    fn get_group_logs(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_group_logs(group_id)
+    }
+
+    fn get_local_commit_log_after_cursor(
+        &self,
+        group_id: &[u8],
+        after_cursor: i64,
+        order_by: LocalCommitLogOrder,
+    ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
+    }
+
+    fn get_latest_log_for_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<LocalCommitLog>, crate::ConnectionError> {
+        (**self).get_latest_log_for_group(group_id)
+    }
+
+    fn get_local_commit_log_cursor(
+        &self,
+        group_id: &[u8],
+    ) -> Result<Option<i32>, crate::ConnectionError> {
+        (**self).get_local_commit_log_cursor(group_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
     fn get_group_logs(
         &self,
         group_id: &[u8],
@@ -164,7 +199,7 @@ impl<C: ConnectionExt> QueryLocalCommitLog<C> for DbConnection<C> {
         })
     }
 
-    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Local commit log entries are sorted by `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
     fn get_local_commit_log_after_cursor(
         &self,

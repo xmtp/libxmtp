@@ -2,15 +2,15 @@
 
 use super::FullXmtpClient;
 use crate::{
+    Client,
     builder::{ClientBuilder, SyncWorkerMode},
     client::ClientError,
     configuration::DeviceSyncUrls,
     context::XmtpSharedContext,
     groups::device_sync::worker::SyncMetric,
     subscriptions::SubscribeError,
-    utils::{register_client, TestClient, TestMlsStorage, VersionInfo},
+    utils::{TestClient, TestMlsStorage, VersionInfo, register_client},
     worker::metrics::WorkerMetrics,
-    Client,
 };
 use alloy::signers::local::PrivateKeySigner;
 use futures::Stream;
@@ -19,37 +19,36 @@ use parking_lot::Mutex;
 use passkey::{
     authenticator::{Authenticator, UserCheck, UserValidationMethod},
     client::{Client as PasskeyClient, DefaultClientData},
-    types::{ctap2::*, rand::random_vec, webauthn::*, Bytes, Passkey},
+    types::{Bytes, Passkey, ctap2::*, rand::random_vec, webauthn::*},
 };
 use public_suffix::PublicSuffixList;
 use std::{
     ops::Deref,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, LazyLock,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 use tokio::{runtime::Handle, sync::OnceCell};
 use toxiproxy_rust::proxy::{Proxy, ProxyPack};
 use url::Url;
 use xmtp_api::XmtpApi;
-use xmtp_api_http::{constants::ApiUrls, LOCALHOST_ADDRESS};
+use xmtp_api_http::{LOCALHOST_ADDRESS, constants::ApiUrls};
 use xmtp_common::StreamHandle;
 use xmtp_common::TestLogReplace;
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
 use xmtp_db::{
-    group_message::StoredGroupMessage, sql_key_store::SqlKeyStore, MlsProviderExt,
-    XmtpOpenMlsProvider,
+    MlsProviderExt, XmtpOpenMlsProvider, group_message::StoredGroupMessage,
+    sql_key_store::SqlKeyStore,
 };
 use xmtp_id::{
+    InboxOwner,
     associations::{
-        ident,
+        Identifier, ident,
         test_utils::MockSmartContractSignatureVerifier,
         unverified::{UnverifiedPasskeySignature, UnverifiedSignature},
-        Identifier,
     },
     scw_verifier::SmartContractSignatureVerifier,
-    InboxOwner,
 };
 use xmtp_proto::prelude::XmtpTestClient;
 

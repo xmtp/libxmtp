@@ -3,13 +3,12 @@ use crate::groups::device_sync_legacy::preference_sync_legacy::LegacyUserPrefere
 use xmtp_common::time::now_ns;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::user_preferences::{HmacKey, StoredUserPreferences};
-use xmtp_db::ConnectionExt;
+use xmtp_proto::ConversionError;
 use xmtp_proto::xmtp::device_sync::content::HmacKeyUpdate as HmacKeyUpdateProto;
 use xmtp_proto::xmtp::device_sync::content::{
-    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
     PreferenceUpdate as PreferenceUpdateProto, PreferenceUpdates,
+    device_sync_content::Content as ContentProto, preference_update::Update as UpdateProto,
 };
-use xmtp_proto::ConversionError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PreferenceUpdate {
@@ -56,9 +55,9 @@ where
     }
 }
 
-pub(super) fn store_preference_updates<C: ConnectionExt>(
+pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
-    conn: &impl DbQuery<C>,
+    conn: &impl DbQuery,
     handle: &WorkerMetrics<SyncMetric>,
 ) -> Result<Vec<PreferenceUpdate>, StorageError> {
     let mut changed = vec![];

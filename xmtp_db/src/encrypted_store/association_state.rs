@@ -1,10 +1,8 @@
 use diesel::prelude::*;
 
-use super::{
-    ConnectionExt,
-    schema::association_state::{self, dsl},
-};
-use crate::DbQuery;
+use super::schema::association_state::{self, dsl};
+use crate::ConnectionExt;
+use crate::DbConnection;
 use crate::{Fetch, StorageError, StoreOrIgnore, impl_fetch, impl_store_or_ignore};
 use prost::Message;
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
@@ -21,24 +19,68 @@ pub struct StoredAssociationState {
 impl_fetch!(StoredAssociationState, association_state, (String, i64));
 impl_store_or_ignore!(StoredAssociationState, association_state);
 
-// TODO: We can make a generic trait/object on DB for anything that decodes into prost::Message
-// and then have a re-usable cache object instead of re-implementing it on every db type.
-impl StoredAssociationState {
-    pub fn write_to_cache<C>(
-        conn: &impl DbQuery<C>,
+pub trait QueryAssociationStateCache {
+    fn write_to_cache(
+        &self,
         inbox_id: String,
         sequence_id: i64,
         state: AssociationStateProto,
-    ) -> Result<(), StorageError>
-    where
-        C: ConnectionExt,
-    {
+    ) -> Result<(), StorageError>;
+
+    fn read_from_cache<A: AsRef<str>>(
+        &self,
+        inbox_id: A,
+        sequence_id: i64,
+    ) -> Result<Option<AssociationStateProto>, StorageError>;
+
+    fn batch_read_from_cache(
+        &self,
+        identifiers: Vec<(String, i64)>,
+    ) -> Result<Vec<AssociationStateProto>, StorageError>;
+}
+
+impl<R> QueryAssociationStateCache for &R
+where
+    R: QueryAssociationStateCache,
+{
+    fn write_to_cache(
+        &self,
+        inbox_id: String,
+        sequence_id: i64,
+        state: AssociationStateProto,
+    ) -> Result<(), StorageError> {
+        (**self).write_to_cache(inbox_id, sequence_id, state)
+    }
+
+    fn read_from_cache<A: AsRef<str>>(
+        &self,
+        inbox_id: A,
+        sequence_id: i64,
+    ) -> Result<Option<AssociationStateProto>, StorageError> {
+        (**self).read_from_cache(inbox_id, sequence_id)
+    }
+
+    fn batch_read_from_cache(
+        &self,
+        identifiers: Vec<(String, i64)>,
+    ) -> Result<Vec<AssociationStateProto>, StorageError> {
+        (**self).batch_read_from_cache(identifiers)
+    }
+}
+
+impl<C: ConnectionExt> QueryAssociationStateCache for DbConnection<C> {
+    fn write_to_cache(
+        &self,
+        inbox_id: String,
+        sequence_id: i64,
+        state: AssociationStateProto,
+    ) -> Result<(), StorageError> {
         let result = StoredAssociationState {
             inbox_id: inbox_id.clone(),
             sequence_id,
             state: state.encode_to_vec(),
         }
-        .store_or_ignore(conn);
+        .store_or_ignore(self);
 
         if result.is_ok() {
             tracing::debug!(
@@ -51,18 +93,14 @@ impl StoredAssociationState {
         result
     }
 
-    pub fn read_from_cache<T, C: ConnectionExt>(
-        conn: &impl DbQuery<C>,
-        inbox_id: impl AsRef<str>,
+    fn read_from_cache<A: AsRef<str>>(
+        &self,
+        inbox_id: A,
         sequence_id: i64,
-    ) -> Result<Option<T>, StorageError>
-    where
-        T: TryFrom<AssociationStateProto>,
-        StorageError: From<<T as TryFrom<AssociationStateProto>>::Error>,
-    {
+    ) -> Result<Option<AssociationStateProto>, StorageError> {
         let inbox_id = inbox_id.as_ref();
         let stored_state: Option<StoredAssociationState> =
-            conn.fetch(&(inbox_id.to_string(), sequence_id))?;
+            self.fetch(&(inbox_id.to_string(), sequence_id))?;
 
         let result = stored_state
             .map(|stored_state| stored_state.state)
@@ -73,20 +111,15 @@ impl StoredAssociationState {
                     sequence_id
                 )
             });
-        let decoded = result
+        Ok(result
             .map(|r| AssociationStateProto::decode(r.as_slice()))
-            .transpose()?;
-        Ok(decoded.map(|a| a.try_into()).transpose()?)
+            .transpose()?)
     }
 
-    pub fn batch_read_from_cache<T, C: ConnectionExt>(
-        conn: &impl DbQuery<C>,
+    fn batch_read_from_cache(
+        &self,
         identifiers: Vec<(String, i64)>,
-    ) -> Result<Vec<T>, StorageError>
-    where
-        T: TryFrom<AssociationStateProto>,
-        StorageError: From<<T as TryFrom<AssociationStateProto>>::Error>,
-    {
+    ) -> Result<Vec<AssociationStateProto>, StorageError> {
         if identifiers.is_empty() {
             return Ok(vec![]);
         }
@@ -102,14 +135,14 @@ impl StoredAssociationState {
             );
 
         let association_states =
-            conn.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
+            self.raw_query_read(|query_conn| query.load::<StoredAssociationState>(query_conn))?;
 
         association_states
             .into_iter()
             .map(|stored_association_state| {
-                AssociationStateProto::decode(stored_association_state.state.as_slice())?
-                    .try_into()
-                    .map_err(StorageError::from)
+                Ok(AssociationStateProto::decode(
+                    stored_association_state.state.as_slice(),
+                )?)
             })
             .collect::<Result<Vec<_>, _>>()
     }
@@ -150,8 +183,7 @@ pub(crate) mod tests {
                 members: vec![],
                 ..Default::default()
             };
-
-            StoredAssociationState::write_to_cache(conn, mock.inbox_id.clone(), 1, mock.clone())
+            conn.write_to_cache(mock.inbox_id.clone(), 1, mock.clone())
                 .unwrap();
             let mock_2 = AssociationStateProto {
                 inbox_id: "test_id2".into(),
@@ -159,39 +191,36 @@ pub(crate) mod tests {
                 ..Default::default()
             };
 
-            StoredAssociationState::write_to_cache(
-                conn,
-                mock_2.inbox_id.clone(),
-                2,
-                mock_2.clone(),
-            )
-            .unwrap();
-
-            let first_association_state: Vec<MockState> =
-                StoredAssociationState::batch_read_from_cache(
-                    conn,
-                    vec![(mock.inbox_id.to_string(), 1)],
-                )
+            conn.write_to_cache(mock_2.inbox_id.clone(), 2, mock_2.clone())
                 .unwrap();
 
+            let first_association_state: Vec<MockState> = conn
+                .batch_read_from_cache(vec![(mock.inbox_id.to_string(), 1)])
+                .unwrap()
+                .into_iter()
+                .map(Into::into)
+                .collect();
             assert_eq!(first_association_state.len(), 1);
             assert_eq!(&first_association_state[0].inbox_id, &mock.inbox_id);
 
-            let both_association_states: Vec<MockState> =
-                StoredAssociationState::batch_read_from_cache(
-                    conn,
-                    vec![(mock.inbox_id.clone(), 1), (mock_2.inbox_id.clone(), 2)],
-                )
-                .unwrap();
+            let both_association_states: Vec<MockState> = conn
+                .batch_read_from_cache(vec![
+                    (mock.inbox_id.clone(), 1),
+                    (mock_2.inbox_id.clone(), 2),
+                ])
+                .unwrap()
+                .into_iter()
+                .map(Into::into)
+                .collect();
 
             assert_eq!(both_association_states.len(), 2);
 
-            let no_results: Vec<MockState> = StoredAssociationState::batch_read_from_cache(
-                conn,
-                // Mismatched inbox_id and sequence_id
-                vec![(mock.inbox_id.clone(), 2)],
-            )
-            .unwrap();
+            let no_results = conn
+                .batch_read_from_cache(vec![(mock.inbox_id.clone(), 2)])
+                .unwrap()
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<MockState>>();
             assert_eq!(no_results.len(), 0);
         })
         .await

@@ -159,7 +159,7 @@ impl NewGroupIntent {
     }
 }
 
-pub trait QueryGroupIntent<C: ConnectionExt> {
+pub trait QueryGroupIntent {
     fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -213,7 +213,80 @@ pub trait QueryGroupIntent<C: ConnectionExt> {
     ) -> Result<(), StorageError>;
 }
 
-impl<C: ConnectionExt> QueryGroupIntent<C> for DbConnection<C> {
+impl<T> QueryGroupIntent for &T
+where
+    T: QueryGroupIntent,
+{
+    fn insert_group_intent(
+        &self,
+        to_save: NewGroupIntent,
+    ) -> Result<StoredGroupIntent, crate::ConnectionError> {
+        (**self).insert_group_intent(to_save)
+    }
+
+    fn find_group_intents(
+        &self,
+        group_id: Vec<u8>,
+        allowed_states: Option<Vec<IntentState>>,
+        allowed_kinds: Option<Vec<IntentKind>>,
+    ) -> Result<Vec<StoredGroupIntent>, crate::ConnectionError> {
+        (**self).find_group_intents(group_id, allowed_states, allowed_kinds)
+    }
+
+    fn set_group_intent_published(
+        &self,
+        intent_id: ID,
+        payload_hash: &[u8],
+        post_commit_data: Option<Vec<u8>>,
+        staged_commit: Option<Vec<u8>>,
+        published_in_epoch: i64,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_intent_published(
+            intent_id,
+            payload_hash,
+            post_commit_data,
+            staged_commit,
+            published_in_epoch,
+        )
+    }
+
+    fn set_group_intent_committed(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_committed(intent_id)
+    }
+
+    fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_processed(intent_id)
+    }
+
+    fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_to_publish(intent_id)
+    }
+
+    fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).set_group_intent_error(intent_id)
+    }
+
+    fn find_group_intent_by_payload_hash(
+        &self,
+        payload_hash: &[u8],
+    ) -> Result<Option<StoredGroupIntent>, StorageError> {
+        (**self).find_group_intent_by_payload_hash(payload_hash)
+    }
+
+    fn increment_intent_publish_attempt_count(&self, intent_id: ID) -> Result<(), StorageError> {
+        (**self).increment_intent_publish_attempt_count(intent_id)
+    }
+
+    fn set_group_intent_error_and_fail_msg(
+        &self,
+        intent: &StoredGroupIntent,
+        msg_id: Option<Vec<u8>>,
+    ) -> Result<(), StorageError> {
+        (**self).set_group_intent_error_and_fail_msg(intent, msg_id)
+    }
+}
+
+impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     #[tracing::instrument(level = "trace", skip(self))]
     fn insert_group_intent(
         &self,

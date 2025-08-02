@@ -6910,6 +6910,7 @@ mod tests {
     async fn test_stream_all_dm_messages() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
+
         let alix_dm = alix
             .conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
@@ -6937,10 +6938,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -6956,10 +6965,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
@@ -6967,7 +6984,7 @@ mod tests {
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
-        // Stream just dms
+        // Stream just DMs
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
@@ -6976,10 +6993,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_group.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),

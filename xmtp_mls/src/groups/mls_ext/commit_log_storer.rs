@@ -1,7 +1,7 @@
+use crate::StorageError;
 use crate::groups::GroupError;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use crate::identity::Identity;
-use crate::StorageError;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
@@ -9,10 +9,10 @@ use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
+    Store, XmtpMlsStorageProvider,
     local_commit_log::{CommitType, NewLocalCommitLog},
     prelude::*,
     remote_commit_log::CommitResult,
-    Store, XmtpMlsStorageProvider,
 };
 
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.

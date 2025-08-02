@@ -4,7 +4,7 @@ use xmtp_proto::xmtp::device_sync::{backup_element::Element, consent_backup::Con
 
 impl BackupRecordProvider for ConsentSave {
     const BATCH_SIZE: i64 = 100;
-    fn backup_records<D, C>(
+    fn backup_records<D>(
         db: Arc<D>,
         _start_ns: Option<i64>,
         _end_ns: Option<i64>,
@@ -12,8 +12,7 @@ impl BackupRecordProvider for ConsentSave {
     ) -> Result<Vec<BackupElement>, StorageError>
     where
         Self: Sized,
-        C: ConnectionExt,
-        D: DbQuery<C>,
+        D: DbQuery,
     {
         let batch = db.consent_records_paged(Self::BATCH_SIZE, cursor)?;
 

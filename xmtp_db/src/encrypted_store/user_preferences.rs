@@ -53,7 +53,7 @@ impl StoredUserPreferences {
         Ok(pref.unwrap_or_default())
     }
 
-    fn store<C: ConnectionExt>(&self, conn: &impl crate::DbQuery<C>) -> Result<(), StorageError> {
+    fn store(&self, conn: &impl crate::DbQuery) -> Result<(), StorageError> {
         conn.raw_query_write(|conn| {
             insert_into(dsl::user_preferences)
                 .values(self)
@@ -66,8 +66,8 @@ impl StoredUserPreferences {
         Ok(())
     }
 
-    pub fn store_hmac_key<C: ConnectionExt>(
-        conn: &impl crate::DbQuery<C>,
+    pub fn store_hmac_key(
+        conn: &impl crate::DbQuery,
         key: &[u8],
         cycled_at: Option<i64>,
     ) -> Result<(), StorageError> {

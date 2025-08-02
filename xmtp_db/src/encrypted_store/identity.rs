@@ -38,7 +38,7 @@ impl StoredIdentity {
         }
     }
 }
-pub trait QueryIdentity<C: ConnectionExt> {
+pub trait QueryIdentity {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
     fn reset_key_package_rotation_queue(
         &self,
@@ -47,7 +47,27 @@ pub trait QueryIdentity<C: ConnectionExt> {
     fn is_identity_needs_rotation(&self) -> Result<bool, StorageError>;
 }
 
-impl<C: ConnectionExt> QueryIdentity<C> for DbConnection<C> {
+impl<T> QueryIdentity for &T
+where
+    T: QueryIdentity,
+{
+    fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
+        (**self).queue_key_package_rotation()
+    }
+
+    fn reset_key_package_rotation_queue(
+        &self,
+        rotation_interval_ns: i64,
+    ) -> Result<(), StorageError> {
+        (**self).reset_key_package_rotation_queue(rotation_interval_ns)
+    }
+
+    fn is_identity_needs_rotation(&self) -> Result<bool, StorageError> {
+        (**self).is_identity_needs_rotation()
+    }
+}
+
+impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;

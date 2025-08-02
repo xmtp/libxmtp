@@ -19,8 +19,8 @@ use thiserror::Error;
 use xmtp_common::retry::RetryableError;
 use xmtp_content_types::CodecError;
 use xmtp_cryptography::signature::IdentifierValidationError;
-use xmtp_db::sql_key_store;
 use xmtp_db::NotFound;
+use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 

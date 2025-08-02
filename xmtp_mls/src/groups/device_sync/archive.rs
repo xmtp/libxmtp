@@ -1,16 +1,16 @@
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
-    groups::{group_permissions::PolicySet, MlsGroup},
+    groups::{MlsGroup, group_permissions::PolicySet},
 };
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    consent_record::StoredConsentRecord, group::GroupMembershipState,
-    group_message::StoredGroupMessage, prelude::*, StoreOrIgnore,
+    StoreOrIgnore, consent_record::StoredConsentRecord, group::GroupMembershipState,
+    group_message::StoredGroupMessage, prelude::*,
 };
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::xmtp::device_sync::{backup_element::Element, BackupElement};
+use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 pub async fn insert_importer(
     importer: &mut ArchiveImporter,

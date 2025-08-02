@@ -14,7 +14,7 @@ struct EnvFlag(&'static str);
 impl EnvFlag {
     #[inline]
     fn set(self, enable: bool) {
-        env::set_var(self.0, enable.to_string());
+        unsafe { env::set_var(self.0, enable.to_string()) };
     }
 
     #[inline]
@@ -25,7 +25,7 @@ impl EnvFlag {
     #[allow(dead_code)]
     #[inline]
     fn clear(self) {
-        env::remove_var(self.0);
+        unsafe { env::remove_var(self.0) };
     }
 }
 
@@ -53,15 +53,15 @@ pub fn set_test_mode_upload_malformed_keypackage(
     if enable {
         UPLOAD_MALFORMED_KP.set(true);
         // always reset the value key first to avoid leaking previous data
-        env::remove_var(MALFORMED_INSTALLATIONS_KEY);
+        unsafe { env::remove_var(MALFORMED_INSTALLATIONS_KEY) };
 
         if let Some(list) = installations {
             let joined = list.iter().map(hex::encode).collect::<Vec<_>>().join(",");
-            env::set_var(MALFORMED_INSTALLATIONS_KEY, joined);
+            unsafe { env::set_var(MALFORMED_INSTALLATIONS_KEY, joined) };
         }
     } else {
         UPLOAD_MALFORMED_KP.set(false);
-        env::remove_var(MALFORMED_INSTALLATIONS_KEY);
+        unsafe { env::remove_var(MALFORMED_INSTALLATIONS_KEY) };
     }
 }
 
@@ -121,10 +121,10 @@ const DEFAULT_KP_LIFETIME: u64 = 2_592_000; // 30 days
 pub fn set_test_mode_limit_key_package_lifetime(enable: bool, seconds: u64) {
     if enable {
         LIMIT_KP_LIFETIME.set(true);
-        env::set_var(LIMIT_KP_LIFETIME_VALUE, seconds.to_string());
+        unsafe { env::set_var(LIMIT_KP_LIFETIME_VALUE, seconds.to_string()) };
     } else {
         LIMIT_KP_LIFETIME.set(false);
-        env::remove_var(LIMIT_KP_LIFETIME_VALUE);
+        unsafe { env::remove_var(LIMIT_KP_LIFETIME_VALUE) };
     }
 }
 

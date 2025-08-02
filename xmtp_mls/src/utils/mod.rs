@@ -29,7 +29,7 @@ pub mod id {
     use crate::groups::intents::{IntentError, SendMessageIntentData};
     use prost::Message;
     use xmtp_proto::xmtp::mls::message_contents::plaintext_envelope::Content;
-    use xmtp_proto::xmtp::mls::message_contents::{plaintext_envelope::V1, PlaintextEnvelope};
+    use xmtp_proto::xmtp::mls::message_contents::{PlaintextEnvelope, plaintext_envelope::V1};
 
     /// Relies on a client-created idempotency_key (which could be a timestamp)
     pub fn calculate_message_id(
