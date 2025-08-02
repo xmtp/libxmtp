@@ -37,9 +37,16 @@ async fn basic_sync() {
 async fn only_one_payload_sent() {
     use std::time::Duration;
 
-    tester!(alix1, sync_worker, sync_server);
-    tester!(alix2, from: alix1);
-    tester!(alix3, from: alix1);
+    use crate::utils::{LocalTesterBuilder, Tester};
+
+    let alix1 = Tester::builder()
+        .sync_server()
+        .sync_worker()
+        .with_name("alix1")
+        .build()
+        .await;
+    let alix2 = alix1.builder.clone().with_name("alix2").build().await;
+    let alix3 = alix1.builder.clone().with_name("alix3").build().await;
 
     // They should all have the same sync group
     alix1.test_has_same_sync_group_as(&alix3).await?;

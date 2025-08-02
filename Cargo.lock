@@ -8856,6 +8856,7 @@ dependencies = [
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
  "openmls_traits",
+ "owo-colors",
  "parking_lot 0.12.4",
  "passkey",
  "pin-project-lite",

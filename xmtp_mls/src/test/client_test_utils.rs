@@ -78,10 +78,16 @@ where
                 Ok(g.export_ratchet_tree())
             })?;
         assert_eq!(ratchet_tree, other_ratchet_tree);
+        let sync_group_verified = format!(
+            "verified [{}] has same sync group as [{}]",
+            hex::encode(self.context.installation_id()),
+            hex::encode(other.context.installation_id())
+        );
         tracing::info!(
-            "self = [{}], other = [{}]",
+            "{}\nself = [{}], other = [{}]",
+            sync_group_verified,
             hex::encode(sync_group.group_id),
-            hex::encode(other_sync_group.group_id)
+            hex::encode(other_sync_group.group_id),
         );
 
         Ok(())

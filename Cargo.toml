@@ -140,6 +140,8 @@ web-sys = "0.3"
 zeroize = "1.8"
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 mockall_double = "0.3.1"
+owo-colors = { version = "4.1" }
+
 
 # Internal Crate Dependencies
 xmtp_api = { path = "xmtp_api" }

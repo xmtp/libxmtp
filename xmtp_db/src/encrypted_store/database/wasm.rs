@@ -248,7 +248,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn));
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -271,7 +271,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn)).await;
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -299,7 +299,7 @@ mod tests {
         use xmtp_common::tmp_path as path;
         init_sqlite().await;
         if let Some(Ok(util)) = SQLITE.get() {
-            util.wipe_files().await.unwrap();
+            util.clear_all().await.unwrap();
             let current_capacity = util.get_capacity();
             if current_capacity > 6 {
                 util.reduce_capacity(current_capacity - 6).await.unwrap();
