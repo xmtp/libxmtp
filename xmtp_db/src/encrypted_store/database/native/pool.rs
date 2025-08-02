@@ -48,7 +48,7 @@ impl DbPool {
 mod tests {
     use crate::{
         ConnectionExt, EncryptedConnection, StorageOption, UnencryptedConnection,
-        ValidatedConnection, native::ConnectionOptions, prelude::*,
+        ValidatedConnection, prelude::*,
     };
 
     use super::*;
@@ -109,7 +109,7 @@ mod tests {
         );
         let mut conn = SqliteConnection::establish(&path).unwrap();
         // do simple db queries to ensure encrypted database sets up correctly
-        c.validate(c.options(), &mut conn).unwrap();
+        c.validate(&mut conn).unwrap();
         c
     }
 

@@ -207,7 +207,7 @@ impl XmtpDb for WasmDb {
         DbConnection::new(self.conn.clone())
     }
 
-    fn validate(&self, _opts: &StorageOption, _c: &mut SqliteConnection) -> Result<(), crate::ConnectionError> {
+    fn validate(&self, _c: &mut SqliteConnection) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
