@@ -195,16 +195,20 @@ async fn test_download_commit_log_from_remote() {
     tester!(alix);
     tester!(bo);
 
+    // Alix creates a group with Bo (1 commit)
     let alix_group = alix.create_group(None, None).unwrap();
     alix_group
         .add_members_by_inbox_id(&[bo.inbox_id()])
         .await
         .unwrap();
 
+    // Alix updates the group name (2 commits)
     alix_group
         .update_group_name("foo".to_string())
         .await
         .unwrap();
+
+    // Alix updates the group name again (3 commits)
     alix_group
         .update_group_name("bar".to_string())
         .await
@@ -214,6 +218,8 @@ async fn test_download_commit_log_from_remote() {
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = binding.first().unwrap();
     bo_group.sync().await.unwrap();
+
+    // Bo updates the group name (4 commits)
     bo_group
         .update_group_name("bo group name".to_string())
         .await
@@ -251,7 +257,7 @@ async fn test_download_commit_log_from_remote() {
     // We have saved zero remote commit log entries so far
     assert!(test_results[0].save_remote_commit_log_results.is_none());
 
-    // Running for bo and charlie should have no publish commit log results since they are not super admins
+    // Running for bo  should have no publish commit log results since they are not super admins
     let mut commit_log_worker = CommitLogWorker::new(bo.context.clone());
     let bo_test_results = commit_log_worker
         .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, Some(1))
@@ -271,12 +277,13 @@ async fn test_download_commit_log_from_remote() {
         test_results[0].publish_commit_log_results.clone().unwrap()[0].conversation_id,
         alix_group.group_id
     );
+    // We should have published 4 commits
     assert_eq!(
         test_results[0].publish_commit_log_results.clone().unwrap()[0].num_entries_published,
         4
     );
 
-    // After Alix publishes commits upload commit cursor should be equal to publish results last rowid for both groups:
+    // After Alix publishes commits upload commit cursor should be equal to publish results last rowid:
     let alix_group_1_cursor = alix
         .context
         .db()
@@ -357,10 +364,13 @@ async fn test_download_commit_log_from_remote() {
     );
 
     // Verify that cursor works as expected for saving new remote commit log entries
+    // Alix updates the group name (1 new commit (6 total))
     alix_group
         .update_group_name("one".to_string())
         .await
         .unwrap();
+
+    // Alix updates the group name again (2 new commits (8 total))
     alix_group
         .update_group_name("two".to_string())
         .await
@@ -369,12 +379,13 @@ async fn test_download_commit_log_from_remote() {
     bo_group.sync().await.unwrap();
 
     let mut commit_log_worker_alix = CommitLogWorker::new(alix.context.clone());
+    // Alix publishes commits and saves remote commit log entries
     let alix_test_results = commit_log_worker_alix
         .run_test(CommitLogTestFunction::All, None)
         .await
         .unwrap();
 
-    // Alix should only have saved 2 new remote commit log entries
+    // Alix should published for one conversation
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -383,6 +394,7 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+    // The publish matches the conversation id
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -391,6 +403,7 @@ async fn test_download_commit_log_from_remote() {
             .conversation_id,
         alix_group.group_id
     );
+    // We published 2 new commits
     assert_eq!(
         alix_test_results[0]
             .publish_commit_log_results
@@ -399,6 +412,7 @@ async fn test_download_commit_log_from_remote() {
             .num_entries_published,
         2
     );
+    // We saved results for one conversation
     assert_eq!(
         alix_test_results[0]
             .save_remote_commit_log_results
@@ -407,6 +421,7 @@ async fn test_download_commit_log_from_remote() {
             .len(),
         1
     );
+    // The saved results matches the conversation id
     assert_eq!(
         alix_test_results[0]
             .save_remote_commit_log_results
@@ -415,6 +430,7 @@ async fn test_download_commit_log_from_remote() {
             .conversation_id,
         alix_group.group_id
     );
+    // We should have saved 2 new entries...
     assert_eq!(
         alix_test_results[0]
             .save_remote_commit_log_results

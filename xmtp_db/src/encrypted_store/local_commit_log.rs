@@ -120,6 +120,11 @@ impl std::fmt::Debug for LocalCommitLog {
     }
 }
 
+pub enum LocalCommitLogOrder {
+    AscendingByRowid,
+    DescendingByRowid,
+}
+
 pub trait QueryLocalCommitLog {
     fn get_group_logs(
         &self,
@@ -128,10 +133,11 @@ pub trait QueryLocalCommitLog {
 
     // Local commit log entries are returned sorted in ascending order of `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-    fn get_group_logs_for_publishing(
+    fn get_local_commit_log_after_cursor(
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError>;
 
     fn get_latest_log_for_group(
@@ -156,12 +162,13 @@ where
         (**self).get_group_logs(group_id)
     }
 
-    fn get_group_logs_for_publishing(
+    fn get_local_commit_log_after_cursor(
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order_by: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
-        (**self).get_group_logs_for_publishing(group_id, after_cursor)
+        (**self).get_local_commit_log_after_cursor(group_id, after_cursor, order_by)
     }
 
     fn get_latest_log_for_group(
@@ -192,12 +199,13 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         })
     }
 
-    // Local commit log entries are returned sorted in ascending order of `rowid`
+    // Local commit log entries are sorted by `rowid`
     // Entries with `commit_sequence_id` = 0 should not be published to the remote commit log
-    fn get_group_logs_for_publishing(
+    fn get_local_commit_log_after_cursor(
         &self,
         group_id: &[u8],
         after_cursor: i64,
+        order: LocalCommitLogOrder,
     ) -> Result<Vec<LocalCommitLog>, crate::ConnectionError> {
         // i64 cursor is populated by i32 local_commit_log rowid value, so we should never hit this error
         if after_cursor > i32::MAX as i64 {
@@ -207,13 +215,14 @@ impl<C: ConnectionExt> QueryLocalCommitLog for DbConnection<C> {
         }
         let after_cursor = after_cursor as i32;
 
-        self.raw_query_read(|db| {
-            dsl::local_commit_log
-                .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::rowid.gt(after_cursor))
-                .filter(dsl::commit_sequence_id.ne(0))
-                .order_by(dsl::rowid.asc())
-                .load(db)
+        let query = dsl::local_commit_log
+            .filter(dsl::group_id.eq(group_id))
+            .filter(dsl::rowid.gt(after_cursor))
+            .filter(dsl::commit_sequence_id.ne(0));
+
+        self.raw_query_read(|db| match order {
+            LocalCommitLogOrder::AscendingByRowid => query.order_by(dsl::rowid.asc()).load(db),
+            LocalCommitLogOrder::DescendingByRowid => query.order_by(dsl::rowid.desc()).load(db),
         })
     }
 
