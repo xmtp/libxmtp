@@ -44,7 +44,7 @@ pub const MAX_PAST_EPOCHS: usize = 3;
 /// should match GRPC_PAYLOAD_LIMIT in xmtp_api_grpc crate
 pub const GRPC_DATA_LIMIT: usize = 1024 * 1024 * 25;
 
-pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = false;
+pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 
 #[cfg(not(test))]
 pub const ENABLE_COMMIT_LOG: bool = false;
