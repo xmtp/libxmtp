@@ -222,7 +222,9 @@ where
         key_package: Vec<u8>,
         is_inbox_id_credential: bool,
     ) -> Result<()> {
-        tracing::debug!(inbox_id = self.inbox_id, "upload key packages");
+        tracing::info!(inbox_id = self.inbox_id, key_package_size = key_package.len(), "Starting key package upload");
+        
+        // Add timeout specifically for key package uploads
         retry_async!(
             self.retry_strategy,
             (async {

@@ -45,9 +45,9 @@ pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint 
         // Purpose: Specifies how long the client will wait for a response to a keep-alive ping before considering the connection dead.
         // Functionality: If a ping response is not received within this duration, the connection is presumed to be lost and is closed.
         // Impact: This setting is crucial for quickly detecting unresponsive connections and freeing up resources associated with them. It ensures that the client has up-to-date information on the status of connections and can react accordingly.
-        .keep_alive_timeout(Duration::from_secs(10))
+        .keep_alive_timeout(Duration::from_secs(30))
         .http2_keep_alive_interval(Duration::from_secs(16))
-        .rate_limit(limit, Duration::from_secs(60))
+        .rate_limit(5000, Duration::from_secs(60))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
