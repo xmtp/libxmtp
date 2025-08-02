@@ -68,7 +68,7 @@ diesel = { workspace = true, features = [
   "32-column-tables",
   "serde_json",
 ] }
-sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
+sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
   "bundled",
 ] }
 tokio = { workspace = true, features = ["macros", "tracing"] }
