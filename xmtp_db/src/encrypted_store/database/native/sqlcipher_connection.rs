@@ -270,12 +270,8 @@ impl ConnectionOptions for EncryptedConnection {
 }
 
 impl super::ValidatedConnection for EncryptedConnection {
-    fn validate(
-        &self,
-        opts: &StorageOption,
-        conn: &mut SqliteConnection,
-    ) -> Result<(), PlatformStorageError> {
-        let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(opts, conn)?;
+    fn validate(&self, conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
+        let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(&self.options, conn)?;
 
         // test the key according to
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
@@ -283,7 +279,11 @@ impl super::ValidatedConnection for EncryptedConnection {
             "{}
             SELECT count(*) FROM sqlite_master;",
             self.pragmas()
-        ))?;
+        ))
+        .map_err(|e| {
+            tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
+            PlatformStorageError::SqlCipherKeyIncorrect
+        })?;
 
         let CipherProviderVersion {
             cipher_provider_version,

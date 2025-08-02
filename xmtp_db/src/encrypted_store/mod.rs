@@ -225,9 +225,9 @@ pub trait XmtpDb: Send + Sync {
 
     type DbQuery: crate::DbQuery + Send + Sync;
 
-    fn init(&self, opts: &StorageOption) -> Result<(), ConnectionError> {
+    fn init(&self) -> Result<(), ConnectionError> {
         self.conn().raw_query_write(|conn| {
-            self.validate(opts, conn).map_err(|e| {
+            self.validate(conn).map_err(|e| {
                 diesel::result::Error::DatabaseError(
                     DatabaseErrorKind::Unknown,
                     Box::new(e.to_string()),
@@ -250,11 +250,7 @@ pub trait XmtpDb: Send + Sync {
     fn opts(&self) -> &StorageOption;
 
     /// Validate a connection is as expected
-    fn validate(
-        &self,
-        _opts: &StorageOption,
-        _conn: &mut SqliteConnection,
-    ) -> Result<(), ConnectionError> {
+    fn validate(&self, _conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
         Ok(())
     }
 
@@ -442,7 +438,7 @@ pub(crate) mod tests {
         store
             .conn()
             .raw_query_read(|c| {
-                store.db.validate(&opts, c).unwrap();
+                store.db.validate(c).unwrap();
                 Ok(())
             })
             .unwrap();

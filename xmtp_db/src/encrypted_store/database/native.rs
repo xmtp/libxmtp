@@ -53,11 +53,7 @@ impl<T> XmtpConnection for T where
 dyn_clone::clone_trait_object!(XmtpConnection);
 
 pub(crate) trait ValidatedConnection {
-    fn validate(
-        &self,
-        _opts: &StorageOption,
-        _conn: &mut SqliteConnection,
-    ) -> Result<(), PlatformStorageError> {
+    fn validate(&self, _conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
         Ok(())
     }
 }
@@ -225,13 +221,16 @@ impl NativeDb {
     ) -> Result<Self, PlatformStorageError> {
         let customizer = if let Some(key) = enc_key {
             let enc_connection = EncryptedConnection::new(key, opts)?;
+            if let Some(path) = enc_connection.options().path() {
+                let mut conn = SqliteConnection::establish(path)?;
+                enc_connection.validate(&mut conn)?;
+            }
             Box::new(enc_connection) as Box<dyn XmtpConnection>
         } else if matches!(opts, StorageOption::Persistent(_)) {
             Box::new(UnencryptedConnection::new(opts.clone())) as Box<dyn XmtpConnection>
         } else {
             Box::new(NopConnection::default()) as Box<dyn XmtpConnection>
         };
-
         let conn = if customizer.is_persistent() {
             PersistentOrMem::Persistent(NativeDbConnection::new(customizer.clone())?)
         } else {
@@ -262,12 +261,8 @@ impl XmtpDb for NativeDb {
         &self.opts
     }
 
-    fn validate(
-        &self,
-        opts: &StorageOption,
-        conn: &mut SqliteConnection,
-    ) -> Result<(), ConnectionError> {
-        self.customizer.validate(opts, conn)?;
+    fn validate(&self, conn: &mut SqliteConnection) -> Result<(), ConnectionError> {
+        self.customizer.validate(conn)?;
         Ok(())
     }
 
@@ -482,10 +477,9 @@ mod tests {
 
         let db_path = tmp_path();
         let opts = StorageOption::Persistent(db_path.clone());
-
         {
             let db = NativeDb::new(&opts, enc_key).unwrap();
-            db.init(&opts).unwrap();
+            db.init().unwrap();
 
             StoredIdentity::new(
                 "dummy_address".to_string(),
