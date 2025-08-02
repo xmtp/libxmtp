@@ -129,7 +129,6 @@ impl IdentityStrategy {
     pub(crate) async fn initialize_identity<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        sync_api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Identity, IdentityError> {
@@ -173,7 +172,6 @@ impl IdentityStrategy {
                         nonce,
                         legacy_signed_private_key,
                         api_client,
-                        sync_api_client,
                         mls_storage,
                         scw_signature_verifier,
                     )
@@ -352,7 +350,6 @@ impl Identity {
         nonce: u64,
         legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
-        sync_api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
     ) -> Result<Self, IdentityError> {
@@ -484,7 +481,7 @@ impl Identity {
                 is_ready: AtomicBool::new(true),
             };
 
-            identity.register(api_client, sync_api_client, mls_storage).await?;
+            identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
             api_client.publish_identity_update(identity_update).await?;
@@ -602,7 +599,6 @@ impl Identity {
     pub(crate) async fn register<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         &self,
         api_client: &ApiClientWrapper<ApiClient>,
-        sync_api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
     ) -> Result<(), IdentityError> {
         let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
@@ -613,7 +609,6 @@ impl Identity {
 
         self.rotate_and_upload_key_package(
             api_client,
-            sync_api_client,
             mls_storage,
             CREATE_PQ_KEY_PACKAGE_EXTENSION,
         )
@@ -637,8 +632,7 @@ impl Identity {
         S: XmtpMlsStorageProvider,
     >(
         &self,
-        _api_client: &ApiClientWrapper<ApiClient>,
-        sync_api_client: &ApiClientWrapper<ApiClient>,
+        api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         include_post_quantum: bool,
     ) -> Result<(), IdentityError> {
@@ -657,9 +651,7 @@ impl Identity {
             .id;
         let kp_bytes = kp.tls_serialize_detached()?;
 
-        // Use sync_api_client for key package uploads to avoid rate limiting conflicts
-        // with welcome message queries on the main API channel
-        match sync_api_client.upload_key_package(kp_bytes, true).await {
+        match api_client.upload_key_package(kp_bytes, true).await {
             Ok(()) => {
                 // Successfully uploaded. Delete previous KPs
                 provider.storage().transaction(|conn| {
@@ -968,7 +960,7 @@ mod tests {
         let api_client = client.context.api();
         client
             .identity()
-            .rotate_and_upload_key_package(api_client, client.context.sync_api(), storage, true)
+            .rotate_and_upload_key_package(api_client, storage, true)
             .await
             .unwrap();
 
@@ -1052,11 +1044,11 @@ mod tests {
 
             // Give amal a post quantum key package and bola a legacy key package
             amal.identity()
-                .rotate_and_upload_key_package(amal_api, amal.context.sync_api(), amal_mls, amal_has_pq)
+                .rotate_and_upload_key_package(amal_api, amal_mls, amal_has_pq)
                 .await
                 .unwrap();
             bola.identity()
-                .rotate_and_upload_key_package(bola_api, bola.context.sync_api(), bola_mls, bola_has_pq)
+                .rotate_and_upload_key_package(bola_api, bola_mls, bola_has_pq)
                 .await
                 .unwrap();
 

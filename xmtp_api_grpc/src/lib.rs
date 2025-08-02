@@ -20,7 +20,7 @@ use crate::streams::XmtpTonicStream;
 pub type GroupMessageStream = XmtpTonicStream<tonic::codec::Streaming<GroupMessage>>;
 pub type WelcomeMessageStream = XmtpTonicStream<tonic::codec::Streaming<WelcomeMessage>>;
 
-pub(crate) fn apply_channel_options(endpoint: Endpoint, _limit: u64) -> Endpoint {
+pub(crate) fn apply_channel_options(endpoint: Endpoint, limit: u64) -> Endpoint {
     endpoint
         // Purpose: This setting controls the size of the initial connection-level flow control window for HTTP/2, which is the underlying protocol for gRPC.
         // Functionality: Flow control in HTTP/2 manages how much data can be in flight on the network. Setting the initial connection window size to (1 << 31) - 1 (the maximum possible value for a 32-bit integer, which is 2,147,483,647 bytes) essentially allows the client to receive a very large amount of data from the server before needing to acknowledge receipt and permit more data to be sent. This can be particularly useful in high-latency networks or when transferring large amounts of data.
