@@ -57,6 +57,10 @@ impl<A, S> ClientBuilder<A, S> {
         self.store(xmtp_db::TestDb::create_persistent_store(None).await)
     }
 
+    pub async fn unencrypted_store(self, path: Option<String>) -> Self {
+        self.store(xmtp_db::TestDb::create_unencrypted_persistent_store(path).await)
+    }
+
     pub async fn dev(self) -> ClientBuilder<TestClient, S> {
         let api_client = <TestClient as XmtpTestClient>::create_dev()
             .build()
@@ -118,8 +122,37 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .unwrap()
     }
 
+    pub async fn new_test_builder_with_unencrypted_store(
+        owner: &impl InboxOwner,
+    ) -> ClientBuilder<(), TestMlsStorage> {
+        let strategy = identity_setup(owner);
+
+        Client::builder(strategy)
+            .unencrypted_store(None)
+            .await
+            .with_disable_events(None)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .device_sync_server_url(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS)
+            .enable_sqlite_triggers()
+            .default_mls_store()
+            .unwrap()
+    }
+
     pub async fn new_test_client(owner: &impl InboxOwner) -> FullXmtpClient {
         let client = Self::new_test_builder(owner)
+            .await
+            .local()
+            .await
+            .build()
+            .await
+            .unwrap();
+        register_client(&client, owner).await;
+        client
+    }
+
+    /// Test client with unencrypted permanent store
+    pub async fn new_test_client_with_unencrypted_store(owner: &impl InboxOwner) -> FullXmtpClient {
+        let client = Self::new_test_builder_with_unencrypted_store(owner)
             .await
             .local()
             .await

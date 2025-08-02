@@ -459,6 +459,153 @@ async fn test_dm_stitching() {
     let msg = String::from_utf8_lossy(&alix_msgs[1].decrypted_message_bytes);
     assert_eq!(msg, "No, let's use this dm");
 }
+#[xmtp_common::test]
+async fn test_stitch_dm_groups_across_installations_while_new_installation_sync_after_its_main_client(
+) {
+    // Create two installations for User1 and one for User2
+    let user1_wallet = generate_local_wallet();
+    let user2_wallet = generate_local_wallet();
+
+    let user1_client1 = ClientBuilder::new_test_client(&user1_wallet).await;
+    let user2_client1 = ClientBuilder::new_test_client(&user2_wallet).await;
+
+    // Each finds/creates its own DM
+    let dm1 = user1_client1
+        .find_or_create_dm_by_inbox_id(user2_client1.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+    let dm2 = user2_client1
+        .find_or_create_dm_by_inbox_id(user1_client1.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+
+    // They start out with distinct group IDs
+    assert_ne!(dm1.group_id, dm2.group_id);
+
+    // Exchange messages in both DMs
+    dm1.send_message(b"hi").await.unwrap();
+    dm2.send_message(b"hi").await.unwrap();
+
+    // Spin up a second installation for User1 (new DB)
+    let user1_client2 = ClientBuilder::new_test_client(&user1_wallet).await;
+
+    // Sync in the order: User2 -> User1 -> User1 second installation
+    user2_client1
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+
+    user1_client1
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+
+    user1_client2
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+    let u1c1_convos = user1_client1
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+    let u1c2_convos = user1_client2
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+    let u2c1_convos = user2_client1
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+
+    // All clients must have the same group id as the stitched dm
+    assert_eq!(u1c1_convos[0].group.group_id, u1c2_convos[0].group.group_id);
+    assert_eq!(u1c2_convos[0].group.group_id, u2c1_convos[0].group.group_id);
+
+    // All clients must have only one dm
+    assert_eq!(u1c1_convos.len(), 1);
+    assert_eq!(u1c2_convos.len(), 1);
+    assert_eq!(u2c1_convos.len(), 1);
+}
+#[xmtp_common::test]
+async fn test_stitch_dm_groups_across_installations_while_new_installation_sync_after_orig_clients()
+{
+    // Create two installations for User1 and one for User2
+    let user1_wallet = generate_local_wallet();
+    let user2_wallet = generate_local_wallet();
+
+    let user1_client1 = ClientBuilder::new_test_client(&user1_wallet).await;
+    let user2_client1 = ClientBuilder::new_test_client(&user2_wallet).await;
+
+    // Each finds/creates its own DM
+    let dm1 = user1_client1
+        .find_or_create_dm_by_inbox_id(user2_client1.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+    let dm2 = user2_client1
+        .find_or_create_dm_by_inbox_id(user1_client1.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+
+    // They start out with distinct group IDs
+    assert_ne!(dm1.group_id, dm2.group_id);
+
+    // Exchange messages in both DMs
+    dm1.send_message(b"hi").await.unwrap();
+    dm2.send_message(b"hi").await.unwrap();
+
+    // Spin up a second installation for User1 (new DB)
+    let user1_client2 = ClientBuilder::new_test_client(&user1_wallet).await;
+
+    // Sync in the order: User1 -> User2 -> User1Alt (prevents stitching)
+    user1_client1
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+
+    user2_client1
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+
+    user1_client2
+        .sync_all_welcomes_and_groups(None)
+        .await
+        .unwrap();
+
+    let u1c1_convos = user1_client1
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+    let u1c2_convos = user1_client2
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+    let u2c1_convos = user2_client1
+        .list_conversations(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            ..GroupQueryArgs::default()
+        })
+        .unwrap();
+
+    // All clients must have the same group id as the stitched dm
+    assert_eq!(u1c1_convos[0].group.group_id, u1c2_convos[0].group.group_id);
+    assert_eq!(u1c2_convos[0].group.group_id, u2c1_convos[0].group.group_id);
+
+    // All clients must have only one dm
+    assert_eq!(u1c1_convos.len(), 1);
+    assert_eq!(u1c2_convos.len(), 1);
+    assert_eq!(u2c1_convos.len(), 1);
+}
 
 #[xmtp_common::test]
 async fn test_add_inbox() {
