@@ -6,7 +6,7 @@ use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
-use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
+use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
 use std::sync::Arc;
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
@@ -39,7 +39,7 @@ pub struct WasmDb {
 
 pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
     tokio::sync::OnceCell::const_new();
-pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
+pub use sqlite_wasm_rs::sahpool_vfs::{OpfsSAHError, OpfsSAHPoolUtil};
 
 /// Initialize the SQLite WebAssembly Library
 /// Generally this should not be required to call, since it
@@ -55,7 +55,7 @@ pub async fn init_sqlite() {
 async fn maybe_resize() -> Result<(), PlatformStorageError> {
     if let Some(Ok(util)) = SQLITE.get() {
         let capacity = util.get_capacity();
-        let used = util.get_file_count();
+        let used = util.count();
         if used >= capacity / 2 {
             let adding = (capacity * 2) - capacity;
             tracing::debug!(
@@ -76,7 +76,7 @@ async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
         initial_capacity: 6,
     };
 
-    let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
+    let r = sqlite_wasm_rs::sahpool_vfs::install(&cfg, true).await;
     if let Err(ref e) = r {
         match e {
             OpfsSAHError::CreateSyncAccessHandle(e) => log_exception(e),
@@ -207,7 +207,7 @@ impl XmtpDb for WasmDb {
         DbConnection::new(self.conn.clone())
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
+    fn validate(&self, _opts: &StorageOption, _c: &mut SqliteConnection) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
