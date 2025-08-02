@@ -720,7 +720,7 @@ where
         tracing::info!("registering identity");
         // Register the identity before applying the signature request
         self.identity()
-            .register(self.context.api(), self.context.mls_storage())
+            .register(self.context.api(), self.context.sync_api(), self.context.mls_storage())
             .await?;
         let updates = IdentityUpdates::new(&self.context);
         updates.apply_signature_request(signature_request).await?;
@@ -743,6 +743,7 @@ where
         self.identity()
             .rotate_and_upload_key_package(
                 self.context.api(),
+                self.context.sync_api(),
                 self.context.mls_storage(),
                 CREATE_PQ_KEY_PACKAGE_EXTENSION,
             )
