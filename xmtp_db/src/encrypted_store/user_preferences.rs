@@ -36,6 +36,7 @@ where
 
 #[derive(Debug)]
 pub struct HmacKey {
+    // TODO: Use xmtp_cryptography::Secret for Zeroize support
     pub key: [u8; 42],
     // # of 30 day periods since unix epoch
     pub epoch: i64,

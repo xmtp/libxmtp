@@ -296,6 +296,7 @@ const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
 pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
 pub const KEY_PACKAGE_WRAPPER_PRIVATE_KEY: &[u8] = b"KeyPackageWrapperPrivateKey";
+pub const COMMIT_LOG_SIGNER_PRIVATE_KEY: &[u8] = b"CommitLogSignerPrivateKey";
 
 // related to PublicGroup
 const TREE_LABEL: &[u8] = b"Tree";
