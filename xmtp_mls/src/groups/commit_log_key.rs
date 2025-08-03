@@ -7,15 +7,23 @@ use openmls_traits::OpenMlsProvider;
 use xmtp_cryptography::Secret;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::group::StoredGroupCommitLogPublicKey;
+use xmtp_db::prelude::QueryGroup;
 use xmtp_db::{
     XmtpMlsStorageProvider,
     sql_key_store::{COMMIT_LOG_SIGNER_PRIVATE_KEY, SqlKeyStoreError},
 };
+use xmtp_proto::xmtp::mls::api::v1::QueryCommitLogResponse;
+use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
 
 pub(crate) trait CommitLogKeyCrypto {
     type Error: std::error::Error;
     fn generate_commit_log_key(&self) -> Result<Secret, Self::Error>;
     fn public_key_matches_private_key(public_key: &[u8], private_key: &Secret) -> bool;
+    fn verify_commit_log_signature(
+        &self,
+        entry: &CommitLogEntryProto,
+        expected_public_key: &[u8],
+    ) -> Result<(), Self::Error>;
 }
 
 impl CommitLogKeyCrypto for RustCrypto {
@@ -32,6 +40,26 @@ impl CommitLogKeyCrypto for RustCrypto {
             return false;
         };
         public_key == computed_public_key
+    }
+
+    fn verify_commit_log_signature(
+        &self,
+        entry: &CommitLogEntryProto,
+        expected_public_key: &[u8],
+    ) -> Result<(), Self::Error> {
+        let Some(signature) = &entry.signature else {
+            return Err(openmls_traits::types::CryptoError::InvalidSignature);
+        };
+        if signature.public_key != expected_public_key {
+            return Err(openmls_traits::types::CryptoError::InvalidSignature);
+        }
+        self.verify_signature(
+            SignatureScheme::ED25519,
+            entry.serialized_commit_log_entry.as_slice(),
+            expected_public_key,
+            &signature.bytes,
+        )?;
+        Ok(())
     }
 }
 
@@ -59,6 +87,35 @@ impl<KeyStore: XmtpMlsStorageProvider> CommitLogKeyStore for KeyStore {
     }
 }
 
+pub(crate) fn derive_consensus_public_key(
+    context: &impl XmtpSharedContext,
+    commit_log_response: &QueryCommitLogResponse,
+) -> Result<Option<Vec<u8>>, CommitLogError> {
+    let provider = context.mls_provider();
+    // Find the first entry with a valid signature and extract its public key
+    for entry in &commit_log_response.commit_log_entries {
+        if let Some(signature) = &entry.signature
+            && provider
+                .crypto()
+                .verify_commit_log_signature(entry, &signature.public_key)
+                .is_ok()
+        {
+            context.db().set_group_commit_log_public_key(
+                &commit_log_response.group_id,
+                &signature.public_key,
+            )?;
+            return Ok(Some(signature.public_key.clone()));
+        }
+    }
+
+    tracing::warn!(
+        "No valid signature found in commit log response for group {:?}",
+        hex::encode(&commit_log_response.group_id)
+    );
+    Ok(None)
+}
+
+// TODO(rich): Handle race conditions where commit log key can be overwritten
 pub(crate) fn get_or_create_signing_key(
     context: &impl XmtpSharedContext,
     conversation: &StoredGroupCommitLogPublicKey,
