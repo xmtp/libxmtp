@@ -182,8 +182,9 @@ where
         let sync_group = self.get_sync_group().await?;
 
         tracing::info!(
-            "\x1b[33mSending sync message to group {:?}: \x1b[0m{content:?}",
-            &sync_group.group_id[..4]
+            "\x1b[33m[{}] Sending sync message to group {:?}: \x1b[0m{content:?}",
+            self.context.installation_id(),
+            xmtp_common::fmt::debug_hex(&sync_group.group_id)
         );
 
         let mut content_bytes = vec![];
@@ -230,7 +231,11 @@ where
             Some(sync_group) => self.mls_store.group(&sync_group.id)?,
             None => {
                 let sync_group = MlsGroup::create_and_insert_sync_group(self.context.clone())?;
-                tracing::info!("Creating sync group: {:?}", sync_group.group_id);
+                tracing::info!(
+                    "[{}] Creating sync group: {}",
+                    hex::encode(self.context.installation_id()),
+                    hex::encode(&sync_group.group_id)
+                );
                 sync_group.add_missing_installations().await?;
                 sync_group.sync_with_conn().await?;
 

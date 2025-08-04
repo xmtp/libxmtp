@@ -609,7 +609,11 @@ mod tests {
 
         alix1.test_has_same_sync_group_as(&alix2).await?;
 
-        alix1.worker().wait(SyncMetric::PayloadSent, 1).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::PayloadSent, 1)
+            .wait()
+            .await?;
 
         alix2
             .context
@@ -618,7 +622,11 @@ mod tests {
             .await?
             .sync()
             .await?;
-        alix2.worker().wait(SyncMetric::PayloadProcessed, 1).await?;
+        alix2
+            .worker()
+            .register_interest(SyncMetric::PayloadProcessed, 1)
+            .wait()
+            .await?;
 
         assert_eq!(alix1.worker().get(SyncMetric::V1PayloadSent), 0);
         assert_eq!(alix2.worker().get(SyncMetric::V1PayloadProcessed), 0);
@@ -629,12 +637,17 @@ mod tests {
             .v1_send_sync_request(BackupElementSelection::Messages)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
-        alix1.worker().wait(SyncMetric::V1PayloadSent, 1).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::V1PayloadSent, 1)
+            .wait()
+            .await?;
 
         alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
-            .wait(SyncMetric::V1PayloadProcessed, 1)
+            .register_interest(SyncMetric::V1PayloadProcessed, 1)
+            .wait()
             .await?;
 
         alix2
@@ -643,12 +656,17 @@ mod tests {
             .v1_send_sync_request(BackupElementSelection::Consent)
             .await?;
         alix1.sync_all_welcomes_and_history_sync_groups().await?;
-        alix1.worker().wait(SyncMetric::V1PayloadSent, 2).await?;
+        alix1
+            .worker()
+            .register_interest(SyncMetric::V1PayloadSent, 2)
+            .wait()
+            .await?;
 
         alix2.sync_all_welcomes_and_history_sync_groups().await?;
         alix2
             .worker()
-            .wait(SyncMetric::V1PayloadProcessed, 2)
+            .register_interest(SyncMetric::V1PayloadProcessed, 2)
+            .wait()
             .await?;
     }
 }

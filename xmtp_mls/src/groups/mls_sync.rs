@@ -82,7 +82,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     mem::{Discriminant, discriminant},
     ops::RangeInclusive,
 };
@@ -902,6 +902,7 @@ where
             _ => None,
         };
 
+        let mut deferred_events = DeferredEvents::new();
         let identifier = provider.key_store().transaction(|conn| {
             let storage = conn.key_store();
             let db = storage.db();
@@ -959,7 +960,8 @@ where
                 processed_message,
                 envelope,
                 validated_commit.clone(),
-                &storage
+                &storage,
+                &mut deferred_events
             )?;
             let new_epoch = mls_group.epoch().as_u64();
             if new_epoch > previous_epoch {
@@ -974,6 +976,9 @@ where
             Ok::<_, GroupMessageProcessingError>(identifier)
         })?;
 
+        // Send all deferred events after the transaction completes
+        deferred_events.send_all(&self.context);
+
         Ok(identifier)
     }
 
@@ -987,6 +992,7 @@ where
         envelope: &GroupMessageV1,
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
+        deferred_events: &mut DeferredEvents,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let GroupMessageV1 {
             created_ns: envelope_timestamp_ns,
@@ -1053,15 +1059,17 @@ where
                         // If this message was sent by us on another installation, check if it
                         // belongs to a sync group, and if it is - notify the worker.
                         if sender_inbox_id == self.context.inbox_id() {
+                            tracing::info!(
+                                installation_id = hex::encode(self.context.installation_id()),
+                                "new sync group message event"
+                            );
                             if let Some(StoredGroup {
                                 conversation_type: ConversationType::Sync,
                                 ..
                             }) = storage.db().find_group(&self.group_id)?
                             {
-                                let _ = self
-                                    .context
-                                    .worker_events()
-                                    .send(SyncWorkerEvent::NewSyncGroupMsg);
+                                // Send this event after the transaction completes
+                                deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
                             }
                         }
                         Ok::<_, GroupMessageProcessingError>(())
@@ -1103,10 +1111,9 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history request.");
-                                let _ = self
-                                    .context
-                                    .worker_events()
-                                    .send(SyncWorkerEvent::Request { message_id });
+                                // Send this event after the transaction completes
+                                deferred_events
+                                    .add_worker_event(SyncWorkerEvent::Request { message_id });
                                 Ok(())
                             }
                             Some(MessageType::DeviceSyncReply(history_reply)) => {
@@ -1141,10 +1148,9 @@ where
                                 identifier.internal_id(message_id.clone());
 
                                 tracing::info!("Received a history reply.");
-                                let _ = self
-                                    .context
-                                    .worker_events()
-                                    .send(SyncWorkerEvent::Reply { message_id });
+                                // Send this event after the transaction completes
+                                deferred_events
+                                    .add_worker_event(SyncWorkerEvent::Reply { message_id });
                                 Ok(())
                             }
                             Some(MessageType::UserPreferenceUpdate(update)) => {
@@ -1157,10 +1163,9 @@ where
                                 )?;
 
                                 // Broadcast those updates for integrators to be notified of changes
-                                let _ = self
-                                    .context
-                                    .local_events()
-                                    .send(LocalEvents::PreferencesChanged(updates));
+                                // Send this event after the transaction completes
+                                deferred_events
+                                    .add_local_event(LocalEvents::PreferencesChanged(updates));
                                 Ok(())
                             }
                             _ => {
@@ -1401,7 +1406,7 @@ where
                     let db = storage.db();
                     let provider = XmtpOpenMlsProviderRef::new(&storage);
                     let requires_processing = if allow_cursor_increment {
-                        self.update_cursor_if_needed(&provider, &envelope.group_id, cursor)?
+                        self.update_cursor_if_needed(&db, &envelope.group_id, cursor)?
                     } else {
                         tracing::info!(
                             "will not call update cursor for group {}, with cursor {}, allow_cursor_increment is false",
@@ -1625,10 +1630,10 @@ where
                 if !e.is_retryable() && mls_group.is_active() {
                     if let Err(transaction_error) = self.context.mls_storage().transaction(|conn| {
                         let storage = conn.key_store();
-                        let provider = XmtpOpenMlsProvider::new(storage);
+                        let provider = XmtpOpenMlsProviderRef::new(&storage);
                         // TODO(rich): Add log_err! macro/trait for swallowing errors
                         if let Err(update_cursor_error) =
-                            self.update_cursor_if_needed(&provider, &self.group_id, message_cursor)
+                            self.update_cursor_if_needed(&storage.db(), &self.group_id, message_cursor)
                         {
                             // We don't need to propagate the error if the cursor fails to update - the worst case is
                             // that the non-retriable error is processed again
@@ -1748,7 +1753,7 @@ where
     #[tracing::instrument(skip_all, level = "trace")]
     fn update_cursor_if_needed(
         &self,
-        provider: &impl MlsProviderExt,
+        db: &impl DbQuery,
         group_id: &[u8],
         cursor: u64,
     ) -> Result<bool, StorageError> {
@@ -1757,11 +1762,7 @@ where
             hex::encode(group_id),
             cursor
         );
-        let updated =
-            provider
-                .key_store()
-                .db()
-                .update_cursor(group_id, EntityKind::Group, cursor as i64)?;
+        let updated = db.update_cursor(group_id, EntityKind::Group, cursor as i64)?;
         if updated {
             tracing::debug!("cursor updated to [{}]", cursor as i64);
         } else {
@@ -2746,5 +2747,40 @@ pub(crate) mod tests {
         assert_eq!(hmac_keys[0].epoch, current_epoch - 1);
         assert_eq!(hmac_keys[1].epoch, current_epoch);
         assert_eq!(hmac_keys[2].epoch, current_epoch + 1);
+    }
+}
+
+/// Collects events that should be sent after database transactions complete
+#[derive(Default)]
+pub struct DeferredEvents {
+    worker_events: VecDeque<SyncWorkerEvent>,
+    local_events: VecDeque<LocalEvents>,
+}
+
+impl DeferredEvents {
+    pub fn new() -> Self {
+        Self {
+            worker_events: VecDeque::new(),
+            local_events: VecDeque::new(),
+        }
+    }
+
+    pub fn add_worker_event(&mut self, event: SyncWorkerEvent) {
+        self.worker_events.push_back(event);
+    }
+
+    pub fn add_local_event(&mut self, event: LocalEvents) {
+        self.local_events.push_back(event);
+    }
+
+    /// Send all collected events to their respective channels
+    pub fn send_all<Context: XmtpSharedContext>(&mut self, context: &Context) {
+        while let Some(event) = self.worker_events.pop_front() {
+            let _ = context.worker_events().send(event);
+        }
+
+        while let Some(event) = self.local_events.pop_front() {
+            let _ = context.local_events().send(event);
+        }
     }
 }

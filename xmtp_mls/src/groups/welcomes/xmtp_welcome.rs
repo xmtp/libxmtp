@@ -1,8 +1,9 @@
 //! XMTP Welcome Processing
 //! Processes a new welcome from the network
 
-use crate::groups::MetadataPermissionsError;
 use crate::groups::mls_ext::CommitLogStorer;
+use crate::groups::mls_sync::DeferredEvents;
+use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -47,6 +48,9 @@ pub struct XmtpWelcome<'a, C, V> {
     welcome: &'a welcome_message::V1,
     cursor_increment: bool,
     validator: V,
+    /// Worker events collected throughout the welcome process
+    #[builder(default = "Some(mls_sync::DeferredEvents::default())")]
+    events: Option<mls_sync::DeferredEvents>,
 }
 
 impl<'a, C, V> XmtpWelcome<'a, C, V> {
@@ -81,7 +85,7 @@ where
     V: ValidateGroupMembership,
 {
     pub async fn process(self) -> Result<MlsGroup<C>, GroupError> {
-        let this = self.build()?;
+        let mut this = self.build()?;
         let db = this.context.db();
         if let Some(group) = this.check_if_processed(&db)? {
             return Ok(group);
@@ -101,7 +105,12 @@ where
             }
             _ => (),
         }
-        let commit_result = this.commit_and_verify(this.context.mls_storage())?;
+        // we only use take once
+        let mut events = this
+            .events
+            .take()
+            .expect("builder is built with events as Some");
+        let commit_result = this.commit_or_fail_forever(&mut events)?;
         commit_result.into_result()
     }
 }
@@ -222,14 +231,15 @@ where
     /// Verifies the welcome processed succesfully. If it fails on a non-retryable error,
     /// increments the cursor. Otherwise state must remain as if no transaction occurred.
     /// Returns an error if group failed to commit.
-    fn commit_and_verify(
+    /// Once transaction succeeds, sends device sync messages
+    fn commit_or_fail_forever(
         &self,
-        storage: &impl XmtpMlsStorageProvider,
+        events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
-        storage.transaction(|conn| {
+        let commit_result = self.context.mls_storage().transaction(|conn| {
             let storage = conn.key_store();
             // Savepoint transaction
-            let result = storage.transaction(|conn| self.commit(conn));
+            let result = storage.savepoint(|conn| self.commit(conn, events));
             let db = storage.db();
             // if we got an error
             // and the error is not retryable
@@ -246,13 +256,19 @@ where
                 Err(e) => Err(e),
                 Ok(group) => Ok(CommitResult::Ok(group)),
             }
-        })
+        })?;
+        events.send_all(&self.context);
+        Ok(commit_result)
     }
 
     /// The welcome was validated and we haven't processed yet.
     /// Can be commited
     /// Requires a transaction
-    fn commit(&self, tx: &mut impl TransactionalKeyStore) -> Result<MlsGroup<C>, GroupError> {
+    fn commit(
+        &self,
+        tx: &mut impl TransactionalKeyStore,
+        events: &mut DeferredEvents,
+    ) -> Result<MlsGroup<C>, GroupError> {
         let Self {
             welcome,
             cursor_increment,
@@ -367,9 +383,7 @@ where
                 // Let the DeviceSync worker know about the presence of a new
                 // sync group that came in from a welcome.3
                 let group_id = mls_group.group_id().to_vec();
-                let _ = context
-                    .worker_events()
-                    .send(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
+                events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
 
                 group
                     .membership_state(GroupMembershipState::Allowed)
@@ -470,5 +484,41 @@ where
         }
 
         Ok(group)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        groups::test::NoopValidator,
+        test::mock::{NewMockContext, context},
+    };
+
+    use super::*;
+
+    fn generate_welcome() -> welcome_message::V1 {
+        welcome_message::V1 {
+            id: 0,
+            created_ns: 0,
+            installation_key: vec![0],
+            data: vec![0],
+            hpke_public_key: vec![],
+            wrapper_algorithm: 0,
+            welcome_metadata: vec![0],
+        }
+    }
+
+    // Is async so that the async timeout from rstest is used in wasm (does not spawn thread)
+    #[rstest::rstest]
+    #[xmtp_common::test]
+    async fn welcome_builds_with_default_events(context: NewMockContext) {
+        let w = generate_welcome();
+        let builder = XmtpWelcome::builder()
+            .context(context)
+            .welcome(&w)
+            .cursor_increment(true)
+            .validator(NoopValidator)
+            .build();
+        assert!(builder.unwrap().events.is_some());
     }
 }

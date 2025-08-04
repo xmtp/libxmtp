@@ -35,7 +35,7 @@ struct StorageData {
 
 impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
-        = SqlKeyStore<MutableTransactionConnection<'a, Self>>
+        = SqlKeyStore<MutableTransactionConnection<'a>>
     where
         Self: 'a;
 
@@ -50,26 +50,19 @@ pub struct SqlKeyStore<T> {
     conn: T,
 }
 
-impl<'a, A> SqlKeyStore<A> {
+impl<A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
         Self { conn }
     }
+}
 
-    pub fn new_transactional(conn: &'a mut A) -> SqlKeyStore<MutableTransactionConnection<'a, A>> {
+impl<'a> SqlKeyStore<SqliteConnection> {
+    pub fn new_transactional(
+        conn: &'a mut SqliteConnection,
+    ) -> SqlKeyStore<MutableTransactionConnection<'a>> {
         SqlKeyStore {
             conn: MutableTransactionConnection::new(conn),
         }
-    }
-}
-
-impl<D, C> From<D> for SqlKeyStore<D>
-where
-    D: crate::DbQuery,
-    D: ConnectionExt<Connection = C>,
-    C: ConnectionExt,
-{
-    fn from(value: D) -> Self {
-        Self { conn: value }
     }
 }
 
