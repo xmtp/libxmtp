@@ -8726,6 +8726,7 @@ name = "xmtp_cursor_state"
 version = "1.4.0-dev"
 dependencies = [
  "hex",
+ "xmtp_common",
  "xmtp_proto",
 ]
 

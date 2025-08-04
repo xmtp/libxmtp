@@ -16,8 +16,8 @@ impl CursorStore {
         }
     }
 
-    /// Record that a message for this topic with the given clock was processed
-    pub fn processed(&mut self, topic: Vec<u8>, new_clock: &Cursor) {
+    /// Record that a message for this topic with the given clock was received
+    pub fn received(&mut self, topic: Vec<u8>, new_clock: &Cursor) {
         let current = self.topics.entry(topic).or_default();
         current.merge_cursor(new_clock);
     }
@@ -85,20 +85,20 @@ mod tests {
         }
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_processed_and_get_latest() {
         let mut store = CursorStore::new();
         let topic = b"chat/abc".to_vec();
 
         let cursor = cursor_with(&[(1, 10), (2, 5)]);
-        store.processed(topic.clone(), &cursor.clone());
+        store.received(topic.clone(), &cursor.clone());
 
         let latest = store.get_latest(&topic).unwrap();
         assert_eq!(latest.node_id_to_sequence_id.get(&1), Some(&10));
         assert_eq!(latest.node_id_to_sequence_id.get(&2), Some(&5));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_merge_on_processed() {
         let mut store = CursorStore::new();
         let topic = b"chat/merge".to_vec();
@@ -106,8 +106,8 @@ mod tests {
         let c1 = cursor_with(&[(1, 10), (2, 5)]);
         let c2 = cursor_with(&[(1, 12), (2, 3), (3, 7)]);
 
-        store.processed(topic.clone(), &c1);
-        store.processed(topic.clone(), &c2);
+        store.received(topic.clone(), &c1);
+        store.received(topic.clone(), &c2);
 
         let latest = store.get_latest(&topic).unwrap();
         assert_eq!(latest.node_id_to_sequence_id.get(&1), Some(&12));
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(latest.node_id_to_sequence_id.get(&3), Some(&7));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_get_latest_nonexistent_topic() {
         let store = CursorStore::new();
         let missing_topic = b"does/not/exist".to_vec();
@@ -123,15 +123,15 @@ mod tests {
         assert!(store.get_latest(&missing_topic).is_none());
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_independent_topics() {
         let mut store = CursorStore::new();
 
         let topic_a = b"a".to_vec();
         let topic_b = b"b".to_vec();
 
-        store.processed(topic_a.clone(), &cursor_with(&[(1, 1)]));
-        store.processed(topic_b.clone(), &cursor_with(&[(2, 2)]));
+        store.received(topic_a.clone(), &cursor_with(&[(1, 1)]));
+        store.received(topic_b.clone(), &cursor_with(&[(2, 2)]));
 
         let a = store.get_latest(&topic_a).unwrap();
         let b = store.get_latest(&topic_b).unwrap();
@@ -140,13 +140,13 @@ mod tests {
         assert_eq!(b.node_id_to_sequence_id.get(&2), Some(&2));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_merge_into_empty_store_creates_topic() {
         let mut store = CursorStore::new();
         let topic = b"new/topic".to_vec();
         let cursor = cursor_with(&[(5, 9)]);
 
-        store.processed(topic.clone(), &cursor.clone());
+        store.received(topic.clone(), &cursor.clone());
 
         let stored = store.get_latest(&topic).unwrap();
         assert_eq!(stored.node_id_to_sequence_id.get(&5), Some(&9));
@@ -156,13 +156,13 @@ mod tests {
         name.as_bytes().to_vec()
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_lcc_normal_case() {
         let mut store = CursorStore::new();
 
-        store.processed(topic("a"), &cursor_with(&[(1, 10), (2, 20)]));
-        store.processed(topic("b"), &cursor_with(&[(1, 15), (2, 12), (3, 9)]));
-        store.processed(topic("c"), &cursor_with(&[(1, 8), (3, 11)]));
+        store.received(topic("a"), &cursor_with(&[(1, 10), (2, 20)]));
+        store.received(topic("b"), &cursor_with(&[(1, 15), (2, 12), (3, 9)]));
+        store.received(topic("c"), &cursor_with(&[(1, 8), (3, 11)]));
 
         let lcc = store
             .lowest_common_cursor(&[topic("a"), topic("b"), topic("c")])
@@ -173,12 +173,12 @@ mod tests {
         assert_eq!(lcc.node_id_to_sequence_id.get(&3), Some(&9)); // min(9, 11)
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_lcc_with_missing_topic() {
         let mut store = CursorStore::new();
 
-        store.processed(topic("a"), &cursor_with(&[(1, 10)]));
-        store.processed(topic("b"), &cursor_with(&[(1, 5)]));
+        store.received(topic("a"), &cursor_with(&[(1, 10)]));
+        store.received(topic("b"), &cursor_with(&[(1, 5)]));
 
         let lcc = store
             .lowest_common_cursor(&[topic("a"), topic("b"), topic("not-found")])
@@ -187,12 +187,12 @@ mod tests {
         assert_eq!(lcc.node_id_to_sequence_id.get(&1), Some(&5)); // min(10, 5)
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_lcc_with_zero_values() {
         let mut store = CursorStore::new();
 
-        store.processed(topic("x"), &cursor_with(&[(1, 0), (2, 4)]));
-        store.processed(topic("y"), &cursor_with(&[(1, 3), (2, 0)]));
+        store.received(topic("x"), &cursor_with(&[(1, 0), (2, 4)]));
+        store.received(topic("y"), &cursor_with(&[(1, 3), (2, 0)]));
 
         let lcc = store
             .lowest_common_cursor(&[topic("x"), topic("y")])
@@ -202,12 +202,12 @@ mod tests {
         assert_eq!(lcc.node_id_to_sequence_id.get(&2), Some(&0));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_lcc_with_unseen_nodes() {
         let mut store = CursorStore::new();
 
-        store.processed(topic("a"), &cursor_with(&[(1, 5)]));
-        store.processed(topic("b"), &cursor_with(&[(2, 7)]));
+        store.received(topic("a"), &cursor_with(&[(1, 5)]));
+        store.received(topic("b"), &cursor_with(&[(2, 7)]));
 
         let lcc = store
             .lowest_common_cursor(&[topic("a"), topic("b")])
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(lcc.node_id_to_sequence_id.get(&2), Some(&7));
     }
 
-    #[test]
+    #[xmtp_common::test]
     fn test_lcc_with_no_cursors() {
         let store = CursorStore::new();
 

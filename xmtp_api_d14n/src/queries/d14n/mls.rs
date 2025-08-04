@@ -120,7 +120,7 @@ where
 
         let mut store = self.cursor_store.lock().unwrap();
         for (_msg, node_id, seq_id) in &extracted {
-            store.processed(
+            store.received(
                 topic.clone(),
                 &Cursor {
                     node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
@@ -160,7 +160,7 @@ where
 
         let mut store = self.cursor_store.lock().unwrap();
         for (_msg, node_id, seq_id) in &extracted {
-            store.processed(
+            store.received(
                 topic.clone(),
                 &Cursor {
                     node_id_to_sequence_id: [(*node_id, *seq_id)].into(),
