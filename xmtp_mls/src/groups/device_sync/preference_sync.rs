@@ -136,7 +136,6 @@ mod tests {
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_hmac_sync() {
-        xmtp_common::logger();
         tester!(amal_a, sync_worker);
         tester!(amal_b, from: amal_a);
 
