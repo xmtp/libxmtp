@@ -8845,6 +8845,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "indicatif",
+ "itertools 0.14.0",
  "json-patch",
  "mockall",
  "mockito",

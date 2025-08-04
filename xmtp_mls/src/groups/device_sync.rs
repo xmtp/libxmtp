@@ -2,13 +2,17 @@ use super::{GroupError, MlsGroup, summary::SyncSummary, welcome_sync::WelcomeSer
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
+    groups::intents::QueueIntent,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use futures::future::join_all;
+use futures::{StreamExt, TryStreamExt, stream};
 use prost::Message;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -257,19 +261,25 @@ where
             ..Default::default()
         })?;
 
-        // Add the new installation to groups in batches
-        for chunk in groups.chunks(10) {
-            let mut add_futs = vec![];
-            for group in chunk {
-                add_futs.push(group.add_missing_installations());
-            }
-            let results = join_all(add_futs).await;
-            for result in results {
-                if let Err(err) = result {
-                    tracing::warn!("Unable to add new installation to group. {err:?}");
-                }
-            }
-        }
+        let groups = HashSet::from_iter(groups);
+        let intents = QueueIntent::update_group_membership()
+            .queue_for_each(groups, move |group| async move {
+                let intent = group.get_membership_update_intent(&[], &[]).await?;
+                let intent: Vec<u8> = intent.into();
+                Ok::<_, GroupError>(intent)
+            })
+            .await?;
+
+        let context = &self.context;
+        stream::iter(intents)
+            .map(Ok::<_, GroupError>)
+            .try_for_each_concurrent(10, |intent| async move {
+                let (group, _) = MlsGroup::new_cached(context, &intent.group_id)?;
+                group.sync_until_intent_resolved(intent.id).await?;
+                Ok(())
+            })
+            .await?;
+
         Ok(())
     }
 }

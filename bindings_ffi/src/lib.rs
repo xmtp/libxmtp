@@ -124,7 +124,6 @@ mod tests {
     pub fn test_get_version_info() {
         print!("{}", get_version_info());
     }
-
     // Execute once before any tests are run
     #[ctor::ctor]
     fn _setup() {

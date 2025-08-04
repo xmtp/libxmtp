@@ -1,9 +1,9 @@
-use diesel::prelude::*;
-use diesel_migrations::MigrationHarness;
-
 use crate::schema::openmls_key_value::dsl;
 use crate::sql_key_store::SqlKeyStore;
 use crate::{ConnectionExt, MIGRATIONS};
+use diesel::prelude::*;
+use diesel::sqlite::SqliteConnection;
+use diesel_migrations::MigrationHarness;
 use parking_lot::Mutex;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ pub type MlsMemoryStorage = SqlKeyStore<MemoryStorage>;
 
 #[derive(Clone)]
 pub struct MemoryStorage {
-    inner: Arc<Mutex<diesel::SqliteConnection>>,
+    inner: Arc<Mutex<SqliteConnection>>,
 }
 
 impl Default for MemoryStorage {
@@ -23,7 +23,7 @@ impl Default for MemoryStorage {
 
 impl MemoryStorage {
     pub fn new() -> Self {
-        let mut conn = diesel::SqliteConnection::establish(":memory:").unwrap();
+        let mut conn = SqliteConnection::establish(":memory:").unwrap();
         conn.run_pending_migrations(MIGRATIONS).unwrap();
         Self {
             inner: Arc::new(Mutex::new(conn)),
