@@ -3748,7 +3748,7 @@ mod tests {
 
         let identity_stats = client.api_identity_statistics();
         assert_eq!(identity_stats.publish_identity_update, 1);
-        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_identity_updates_v2, 2);
         assert_eq!(identity_stats.get_inbox_ids, 1);
         assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
 
