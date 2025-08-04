@@ -36,7 +36,7 @@ static LOGGER_INIT: std::sync::OnceLock<Result<()>> = std::sync::OnceLock::new()
 pub struct Client {
   inner_client: Arc<RustXmtpClient>,
   pub account_identifier: Identifier,
-  pub app_version: Option<String>,
+  app_version: Option<String>,
 }
 
 impl Client {
