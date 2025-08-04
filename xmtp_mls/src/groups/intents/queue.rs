@@ -1,7 +1,6 @@
-use futures::{stream, StreamExt, TryFutureExt};
+use futures::{StreamExt, TryFutureExt, stream};
 use std::collections::HashSet;
 use std::future::Future;
-use xmtp_db::diesel::Connection;
 
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
@@ -76,13 +75,12 @@ impl QueueIntentBuilder {
                 let intents = groups
                     .into_iter()
                     .map(|(group, data)| {
-                        let intent = self.clone().data(data).build()?;
+                        let storage = conn.key_store();
 
                         // nesting a transaction uses SQLite Savepoints
                         // https://sqlite.org/lang_savepoint.html
-                        // returning an Err retains the previous behavior
-                        // of starting a new tx per intent, but more lightweight.
-                        conn.transaction(|conn| {
+                        storage.savepoint(|conn| {
+                            let intent = self.clone().data(data).build()?;
                             let storage = conn.key_store();
                             let db = storage.db();
                             intent.queue_with_conn(&db, &group)
@@ -98,19 +96,6 @@ impl QueueIntentBuilder {
             tracing::warn!("failed to queue intent {error}");
         }
         Ok(intents)
-    }
-
-    /// private api to queue an intent w/o starting a transaction
-    fn queue_with_conn<Ctx>(
-        &mut self,
-        conn: &impl DbQuery,
-        group: &MlsGroup<Ctx>,
-    ) -> Result<StoredGroupIntent, GroupError>
-    where
-        Ctx: XmtpSharedContext,
-    {
-        let intent = self.build()?;
-        intent.queue_with_conn(conn, group)
     }
 }
 
@@ -159,17 +144,6 @@ impl QueueIntent {
 
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
-    }
-
-    fn queue<C>(self, group: &MlsGroup<C>) -> Result<StoredGroupIntent, GroupError>
-    where
-        C: XmtpSharedContext,
-    {
-        group.context.mls_storage().transaction(move |conn| {
-            let storage = conn.key_store();
-            let db = storage.db();
-            self.queue_with_conn(&db, group)
-        })
     }
 
     fn queue_with_conn<Ctx>(
@@ -224,7 +198,9 @@ impl QueueIntent {
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            QueueIntent::key_update().queue_with_conn(conn, group)?;
+            QueueIntent::key_update()
+                .build()?
+                .queue_with_conn(conn, group)?;
         }
         Ok(())
     }
@@ -236,7 +212,7 @@ mod tests {
     use tokio::sync::Mutex;
     use xmtp_db::group::{GroupMembershipState, StoredGroup};
 
-    use crate::test::mock::{context, NewMockContext};
+    use crate::test::mock::{NewMockContext, context};
 
     use super::*;
     use rstest::*;

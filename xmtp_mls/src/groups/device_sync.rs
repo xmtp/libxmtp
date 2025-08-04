@@ -7,7 +7,7 @@ use crate::{
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt, stream};
 use prost::Message;
 use std::{
     collections::{HashMap, HashSet},
