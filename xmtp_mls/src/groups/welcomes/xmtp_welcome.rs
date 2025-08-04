@@ -495,7 +495,6 @@ mod tests {
     };
 
     use super::*;
-    use rstest::*;
 
     fn generate_welcome() -> welcome_message::V1 {
         welcome_message::V1 {
@@ -509,9 +508,10 @@ mod tests {
         }
     }
 
-    #[rstest]
+    // Is async so that the async timeout from rstest is used in wasm (does not spawn thread)
+    #[rstest::rstest]
     #[xmtp_common::test]
-    fn welcome_builds_with_default_events(context: NewMockContext) {
+    async fn welcome_builds_with_default_events(context: NewMockContext) {
         let w = generate_welcome();
         let builder = XmtpWelcome::builder()
             .context(context)

@@ -64,6 +64,7 @@ use tokio::sync::Mutex;
 use xmtp_common::time::now_ns;
 use xmtp_content_types::reaction::{LegacyReaction, ReactionCodec};
 use xmtp_content_types::should_push;
+use xmtp_cryptography::configuration::ED25519_KEY_LENGTH;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::local_commit_log::LocalCommitLog;
 use xmtp_db::prelude::*;
@@ -106,6 +107,10 @@ const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 
+/// An LibXMTP MlsGroup
+/// _NOTE:_ The Eq implementation compares GroupId, so a dm group with the same identity will be
+/// different.
+/// the Hash implementation hashes the GroupID
 pub struct MlsGroup<Context> {
     pub group_id: Vec<u8>,
     pub dm_id: Option<String>,
@@ -115,6 +120,20 @@ pub struct MlsGroup<Context> {
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
+
+impl<C> std::hash::Hash for MlsGroup<C> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.group_id.hash(state);
+    }
+}
+
+impl<C> PartialEq for MlsGroup<C> {
+    fn eq(&self, other: &Self) -> bool {
+        self.group_id == other.group_id
+    }
+}
+
+impl<C> Eq for MlsGroup<C> {}
 
 impl<Context> std::fmt::Debug for MlsGroup<Context>
 where
@@ -222,6 +241,20 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
             reference_id,
             should_push: should_push(type_id_str),
         })
+    }
+}
+
+impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
+    fn from(group: MlsGroup<&Context>) -> MlsGroup<Context> {
+        MlsGroup::<Context> {
+            context: group.context.clone(),
+            group_id: group.group_id,
+            dm_id: group.dm_id,
+            created_at_ns: group.created_at_ns,
+            mls_commit_lock: group.mls_commit_lock,
+            mutex: group.mutex,
+            conversation_type: group.conversation_type,
+        }
     }
 }
 
@@ -1556,8 +1589,12 @@ pub fn build_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     opts: GroupMetadataOptions,
 ) -> Result<Extension, GroupError> {
+    let mut commit_log_signer = None;
+    if crate::configuration::ENABLE_COMMIT_LOG {
+        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
+    }
     let mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), opts)
+        GroupMutableMetadata::new_default(creator_inbox_id.to_string(), commit_log_signer, opts)
             .try_into()
             .map_err(MetadataPermissionsError::from)?;
     let unknown_gc_extension = UnknownExtension(mutable_metadata);
@@ -1573,9 +1610,14 @@ pub fn build_dm_mutable_metadata_extension_default(
     dm_target_inbox_id: &str,
     opts: DMMetadataOptions,
 ) -> Result<Extension, MetadataPermissionsError> {
+    let mut commit_log_signer = None;
+    if crate::configuration::ENABLE_COMMIT_LOG {
+        commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
+    }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(
         creator_inbox_id.to_string(),
         dm_target_inbox_id,
+        commit_log_signer,
         opts,
     )
     .try_into()?;
@@ -1600,6 +1642,7 @@ pub fn build_extensions_for_metadata_update(
         attributes,
         existing_metadata.admin_list,
         existing_metadata.super_admin_list,
+        existing_metadata.commit_log_signer,
     )
     .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
@@ -1700,8 +1743,13 @@ pub fn build_extensions_for_admin_lists_update(
             super_admin_list.retain(|x| x != &admin_lists_update.inbox_id)
         }
     }
-    let new_mutable_metadata: Vec<u8> =
-        GroupMutableMetadata::new(attributes, admin_list, super_admin_list).try_into()?;
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(
+        attributes,
+        admin_list,
+        super_admin_list,
+        existing_metadata.commit_log_signer,
+    )
+    .try_into()?;
     let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
     let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
     let mut extensions = group.extensions().clone();

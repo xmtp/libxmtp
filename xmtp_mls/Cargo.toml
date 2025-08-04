@@ -61,6 +61,7 @@ futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 hex.workspace = true
 hkdf.workspace = true
+itertools.workspace = true
 json-patch = "4"
 openmls_libcrux_crypto = { workspace = true }
 openmls_rust_crypto = { workspace = true }
@@ -173,7 +174,8 @@ xmtp_proto = { workspace = true, features = ["test-utils"] }
 # Required for traced_test! macro
 tracing-subscriber = { workspace = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
 ctor.workspace = true
 mockito = "1.6.1"
 openmls = { workspace = true }
@@ -181,7 +183,8 @@ tempfile = "3.15.0"
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 xmtp_api_http = { workspace = true, features = ["test-utils"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 openmls = { workspace = true, features = ["js"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true

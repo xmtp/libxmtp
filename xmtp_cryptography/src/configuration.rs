@@ -7,3 +7,5 @@ pub const CIPHERSUITE: Ciphersuite =
 
 pub const POST_QUANTUM_CIPHERSUITE: Ciphersuite =
     Ciphersuite::MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519;
+
+pub const ED25519_KEY_LENGTH: usize = 32;

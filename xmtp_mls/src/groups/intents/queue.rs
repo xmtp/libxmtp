@@ -1,14 +1,19 @@
+use futures::{StreamExt, TryFutureExt, stream};
+use std::collections::HashSet;
+use std::future::Future;
+
 use crate::groups::intents::GROUP_KEY_ROTATION_INTERVAL_NS;
 use crate::groups::{GroupError, MlsGroup, XmtpSharedContext};
 use crate::track;
 use derive_builder::Builder;
+use itertools::Itertools;
 use xmtp_db::{
     DbQuery,
     group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
     prelude::*,
 };
 
-#[derive(Builder, Debug)]
+#[derive(Builder, Clone, Debug)]
 #[builder(setter(strip_option), build_fn(error = "GroupError", private))]
 pub struct QueueIntent {
     #[builder(setter(into))]
@@ -26,20 +31,71 @@ impl QueueIntentBuilder {
         C: XmtpSharedContext,
     {
         let intent = self.build()?;
-        intent.queue(group)
+        group.context.mls_storage().transaction(move |conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
+            intent.queue_with_conn(&db, group)
+        })
     }
 
-    /// private api to queue an intent w/o starting a transaction
-    fn queue_with_conn<Ctx>(
+    /// Queue this intent for each group
+    /// Accepts a hashset to ensure each group is unique
+    /// Accepts a closure that returns the intent data for a group
+    pub async fn queue_for_each<'a, C, F, Fut, E>(
         &mut self,
-        conn: &impl DbQuery,
-        group: &MlsGroup<Ctx>,
-    ) -> Result<StoredGroupIntent, GroupError>
+        groups: HashSet<MlsGroup<C>>,
+        data: F,
+    ) -> Result<Vec<StoredGroupIntent>, GroupError>
     where
-        Ctx: XmtpSharedContext,
+        C: XmtpSharedContext + 'a,
+        F: Fn(MlsGroup<C>) -> Fut,
+        Fut: Future<Output = Result<Vec<u8>, E>>,
+        GroupError: From<E>,
+        E: std::fmt::Debug + std::error::Error,
     {
-        let intent = self.build()?;
-        intent.queue_with_conn(conn, group)
+        if groups.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let groups: Vec<MlsGroup<C>> = Vec::from_iter(groups);
+        let context: C = groups.first().expect("checked for empty").context.clone();
+
+        // get the intent data for each group
+        let (groups, errors): (Vec<_>, Vec<_>) = stream::iter(groups)
+            .map(|group| data(group.clone()).map_ok(move |d| (group, d)))
+            .buffered(10)
+            .collect::<Vec<Result<_, _>>>()
+            .await
+            .into_iter()
+            .partition_result();
+        let mut errors = errors.into_iter().map(GroupError::from).collect::<Vec<_>>();
+
+        let (intents, errs): (Vec<StoredGroupIntent>, Vec<_>) = {
+            context.mls_storage().transaction(|conn| {
+                let intents = groups
+                    .into_iter()
+                    .map(|(group, data)| {
+                        let storage = conn.key_store();
+
+                        // nesting a transaction uses SQLite Savepoints
+                        // https://sqlite.org/lang_savepoint.html
+                        storage.savepoint(|conn| {
+                            let intent = self.clone().data(data).build()?;
+                            let storage = conn.key_store();
+                            let db = storage.db();
+                            intent.queue_with_conn(&db, &group)
+                        })
+                    })
+                    .partition_result();
+                Ok::<_, GroupError>(intents)
+            })?
+        };
+        errors.extend(errs);
+
+        for error in errors {
+            tracing::warn!("failed to queue intent {error}");
+        }
+        Ok(intents)
     }
 }
 
@@ -88,17 +144,6 @@ impl QueueIntent {
 
     fn builder() -> QueueIntentBuilder {
         QueueIntentBuilder::default()
-    }
-
-    fn queue<C>(self, group: &MlsGroup<C>) -> Result<StoredGroupIntent, GroupError>
-    where
-        C: XmtpSharedContext,
-    {
-        group.context.mls_storage().transaction(move |conn| {
-            let storage = conn.key_store();
-            let db = storage.db();
-            self.queue_with_conn(&db, group)
-        })
     }
 
     fn queue_with_conn<Ctx>(
@@ -153,8 +198,72 @@ impl QueueIntent {
         let now_ns = xmtp_common::time::now_ns();
         let elapsed_ns = now_ns - last_rotated_at_ns;
         if elapsed_ns > GROUP_KEY_ROTATION_INTERVAL_NS {
-            QueueIntent::key_update().queue_with_conn(conn, group)?;
+            QueueIntent::key_update()
+                .build()?
+                .queue_with_conn(conn, group)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{iter, sync::Arc};
+    use tokio::sync::Mutex;
+    use xmtp_db::group::{GroupMembershipState, StoredGroup};
+
+    use crate::test::mock::{NewMockContext, context};
+
+    use super::*;
+    use rstest::*;
+
+    fn group<C: XmtpSharedContext>(context: &C, id: Option<Vec<u8>>) -> MlsGroup<&C> {
+        let id = id.unwrap_or(xmtp_common::rand_vec::<2>());
+        StoredGroup::builder()
+            .id(id.clone())
+            .created_at_ns(1)
+            .membership_state(GroupMembershipState::Allowed)
+            .added_by_inbox_id("bob")
+            .should_publish_commit_log(false)
+            .build()
+            .unwrap()
+            .store(&context.mls_storage().db())
+            .unwrap();
+
+        MlsGroup {
+            group_id: id,
+            dm_id: None,
+            created_at_ns: 1,
+            context,
+            mls_commit_lock: Arc::new(Default::default()),
+            mutex: Arc::new(Mutex::new(())),
+            conversation_type: xmtp_db::group::ConversationType::Dm,
+        }
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn can_queue_intent_for_each_group(context: NewMockContext) {
+        let groups = iter::repeat_with(|| group(&context, None)).take(10);
+        let intents = QueueIntent::update_group_membership()
+            .data(vec![0, 1, 2])
+            .queue_for_each(groups.collect(), async |_| Ok::<_, GroupError>(vec![]))
+            .await
+            .unwrap();
+        assert_eq!(intents.len(), 10);
+    }
+
+    #[rstest]
+    #[xmtp_common::test]
+    async fn only_queues_for_unique(context: NewMockContext) {
+        let groups = iter::repeat_n(group(&context, Some(vec![0])), 10);
+
+        let stored = QueueIntent::update_group_membership()
+            .data(vec![0, 1, 2])
+            .queue_for_each(groups.collect(), async |_g| Ok::<_, GroupError>(vec![]))
+            .await
+            .unwrap();
+
+        assert_eq!(stored.len(), 1);
     }
 }

@@ -4224,7 +4224,7 @@ dependencies = [
  "openmls_rust_crypto",
  "parking_lot 0.12.4",
  "rand 0.8.5",
- "rstest 0.25.0",
+ "rstest 0.26.1",
  "thiserror 2.0.12",
  "tokio",
  "tonic",
@@ -5750,14 +5750,13 @@ dependencies = [
 
 [[package]]
 name = "rstest"
-version = "0.25.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
+checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros 0.25.0",
- "rustc_version 0.4.1",
+ "rstest_macros 0.26.1",
 ]
 
 [[package]]
@@ -5780,9 +5779,9 @@ dependencies = [
 
 [[package]]
 name = "rstest_macros"
-version = "0.25.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f168d99749d307be9de54d23fd226628d99768225ef08f6ffb52e0182a27746"
+checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
 dependencies = [
  "cfg-if",
  "glob",
@@ -6498,7 +6497,6 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e2e56f9a1fce250ea2dea7b034b624ef7e22fe14870fc55b3b3b1c25d4eef79"
 dependencies = [
- "cc",
  "fragile",
  "js-sys",
  "once_cell",
@@ -8664,7 +8662,6 @@ dependencies = [
  "owo-colors",
  "parking_lot 0.12.4",
  "rand 0.8.5",
- "rand_chacha 0.3.1",
  "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
@@ -8679,6 +8676,7 @@ dependencies = [
  "wasm-bindgen-test",
  "web-sys",
  "web-time",
+ "xmtp_cryptography",
  "xmtp_macro",
 ]
 
@@ -8742,7 +8740,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "prost",
  "rand 0.8.5",
- "rstest 0.25.0",
+ "rstest 0.26.1",
  "serde",
  "serde_json",
  "sqlite-wasm-rs",
@@ -8792,7 +8790,7 @@ dependencies = [
  "p256",
  "prost",
  "regex",
- "rstest 0.25.0",
+ "rstest 0.26.1",
  "serde",
  "serde_json",
  "sha2",
@@ -8847,6 +8845,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "indicatif",
+ "itertools 0.14.0",
  "json-patch",
  "mockall",
  "mockito",
@@ -8863,13 +8862,13 @@ dependencies = [
  "prost",
  "public-suffix",
  "rand 0.8.5",
+<<<<<<< HEAD
  "reqwest 0.12.22",
  "rstest 0.25.0",
- "rstest_reuse",
- "serde",
+||||||| 256c8fcd
+ "reqwest 0.12.19",
  "serde_json",
  "sha2",
- "tempfile",
  "thiserror 2.0.12",
  "tls_codec",
  "tokio",
@@ -8908,6 +8907,7 @@ dependencies = [
  "thiserror 2.0.12",
  "wasm-bindgen-test",
  "xmtp_common",
+ "xmtp_cryptography",
  "xmtp_db",
  "xmtp_id",
  "xmtp_proto",

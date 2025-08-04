@@ -10,7 +10,6 @@ bytes.workspace = true
 futures = { workspace = true, features = ["std"] }
 hex.workspace = true
 rand.workspace = true
-rand_chacha.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "rt"] }
 tracing.workspace = true
@@ -28,6 +27,7 @@ tracing-subscriber = { workspace = true, features = [
   "ansi",
   "json",
 ], optional = true }
+xmtp_cryptography.workspace = true
 xmtp_macro = { workspace = true, optional = true }
 
 

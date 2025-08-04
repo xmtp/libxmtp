@@ -78,7 +78,7 @@ dyn-clone = "1"
 ed25519 = "2.2.3"
 ed25519-dalek = { version = "2.1.1", features = ["zeroize"] }
 fdlimit = "0.3"
-rstest = "0.25"
+rstest = "0.26"
 rstest_reuse = "0.7.0"
 futures = { version = "0.3.30", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }

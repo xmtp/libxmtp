@@ -17,7 +17,6 @@ use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use xmtp_common::NS_IN_HOUR;
 use xmtp_common::time::now_ns;
-use xmtp_cryptography::utils as crypto_utils;
 use xmtp_db::consent_record::StoredConsentRecord;
 use xmtp_db::group::{ConversationType, GroupQueryArgs, StoredGroup};
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs, StoredGroupMessage};
@@ -497,12 +496,13 @@ impl From<DeviceSyncReply> for DeviceSyncReplyProto {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum DeviceSyncKeyType {
+    // TODO: Use xmtp_cryptography::Secret for Zeroize support
     Aes256Gcm([u8; ENC_KEY_SIZE]),
 }
 
 impl DeviceSyncKeyType {
     fn new_aes_256_gcm_key() -> Self {
-        let mut rng = crypto_utils::rng();
+        let mut rng = xmtp_cryptography::rand::rng();
         let mut key = [0u8; ENC_KEY_SIZE];
         rng.fill_bytes(&mut key);
         DeviceSyncKeyType::Aes256Gcm(key)
@@ -558,7 +558,7 @@ pub(super) fn generate_nonce() -> [u8; NONCE_SIZE] {
 }
 
 pub(super) fn new_pin() -> String {
-    let mut rng = crypto_utils::rng();
+    let mut rng = xmtp_cryptography::rand::rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
 }
