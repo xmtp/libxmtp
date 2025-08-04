@@ -39,7 +39,7 @@ where
             filter_inbox_ids_needing_updates(&db, membership.to_filters().as_slice())?;
         if !needs_update.is_empty() {
             let ids = needs_update.iter().map(AsRef::as_ref).collect::<Vec<_>>();
-            load_identity_updates(self.context.api(), &db, ids.as_slice()).await?;
+            load_identity_updates(self.context.sync_api(), &db, ids.as_slice()).await?;
         }
 
         let mut expected_installation_ids = HashSet::<Vec<u8>>::new();

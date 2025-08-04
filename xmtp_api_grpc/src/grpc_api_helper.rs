@@ -114,9 +114,9 @@ impl ApiBuilder for ClientBuilder {
     async fn build(self) -> Result<Self::Output, Self::Error> {
         let host = self.host.ok_or(GrpcBuilderError::MissingHostUrl)?;
         let channel = match self.tls_channel {
-            true => create_tls_channel(host, self.limit.unwrap_or(1900)).await?,
+            true => create_tls_channel(host, self.limit.unwrap_or(5000)).await?,
             false => {
-                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(1900))
+                apply_channel_options(Channel::from_shared(host)?, self.limit.unwrap_or(5000))
                     .connect()
                     .await?
             }

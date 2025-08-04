@@ -2294,7 +2294,7 @@ where
             inbox_ids.extend_from_slice(inbox_ids_to_add);
             let conn = self.context.db();
             // Load any missing updates from the network
-            load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
+            load_identity_updates(self.context.sync_api(), &conn, &inbox_ids).await?;
 
             let latest_sequence_id_map = conn.get_latest_sequence_id(&inbox_ids as &[&str])?;
 
