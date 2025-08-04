@@ -133,6 +133,7 @@ mod tests {
     use crate::{groups::device_sync::worker::SyncMetric, tester};
     use xmtp_db::user_preferences::StoredUserPreferences;
 
+    #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_hmac_sync() {
         tester!(amal_a, sync_worker);

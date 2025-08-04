@@ -8862,13 +8862,13 @@ dependencies = [
  "prost",
  "public-suffix",
  "rand 0.8.5",
-<<<<<<< HEAD
  "reqwest 0.12.22",
- "rstest 0.25.0",
-||||||| 256c8fcd
- "reqwest 0.12.19",
+ "rstest 0.26.1",
+ "rstest_reuse",
+ "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.12",
  "tls_codec",
  "tokio",
