@@ -194,14 +194,6 @@ where
                     return Ok(ProcessWelcomeResult::IgnoreId { id });
                 }
 
-                // If it's a duplicate DM, don’t stream
-                if metadata.conversation_type == ConversationType::Dm
-                    && self.context.db().has_duplicate_dm(&group.group_id)?
-                {
-                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
-                    return Ok(ProcessWelcomeResult::IgnoreId { id });
-                }
-
                 if self
                     .conversation_type
                     .is_none_or(|ct| ct == metadata.conversation_type)
