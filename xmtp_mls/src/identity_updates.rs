@@ -206,7 +206,7 @@ where
         conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(self.context.sync_api(), conn, &[inbox_id]).await?;
+        load_identity_updates(self.context.api(), conn, &[inbox_id]).await?;
 
         self.get_association_state(conn, inbox_id, None).await
     }
@@ -508,7 +508,7 @@ where
             .collect::<Vec<(&str, i64)>>();
 
         load_identity_updates(
-            self.context.sync_api(),
+            self.context.api(),
             conn,
             &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice())?,
         )
