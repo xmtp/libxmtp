@@ -14,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",
       "state" : {
-        "revision" : "678d442c6f7828def400a70ae15968aef67ef52d",
-        "version" : "1.8.3"
+        "revision" : "e45a26384239e028ec87fbcc788f513b67e10d8f",
+        "version" : "1.9.0"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp-swift.git",
       "state" : {
-        "revision" : "b1a8315835b71d37e4ba2dce3a782e7995d4aad8",
-        "version" : "4.3.4"
+        "revision" : "4e4b32abada3f1c073bbd3ea8b72f5ffb5a90b20",
+        "version" : "4.4.0-dev.7f5d8e0"
       }
     },
     {

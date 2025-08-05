@@ -11,11 +11,13 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let clientOptions: ClientOptions = ClientOptions(
 			api: ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: false),
+				env: XMTPEnvironment.local, isSecure: false,
+				appVersion: "Testing/0.0.0"),
 			dbEncryptionKey: key
 		)
 		let fakeWallet = try PrivateKey.generate()
-		let client = try await Client.create(account: fakeWallet, options: clientOptions)
+		let client = try await Client.create(
+			account: fakeWallet, options: clientOptions)
 		try client.deleteLocalDatabase()
 	}
 
@@ -873,7 +875,7 @@ class ClientTests: XCTestCase {
 
 		let identityStats2 = alix.debugInformation.identityStatistics
 		XCTAssertEqual(0, identityStats2.publishIdentityUpdate)
-		XCTAssertEqual(2, identityStats2.getIdentityUpdatesV2)
+		XCTAssertEqual(0, identityStats2.getIdentityUpdatesV2)
 		XCTAssertEqual(0, identityStats2.getInboxIds)
 		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignature)
 

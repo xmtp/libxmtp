@@ -35,12 +35,15 @@ public struct ClientOptions {
 
 		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
 		public var isSecure: Bool = true
+		
+		public var appVersion: String? = nil
 
 		public init(
-			env: XMTPEnvironment = .dev, isSecure: Bool = true
+			env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil
 		) {
 			self.env = env
 			self.isSecure = isSecure
+			self.appVersion = appVersion
 		}
 	}
 
@@ -371,7 +374,8 @@ public final class Client {
 		// Either not cached or not connected; create new client
 		let newClient = try await connectToBackend(
 			host: api.env.url,
-			isSecure: api.isSecure
+			isSecure: api.isSecure,
+			appVersion: api.appVersion
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
 		return newClient
@@ -393,7 +397,8 @@ public final class Client {
 		// Either not cached or not connected; create new client
 		let newClient = try await connectToBackend(
 			host: api.env.url,
-			isSecure: api.isSecure
+			isSecure: api.isSecure,
+			appVersion: api.appVersion
 		)
 		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
