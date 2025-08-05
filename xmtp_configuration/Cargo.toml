@@ -1,0 +1,13 @@
+[package]
+name = "xmtp_configuration"
+edition = "2024"
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+openmls.workspace = true
+xmtp_common.workspace = true
+xmtp_cryptography.workspace = true
+
+[features]
+test-utils = []

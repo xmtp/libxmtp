@@ -1,25 +1,22 @@
-use crate::configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS,
-    MAX_INSTALLATIONS_PER_INBOX,
-};
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
-use crate::{verified_key_package_v2::KeyPackageVerificationError, XmtpApi};
-use openmls::prelude::hash_ref::HashReference;
+use crate::{XmtpApi, verified_key_package_v2::KeyPackageVerificationError};
+use derive_builder::Builder;
 use openmls::prelude::HpkeKeyPair;
+use openmls::prelude::hash_ref::HashReference;
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential, CredentialWithKey},
+    credentials::{BasicCredential, CredentialWithKey, errors::BasicCredentialError},
     extensions::{
         ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
     },
     key_packages::KeyPackage,
     messages::proposals::ProposalType,
-    prelude::{tls_codec::Serialize, Capabilities, Credential as OpenMlsCredential},
+    prelude::{Capabilities, Credential as OpenMlsCredential, tls_codec::Serialize},
 };
 use openmls_libcrux_crypto::Provider as LibcruxProvider;
 use openmls_traits::{
-    crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError, OpenMlsProvider,
+    OpenMlsProvider, crypto::OpenMlsCrypto, random::OpenMlsRand, types::CryptoError,
 };
 use prost::Message;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,31 +27,33 @@ use tracing::info;
 use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
 use xmtp_common::types::InstallationId;
-use xmtp_common::{retryable, RetryableError};
+use xmtp_common::{RetryableError, retryable};
+use xmtp_configuration::{
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
+    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::db_connection::DbConnection;
 use xmtp_db::identity::StoredIdentity;
 use xmtp_db::sql_key_store::{
-    SqlKeyStoreError, KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY,
+    KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
-use xmtp_db::{prelude::*, XmtpOpenMlsProviderRef};
 use xmtp_db::{ConnectionExt, MlsProviderExt};
 use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{
-    associations::{
-        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key, MemberIdentifier,
-    },
     InboxId, InboxIdRef,
-};
-use xmtp_mls_common::config::{
-    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+    associations::{
+        MemberIdentifier,
+        builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
+        sign_with_legacy_key,
+    },
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 
@@ -91,7 +90,7 @@ impl IdentityStrategy {
     pub fn inbox_id(&self) -> Option<InboxIdRef<'_>> {
         use IdentityStrategy::*;
         match self {
-            CreateIfNotFound { ref inbox_id, .. } => Some(inbox_id),
+            CreateIfNotFound { inbox_id, .. } => Some(inbox_id),
             _ => None,
         }
     }
@@ -238,7 +237,9 @@ pub enum IdentityError {
     AddressValidation(#[from] IdentifierValidationError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
-    #[error("Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first.")]
+    #[error(
+        "Cannot register a new installation because the InboxID {inbox_id} has already registered {count}/{max} installations. Please revoke existing installations first."
+    )]
     TooManyInstallations {
         inbox_id: String,
         count: usize,
@@ -252,6 +253,8 @@ pub enum IdentityError {
     MissingPostQuantumPublicKey,
     #[error("Bincode serialization error")]
     Bincode,
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl NeedsDbReconnect for IdentityError {
@@ -582,69 +585,11 @@ impl Identity {
         provider: &impl MlsProviderExt,
         include_post_quantum: bool,
     ) -> Result<NewKeyPackageResult, IdentityError> {
-        let last_resort = Extension::LastResort(LastResortExtension::default());
-        let mut extensions = vec![last_resort];
-        let mut post_quantum_keypair = None;
-        if include_post_quantum {
-            let keypair = generate_post_quantum_key()?;
-            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
-            post_quantum_keypair = Some(keypair);
-        }
-        let key_package_extensions = Extensions::from_vec(extensions)?;
-
-        let application_id =
-            Extension::ApplicationId(ApplicationIdExtension::new(self.inbox_id().as_bytes()));
-        let leaf_node_extensions = Extensions::single(application_id);
-
-        let capabilities = Capabilities::new(
-            None,
-            Some(&[CIPHERSUITE]),
-            Some(&[
-                ExtensionType::LastResort,
-                ExtensionType::ApplicationId,
-                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
-                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
-                ExtensionType::ImmutableMetadata,
-            ]),
-            Some(&[ProposalType::GroupContextExtensions]),
-            None,
-        );
-
-        let kp_builder = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities)
-            .leaf_node_extensions(leaf_node_extensions)
-            .key_package_extensions(key_package_extensions);
-
-        let kp_builder = {
-            #[cfg(any(test, feature = "test-utils"))]
-            {
-                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
-                let life_time = maybe_mock_package_lifetime();
-                kp_builder.key_package_lifetime(life_time)
-            }
-            #[cfg(not(any(test, feature = "test-utils")))]
-            {
-                kp_builder
-            }
-        };
-
-        let kp = kp_builder.build(
-            CIPHERSUITE,
-            provider,
-            &self.installation_keys,
-            CredentialWithKey {
-                credential: self.credential(),
-                signature_key: self.installation_keys.public_slice().into(),
-            },
-        )?;
-
-        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
-        Ok(NewKeyPackageResult {
-            key_package: kp.key_package().clone(),
-            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
-        })
+        XmtpKeyPackage::builder()
+            .inbox_id(self.inbox_id())
+            .credential(self.credential())
+            .installation_keys(self.installation_keys.clone())
+            .build(provider, include_post_quantum)
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -669,9 +614,9 @@ impl Identity {
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    pub(crate) async fn queue_key_rotation<C: ConnectionExt>(
+    pub(crate) async fn queue_key_rotation(
         &self,
-        conn: &impl DbQuery<C>,
+        conn: &impl DbQuery,
     ) -> Result<(), IdentityError> {
         conn.queue_key_package_rotation()?;
         tracing::info!("Last key package not ready for rotation, queued for rotation");
@@ -723,6 +668,96 @@ impl Identity {
                 Err(IdentityError::ApiClient(err))
             }
         }
+    }
+}
+
+#[derive(Builder, Debug)]
+#[builder(build_fn(error = "IdentityError", name = "inner_build", private))]
+pub struct XmtpKeyPackage {
+    #[builder(setter(into))]
+    inbox_id: String,
+    #[builder(setter(into))]
+    credential: OpenMlsCredential,
+    #[builder(setter(into))]
+    installation_keys: XmtpInstallationCredential,
+}
+
+impl XmtpKeyPackage {
+    pub(crate) fn builder() -> XmtpKeyPackageBuilder {
+        XmtpKeyPackageBuilder::default()
+    }
+}
+
+impl XmtpKeyPackageBuilder {
+    pub(crate) fn build(
+        &mut self,
+        provider: &impl MlsProviderExt,
+        include_post_quantum: bool,
+    ) -> Result<NewKeyPackageResult, IdentityError> {
+        let this = self.inner_build()?;
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        let mut extensions = vec![last_resort];
+        let mut post_quantum_keypair = None;
+        if include_post_quantum {
+            let keypair = generate_post_quantum_key()?;
+            extensions.push(build_post_quantum_public_key_extension(&keypair.public)?);
+            post_quantum_keypair = Some(keypair);
+        }
+        let key_package_extensions = Extensions::from_vec(extensions)?;
+
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(this.inbox_id.as_bytes()));
+        let leaf_node_extensions = Extensions::single(application_id);
+
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
+                ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
+
+        let kp_builder = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(leaf_node_extensions)
+            .key_package_extensions(key_package_extensions);
+
+        let kp_builder = {
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                use crate::utils::test_mocks_helpers::maybe_mock_package_lifetime;
+                let life_time = maybe_mock_package_lifetime();
+                kp_builder.key_package_lifetime(life_time)
+            }
+            #[cfg(not(any(test, feature = "test-utils")))]
+            {
+                kp_builder
+            }
+        };
+
+        let kp = kp_builder.build(
+            CIPHERSUITE,
+            provider,
+            &this.installation_keys,
+            CredentialWithKey {
+                credential: this.credential,
+                signature_key: this.installation_keys.public_slice().into(),
+            },
+        )?;
+
+        store_key_package_references(provider, kp.key_package(), &post_quantum_keypair)?;
+        Ok(NewKeyPackageResult {
+            key_package: kp.key_package().clone(),
+            pq_pub_key: post_quantum_keypair.map(|kp| kp.public),
+        })
     }
 }
 
@@ -808,7 +843,7 @@ pub(crate) fn generate_post_quantum_key() -> Result<HpkeKeyPair, GeneratePostQua
 // This is needed to get to the private key when decrypting welcome messages.
 // Both the Curve25519 and the Post Quantum keys hold a hash reference to the key package.
 // If a post quantum key is present, we also have a pointer from the key package hash ref -> the post quantum private key.
-fn store_key_package_references(
+pub(crate) fn store_key_package_references(
     provider: &impl MlsProviderExt,
     kp: &KeyPackage,
     // The post quantum init key for the key package used for Post Quantum Welcome Wrapper encryption
@@ -855,19 +890,19 @@ mod tests {
         verified_key_package_v2::VerifiedKeyPackageV2,
     };
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
-    use openmls_traits::{storage::StorageProvider, OpenMlsProvider};
+    use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
     use xmtp_db::{
+        MlsProviderExt,
         group::{ConversationType, GroupQueryArgs},
         sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
-        MlsProviderExt,
     };
     use xmtp_mls_common::group::DMMetadataOptions;
     use xmtp_proto::mls_v1::welcome_message::{
-        Version as WelcomeMessageVersion, V1 as WelcomeMessageV1,
+        V1 as WelcomeMessageV1, Version as WelcomeMessageVersion,
     };
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {

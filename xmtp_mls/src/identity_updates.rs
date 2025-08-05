@@ -1,32 +1,31 @@
 use crate::{
+    XmtpApi,
     client::ClientError,
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
     subscriptions::SyncWorkerEvent,
-    XmtpApi,
 };
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
-use xmtp_common::{retry_async, retryable, Retry, RetryableError};
+use xmtp_common::{Retry, RetryableError, retry_async, retryable};
 use xmtp_cryptography::CredentialSign;
-use xmtp_db::association_state::StoredAssociationState;
+use xmtp_db::StorageError;
+use xmtp_db::XmtpDb;
 use xmtp_db::prelude::*;
 use xmtp_db::{db_connection::DbConnection, identity_update::StoredIdentityUpdate};
-use xmtp_db::{ConnectionExt, XmtpDb};
 use xmtp_id::{
+    AsIdRef, InboxIdRef,
     associations::{
-        apply_update,
+        AssociationError, AssociationState, AssociationStateDiff, Identifier, IdentityAction,
+        IdentityUpdate, InstallationKeyContext, MemberIdentifier, SignatureError, apply_update,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         get_state,
         unverified::{
             UnverifiedIdentityUpdate, UnverifiedInstallationKeySignature, UnverifiedSignature,
         },
-        AssociationError, AssociationState, AssociationStateDiff, Identifier, IdentityAction,
-        IdentityUpdate, InstallationKeyContext, MemberIdentifier, SignatureError,
     },
     scw_verifier::{RemoteSignatureVerifier, SmartContractSignatureVerifier},
-    AsIdRef, InboxIdRef,
 };
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
@@ -52,7 +51,7 @@ pub enum InstallationDiffError {
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
     #[error(transparent)]
-    Storage(#[from] xmtp_db::StorageError),
+    Storage(#[from] StorageError),
 }
 
 impl RetryableError for InstallationDiffError {
@@ -77,8 +76,8 @@ impl<Context> IdentityUpdates<Context> {
 
 /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
 /// If no `to_sequence_id` is provided, use the latest value in the database
-pub async fn get_association_state_with_verifier<C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub async fn get_association_state_with_verifier(
+    conn: &impl DbQuery,
     inbox_id: &str,
     to_sequence_id: Option<i64>,
     scw_verifier: &impl SmartContractSignatureVerifier,
@@ -94,10 +93,8 @@ pub async fn get_association_state_with_verifier<C: ConnectionExt>(
         }
     }
 
-    if let Some(association_state) =
-        StoredAssociationState::read_from_cache(conn, inbox_id, last_sequence_id)?
-    {
-        return Ok(association_state);
+    if let Some(association_state) = conn.read_from_cache(inbox_id, last_sequence_id)? {
+        return Ok(association_state.try_into().map_err(StorageError::from)?);
     }
 
     let unverified_updates = updates
@@ -109,8 +106,7 @@ pub async fn get_association_state_with_verifier<C: ConnectionExt>(
 
     let association_state = get_state(updates)?;
 
-    StoredAssociationState::write_to_cache(
-        conn,
+    conn.write_to_cache(
         inbox_id.to_owned(),
         last_sequence_id,
         association_state.clone().into(),
@@ -164,8 +160,8 @@ pub async fn apply_signature_request_with_verifier<ApiClient: XmtpApi>(
 /// Get the association state for all provided `inbox_id`/optional `sequence_id` tuples, using the cache when available
 /// If the association state is not available in the cache, this falls back to reconstructing the association state
 /// from Identity Updates in the network.
-pub async fn batch_get_association_state_with_verifier<C: ConnectionExt>(
-    conn: &impl DbQuery<C>,
+pub async fn batch_get_association_state_with_verifier(
+    conn: &impl DbQuery,
     identifiers: &[(impl AsIdRef, Option<i64>)],
     scw_verifier: &impl SmartContractSignatureVerifier,
 ) -> Result<Vec<AssociationState>, ClientError> {
@@ -196,7 +192,7 @@ where
     /// from Identity Updates in the network.
     pub async fn batch_get_association_state(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
         batch_get_association_state_with_verifier(conn, identifiers, &self.context.scw_verifier())
@@ -219,7 +215,7 @@ where
     /// If no `to_sequence_id` is provided, use the latest value in the database
     pub async fn get_association_state(
         &self,
-        conn: &impl xmtp_db::DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl xmtp_db::DbQuery,
         inbox_id: InboxIdRef<'a>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
@@ -236,7 +232,7 @@ where
     /// provided `inbox_id`
     pub(crate) async fn get_association_state_diff(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         inbox_id: InboxIdRef<'a>,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
@@ -292,8 +288,7 @@ where
 
         tracing::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
         if let Some(last_sequence_id) = last_sequence_id {
-            StoredAssociationState::write_to_cache(
-                conn,
+            conn.write_to_cache(
                 inbox_id.to_string(),
                 last_sequence_id,
                 final_state.clone().into(),
@@ -487,7 +482,7 @@ where
     #[tracing::instrument(level = "trace", skip_all)]
     pub async fn get_installation_diff(
         &self,
-        conn: &impl DbQuery<<Context::Db as XmtpDb>::Connection>,
+        conn: &impl DbQuery,
         old_group_membership: &GroupMembership,
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
@@ -566,9 +561,9 @@ where
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
 /// write them in the db, and return the updates
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn load_identity_updates<ApiClient: XmtpApi, C: ConnectionExt>(
+pub async fn load_identity_updates<ApiClient: XmtpApi>(
     api_client: &ApiClientWrapper<ApiClient>,
-    conn: &impl xmtp_db::DbQuery<C>,
+    conn: &impl xmtp_db::DbQuery,
     inbox_ids: &[&str],
 ) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
     if inbox_ids.is_empty() {
@@ -674,30 +669,30 @@ pub(crate) mod tests {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
     use crate::{
+        Client, XmtpApi,
         builder::ClientBuilder,
         context::XmtpSharedContext,
         groups::group_membership::GroupMembership,
         identity_updates::IdentityUpdates,
         tester,
         utils::{FullXmtpClient, Tester},
-        Client, XmtpApi,
     };
     use alloy::signers::Signer;
     use xmtp_api::IdentityUpdate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_id::{
-        associations::{
-            builder::{SignatureRequest, SignatureRequestError},
-            test_utils::{add_wallet_signature, MockSmartContractSignatureVerifier, WalletTestExt},
-            unverified::UnverifiedSignature,
-            AssociationState, MemberIdentifier,
-        },
         InboxOwner,
+        associations::{
+            AssociationState, MemberIdentifier,
+            builder::{SignatureRequest, SignatureRequestError},
+            test_utils::{MockSmartContractSignatureVerifier, WalletTestExt, add_wallet_signature},
+            unverified::UnverifiedSignature,
+        },
     };
 
     use xmtp_db::{
-        db_connection::DbConnection, identity_update::StoredIdentityUpdate, prelude::*,
-        ConnectionExt,
+        ConnectionExt, db_connection::DbConnection, identity_update::StoredIdentityUpdate,
+        prelude::*,
     };
 
     use xmtp_common::rand_vec;
@@ -855,7 +850,7 @@ pub(crate) mod tests {
         xmtp_common::traced_test!(async {
             let client = Tester::new().await;
             let inbox_id = client.inbox_id();
-            let metrics = WorkerMetrics::default();
+            let metrics = WorkerMetrics::new(client.context.installation_id());
             let device_sync = DeviceSyncClient::new(&client.context, Arc::new(metrics));
             device_sync.wait_for_sync_worker_init().await;
 
@@ -874,9 +869,11 @@ pub(crate) mod tests {
                 association_state.recovery_identifier(),
                 &client.builder.owner.identifier()
             );
-            assert!(association_state
-                .get(&client.builder.owner.identifier().into())
-                .is_some());
+            assert!(
+                association_state
+                    .get(&client.builder.owner.identifier().into())
+                    .is_some()
+            );
 
             assert_logged!("Loaded association", 1);
             assert_logged!("Wrote association", 1);
@@ -910,9 +907,11 @@ pub(crate) mod tests {
                 association_state.recovery_identifier(),
                 &client.builder.owner.identifier()
             );
-            assert!(association_state
-                .get(&wallet_2.member_identifier())
-                .is_some());
+            assert!(
+                association_state
+                    .get(&wallet_2.member_identifier())
+                    .is_some()
+            );
         });
     }
 
@@ -1038,13 +1037,17 @@ pub(crate) mod tests {
             .unwrap();
 
         assert_eq!(installation_diff.added_installations.len(), 1);
-        assert!(installation_diff
-            .added_installations
-            .contains(&client_3_installation_key.to_vec()),);
+        assert!(
+            installation_diff
+                .added_installations
+                .contains(&client_3_installation_key.to_vec()),
+        );
         assert_eq!(installation_diff.removed_installations.len(), 1);
-        assert!(installation_diff
-            .removed_installations
-            .contains(&client_2_installation_key.to_vec()));
+        assert!(
+            installation_diff
+                .removed_installations
+                .contains(&client_2_installation_key.to_vec())
+        );
     }
 
     #[rstest::rstest]

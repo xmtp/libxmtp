@@ -1,7 +1,7 @@
+use crate::StorageError;
 use crate::groups::GroupError;
 use crate::groups::{mls_sync::GroupMessageProcessingError, validated_commit::ValidatedCommit};
 use crate::identity::Identity;
-use crate::StorageError;
 use openmls::group::{MlsGroup, MlsGroupCreateConfig, StagedCommit};
 use openmls::prelude::CredentialWithKey;
 use openmls::prelude::GroupEpoch;
@@ -9,10 +9,10 @@ use openmls::prelude::GroupId;
 use openmls::prelude::StagedWelcome;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::{
+    Store, XmtpMlsStorageProvider,
     local_commit_log::{CommitType, NewLocalCommitLog},
     prelude::*,
     remote_commit_log::CommitResult,
-    Store, XmtpMlsStorageProvider,
 };
 
 /// This trait wraps openmls groups to include commit logs for any mutations to encryption state.
@@ -75,7 +75,7 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if crate::configuration::ENABLE_COMMIT_LOG {
+        if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
                 group_id: mls_group.group_id().to_vec(),
                 commit_sequence_id: 0,
@@ -111,7 +111,7 @@ impl CommitLogStorer for MlsGroup {
             },
         )?;
 
-        if crate::configuration::ENABLE_COMMIT_LOG {
+        if xmtp_configuration::ENABLE_COMMIT_LOG {
             // It is safe to log this stubbed encryption state, because we will not upload anything
             // to the remote commit log with a sequence ID of 0.
             NewLocalCommitLog {
@@ -141,7 +141,7 @@ impl CommitLogStorer for MlsGroup {
         // Failed welcomes do not need to be added to the commit log
         let mls_group = welcome.into_group(provider)?;
 
-        if crate::configuration::ENABLE_COMMIT_LOG {
+        if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
                 group_id: mls_group.group_id().to_vec(),
                 // TODO(rich): Replace with the cursor sequence ID of the welcome once implemented
@@ -171,7 +171,7 @@ impl CommitLogStorer for MlsGroup {
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
 
-        if crate::configuration::ENABLE_COMMIT_LOG {
+        if xmtp_configuration::ENABLE_COMMIT_LOG {
             NewLocalCommitLog {
                 group_id: self.group_id().to_vec(),
                 commit_sequence_id: sequence_id,
@@ -197,7 +197,7 @@ impl CommitLogStorer for MlsGroup {
         commit_epoch: GroupEpoch,
         error: &GroupMessageProcessingError,
     ) -> Result<(), StorageError> {
-        if !crate::configuration::ENABLE_COMMIT_LOG {
+        if !xmtp_configuration::ENABLE_COMMIT_LOG {
             return Ok(());
         }
         let group_id = self.group_id().to_vec();

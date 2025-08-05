@@ -3,35 +3,34 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use openmls::prelude::{
-    tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
+    tls_codec::{Error as TlsCodecError, Serialize},
 };
-use prost::{bytes::Bytes, DecodeError, Message};
+use prost::{DecodeError, Message, bytes::Bytes};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::types::Address;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_proto::xmtp::mls::database::{
+    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
+    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
+    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{
         Installation as InstallationProto, Kind as PostCommitActionKind,
         SendWelcomes as SendWelcomesProto,
     },
-    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    update_admin_lists_data::{Version as UpdateAdminListsVersion, V1 as UpdateAdminListsV1},
+    send_message_data::{V1 as SendMessageV1, Version as SendMessageVersion},
+    update_admin_lists_data::{V1 as UpdateAdminListsV1, Version as UpdateAdminListsVersion},
     update_group_membership_data::{
-        Version as UpdateGroupMembershipVersion, V1 as UpdateGroupMembershipV1,
+        V1 as UpdateGroupMembershipV1, Version as UpdateGroupMembershipVersion,
     },
-    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
-    update_permission_data::{self, Version as UpdatePermissionVersion, V1 as UpdatePermissionV1},
-    AccountAddresses, AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper,
-    InstallationIds, PostCommitAction as PostCommitActionProto, SendMessageData,
-    UpdateAdminListsData, UpdateGroupMembershipData, UpdateMetadataData, UpdatePermissionData,
+    update_metadata_data::{V1 as UpdateMetadataV1, Version as UpdateMetadataVersion},
+    update_permission_data::{self, V1 as UpdatePermissionV1, Version as UpdatePermissionVersion},
 };
 
 mod queue;
@@ -751,7 +750,7 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpOpenMlsProviderRef;
 
-    use xmtp_proto::xmtp::mls::api::v1::{group_message, GroupMessage};
+    use xmtp_proto::xmtp::mls::api::v1::{GroupMessage, group_message};
 
     use crate::{builder::ClientBuilder, utils::TestMlsGroup};
 

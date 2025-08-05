@@ -1,21 +1,21 @@
 use crate::{
     client::ClientError,
-    configuration::DeviceSyncUrls,
     context::XmtpSharedContext,
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
 };
 use std::{
     fmt::Debug,
-    sync::{atomic::Ordering, LazyLock},
+    sync::{LazyLock, atomic::Ordering},
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::{
-    events::{EventLevel, Events, EVENTS_ENABLED},
-    ConnectionExt, DbQuery, StorageError, Store,
+    DbQuery, StorageError, Store,
+    events::{EVENTS_ENABLED, EventLevel, Events},
 };
 use xmtp_proto::xmtp::device_sync::{BackupElementSelection, BackupOptions};
 
@@ -352,13 +352,10 @@ where
     }
 }
 
-pub async fn upload_debug_archive<C>(
-    db: impl DbQuery<C> + Send + Sync + 'static,
+pub async fn upload_debug_archive(
+    db: impl DbQuery + Send + Sync + 'static,
     device_sync_server_url: Option<impl AsRef<str>>,
-) -> Result<String, DeviceSyncError>
-where
-    C: ConnectionExt + Send + Sync + 'static,
-{
+) -> Result<String, DeviceSyncError> {
     let device_sync_server_url = device_sync_server_url
         .map(|url| url.as_ref().to_string())
         .unwrap_or(DeviceSyncUrls::PRODUCTION_ADDRESS.to_string());
@@ -385,8 +382,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
+    use crate::{tester, utils::events::upload_debug_archive};
     use std::time::Duration;
+    use xmtp_configuration::DeviceSyncUrls;
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]

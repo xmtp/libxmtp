@@ -3,13 +3,13 @@
 use std::sync::Arc;
 
 use xmtp_api::XmtpApi;
-use xmtp_db::{sql_key_store::SqlKeyStore, XmtpDb};
+use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 use crate::{
+    Client,
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::{GroupError, MlsGroup},
-    Client,
 };
 
 use super::group_test_utils::TestError;
@@ -78,6 +78,17 @@ where
                 Ok(g.export_ratchet_tree())
             })?;
         assert_eq!(ratchet_tree, other_ratchet_tree);
+        let sync_group_verified = format!(
+            "verified [{}] has same sync group as [{}]",
+            hex::encode(self.context.installation_id()),
+            hex::encode(other.context.installation_id())
+        );
+        tracing::info!(
+            "{}\nself = [{}], other = [{}]",
+            sync_group_verified,
+            hex::encode(sync_group.group_id),
+            hex::encode(other_sync_group.group_id),
+        );
 
         Ok(())
     }

@@ -1,7 +1,7 @@
 use xmtp_common::{RetryableError, retryable};
 
 use crate::{
-    ConnectionExt, MlsKeyStore, XmtpMlsStorageProvider,
+    ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     sql_key_store::transactions::MutableTransactionConnection,
 };
 
@@ -13,6 +13,9 @@ use diesel::{
 };
 use openmls_traits::storage::*;
 use serde::Serialize;
+
+#[cfg(any(feature = "test-utils", test))]
+pub mod mock;
 mod transactions;
 
 const SELECT_QUERY: &str =
@@ -30,9 +33,9 @@ struct StorageData {
     value_bytes: Vec<u8>,
 }
 
-impl MlsKeyStore for diesel::SqliteConnection {
+impl TransactionalKeyStore for diesel::SqliteConnection {
     type Store<'a>
-        = SqlKeyStore<MutableTransactionConnection<'a, Self>>
+        = SqlKeyStore<MutableTransactionConnection<'a>>
     where
         Self: 'a;
 
@@ -47,26 +50,19 @@ pub struct SqlKeyStore<T> {
     conn: T,
 }
 
-impl<'a, A> SqlKeyStore<A> {
+impl<A> SqlKeyStore<A> {
     pub fn new(conn: A) -> Self {
         Self { conn }
     }
+}
 
-    pub fn new_transactional(conn: &'a mut A) -> SqlKeyStore<MutableTransactionConnection<'a, A>> {
+impl<'a> SqlKeyStore<SqliteConnection> {
+    pub fn new_transactional(
+        conn: &'a mut SqliteConnection,
+    ) -> SqlKeyStore<MutableTransactionConnection<'a>> {
         SqlKeyStore {
             conn: MutableTransactionConnection::new(conn),
         }
-    }
-}
-
-impl<D, C> From<D> for SqlKeyStore<D>
-where
-    D: crate::DbQuery<C>,
-    D: ConnectionExt<Connection = C>,
-    C: ConnectionExt,
-{
-    fn from(value: D) -> Self {
-        Self { conn: value }
     }
 }
 
@@ -293,6 +289,7 @@ const SIGNATURE_KEY_PAIR_LABEL: &[u8] = b"SignatureKeyPair";
 const EPOCH_KEY_PAIRS_LABEL: &[u8] = b"EpochKeyPairs";
 pub const KEY_PACKAGE_REFERENCES: &[u8] = b"KeyPackageReferences";
 pub const KEY_PACKAGE_WRAPPER_PRIVATE_KEY: &[u8] = b"KeyPackageWrapperPrivateKey";
+pub const COMMIT_LOG_SIGNER_PRIVATE_KEY: &[u8] = b"CommitLogSignerPrivateKey";
 
 // related to PublicGroup
 const TREE_LABEL: &[u8] = b"Tree";
@@ -1045,6 +1042,17 @@ fn epoch_key_pairs_id(
 impl From<bincode::Error> for SqlKeyStoreError {
     fn from(_: bincode::Error) -> Self {
         Self::SerializationError
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl SqlKeyStore<crate::test_utils::MemoryStorage> {
+    pub fn kv_pairs(&self) -> String {
+        self.conn.key_value_pairs()
+    }
+
+    pub fn kv_pairs_utf8(&self) -> String {
+        self.conn.key_value_pairs_utf8()
     }
 }
 

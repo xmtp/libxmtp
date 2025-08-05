@@ -29,11 +29,20 @@ impl_store_or_ignore!(
     processed_device_sync_messages
 );
 
-pub trait QueryDeviceSyncMessages<C: ConnectionExt> {
+pub trait QueryDeviceSyncMessages {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError>;
 }
 
-impl<C: ConnectionExt> QueryDeviceSyncMessages<C> for DbConnection<C> {
+impl<T> QueryDeviceSyncMessages for &T
+where
+    T: QueryDeviceSyncMessages,
+{
+    fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        (**self).unprocessed_sync_group_messages()
+    }
+}
+
+impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
     fn unprocessed_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
         let result = self.raw_query_read(|conn| {
             group_messages_dsl::group_messages
@@ -72,9 +81,9 @@ mod tests {
             group2.conversation_type = ConversationType::Sync;
             group2.store(conn)?;
 
-            let message = generate_message(None, Some(&group.id), None, None, None);
+            let message = generate_message(None, Some(&group.id), None, None, None, None);
             message.store(conn)?;
-            let message = generate_message(None, Some(&group2.id), None, None, None);
+            let message = generate_message(None, Some(&group2.id), None, None, None, None);
             message.store(conn)?;
 
             let unprocessed = conn.unprocessed_sync_group_messages()?;

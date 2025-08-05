@@ -2,13 +2,12 @@
 //! Stores a single connection behind a mutex that's used for every libxmtp operation
 use crate::DbConnection;
 use crate::PersistentOrMem;
-use crate::{ConnectionExt, StorageOption, TransactionGuard, XmtpDb};
+use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
 use parking_lot::Mutex;
-use sqlite_wasm_rs::export::OpfsSAHPoolCfg;
+use sqlite_wasm_rs::sahpool_vfs::OpfsSAHPoolCfg;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 
@@ -40,7 +39,7 @@ pub struct WasmDb {
 
 pub static SQLITE: tokio::sync::OnceCell<Result<OpfsSAHPoolUtil, String>> =
     tokio::sync::OnceCell::const_new();
-pub use sqlite_wasm_rs::export::{OpfsSAHError, OpfsSAHPoolUtil};
+pub use sqlite_wasm_rs::sahpool_vfs::{OpfsSAHError, OpfsSAHPoolUtil};
 
 /// Initialize the SQLite WebAssembly Library
 /// Generally this should not be required to call, since it
@@ -56,7 +55,7 @@ pub async fn init_sqlite() {
 async fn maybe_resize() -> Result<(), PlatformStorageError> {
     if let Some(Ok(util)) = SQLITE.get() {
         let capacity = util.get_capacity();
-        let used = util.get_file_count();
+        let used = util.count();
         if used >= capacity / 2 {
             let adding = (capacity * 2) - capacity;
             tracing::debug!(
@@ -71,13 +70,13 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
 
 async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
     let cfg = OpfsSAHPoolCfg {
-        vfs_name: crate::configuration::VFS_NAME.into(),
-        directory: crate::configuration::VFS_DIRECTORY.into(),
+        vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
+        directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
         clear_on_init: false,
         initial_capacity: 6,
     };
 
-    let r = sqlite_wasm_rs::export::install_opfs_sahpool(Some(&cfg), true).await;
+    let r = sqlite_wasm_rs::sahpool_vfs::install(&cfg, true).await;
     if let Err(ref e) = r {
         match e {
             OpfsSAHError::CreateSyncAccessHandle(e) => log_exception(e),
@@ -138,7 +137,6 @@ impl WasmDb {
 
 pub struct WasmDbConnection {
     conn: Arc<Mutex<SqliteConnection>>,
-    in_transaction: Arc<AtomicBool>,
     path: String,
 }
 
@@ -147,7 +145,6 @@ impl WasmDbConnection {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         Ok(Self {
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_string(),
         })
@@ -160,7 +157,6 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            in_transaction: Arc::new(AtomicBool::new(false)),
             conn: Arc::new(Mutex::new(conn)),
             path,
         })
@@ -172,19 +168,9 @@ impl WasmDbConnection {
 }
 
 impl ConnectionExt for WasmDbConnection {
-    type Connection = SqliteConnection;
-
-    fn start_transaction(&self) -> Result<TransactionGuard, crate::ConnectionError> {
-        self.in_transaction.store(true, Ordering::SeqCst);
-
-        Ok(TransactionGuard {
-            in_transaction: self.in_transaction.clone(),
-        })
-    }
-
     fn raw_query_read<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
@@ -193,15 +179,11 @@ impl ConnectionExt for WasmDbConnection {
 
     fn raw_query_write<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
     where
-        F: FnOnce(&mut Self::Connection) -> Result<T, diesel::result::Error>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
         let mut conn = self.conn.lock();
         Ok(fun(&mut conn)?)
-    }
-
-    fn is_in_transaction(&self) -> bool {
-        self.in_transaction.load(Ordering::SeqCst)
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
@@ -225,7 +207,7 @@ impl XmtpDb for WasmDb {
         DbConnection::new(self.conn.clone())
     }
 
-    fn validate(&self, _opts: &StorageOption) -> Result<(), crate::ConnectionError> {
+    fn validate(&self, _c: &mut SqliteConnection) -> Result<(), crate::ConnectionError> {
         Ok(())
     }
 
@@ -266,7 +248,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn));
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -289,7 +271,7 @@ mod tests {
         let conn = store.conn();
         let r = f(DbConnection::new(conn)).await;
         if let Ok(u) = util {
-            u.wipe_files().await.unwrap();
+            u.clear_all().await.unwrap();
         }
         r
     }
@@ -317,7 +299,7 @@ mod tests {
         use xmtp_common::tmp_path as path;
         init_sqlite().await;
         if let Some(Ok(util)) = SQLITE.get() {
-            util.wipe_files().await.unwrap();
+            util.clear_all().await.unwrap();
             let current_capacity = util.get_capacity();
             if current_capacity > 6 {
                 util.reduce_capacity(current_capacity - 6).await.unwrap();

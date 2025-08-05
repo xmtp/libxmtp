@@ -1,14 +1,14 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::context::XmtpSharedContext;
-use crate::groups::summary::SyncSummary;
 use crate::groups::MlsGroup;
+use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
+use crate::subscriptions::SubscribeError;
 use crate::subscriptions::process_message::{
     ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
 };
-use crate::subscriptions::SubscribeError;
 use crate::{
     builder::SyncWorkerMode, client::DeviceSync, context::XmtpMlsLocalContext, identity::Identity,
     mutex_registry::MutexRegistry, utils::VersionInfo,
@@ -16,17 +16,22 @@ use crate::{
 use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
 use tokio::sync::broadcast;
-use xmtp_api::test_utils::MockApiClient;
 use xmtp_api::ApiClientWrapper;
+use xmtp_api::test_utils::MockApiClient;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_db::XmtpDb;
+use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 
 mod generate;
 pub use generate::*;
+mod openmls_mock;
+pub use openmls_mock::*;
 
 pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
+pub type MockStoreAndContext =
+    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
 pub type MockContext = Arc<
     XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>,
 >;

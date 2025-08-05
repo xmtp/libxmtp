@@ -1,16 +1,16 @@
 use super::{
+    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
     group_permissions::{
-        extract_group_permissions, GroupMutablePermissions, GroupMutablePermissionsError,
+        GroupMutablePermissions, GroupMutablePermissionsError, extract_group_permissions,
     },
-    MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH, MAX_GROUP_NAME_LENGTH,
 };
 use crate::{
     context::XmtpSharedContext,
     identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
 };
 use openmls::{
-    credentials::{errors::BasicCredentialError, BasicCredential, Credential as OpenMlsCredential},
+    credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions, UnknownExtension},
     group::{MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::Proposal,
@@ -23,23 +23,23 @@ use serde::Serialize;
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::StorageError;
+use xmtp_db::local_commit_log::CommitType;
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
-use xmtp_id::{associations::MemberIdentifier, InboxId};
+use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{
-        find_mutable_metadata_extension, GroupMutableMetadata, GroupMutableMetadataError,
-        MetadataField,
+        GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
+        find_mutable_metadata_extension,
     },
 };
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::{
-        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
         GroupMembershipChanges, GroupUpdated as GroupUpdatedProto,
+        group_updated::{Inbox as InboxProto, MetadataFieldChange as MetadataFieldChangeProto},
     },
 };
 
@@ -119,13 +119,15 @@ pub struct CommitParticipant {
 impl std::fmt::Debug for CommitParticipant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            ref inbox_id,
-            ref installation_id,
-            ref is_creator,
-            ref is_admin,
-            ref is_super_admin,
-        } = self;
-        write!(f, "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
+            inbox_id,
+            installation_id,
+            is_creator,
+            is_admin,
+            is_super_admin,
+        } = &self;
+        write!(
+            f,
+            "CommitParticipant {{ inbox_id={}, installation_id={}, is_creator={}, is_admin={}, is_super_admin={} }}",
             inbox_id,
             hex::encode(installation_id),
             is_creator,
@@ -797,7 +799,7 @@ pub fn extract_group_membership(
 ) -> Result<GroupMembership, CommitValidationError> {
     for extension in extensions.iter() {
         if let Extension::Unknown(
-            xmtp_mls_common::config::GROUP_MEMBERSHIP_EXTENSION_ID,
+            xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
             UnknownExtension(group_membership),
         ) = extension
         {

@@ -9,18 +9,18 @@ pub mod test_mocks_helpers;
 
 use crate::XmtpApi;
 use crate::{
+    Client, InboxOwner,
     builder::{ClientBuilder, SyncWorkerMode},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     identity::IdentityStrategy,
-    Client, InboxOwner,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 use xmtp_api::ApiIdentifier;
 use xmtp_common::time::Expired;
-use xmtp_db::{sql_key_store::SqlKeyStore, XmtpMlsStorageProvider};
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
-use xmtp_id::associations::{test_utils::MockSmartContractSignatureVerifier, Identifier};
+use xmtp_db::{XmtpMlsStorageProvider, sql_key_store::SqlKeyStore};
+use xmtp_id::associations::{Identifier, test_utils::MockSmartContractSignatureVerifier};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -116,7 +116,7 @@ impl ClientBuilder<TestClient, TestMlsStorage> {
             .await
             .with_disable_events(None)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .device_sync_server_url(crate::configuration::DeviceSyncUrls::LOCAL_ADDRESS)
+            .device_sync_server_url(xmtp_configuration::DeviceSyncUrls::LOCAL_ADDRESS)
             .enable_sqlite_triggers()
             .default_mls_store()
             .unwrap()

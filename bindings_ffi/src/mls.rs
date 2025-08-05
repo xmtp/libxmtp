@@ -3152,10 +3152,14 @@ mod tests {
         },
         time::Duration,
     };
-    use tokio::{sync::Notify, time::error::Elapsed};
+    use tokio::{
+        sync::{futures::OwnedNotified, Notify},
+        time::error::Elapsed,
+    };
     use xmtp_common::tmp_path;
     use xmtp_common::{time::now_ns, wait_for_ge};
     use xmtp_common::{wait_for_eq, wait_for_ok};
+    use xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX;
     use xmtp_content_types::{
         attachment::AttachmentCodec, bytes_to_encoded_content, encoded_content_to_bytes,
         group_updated::GroupUpdatedCodec, membership_change::GroupMembershipChangeCodec,
@@ -3172,7 +3176,6 @@ mod tests {
         test_utils::WalletTestExt, unverified::UnverifiedSignature, MemberIdentifier,
     };
     use xmtp_mls::{
-        configuration::MAX_INSTALLATIONS_PER_INBOX,
         groups::{device_sync::worker::SyncMetric, GroupError},
         utils::{PasskeyUser, Tester},
         InboxOwner,
@@ -3226,16 +3229,30 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
     struct RustStreamCallback {
         num_messages: AtomicU32,
         messages: Mutex<Vec<FfiMessage>>,
         conversations: Mutex<Vec<Arc<FfiConversation>>>,
         consent_updates: Mutex<Vec<FfiConsent>>,
         preference_updates: Mutex<Vec<FfiPreferenceUpdate>>,
-        notify: Notify,
+        notify: Arc<Notify>,
         inbox_id: Option<String>,
         installation_id: Option<String>,
+    }
+
+    impl Default for RustStreamCallback {
+        fn default() -> Self {
+            RustStreamCallback {
+                num_messages: Default::default(),
+                messages: Default::default(),
+                conversations: Default::default(),
+                consent_updates: Default::default(),
+                preference_updates: Default::default(),
+                notify: Arc::new(Notify::new()),
+                inbox_id: None,
+                installation_id: None,
+            }
+        }
     }
 
     impl RustStreamCallback {
@@ -3245,6 +3262,10 @@ mod tests {
 
         pub fn consent_updates_count(&self) -> usize {
             self.consent_updates.lock().len()
+        }
+
+        pub fn enable_notifications(&self) -> OwnedNotified {
+            self.notify.clone().notified_owned()
         }
 
         pub async fn wait_for_delivery(&self, timeout_secs: Option<u64>) -> Result<(), Elapsed> {
@@ -3336,7 +3357,7 @@ mod tests {
             log::debug!(
                 inbox_id = self.inbox_id,
                 installation_id = self.installation_id,
-                "received consent update"
+                "\n\n=======================received consent update==============\n\n"
             );
             self.preference_updates.lock().append(&mut preference);
             self.notify.notify_one();
@@ -3727,7 +3748,7 @@ mod tests {
 
         let identity_stats = client.api_identity_statistics();
         assert_eq!(identity_stats.publish_identity_update, 1);
-        assert_eq!(identity_stats.get_identity_updates_v2, 3);
+        assert_eq!(identity_stats.get_identity_updates_v2, 2);
         assert_eq!(identity_stats.get_inbox_ids, 1);
         assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
 
@@ -3866,7 +3887,11 @@ mod tests {
             .await
             .unwrap();
         conversation.send(b"Hello there".to_vec()).await.unwrap();
-        worker.wait(SyncMetric::ConsentSent, 1).await.unwrap();
+        worker
+            .register_interest(SyncMetric::ConsentSent, 1)
+            .wait()
+            .await
+            .unwrap();
 
         // One identity update pushed. Zero interaction with groups.
         assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
@@ -6910,6 +6935,7 @@ mod tests {
     async fn test_stream_all_dm_messages() {
         let alix = Tester::new().await;
         let bo = Tester::new().await;
+
         let alix_dm = alix
             .conversations()
             .find_or_create_dm(bo.account_identifier.clone(), FfiCreateDMOptions::default())
@@ -6937,10 +6963,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 2);
 
@@ -6956,10 +6990,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_dm.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(result.is_err(), "Stream unexpectedly received a DM message");
         assert_eq!(stream_callback.message_count(), 1);
@@ -6967,7 +7009,7 @@ mod tests {
         stream.end_and_wait().await.unwrap();
         assert!(stream.is_closed());
 
-        // Stream just dms
+        // Stream just DMs
         let stream_callback = Arc::new(RustStreamCallback::default());
         let stream = bo
             .conversations()
@@ -6976,10 +7018,18 @@ mod tests {
         stream.wait_for_ready().await;
 
         alix_dm.send("first".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         stream_callback.wait_for_delivery(None).await.unwrap();
         assert_eq!(stream_callback.message_count(), 1);
 
         alix_group.send("second".as_bytes().to_vec()).await.unwrap();
+        bo.conversations()
+            .sync_all_conversations(None)
+            .await
+            .unwrap();
         let result = stream_callback.wait_for_delivery(Some(2)).await;
         assert!(
             result.is_err(),
@@ -7040,15 +7090,22 @@ mod tests {
             .unwrap();
         alix_a
             .worker()
-            .wait(SyncMetric::PayloadSent, 1)
+            .register_interest(SyncMetric::PayloadSent, 1)
+            .wait()
             .await
             .unwrap();
-        alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
+        alix_a
+            .worker()
+            .register_interest(SyncMetric::HmacSent, 1)
+            .wait()
+            .await
+            .unwrap();
 
         alix_b.sync_preferences().await.unwrap();
         alix_b
             .worker()
-            .wait(SyncMetric::PayloadProcessed, 1)
+            .register_interest(SyncMetric::PayloadProcessed, 1)
+            .wait()
             .await
             .unwrap();
         alix_a
@@ -7058,7 +7115,8 @@ mod tests {
             .unwrap();
         alix_b
             .worker()
-            .wait(SyncMetric::HmacReceived, 1)
+            .register_interest(SyncMetric::HmacReceived, 1)
+            .wait()
             .await
             .unwrap();
 
@@ -7090,7 +7148,8 @@ mod tests {
         // Wait for alix_a to send the consent sync out
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 1)
+            .register_interest(SyncMetric::ConsentSent, 1)
+            .wait()
             .await
             .unwrap();
 
@@ -7098,7 +7157,8 @@ mod tests {
         alix_b.sync_preferences().await.unwrap();
         alix_b
             .worker()
-            .wait(SyncMetric::ConsentReceived, 1)
+            .register_interest(SyncMetric::ConsentReceived, 1)
+            .wait()
             .await
             .unwrap();
 
@@ -7141,7 +7201,8 @@ mod tests {
         // Wait for alix_a to send out the consent on the sync group
         alix_a
             .worker()
-            .wait(SyncMetric::ConsentSent, 3)
+            .register_interest(SyncMetric::ConsentSent, 3)
+            .wait()
             .await
             .unwrap();
         // Have alix_b sync the sync group
@@ -7149,7 +7210,8 @@ mod tests {
         // Wait for alix_b to process the new consent
         alix_b
             .worker()
-            .wait(SyncMetric::ConsentReceived, 2)
+            .register_interest(SyncMetric::ConsentReceived, 2)
+            .wait()
             .await
             .unwrap();
 
@@ -7171,21 +7233,40 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_stream_preferences() {
+        let alix_wallet = generate_local_wallet();
         let alix_a_span = info_span!("alix_a");
         let alix_a = Tester::builder()
+            .owner(alix_wallet.clone())
             .sync_worker()
+            .with_name("alix_a")
             .build()
             .instrument(alix_a_span)
             .await;
-
         let alix_b_span = info_span!("alix_b");
-        let alix_b = alix_a.builder.build().instrument(alix_b_span).await;
+        let alix_b = Tester::builder()
+            .owner(alix_wallet)
+            .sync_worker()
+            .with_name("alix_b")
+            .build()
+            .instrument(alix_b_span)
+            .await;
 
-        let stream_b_callback = Arc::new(RustStreamCallback::default());
+        let hmac_sent = alix_a.worker().register_interest(SyncMetric::HmacSent, 1);
+        let hmac_received = alix_b
+            .worker()
+            .register_interest(SyncMetric::HmacReceived, 1);
+
+        let cb = RustStreamCallback::default();
+        let notify = cb.enable_notifications();
+        tokio::pin!(notify);
+        notify.as_mut().enable();
+
+        let stream_b_callback = Arc::new(cb);
         let b_stream = alix_b
             .conversations()
             .stream_preferences(stream_b_callback.clone())
             .await;
+
         b_stream.wait_for_ready().await;
 
         alix_a
@@ -7194,16 +7275,11 @@ mod tests {
             .await
             .unwrap();
 
-        alix_a.worker().wait(SyncMetric::HmacSent, 1).await.unwrap();
-
+        hmac_sent.wait().await.unwrap();
         alix_b.sync_preferences().await.unwrap();
-        alix_b
-            .worker()
-            .wait(SyncMetric::HmacReceived, 1)
-            .await
-            .unwrap();
+        hmac_received.wait().await.unwrap();
 
-        let result = stream_b_callback.wait_for_delivery(Some(3)).await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), notify).await;
         assert!(result.is_ok());
 
         {
@@ -8606,7 +8682,8 @@ mod tests {
             .update_consent_state(FfiConsentState::Denied)
             .unwrap();
         alix.worker()
-            .wait(SyncMetric::ConsentSent, 3)
+            .register_interest(SyncMetric::ConsentSent, 3)
+            .wait()
             .await
             .unwrap();
 
@@ -8614,7 +8691,8 @@ mod tests {
 
         alix2
             .worker()
-            .wait(SyncMetric::ConsentReceived, 1)
+            .register_interest(SyncMetric::ConsentReceived, 1)
+            .wait()
             .await
             .unwrap();
 

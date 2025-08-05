@@ -15,6 +15,7 @@ required-features = ["update-schema"]
 
 
 [dependencies]
+arc-swap.workspace = true
 bincode.workspace = true
 ctor.workspace = true
 derive_builder.workspace = true
@@ -32,6 +33,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_proto.workspace = true
 zeroize.workspace = true
 
@@ -48,7 +50,7 @@ toml = { version = "0.8.4", optional = true }
 xmtp_content_types.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-libsqlite3-sys = { version = "0.32", features = [
+libsqlite3-sys = { version = "0.35", features = [
   "bundled-sqlcipher-vendored-openssl",
 ] }
 diesel = { workspace = true, features = [
@@ -67,8 +69,8 @@ diesel = { workspace = true, features = [
   "32-column-tables",
   "serde_json",
 ] }
-sqlite-wasm-rs = { version = ">=0.3.0, <0.4.0", default-features = false, features = [
-  "bundled",
+sqlite-wasm-rs = { version = "0.4", default-features = false, features = [
+  "precompiled",
 ] }
 tokio = { workspace = true, features = ["macros", "tracing"] }
 web-sys = { workspace = true, features = ["DomException"] }
@@ -78,8 +80,11 @@ wasm-bindgen = { workspace = true }
 [dev-dependencies]
 futures-timer.workspace = true
 mockall = { workspace = true }
+rstest.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_configuration = { workspace = true, features = ["test-utils"] }
 xmtp_cryptography.workspace = true
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = [
@@ -94,4 +99,8 @@ wasm-bindgen-test.workspace = true
 
 [features]
 update-schema = ["dep:toml"]
-test-utils = ["xmtp_common/test-utils", "dep:mockall"]
+test-utils = [
+  "xmtp_common/test-utils",
+  "dep:mockall",
+  "xmtp_configuration/test-utils",
+]

@@ -1,6 +1,5 @@
 #![warn(clippy::unwrap_used)]
 
-mod configuration;
 pub mod encrypted_store;
 mod errors;
 pub mod serialization;
@@ -33,6 +32,7 @@ pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 
 pub mod prelude {
     pub use super::ReadOnly;
+    pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
     pub use super::group::QueryDms;
@@ -46,12 +46,13 @@ pub mod prelude {
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
+    pub use super::pragmas::CheckPragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::traits::*;
 }
 
-pub trait ReadOnly<C: ConnectionExt> {
+pub trait ReadOnly {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError>;
 
@@ -59,7 +60,7 @@ pub trait ReadOnly<C: ConnectionExt> {
     fn disable_readonly(&self) -> Result<(), StorageError>;
 }
 
-impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
+impl<C: ConnectionExt> ReadOnly for DbConnection<C> {
     #[allow(unused)]
     fn enable_readonly(&self) -> Result<(), StorageError> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = ON;"))?;
@@ -71,6 +72,31 @@ impl<C: ConnectionExt> ReadOnly<C> for DbConnection<C> {
         self.raw_query_write(|conn| conn.batch_execute("PRAGMA query_only = OFF;"))?;
         Ok(())
     }
+}
+
+impl<T> ReadOnly for &T
+where
+    T: ReadOnly,
+{
+    #[allow(unused)]
+    fn enable_readonly(&self) -> Result<(), StorageError> {
+        (**self).enable_readonly()
+    }
+
+    #[allow(unused)]
+    fn disable_readonly(&self) -> Result<(), StorageError> {
+        (**self).disable_readonly()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn init_sqlite() {
+    // This is a no-op for wasm32
+}
+#[cfg_attr(not(target_arch = "wasm32"), ctor::ctor)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+fn test_setup() {
+    xmtp_common::logger();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -145,7 +171,6 @@ pub mod test_util {
                     intents_processed
                 ) VALUES (0, 0, 0, 0);"#,
             ];
-
             for query in queries {
                 let query = diesel::sql_query(query);
                 let _ = self.raw_query_write(|conn| query.execute(conn)).unwrap();
