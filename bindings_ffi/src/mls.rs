@@ -1552,7 +1552,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
-            true,
+            false,
         );
 
         FfiStreamCloser::new(handle)
