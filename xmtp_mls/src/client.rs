@@ -1688,7 +1688,7 @@ pub(crate) mod tests {
 
         let proxy = alix.proxy.as_ref().unwrap();
 
-        let stream = alix.client.stream_conversations(None).await.unwrap();
+        let stream = alix.client.stream_conversations(None, false).await.unwrap();
         futures::pin_mut!(stream);
 
         start_new_convo().await;
@@ -1711,7 +1711,7 @@ pub(crate) mod tests {
         // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
         futures_test::assert_stream_done!(stream);
         xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-        let mut new_stream = alix.client.stream_conversations(None).await.unwrap();
+        let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
         let new_res = new_stream.try_next().await;
         assert!(new_res.is_ok());
         assert!(new_res.unwrap().is_some());
