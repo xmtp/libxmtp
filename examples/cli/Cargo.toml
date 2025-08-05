@@ -42,6 +42,7 @@ xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_common.workspace = true
 xmtp_content_types = { path = "../../xmtp_content_types" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
+xmtp_cursor_state = { workspace = true }
 xmtp_db = { path = "../../xmtp_db" }
 xmtp_id = { path = "../../xmtp_id" }
 xmtp_mls = { path = "../../xmtp_mls" }

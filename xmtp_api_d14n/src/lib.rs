@@ -13,7 +13,8 @@ pub mod protocol;
 pub use tests::*;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-
+    use std::sync::{Arc, Mutex};
+    use xmtp_cursor_state::store::CursorStore;
     use xmtp_proto::{
         prelude::{ApiBuilder, XmtpTestClient},
         traits::Client,
@@ -59,6 +60,7 @@ pub mod tests {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_d14n(),
                 <Payer as XmtpTestClient>::create_local_d14n(),
+                Arc::new(Mutex::new(CursorStore::new())),
             )
         }
 
@@ -66,6 +68,7 @@ pub mod tests {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_d14n(),
                 <Payer as XmtpTestClient>::create_local_d14n(),
+                Arc::new(Mutex::new(CursorStore::new())),
             )
         }
         fn create_dev() -> Self::Builder {
@@ -73,18 +76,21 @@ pub mod tests {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_dev(),
                 <Payer as XmtpTestClient>::create_dev(),
+                Arc::new(Mutex::new(CursorStore::new())),
             )
         }
         fn create_local_payer() -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_payer(),
                 <Payer as XmtpTestClient>::create_local_payer(),
+                Arc::new(Mutex::new(CursorStore::new())),
             )
         }
         fn create_local_d14n() -> Self::Builder {
             D14nClientBuilder::new(
                 <C as XmtpTestClient>::create_local_d14n(),
                 <Payer as XmtpTestClient>::create_local_d14n(),
+                Arc::new(Mutex::new(CursorStore::new())),
             )
         }
     }
