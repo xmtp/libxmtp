@@ -1,6 +1,4 @@
-use std::panic::{self, AssertUnwindSafe};
-
-use crate::{configuration::MLS_PROTOCOL_VERSION, groups::mls_ext::WrapperEncryptionExtension};
+use crate::groups::mls_ext::WrapperEncryptionExtension;
 use openmls::{
     credentials::{BasicCredential, errors::BasicCredentialError},
     key_packages::Lifetime,
@@ -11,8 +9,10 @@ use openmls::{
 };
 use openmls_rust_crypto::RustCrypto;
 use prost::{DecodeError, Message};
+use std::panic::{self, AssertUnwindSafe};
 use thiserror::Error;
-use xmtp_mls_common::config::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
+use xmtp_configuration::MLS_PROTOCOL_VERSION;
+use xmtp_configuration::WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
 #[derive(Debug, Error, Clone)]

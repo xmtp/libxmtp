@@ -3,7 +3,6 @@
 
 pub mod builder;
 pub mod client;
-pub mod configuration;
 pub mod context;
 pub mod groups;
 pub mod identity;

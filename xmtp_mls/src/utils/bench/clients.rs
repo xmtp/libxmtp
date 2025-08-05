@@ -1,7 +1,8 @@
 use crate::utils::TestXmtpMlsContext;
 use crate::utils::test::TestClient as TestApiClient;
-use crate::{client::Client, configuration::DeviceSyncUrls, identity::IdentityStrategy};
+use crate::{client::Client, identity::IdentityStrategy};
 use alloy::signers::local::PrivateKeySigner;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_id::{InboxOwner, associations::builder::SignatureRequest};
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};

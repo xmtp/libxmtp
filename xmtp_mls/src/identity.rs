@@ -1,7 +1,3 @@
-use crate::configuration::{
-    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS,
-    MAX_INSTALLATIONS_PER_INBOX,
-};
 use crate::groups::mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension};
 use crate::identity_updates::{get_association_state_with_verifier, load_identity_updates};
 use crate::worker::NeedsDbReconnect;
@@ -32,6 +28,11 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_common::time::now_ns;
 use xmtp_common::types::InstallationId;
 use xmtp_common::{RetryableError, retryable};
+use xmtp_configuration::{
+    CIPHERSUITE, CREATE_PQ_KEY_PACKAGE_EXTENSION, GROUP_MEMBERSHIP_EXTENSION_ID,
+    GROUP_PERMISSIONS_EXTENSION_ID, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
+    MUTABLE_METADATA_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
+};
 use xmtp_cryptography::configuration::POST_QUANTUM_CIPHERSUITE;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
@@ -53,10 +54,6 @@ use xmtp_id::{
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         sign_with_legacy_key,
     },
-};
-use xmtp_mls_common::config::{
-    GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MUTABLE_METADATA_EXTENSION_ID,
-    WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_proto::xmtp::identity::MlsCredential;
 

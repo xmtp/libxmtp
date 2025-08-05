@@ -1,10 +1,10 @@
 use super::{
     ConnectionExt, StorageError, db_connection::DbConnection, schema::key_package_history,
 };
-use crate::configuration::keys_expiration_interval_ns;
 use crate::{StoreOrIgnore, impl_store_or_ignore};
 use diesel::prelude::*;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::KEYS_EXPIRATION_INTERVAL_NS;
 
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = key_package_history)]
@@ -139,7 +139,7 @@ impl<C: ConnectionExt> QueryKeyPackageHistory for DbConnection<C> {
 
     fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError> {
         use crate::schema::key_package_history::dsl;
-        let delete_at_24_hrs_ns = now_ns() + keys_expiration_interval_ns();
+        let delete_at_24_hrs_ns = now_ns() + KEYS_EXPIRATION_INTERVAL_NS;
         self.raw_query_write(|conn| {
             diesel::update(
                 dsl::key_package_history
