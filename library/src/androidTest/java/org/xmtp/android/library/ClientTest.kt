@@ -107,7 +107,7 @@ class ClientTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fakeWallet = PrivateKeyBuilder()
         val options = ClientOptions(
-            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false, "Testing/0.0.0"),
             appContext = context,
             dbEncryptionKey = key
         )
@@ -547,14 +547,21 @@ class ClientTest {
 
 //    @Test
 //    fun testsCanSeeInvalidKeyPackageStatusOnDev() {
-//        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.DEV, true)) }
+//        runBlocking {
+//            Client.connectToApiBackend(
+//                ClientOptions.Api(
+//                    XMTPEnvironment.DEV,
+//                    true
+//                )
+//            )
+//        }
 //        val inboxState = runBlocking {
 //            Client.inboxStatesForInboxIds(
 //                listOf("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b"),
 //                ClientOptions.Api(XMTPEnvironment.DEV, true)
 //            ).first()
 //        }
-//        val installationIds = inboxState.installations.map{ it.installationId }
+//        val installationIds = inboxState.installations.map { it.installationId }
 //        val keyPackageStatus = runBlocking {
 //            Client.keyPackageStatusesForInstallationIds(
 //                installationIds,
@@ -1055,7 +1062,7 @@ class ClientTest {
 
         val identityStats2 = alix.debugInformation.identityStatistics
         assertEquals(0, identityStats2.publishIdentityUpdate)
-        assertEquals(2, identityStats2.getIdentityUpdatesV2)
+        assertEquals(0, identityStats2.getIdentityUpdatesV2)
         assertEquals(0, identityStats2.getInboxIds)
         assertEquals(0, identityStats2.verifySmartContractWalletSignature)
         job.cancel()

@@ -1207,6 +1207,10 @@ internal open class UniffiVTableCallbackInterfaceFfiPreferenceCallback(
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -1232,9 +1236,13 @@ fun uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_decode_reaction(
 ): Short
+fun uniffi_xmtpv3_checksum_func_decode_transaction_reference(
+): Short
 fun uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment(
 ): Short
 fun uniffi_xmtpv3_checksum_func_encode_reaction(
+): Short
+fun uniffi_xmtpv3_checksum_func_encode_transaction_reference(
 ): Short
 fun uniffi_xmtpv3_checksum_func_enter_debug_writer(
 ): Short
@@ -1924,7 +1932,7 @@ fun uniffi_xmtpv3_fn_free_xmtpapiclient(`ptr`: Pointer,uniffi_out_err: UniffiRus
 ): Unit
 fun uniffi_xmtpv3_fn_func_apply_signature_request(`api`: Pointer,`signatureRequest`: Pointer,
 ): Long
-fun uniffi_xmtpv3_fn_func_connect_to_backend(`host`: RustBuffer.ByValue,`isSecure`: Byte,
+fun uniffi_xmtpv3_fn_func_connect_to_backend(`host`: RustBuffer.ByValue,`isSecure`: Byte,`appVersion`: RustBuffer.ByValue,
 ): Long
 fun uniffi_xmtpv3_fn_func_create_client(`api`: Pointer,`syncApi`: Pointer,`db`: RustBuffer.ByValue,`encryptionKey`: RustBuffer.ByValue,`inboxId`: RustBuffer.ByValue,`accountIdentifier`: RustBuffer.ByValue,`nonce`: Long,`legacySignedPrivateKeyProto`: RustBuffer.ByValue,`deviceSyncServerUrl`: RustBuffer.ByValue,`deviceSyncMode`: RustBuffer.ByValue,`allowOffline`: RustBuffer.ByValue,`disableEvents`: RustBuffer.ByValue,
 ): Long
@@ -1932,9 +1940,13 @@ fun uniffi_xmtpv3_fn_func_decode_multi_remote_attachment(`bytes`: RustBuffer.ByV
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_decode_reaction(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_decode_transaction_reference(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_multi_remote_attachment(`ffiMultiRemoteAttachment`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_encode_reaction(`reaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_xmtpv3_fn_func_encode_transaction_reference(`reference`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_xmtpv3_fn_func_enter_debug_writer(`directory`: RustBuffer.ByValue,`logLevel`: RustBuffer.ByValue,`rotation`: RustBuffer.ByValue,`maxFiles`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -2083,7 +2095,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_apply_signature_request() != 65134.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_func_connect_to_backend() != 26018.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_func_connect_to_backend() != 56931.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_create_client() != 18591.toShort()) {
@@ -2095,10 +2107,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_xmtpv3_checksum_func_decode_reaction() != 28885.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 25896.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 28938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_encode_reaction() != 6548.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 22144.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_func_enter_debug_writer() != 7266.toShort()) {
@@ -2839,6 +2857,29 @@ public object FfiConverterLong: FfiConverter<Long, Long> {
 
     override fun write(value: Long, buf: ByteBuffer) {
         buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterDouble: FfiConverter<Double, Double> {
+    override fun lift(value: Double): Double {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Double {
+        return buf.getDouble()
+    }
+
+    override fun lower(value: Double): Double {
+        return value
+    }
+
+    override fun allocationSize(value: Double) = 8UL
+
+    override fun write(value: Double, buf: ByteBuffer) {
+        buf.putDouble(value)
     }
 }
 
@@ -10328,6 +10369,94 @@ public object FfiConverterTypeFfiRemoteAttachmentInfo: FfiConverterRustBuffer<Ff
 
 
 
+data class FfiTransactionMetadata (
+    var `transactionType`: kotlin.String, 
+    var `currency`: kotlin.String, 
+    var `amount`: kotlin.Double, 
+    var `decimals`: kotlin.UInt, 
+    var `fromAddress`: kotlin.String, 
+    var `toAddress`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiTransactionMetadata: FfiConverterRustBuffer<FfiTransactionMetadata> {
+    override fun read(buf: ByteBuffer): FfiTransactionMetadata {
+        return FfiTransactionMetadata(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiTransactionMetadata) = (
+            FfiConverterString.allocationSize(value.`transactionType`) +
+            FfiConverterString.allocationSize(value.`currency`) +
+            FfiConverterDouble.allocationSize(value.`amount`) +
+            FfiConverterUInt.allocationSize(value.`decimals`) +
+            FfiConverterString.allocationSize(value.`fromAddress`) +
+            FfiConverterString.allocationSize(value.`toAddress`)
+    )
+
+    override fun write(value: FfiTransactionMetadata, buf: ByteBuffer) {
+            FfiConverterString.write(value.`transactionType`, buf)
+            FfiConverterString.write(value.`currency`, buf)
+            FfiConverterDouble.write(value.`amount`, buf)
+            FfiConverterUInt.write(value.`decimals`, buf)
+            FfiConverterString.write(value.`fromAddress`, buf)
+            FfiConverterString.write(value.`toAddress`, buf)
+    }
+}
+
+
+
+data class FfiTransactionReference (
+    var `namespace`: kotlin.String?, 
+    var `networkId`: kotlin.String, 
+    var `reference`: kotlin.String, 
+    var `metadata`: FfiTransactionMetadata?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiTransactionReference: FfiConverterRustBuffer<FfiTransactionReference> {
+    override fun read(buf: ByteBuffer): FfiTransactionReference {
+        return FfiTransactionReference(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeFfiTransactionMetadata.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiTransactionReference) = (
+            FfiConverterOptionalString.allocationSize(value.`namespace`) +
+            FfiConverterString.allocationSize(value.`networkId`) +
+            FfiConverterString.allocationSize(value.`reference`) +
+            FfiConverterOptionalTypeFfiTransactionMetadata.allocationSize(value.`metadata`)
+    )
+
+    override fun write(value: FfiTransactionReference, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`namespace`, buf)
+            FfiConverterString.write(value.`networkId`, buf)
+            FfiConverterString.write(value.`reference`, buf)
+            FfiConverterOptionalTypeFfiTransactionMetadata.write(value.`metadata`, buf)
+    }
+}
+
+
+
 data class FfiUpdateGroupMembershipResult (
     var `addedMembers`: Map<kotlin.String, kotlin.ULong>, 
     var `removedMembers`: List<kotlin.String>, 
@@ -11815,6 +11944,38 @@ public object FfiConverterOptionalTypeFfiPermissionPolicySet: FfiConverterRustBu
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeFfiTransactionMetadata: FfiConverterRustBuffer<FfiTransactionMetadata?> {
+    override fun read(buf: ByteBuffer): FfiTransactionMetadata? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiTransactionMetadata.read(buf)
+    }
+
+    override fun allocationSize(value: FfiTransactionMetadata?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeFfiTransactionMetadata.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiTransactionMetadata?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiTransactionMetadata.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeFfiConversationType: FfiConverterRustBuffer<FfiConversationType?> {
     override fun read(buf: ByteBuffer): FfiConversationType? {
         if (buf.get().toInt() == 0) {
@@ -12725,9 +12886,9 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `connectToBackend`(`host`: kotlin.String, `isSecure`: kotlin.Boolean) : XmtpApiClient {
+     suspend fun `connectToBackend`(`host`: kotlin.String, `isSecure`: kotlin.Boolean, `appVersion`: kotlin.String?) : XmtpApiClient {
         return uniffiRustCallAsync(
-        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),),
+        UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),FfiConverterOptionalString.lower(`appVersion`),),
         { future, callback, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(future, callback, continuation) },
         { future, continuation -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(future, continuation) },
         { future -> UniffiLib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
@@ -12794,6 +12955,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     }
     
 
+    @Throws(GenericException::class) fun `decodeTransactionReference`(`bytes`: kotlin.ByteArray): FfiTransactionReference {
+            return FfiConverterTypeFfiTransactionReference.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_decode_transaction_reference(
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
     @Throws(GenericException::class) fun `encodeMultiRemoteAttachment`(`ffiMultiRemoteAttachment`: FfiMultiRemoteAttachment): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     uniffiRustCallWithError(GenericException) { _status ->
@@ -12809,6 +12980,16 @@ public object FfiConverterMapTypeFfiIdentifierBoolean: FfiConverterRustBuffer<Ma
     uniffiRustCallWithError(GenericException) { _status ->
     UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_reaction(
         FfiConverterTypeFfiReaction.lower(`reaction`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GenericException::class) fun `encodeTransactionReference`(`reference`: FfiTransactionReference): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GenericException) { _status ->
+    UniffiLib.INSTANCE.uniffi_xmtpv3_fn_func_encode_transaction_reference(
+        FfiConverterTypeFfiTransactionReference.lower(`reference`),_status)
 }
     )
     }
