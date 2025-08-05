@@ -1,4 +1,3 @@
-use crate::configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use crate::context::XmtpSharedContext;
 use crate::identity::IdentityError;
 use crate::identity::pq_key_package_references_key;
@@ -11,6 +10,7 @@ use futures::TryFutureExt;
 use openmls_traits::storage::StorageProvider;
 use std::time::Duration;
 use thiserror::Error;
+use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
 use xmtp_db::prelude::*;
 use xmtp_db::{
     MlsProviderExt, StorageError,

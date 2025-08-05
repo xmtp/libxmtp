@@ -1,6 +1,5 @@
 use crate::{
     client::ClientError,
-    configuration::DeviceSyncUrls,
     context::XmtpSharedContext,
     groups::device_sync::DeviceSyncError,
     worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult},
@@ -13,6 +12,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_common::time::now_ns;
+use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::{
     DbQuery, StorageError, Store,
     events::{EVENTS_ENABLED, EventLevel, Events},
@@ -382,8 +382,9 @@ pub async fn upload_debug_archive(
 
 #[cfg(test)]
 mod tests {
-    use crate::{configuration::DeviceSyncUrls, tester, utils::events::upload_debug_archive};
+    use crate::{tester, utils::events::upload_debug_archive};
     use std::time::Duration;
+    use xmtp_configuration::DeviceSyncUrls;
 
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]

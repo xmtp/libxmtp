@@ -70,8 +70,8 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
 
 async fn init_opfs() -> Result<OpfsSAHPoolUtil, String> {
     let cfg = OpfsSAHPoolCfg {
-        vfs_name: crate::configuration::VFS_NAME.into(),
-        directory: crate::configuration::VFS_DIRECTORY.into(),
+        vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
+        directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
         clear_on_init: false,
         initial_capacity: 6,
     };

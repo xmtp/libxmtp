@@ -2,7 +2,6 @@ mod pool;
 mod sqlcipher_connection;
 
 use crate::StorageError;
-use crate::configuration::BUSY_TIMEOUT;
 use crate::database::instrumentation::TestInstrumentation;
 /// Native SQLite connection using SqlCipher
 use crate::{ConnectionError, ConnectionExt, DbConnection, NotFound};
@@ -17,6 +16,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use thiserror::Error;
 use xmtp_common::{RetryableError, retryable};
+use xmtp_configuration::BUSY_TIMEOUT;
 
 use pool::*;
 

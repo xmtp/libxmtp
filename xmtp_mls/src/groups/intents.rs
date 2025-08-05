@@ -3,10 +3,9 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
     mls_ext::{WrapperAlgorithm, WrapperEncryptionExtension},
 };
-use crate::{
-    configuration::GROUP_KEY_ROTATION_INTERVAL_NS,
-    verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-};
+use xmtp_configuration::GROUP_KEY_ROTATION_INTERVAL_NS;
+
+use crate::verified_key_package_v2::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use openmls::prelude::{
     MlsMessageOut,
     tls_codec::{Error as TlsCodecError, Serialize},
