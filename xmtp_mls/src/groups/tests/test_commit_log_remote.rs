@@ -1,13 +1,17 @@
 use crate::groups::MlsGroup;
 use crate::groups::PolicySet;
 use crate::groups::commit_log::{CommitLogTestFunction, CommitLogWorker};
+use crate::groups::commit_log_key::get_or_create_signing_key;
 use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rand::Rng;
+use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::GroupMembershipState;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::local_commit_log::{CommitType, LocalCommitLog};
 use xmtp_db::prelude::*;
 use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
@@ -16,6 +20,33 @@ use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
 use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
+
+// Helper functions for tracking commit types
+fn get_commit_types_as_strings(logs: &[LocalCommitLog]) -> Vec<String> {
+    logs.iter()
+        .map(|l| l.commit_type.clone().unwrap_or_else(|| "None".to_string()))
+        .collect()
+}
+
+async fn print_commit_log_with_types(group: &MlsGroup<impl XmtpSharedContext>) {
+    let logs = group.local_commit_log().await.unwrap();
+    println!(
+        "Commit log for group {}: {:?}",
+        hex::encode(&group.group_id[0..4]),
+        get_commit_types_as_strings(&logs)
+    );
+}
+
+fn assert_commit_sequence(logs: &[LocalCommitLog], expected: &[CommitType]) {
+    let actual_types = get_commit_types_as_strings(logs);
+    let expected_types: Vec<String> = expected.iter().map(|t| t.to_string()).collect();
+
+    assert_eq!(
+        actual_types, expected_types,
+        "Commit sequence mismatch. Expected: {:?}, Got: {:?}",
+        expected_types, actual_types
+    );
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_signer_on_group_creation() {
@@ -867,3 +898,329 @@ async fn test_should_skip_remote_log_entry() {
         &public_key,
     ));
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_all_users_use_same_signing_key_for_publishing() {
+    tester!(alix);
+    tester!(bo);
+
+    // Create a DM between alix and bo
+    let alix_dm = alix
+        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+        .await?;
+    let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
+
+    // Both parties make commits to generate entries for publishing
+    // Alix's first message should trigger a KeyUpdate commit (key rotation) first
+    alix_dm.send_message("Hello from alix".as_bytes()).await?;
+    bo_dm.sync().await?;
+    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
+    // Should see 2 messages:
+    // 1. System "group_updated" message (from UpdateGroupMembership commit)
+    // 2. The actual "Hello from alix" application message
+    assert_eq!(messages.len(), 2);
+    // The last message should be our application message
+    assert_eq!(messages[1].decrypted_message_bytes, b"Hello from alix");
+
+    // Check alix's commit log - should have exact sequence: GroupCreation, UpdateGroupMembership
+    // Note: KeyUpdate doesn't happen for first message in DMs apparently
+    let alix_logs = alix_dm.local_commit_log().await?;
+    print_commit_log_with_types(&alix_dm).await;
+    assert_commit_sequence(
+        &alix_logs,
+        &[CommitType::GroupCreation, CommitType::UpdateGroupMembership],
+    );
+
+    // Bo's first message should also trigger a KeyUpdate commit (key rotation) first
+    bo_dm.send_message("Hello from bo".as_bytes()).await?;
+    alix_dm.sync().await?;
+    let messages = alix_dm.find_messages(&MsgQueryArgs::default())?;
+    // Should now have 3 messages: group_updated, "Hello from alix", "Hello from bo"
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[2].decrypted_message_bytes, b"Hello from bo");
+
+    // Check bo's commit log - should have exact sequence: Welcome, KeyUpdate
+    let bo_logs = bo_dm.local_commit_log().await?;
+    print_commit_log_with_types(&bo_dm).await;
+    assert_commit_sequence(&bo_logs, &[CommitType::Welcome, CommitType::KeyUpdate]);
+
+    // Get the signing keys that would be used by both parties for publishing
+    let alix_conn = &alix.context.db();
+    let bo_conn = &bo.context.db();
+
+    let alix_conversation_keys = alix_conn.get_conversation_ids_for_remote_log_publish()?;
+    let bo_conversation_keys = bo_conn.get_conversation_ids_for_remote_log_publish()?;
+
+    // Find the DM conversation key for each party
+    let alix_dm_key = alix_conversation_keys
+        .iter()
+        .find(|k| k.id == alix_dm.group_id)
+        .expect("Alix should have DM key");
+    let bo_dm_key = bo_conversation_keys
+        .iter()
+        .find(|k| k.id == bo_dm.group_id)
+        .expect("Bo should have DM key");
+
+    // Get the signing keys that would be used for publishing
+    let alix_signing_key = get_or_create_signing_key(&alix.context, alix_dm_key)?
+        .expect("Alix should have signing key");
+    let bo_signing_key =
+        get_or_create_signing_key(&bo.context, bo_dm_key)?.expect("Bo should have signing key");
+
+    // Derive public keys from the private keys
+    let alix_public_key = xmtp_cryptography::signature::to_public_key(&alix_signing_key)?;
+    let bo_public_key = xmtp_cryptography::signature::to_public_key(&bo_signing_key)?;
+
+    // Both parties should use the same signing key (same public key)
+    assert_eq!(
+        alix_public_key, bo_public_key,
+        "Both parties in DM should use the same signing key for publishing commits"
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_consecutive_entries_verification_happy_case() {
+    tester!(alix);
+    tester!(bo);
+
+    // Create a DM between alix and bo
+    let alix_dm = alix
+        .find_or_create_dm_by_inbox_id(bo.inbox_id(), None)
+        .await?;
+    let bo_dm = bo.sync_welcomes().await?.first()?.to_owned();
+
+    // Sync messages to bo
+    bo_dm.sync().await?;
+    // Only consented DM's are checked in the commit log
+    bo_dm.update_consent_state(ConsentState::Allowed)?;
+    let messages = bo_dm.find_messages(&MsgQueryArgs::default())?;
+    // Should see 1 messages: group_updated
+    assert_eq!(messages.len(), 1);
+
+    // Check alix's commit log - should have exact sequence: GroupCreation, UpdateGroupMembership
+    let alix_logs_before_publish = alix_dm.local_commit_log().await?;
+    print_commit_log_with_types(&alix_dm).await;
+    assert_commit_sequence(
+        &alix_logs_before_publish,
+        &[CommitType::GroupCreation, CommitType::UpdateGroupMembership],
+    );
+
+    // Setup commit log workers for both parties
+    let mut alix_worker = CommitLogWorker::new(alix.context.clone());
+    let mut bo_worker = CommitLogWorker::new(bo.context.clone());
+
+    // Alix (creator) publishes the commit log entries first
+    let alix_publish_results = alix_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+
+    // Verify alix published entries successfully
+    assert!(!alix_publish_results.is_empty());
+    let alix_publish_result = alix_publish_results[0]
+        .publish_commit_log_results
+        .as_ref()
+        .unwrap();
+    assert_eq!(alix_publish_result.len(), 1);
+    assert_eq!(alix_publish_result[0].conversation_id, alix_dm.group_id);
+    // Only UpdateGroupMembership gets published (GroupCreation is not published to remote log)
+    assert_eq!(alix_publish_result[0].num_entries_published, 1);
+
+    // Now bo tries to download and verify the consecutive entries
+    let bo_download_results = bo_worker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+
+    // Verify bo successfully downloaded and verified all entries
+    assert!(!bo_download_results.is_empty());
+    let bo_download_result = bo_download_results[0]
+        .save_remote_commit_log_results
+        .as_ref()
+        .unwrap();
+    assert_eq!(bo_download_result.len(), 1);
+    assert!(bo_download_result.contains_key(&bo_dm.group_id));
+    assert_eq!(
+        bo_download_result[&bo_dm.group_id], 1,
+        "Bo should successfully verify the 1 entry from creator (UpdateGroupMembership)"
+    );
+
+    // Check bo's commit log after downloading and verifying entries
+    let bo_logs_after_download = bo_dm.local_commit_log().await?;
+    print_commit_log_with_types(&bo_dm).await;
+    // Bo should only have Welcome at this point (before sending any messages)
+    assert_commit_sequence(&bo_logs_after_download, &[CommitType::Welcome]);
+
+    // Bo's first message will generate a KeyUpdate commit (key rotation)
+    bo_dm.send_message("Message from bo".as_bytes()).await?;
+
+    // Sync to alix
+    alix_dm.sync().await?;
+    let messages = alix_dm.find_messages(&MsgQueryArgs::default())?;
+    // Should now have 2 messages: group_updated + 1 actual messages
+    assert_eq!(messages.len(), 2);
+
+    // Check bo's commit log after sending messages - should now have KeyUpdate commit
+    let bo_logs_after_messages = bo_dm.local_commit_log().await?;
+    print_commit_log_with_types(&bo_dm).await;
+    // Bo should now have exact sequence: Welcome, KeyUpdate
+    assert_commit_sequence(
+        &bo_logs_after_messages,
+        &[CommitType::Welcome, CommitType::KeyUpdate],
+    );
+
+    // Bo publishes his entries
+    let bo_publish_results = bo_worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+
+    // Verify bo published entries successfully
+    assert!(!bo_publish_results.is_empty());
+    let bo_publish_result = bo_publish_results[0]
+        .publish_commit_log_results
+        .as_ref()
+        .unwrap();
+    assert_eq!(bo_publish_result.len(), 1);
+    assert_eq!(bo_publish_result[0].conversation_id, bo_dm.group_id);
+    // Bo should publish 1 commit log entry: KeyUpdate (Welcome is not published, it's only received)
+    assert_eq!(bo_publish_result[0].num_entries_published, 1);
+
+    // Alix downloads the new entries from bo
+    let alix_download_results = alix_worker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+
+    // Verify alix successfully downloaded and verified bo's entries
+    assert!(!alix_download_results.is_empty());
+    let alix_download_result = alix_download_results[0]
+        .save_remote_commit_log_results
+        .as_ref()
+        .unwrap();
+    assert_eq!(alix_download_result.len(), 1);
+    assert!(alix_download_result.contains_key(&alix_dm.group_id));
+    assert_eq!(
+        alix_download_result[&alix_dm.group_id], 2,
+        "Alix should download 2 entries total: her original UpdateGroupMembership + Bo's new KeyUpdate"
+    );
+
+    // Verify that both parties can successfully verify consecutive entries published by each other
+    // This demonstrates that the consensus public key derived from the first entry works for all subsequent entries
+}
+
+/// Test that bad signatures are properly rejected during commit log verification.
+///
+/// Covers two scenarios:
+/// 1. Entry where signature doesn't match the claimed public key (should fail)
+/// 2. Entry with valid signature but different public key than consensus (should fail against consensus key)
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_bad_signature_handling() {
+    use crate::groups::commit_log_key::CommitLogKeyCrypto;
+    use openmls::prelude::OpenMlsCrypto;
+    use openmls_traits::OpenMlsProvider;
+    use prost::Message;
+    use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
+    use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
+    use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
+
+    tester!(alice);
+    tester!(bob);
+
+    // Create a group with a member to get an UpdateGroupMembership commit
+    let alice_group = alice
+        .create_group_with_inbox_ids(&[bob.inbox_id()], None, None)
+        .await?;
+    let alice_logs = alice_group.local_commit_log().await?;
+    let valid_entry = PlaintextCommitLogEntry::from(&alice_logs[1]); // Use UpdateGroupMembership entry
+
+    // Set up crypto provider and keys
+    let provider = alice.context.mls_provider();
+    let valid_signing_key = provider.crypto().generate_commit_log_key()?;
+    let valid_public_key = xmtp_cryptography::signature::to_public_key(&valid_signing_key)?;
+    let bad_signing_key = provider.crypto().generate_commit_log_key()?;
+    let bad_public_key = xmtp_cryptography::signature::to_public_key(&bad_signing_key)?;
+
+    let serialized_entry = valid_entry.encode_to_vec();
+
+    // Test Case 1: Bad signature on first entry - public key doesn't match signature
+    let bad_signature = provider.crypto().sign(
+        openmls::prelude::SignatureScheme::ED25519,
+        &serialized_entry,
+        bad_signing_key.as_slice(),
+    )?;
+
+    let bad_entry = CommitLogEntryProto {
+        sequence_id: 1,
+        serialized_commit_log_entry: serialized_entry.clone(),
+        signature: Some(RecoverableEd25519Signature {
+            bytes: bad_signature,
+            public_key: valid_public_key.to_vec(), // Wrong! Signature made with bad_signing_key but claims valid_public_key
+        }),
+    };
+
+    // This should fail - signature doesn't match the claimed public key
+    let bad_verification = provider
+        .crypto()
+        .verify_commit_log_signature(&bad_entry, &valid_public_key);
+    assert!(
+        bad_verification.is_err(),
+        "Entry with mismatched signature should fail verification"
+    );
+
+    // Test Case 2: Valid signature but wrong public key for consensus
+    let valid_signature = provider.crypto().sign(
+        openmls::prelude::SignatureScheme::ED25519,
+        &serialized_entry,
+        valid_signing_key.as_slice(),
+    )?;
+
+    let valid_entry_with_correct_key = CommitLogEntryProto {
+        sequence_id: 1,
+        serialized_commit_log_entry: serialized_entry.clone(),
+        signature: Some(RecoverableEd25519Signature {
+            bytes: valid_signature.clone(),
+            public_key: valid_public_key.to_vec(),
+        }),
+    };
+
+    let valid_entry_with_wrong_key = CommitLogEntryProto {
+        sequence_id: 2,
+        serialized_commit_log_entry: serialized_entry,
+        signature: Some(RecoverableEd25519Signature {
+            bytes: provider.crypto().sign(
+                openmls::prelude::SignatureScheme::ED25519,
+                &valid_entry.encode_to_vec(),
+                bad_signing_key.as_slice(),
+            )?,
+            public_key: bad_public_key.to_vec(), // This is the correct public key for the signature
+        }),
+    };
+
+    // First entry should verify against its own public key
+    let first_verification = provider
+        .crypto()
+        .verify_commit_log_signature(&valid_entry_with_correct_key, &valid_public_key);
+    assert!(
+        first_verification.is_ok(),
+        "Valid entry should verify against correct public key"
+    );
+
+    // Second entry should fail when verified against the consensus public key (first entry's key)
+    let second_verification = provider.crypto().verify_commit_log_signature(
+        &valid_entry_with_wrong_key,
+        &valid_public_key, // Using consensus key from first entry
+    );
+    assert!(
+        second_verification.is_err(),
+        "Entry with different public key should fail verification against consensus key"
+    );
+
+    // But second entry should pass when verified against its own public key
+    let second_verification_correct = provider.crypto().verify_commit_log_signature(
+        &valid_entry_with_wrong_key,
+        &bad_public_key, // Using the entry's actual public key
+    );
+    assert!(
+        second_verification_correct.is_ok(),
+        "Entry should verify against its own public key"
+    );
+}
+
+// TODO(rich): E2E test for signing key creation and verification on legacy groups
