@@ -122,7 +122,10 @@ where
     ///
     /// # Tracing
     #[tracing::instrument(skip_all)]
-    pub async fn process(self) -> Result<ProcessWelcomeResult<Context>> {
+    pub async fn process(
+        self,
+        include_duplicate_dms: bool,
+    ) -> Result<ProcessWelcomeResult<Context>> {
         use WelcomeOrGroup::*;
         let process_result = match self.item {
             Welcome(ref w) => {
@@ -138,7 +141,12 @@ where
                         "Found existing welcome. Returning from db & skipping processing"
                     );
                     if let Ok((group, id)) = self.load_from_store(id) {
-                        return self.filter(ProcessWelcomeResult::New { group, id }).await;
+                        return self
+                            .filter(
+                                ProcessWelcomeResult::New { group, id },
+                                include_duplicate_dms,
+                            )
+                            .await;
                     }
                 }
                 tracing::info!("could not find group for welcome {}, processing", id);
@@ -156,7 +164,7 @@ where
                 }
             }
         };
-        self.filter(process_result).await
+        self.filter(process_result, include_duplicate_dms).await
     }
 
     /// Applies conversation type filtering to processed welcome results.
@@ -182,6 +190,7 @@ where
     async fn filter(
         &self,
         processed: ProcessWelcomeResult<Context>,
+        include_duplicate_dms: bool,
     ) -> Result<ProcessWelcomeResult<Context>> {
         use super::ProcessWelcomeResult::*;
         match processed {
@@ -191,6 +200,15 @@ where
                 // Do not stream sync groups.
                 if metadata.conversation_type == ConversationType::Sync {
                     tracing::debug!("Sync group welcome processed. Skipping stream.");
+                    return Ok(ProcessWelcomeResult::IgnoreId { id });
+                }
+
+                // If it's a duplicate DM, don’t stream
+                if !include_duplicate_dms
+                    && metadata.conversation_type == ConversationType::Dm
+                    && self.context.db().has_duplicate_dm(&group.group_id)?
+                {
+                    tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");
                     return Ok(ProcessWelcomeResult::IgnoreId { id });
                 }
 
@@ -206,7 +224,8 @@ where
             NewStored { group, maybe_id } => {
                 let metadata = group.metadata().await?;
                 // If it's a duplicate DM, don’t stream
-                if metadata.conversation_type == ConversationType::Dm
+                if !include_duplicate_dms
+                    && metadata.conversation_type == ConversationType::Dm
                     && self.context.db().has_duplicate_dm(&group.group_id)?
                 {
                     tracing::debug!("Duplicate DM group detected from Group(id). Skipping stream.");

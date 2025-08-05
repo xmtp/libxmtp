@@ -553,7 +553,7 @@ impl Conversations {
   ) -> Result<web_sys::ReadableStream, JsError> {
     let stream = self
       .inner_client
-      .stream_conversations_owned(conversation_type.map(Into::into))
+      .stream_conversations_owned(conversation_type.map(Into::into), false)
       .await?;
     let stream = ConversationStream::new(stream);
     Ok(ReadableStream::from_stream(stream).into_raw())
@@ -574,6 +574,7 @@ impl Conversations {
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
+      false,
     );
 
     Ok(StreamCloser::new(stream_closer))
@@ -599,6 +600,7 @@ impl Conversations {
         Err(e) => callback.on_error(JsError::from(e)),
       },
       move || on_close_cb.on_close(),
+      true,
     );
     Ok(StreamCloser::new(stream_closer))
   }

@@ -221,7 +221,7 @@ where
             WelcomeOrGroup::Welcome(envelope),
             None,
         )?;
-        match future.process().await? {
+        match future.process(false).await? {
             ProcessWelcomeResult::New { group, .. } => Ok(group),
             ProcessWelcomeResult::NewStored { group, .. } => Ok(group),
             ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
@@ -234,11 +234,12 @@ where
     pub async fn stream_conversations(
         &self,
         conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + use<'_, Context>>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new(&self.context, conversation_type).await
+        StreamConversations::new(&self.context, conversation_type, include_duplicate_dms).await
     }
 
     /// Stream conversations but decouple the lifetime of 'self' from the stream.
@@ -246,11 +247,17 @@ where
     pub async fn stream_conversations_owned(
         &self,
         conversation_type: Option<ConversationType>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<MlsGroup<Context>>> + 'static>
     where
         Context::ApiClient: XmtpMlsStreams,
     {
-        StreamConversations::new_owned(self.context.clone(), conversation_type).await
+        StreamConversations::new_owned(
+            self.context.clone(),
+            conversation_type,
+            include_duplicate_dms,
+        )
+        .await
     }
 }
 
@@ -270,11 +277,14 @@ where
             + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
-            let stream = client.stream_conversations(conversation_type).await?;
+            let stream = client
+                .stream_conversations(conversation_type, include_duplicate_dms)
+                .await?;
             futures::pin_mut!(stream);
             let _ = tx.send(());
             while let Some(convo) = stream.next().await {
@@ -291,6 +301,7 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + '_> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -299,7 +310,13 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new(&self.context, conversation_type, consent_state).await
+        StreamAllMessages::new(
+            &self.context,
+            conversation_type,
+            consent_state,
+            include_duplicate_dms,
+        )
+        .await
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
@@ -307,6 +324,7 @@ where
         &self,
         conversation_type: Option<ConversationType>,
         consent_state: Option<Vec<ConsentState>>,
+        include_duplicate_dms: bool,
     ) -> Result<impl Stream<Item = Result<StoredGroupMessage>> + 'static> {
         tracing::debug!(
             inbox_id = self.inbox_id(),
@@ -315,7 +333,13 @@ where
             "stream all messages"
         );
 
-        StreamAllMessages::new_owned(self.context.clone(), conversation_type, consent_state).await
+        StreamAllMessages::new_owned(
+            self.context.clone(),
+            conversation_type,
+            consent_state,
+            include_duplicate_dms,
+        )
+        .await
     }
 
     pub fn stream_all_messages_with_callback(
@@ -328,12 +352,19 @@ where
         #[cfg(target_arch = "wasm32")] mut callback: impl FnMut(Result<StoredGroupMessage>) + 'static,
         #[cfg(target_arch = "wasm32")] on_close: impl FnOnce() + 'static,
         #[cfg(not(target_arch = "wasm32"))] on_close: impl FnOnce() + Send + 'static,
+        include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let (tx, rx) = oneshot::channel();
 
         xmtp_common::spawn(Some(rx), async move {
             tracing::debug!("stream all messages with callback");
-            let stream = StreamAllMessages::new(&context, conversation_type, consent_state).await?;
+            let stream = StreamAllMessages::new(
+                &context,
+                conversation_type,
+                consent_state,
+                include_duplicate_dms,
+            )
+            .await?;
 
             futures::pin_mut!(stream);
             let _ = tx.send(());

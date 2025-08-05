@@ -1535,6 +1535,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            false
         );
 
         FfiStreamCloser::new(handle)
@@ -1551,6 +1552,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            true,
         );
 
         FfiStreamCloser::new(handle)
@@ -1567,6 +1569,7 @@ impl FfiConversations {
                 Err(e) => callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            false,
         );
 
         FfiStreamCloser::new(handle)
@@ -1625,6 +1628,7 @@ impl FfiConversations {
                 Err(e) => message_callback.on_error(e.into()),
             },
             move || close_cb.on_close(),
+            true,
         );
 
         FfiStreamCloser::new(handle)

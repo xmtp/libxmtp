@@ -55,8 +55,15 @@ where
         context: Context,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
+        include_duplicate_dms: bool,
     ) -> Result<Self> {
-        Self::from_cow(Cow::Owned(context), conversation_type, consent_states).await
+        Self::from_cow(
+            Cow::Owned(context),
+            conversation_type,
+            consent_states,
+            include_duplicate_dms,
+        )
+        .await
     }
 }
 
@@ -75,14 +82,22 @@ where
         context: &'a Context,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
+        include_duplicate_dms: bool,
     ) -> Result<Self> {
-        Self::from_cow(Cow::Borrowed(context), conversation_type, consent_states).await
+        Self::from_cow(
+            Cow::Borrowed(context),
+            conversation_type,
+            consent_states,
+            include_duplicate_dms,
+        )
+        .await
     }
 
     pub async fn from_cow(
         context: Cow<'a, Context>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
+        include_duplicate_dms: bool,
     ) -> Result<Self> {
         let (active_conversations, sync_groups) = async {
             let conn = context.db();
@@ -132,6 +147,7 @@ where
         let conversations = super::stream_conversations::StreamConversations::from_cow(
             context.clone(),
             conversation_type,
+            include_duplicate_dms,
         )
         .await?;
         let messages = StreamGroupMessages::from_cow(context.clone(), active_conversations).await?;
